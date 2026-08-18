@@ -1,0 +1,64 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 08-18-2026 10:45
+last_updated: 08-18-2026 10:45
+project: anhhoa
+project_key: NOKEY
+tracking_system: file-system
+story_location:
+  /home/sonnh/projects/anhhoa/_bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-khởi-tạo-workspace-và-application-shell: backlog
+  1-2-đăng-nhập-google-theo-danh-sách-admin-cho-phép: backlog
+  1-3-truy-cập-workspace-được-bảo-vệ: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-quản-lý-lớp-đang-hoạt-động-và-lưu-trữ: backlog
+  2-2-quản-lý-học-sinh-và-lớp-hiện-tại: backlog
+  2-3-chuyển-một-học-sinh-giữa-các-lớp: backlog
+  2-4-chuyển-toàn-bộ-học-sinh-đang-học-của-một-lớp: backlog
+  2-5-quản-lý-mẫu-hóa-đơn-chung: backlog
+  2-6-quản-lý-tài-khoản-nhận-tiền: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-xem-danh-sách-hóa-đơn-theo-tháng: backlog
+  3-2-xem-trước-và-tạo-hóa-đơn-nháp-hàng-loạt: backlog
+  3-3-rà-soát-và-chỉnh-sửa-hóa-đơn-nháp: backlog
+  3-4-chuyển-hóa-đơn-sang-chờ-xác-nhận-và-cung-cấp-qr: backlog
+  3-5-xác-nhận-đã-nhận-tiền-và-audit-hóa-đơn: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-xem-báo-cáo-thu-theo-tháng: backlog
+  epic-4-retrospective: optional
