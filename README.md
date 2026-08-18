@@ -1,5 +1,28 @@
 # Kindergarten Invoice Management
 
+## Khởi chạy workspace
+
+Yêu cầu Node.js 22 LTS và pnpm 11.9.0 (theo trường `packageManager` ở root).
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Web chạy tại `http://localhost:5173`; API tối thiểu chạy tại `http://localhost:3000`.
+
+Các lệnh kiểm tra workspace:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm --filter web exec playwright test
+```
+
+API chỉ giữ biến môi trường mẫu trong `apps/api/.env.example`; không thêm giá trị thật vào repository.
+
 ## Yêu cầu
 Tôi muốn làm hệ thống quản lý hóa đơn cho trường mầm non. Hệ thống phải thật đơn giản.
 - chỉ có admin login, không có giáo viên, không có phụ huynh.

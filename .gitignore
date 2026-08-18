@@ -6,6 +6,15 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+*.tsbuildinfo
+
+# Dependencies and generated application output
+node_modules/
+dist/
+.turbo/
+coverage/
+playwright-report/
+test-results/
 
 # OpenCode local dependencies and logs
 .opencode/
