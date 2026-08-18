@@ -1,0 +1,19 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+
+# OpenCode local dependencies and logs
+.opencode/
+.agents/
+
+_bmad/
+
+
+# Keep BMad deliverables under version control
+!_bmad-output/
+!_bmad-output/**
