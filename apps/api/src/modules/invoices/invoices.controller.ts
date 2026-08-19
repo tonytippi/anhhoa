@@ -13,6 +13,8 @@ export class InvoicesController {
     if (!operationId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) throw new BadRequestException('Idempotency-Key must be a UUID.');
     return this.invoices.createBatch(input, operationId, admin.id);
   }
+  @Post(':id/pending') moveToPending(@Param() params: InvoiceIdDto) { return this.invoices.moveToPending(params.id); }
+  @Post(':id/draft') moveToDraft(@Param() params: InvoiceIdDto) { return this.invoices.moveToDraft(params.id); }
   @Patch(':id') update(@Param() params: InvoiceIdDto, @Body() input: UpdateInvoiceDto) { return this.invoices.update(params.id, input); }
   @Get(':id') get(@Param() params: InvoiceIdDto) { return this.invoices.get(params.id); }
 }

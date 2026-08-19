@@ -1,5 +1,5 @@
 import { PrismaPg } from '@prisma/adapter-pg';
-import { InvoiceStatus, InvoiceTemplateAmountSource, PrismaClient, StudentStatus } from '@prisma/client';
+import { BankAccountStatus, InvoicePaymentMethod, InvoiceStatus, InvoiceTemplateAmountSource, PrismaClient, StudentStatus } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { InvoicesService } from './invoices.service.js';
 import { INVOICE_BATCH_EMPTY } from '../../common/errors/domain.exception.js';
@@ -10,7 +10,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: data
 const service = new InvoicesService(prisma as never);
 
 beforeEach(async () => {
-  await prisma.invoiceItem.deleteMany(); await prisma.invoice.deleteMany(); await prisma.operation.deleteMany(); await prisma.invoiceTemplateItem.deleteMany(); await prisma.invoiceTemplate.deleteMany(); await prisma.student.deleteMany(); await prisma.class.deleteMany(); await prisma.admin.deleteMany();
+  await prisma.invoiceItem.deleteMany(); await prisma.invoice.deleteMany(); await prisma.operation.deleteMany(); await prisma.invoiceTemplateItem.deleteMany(); await prisma.invoiceTemplate.deleteMany(); await prisma.student.deleteMany(); await prisma.bankAccount.deleteMany(); await prisma.class.deleteMany(); await prisma.admin.deleteMany();
 });
 afterAll(async () => { await prisma.$disconnect(); });
 
@@ -64,5 +64,30 @@ describe('InvoicesService PostgreSQL contract', () => {
     await expect(service.createBatch(input, key, admin.id)).resolves.toEqual(first);
     await expect(service.createBatch(input, 'c2e36687-69b4-4e89-8ec0-141ff397837f', admin.id)).rejects.toMatchObject({ response: { code: INVOICE_BATCH_EMPTY } });
     await expect(prisma.invoice.count({ where: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z') } })).resolves.toBe(1);
+  });
+
+  it('locks a transfer snapshot and QR content independently from mutable sources, then returns to draft', async () => {
+    const admin = await prisma.admin.create({ data: { email: 'pending@example.com', displayName: 'Admin', googleId: 'pending-admin' } });
+    const schoolClass = await prisma.class.create({ data: { name: 'Mầm 1', monthlyTuition: 100 } });
+    const student = await prisma.student.create({ data: { fullName: 'Bé An', nickname: 'An', classId: schoolClass.id } });
+    const account = await prisma.bankAccount.create({ data: { bankCode: 'VCB', accountNumber: '123456', accountHolderName: 'Cô Hoa' } });
+    const created = await prisma.invoice.create({ data: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: student.fullName, studentNickname: student.nickname, classId: schoolClass.id, className: schoolClass.name, total: 1500000n, creatorId: admin.id, paymentMethod: InvoicePaymentMethod.TRANSFER, bankAccountId: account.id, items: { create: { description: 'Học phí', amount: 1500000n, position: 0 } } } });
+    const pending = await service.moveToPending(created.id);
+    expect(pending.data).toMatchObject({ status: InvoiceStatus.PENDING, payment: { method: InvoicePaymentMethod.TRANSFER, bankAccount: { bankCode: 'VCB', accountNumber: '123456', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An [An] Mầm 1 chuyển tiền' } });
+    await prisma.bankAccount.update({ where: { id: account.id }, data: { bankCode: 'BIDV', accountNumber: '654321', accountHolderName: 'Nguồn mới', status: BankAccountStatus.INACTIVE } });
+    await prisma.student.update({ where: { id: student.id }, data: { fullName: 'Tên mới' } }); await prisma.class.update({ where: { id: schoolClass.id }, data: { name: 'Lớp mới' } });
+    await expect(service.get(created.id)).resolves.toMatchObject({ data: { payment: { bankAccount: { bankCode: 'VCB', accountNumber: '123456', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An [An] Mầm 1 chuyển tiền' } } });
+    await expect(service.moveToDraft(created.id)).resolves.toMatchObject({ data: { status: InvoiceStatus.DRAFT, payment: { method: InvoicePaymentMethod.TRANSFER } } });
+    await expect(service.get(created.id)).resolves.toMatchObject({ data: { status: InvoiceStatus.DRAFT, qr: null } });
+    await expect(service.moveToDraft(created.id)).rejects.toThrow('Only pending invoices can return to draft');
+  });
+
+  it('locks a valid cash invoice without a receiving account', async () => {
+    const admin = await prisma.admin.create({ data: { email: 'cash-pending@example.com', displayName: 'Admin', googleId: 'cash-pending-admin' } });
+    const schoolClass = await prisma.class.create({ data: { name: 'Chồi 1', monthlyTuition: 100 } });
+    const student = await prisma.student.create({ data: { fullName: 'Bé Bình', classId: schoolClass.id } });
+    const created = await prisma.invoice.create({ data: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: student.fullName, classId: schoolClass.id, className: schoolClass.name, total: 100n, creatorId: admin.id, paymentMethod: InvoicePaymentMethod.CASH, items: { create: { description: 'Học phí', amount: 100n, position: 0 } } } });
+
+    await expect(service.moveToPending(created.id)).resolves.toMatchObject({ data: { status: InvoiceStatus.PENDING, payment: { method: InvoicePaymentMethod.CASH, bankAccount: null }, qr: null } });
   });
 });

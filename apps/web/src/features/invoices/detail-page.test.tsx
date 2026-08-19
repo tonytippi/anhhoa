@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { resetApiClientForTests } from '../../app/api/client';
 import { InvoiceDetailPage } from './detail-page';
 
-const draft = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', billingMonth: '2026-08', student: { name: 'Bé An', nickname: null }, schoolClass: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1' }, status: 'DRAFT', total: 100, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 100, position: 0 }], payment: { method: null, bankAccount: null }, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } };
+const draft = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', billingMonth: '2026-08', student: { name: 'Bé An', nickname: null }, schoolClass: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1' }, status: 'DRAFT', total: 100, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 100, position: 0 }], payment: { method: null, bankAccount: null }, qr: null, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } };
 function renderPage() { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[`/hoa-don/${draft.id}`]}><InvoiceDetailPage /></MemoryRouter></QueryClientProvider>); }
 afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); });
 
@@ -18,6 +18,19 @@ it('edits a draft with immediate total preview and persists only server-owned fi
 });
 
 it('renders pending invoices without editing controls', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(new Response(JSON.stringify(String(url).includes('/bank-accounts') ? { data: [], meta: { page: 1, pageSize: 20, total: 0, pageCount: 1 } } : { data: { ...draft, status: 'PENDING' } }), { status: 200 }))));
+  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(new Response(JSON.stringify(String(url).includes('/bank-accounts') ? { data: [], meta: { page: 1, pageSize: 20, total: 0, pageCount: 1 } } : { data: { ...draft, status: 'PENDING', payment: { method: 'CASH', bankAccount: null } } }), { status: 200 }))));
   renderPage(); await screen.findByText('Dòng thu đã khóa'); expect(screen.queryByRole('button', { name: 'Lưu hóa đơn nháp' })).not.toBeInTheDocument(); expect(screen.queryByLabelText('Số tiền (VND)')).not.toBeInTheDocument();
+});
+
+it('requires saving draft changes before moving to pending', async () => {
+  const fetch = vi.fn().mockImplementation((url: string) => Promise.resolve(new Response(JSON.stringify(String(url).includes('/bank-accounts') ? { data: [], meta: { page: 1, pageSize: 20, total: 0, pageCount: 1 } } : { data: draft }), { status: 200 }))); vi.stubGlobal('fetch', fetch);
+  renderPage(); await screen.findByRole('heading', { name: 'Hóa đơn Bé An' }); const transition = screen.getByRole('button', { name: 'Chuyển sang chờ xác nhận' }); await vi.waitFor(() => expect(transition).toBeEnabled()); fireEvent.click(transition);
+  expect(screen.getByRole('alert')).toHaveTextContent('Lưu hóa đơn nháp trước khi chuyển sang chờ xác nhận.');
+  expect(fetch.mock.calls.some(([url]) => String(url).endsWith(`/invoices/${draft.id}/pending`))).toBe(false);
+});
+
+it('shows snapshotted QR payment details and lifecycle controls for pending invoices', async () => {
+  const pending = { ...draft, status: 'PENDING', payment: { method: 'TRANSFER', bankAccount: { bankCode: 'VCB', accountNumber: '123456', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An Mầm 1 chuyển tiền', url: 'https://img.vietqr.io/qr.png' } };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: pending }), { status: 200 })));
+  renderPage(); await screen.findByRole('img', { name: 'Mã QR chuyển khoản 100 đ' }); expect(screen.getByText('VCB - 123456')).toBeVisible(); expect(screen.getByText('Cô Hoa')).toBeVisible(); expect(screen.getByText('Bé An Mầm 1 chuyển tiền')).toBeVisible(); expect(screen.getByRole('button', { name: 'Trả về nháp' })).toBeVisible();
 });

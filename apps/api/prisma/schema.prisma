@@ -109,6 +109,10 @@ model Invoice {
   updatedAt        DateTime      @updatedAt
   paymentMethod    InvoicePaymentMethod?
   bankAccountId    String?       @db.Uuid
+  paymentSnapshotMethod            InvoicePaymentMethod?
+  paymentSnapshotBankCode          String?
+  paymentSnapshotAccountNumber     String?
+  paymentSnapshotAccountHolderName String?
   student          Student       @relation(fields: [studentId], references: [id], onDelete: Restrict)
   creator          Admin         @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: Restrict)
   items            InvoiceItem[]

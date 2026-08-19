@@ -8,7 +8,7 @@ if (process.env.DATABASE_URL !== databaseUrl) throw new Error('Integration tests
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
 const service = new BankAccountsService(prisma as never);
 
-beforeEach(async () => { await prisma.bankAccount.deleteMany(); });
+beforeEach(async () => { await prisma.invoiceItem.deleteMany(); await prisma.invoice.deleteMany(); await prisma.bankAccount.deleteMany(); });
 afterAll(async () => { await prisma.$disconnect(); });
 
 describe('BankAccountsService PostgreSQL contract', () => {

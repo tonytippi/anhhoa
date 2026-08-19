@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 const admin = { id: 'admin-1', email: 'admin@example.com', displayName: 'Ngọc Anh', avatarUrl: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
 const invoice = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', billingMonth: '2026-08', student: { name: 'Bé An lúc tạo', nickname: 'An' }, schoolClass: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1 lúc tạo' }, status: 'PENDING', total: 1500000, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' };
-const invoiceDetail = { ...invoice, items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 1500000, position: 0 }], payment: { method: 'CASH', bankAccount: null }, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: admin.displayName } };
+const invoiceDetail = { ...invoice, items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 1500000, position: 0 }], payment: { method: 'CASH', bankAccount: null }, qr: null, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: admin.displayName } };
 const schoolClass = { id: invoice.schoolClass.id, name: 'Mầm 1', monthlyTuition: 1500000, status: 'ARCHIVED', createdAt: invoice.createdAt, updatedAt: invoice.updatedAt, activeStudentCount: 0 };
 
 test('quản trị viên tra cứu hóa đơn snapshot theo tháng và mở detail chỉ đọc', async ({ page }) => {

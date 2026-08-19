@@ -55,7 +55,7 @@ development_status:
   3-1-xem-danh-sách-hóa-đơn-theo-tháng: done
   3-2-xem-trước-và-tạo-hóa-đơn-nháp-hàng-loạt: done
   3-3-rà-soát-và-chỉnh-sửa-hóa-đơn-nháp: done
-  3-4-chuyển-hóa-đơn-sang-chờ-xác-nhận-và-cung-cấp-qr: backlog
+  3-4-chuyển-hóa-đơn-sang-chờ-xác-nhận-và-cung-cấp-qr: in-progress
   3-5-xác-nhận-đã-nhận-tiền-và-audit-hóa-đơn: backlog
   epic-3-retrospective: optional
 

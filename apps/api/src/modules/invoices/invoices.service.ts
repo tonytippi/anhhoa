@@ -12,14 +12,30 @@ function safeMoney(value: bigint): number {
   if (!Number.isSafeInteger(amount)) throw new InternalServerErrorException('Stored invoice total is outside the JSON safe integer range.');
   return amount;
 }
+function transferContent(record: { studentName: string; studentNickname: string | null; className: string }): string {
+  return `${record.studentName}${record.studentNickname ? ` [${record.studentNickname}]` : ''} ${record.className} chuyển tiền`;
+}
+function snapshotPayment(record: { paymentSnapshotMethod: InvoicePaymentMethod | null; paymentSnapshotBankCode: string | null; paymentSnapshotAccountNumber: string | null; paymentSnapshotAccountHolderName: string | null }) {
+  if (!record.paymentSnapshotMethod) return null;
+  if (record.paymentSnapshotMethod === InvoicePaymentMethod.CASH) return { method: InvoicePaymentMethod.CASH, bankAccount: null };
+  if (!record.paymentSnapshotBankCode || !record.paymentSnapshotAccountNumber || !record.paymentSnapshotAccountHolderName) throw new InternalServerErrorException('Pending transfer invoice is missing its payment snapshot.');
+  return { method: InvoicePaymentMethod.TRANSFER, bankAccount: { bankCode: record.paymentSnapshotBankCode, accountNumber: record.paymentSnapshotAccountNumber, accountHolderName: record.paymentSnapshotAccountHolderName } };
+}
 function serialize(record: { id: string; billingMonth: Date; studentName: string; studentNickname: string | null; classId: string; className: string; status: import('@prisma/client').InvoiceStatus; total: bigint; createdAt: Date; updatedAt: Date }) {
   return { id: record.id, billingMonth: formatMonth(record.billingMonth), student: { name: record.studentName, nickname: record.studentNickname }, schoolClass: { id: record.classId, name: record.className }, status: record.status, total: safeMoney(record.total), createdAt: record.createdAt.toISOString(), updatedAt: record.updatedAt.toISOString() };
 }
 function serializeDetail(record: Prisma.InvoiceGetPayload<{ include: { items: true; creator: true; bankAccount: true } }>) {
+  const payment = record.status === InvoiceStatus.DRAFT
+    ? { method: record.paymentMethod, bankAccount: record.bankAccount ? { id: record.bankAccount.id, bankCode: record.bankAccount.bankCode, accountNumber: record.bankAccount.accountNumber, accountHolderName: record.bankAccount.accountHolderName } : null }
+    : snapshotPayment(record);
+  const qr = (record.status === InvoiceStatus.PENDING || record.status === InvoiceStatus.COMPLETED) && payment?.method === InvoicePaymentMethod.TRANSFER && payment.bankAccount
+    ? { transferContent: transferContent(record), url: `https://img.vietqr.io/image/${encodeURIComponent(payment.bankAccount.bankCode)}-${encodeURIComponent(payment.bankAccount.accountNumber)}-compact2.png?amount=${safeMoney(record.total)}&addInfo=${encodeURIComponent(transferContent(record))}&accountName=${encodeURIComponent(payment.bankAccount.accountHolderName)}` }
+    : null;
   return {
     ...serialize(record),
     items: record.items.sort((a, b) => a.position - b.position).map((item) => ({ id: item.id, description: item.description, feeGroup: item.feeGroup, amount: safeMoney(item.amount), position: item.position })),
-    payment: { method: record.paymentMethod, bankAccount: record.bankAccount ? { id: record.bankAccount.id, bankCode: record.bankAccount.bankCode, accountNumber: record.bankAccount.accountNumber, accountHolderName: record.bankAccount.accountHolderName } : null },
+    payment,
+    qr,
     createdBy: { id: record.creator.id, displayName: record.creator.displayName },
   };
 }
@@ -92,6 +108,48 @@ export class InvoicesService {
       if (attempt === 2 || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
     }
     throw new Error('Unreachable invoice update retry state.');
+  }
+
+  async moveToPending(id: string) {
+    for (let attempt = 0; attempt < 3; attempt += 1) try {
+      return await this.prisma.$transaction(async (tx) => {
+        const invoice = await tx.invoice.findUnique({ where: { id }, include: { bankAccount: true } });
+        if (!invoice) throw new NotFoundException('Invoice not found.');
+        if (invoice.status !== InvoiceStatus.DRAFT) throw new ConflictException('Only draft invoices can move to pending.');
+        if (invoice.total <= 0n || invoice.total > 100_000_000n) throw new ConflictException('Invoice total must be greater than zero and no more than 100,000,000 VND.');
+        if (!invoice.paymentMethod) throw new ConflictException('Select a payment method before moving to pending.');
+        if (invoice.paymentMethod === InvoicePaymentMethod.CASH && invoice.bankAccountId) throw new ConflictException('Cash payment cannot include a bank account.');
+        if (invoice.paymentMethod === InvoicePaymentMethod.TRANSFER && (!invoice.bankAccount || invoice.bankAccount.status !== BankAccountStatus.ACTIVE)) throw new ConflictException('Transfer payment requires an active bank account.');
+        await tx.invoice.update({ where: { id }, data: {
+          status: InvoiceStatus.PENDING,
+          paymentSnapshotMethod: invoice.paymentMethod,
+          paymentSnapshotBankCode: invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.bankCode : null,
+          paymentSnapshotAccountNumber: invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.accountNumber : null,
+          paymentSnapshotAccountHolderName: invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.accountHolderName : null,
+        } });
+        const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, bankAccount: true } });
+        return { data: serializeDetail(record) };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (attempt === 2 || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
+    }
+    throw new Error('Unreachable invoice pending retry state.');
+  }
+
+  async moveToDraft(id: string) {
+    for (let attempt = 0; attempt < 3; attempt += 1) try {
+      return await this.prisma.$transaction(async (tx) => {
+        const invoice = await tx.invoice.findUnique({ where: { id }, select: { status: true } });
+        if (!invoice) throw new NotFoundException('Invoice not found.');
+        if (invoice.status !== InvoiceStatus.PENDING) throw new ConflictException('Only pending invoices can return to draft.');
+        await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.DRAFT } });
+        const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, bankAccount: true } });
+        return { data: serializeDetail(record) };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (attempt === 2 || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
+    }
+    throw new Error('Unreachable invoice draft retry state.');
   }
 
   async preview(input: BatchInvoiceDto) {

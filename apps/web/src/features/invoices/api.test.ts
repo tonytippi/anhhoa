@@ -10,7 +10,17 @@ it('parses only safe invoice JSON values', () => {
 });
 
 it('parses ordered draft lines and editable payment selection', () => {
-  expect(parseInvoiceDetail({ data: { ...invoice, items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 1500000, position: 0 }], payment: { method: 'CASH', bankAccount: null }, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } } })).toMatchObject({ items: [{ position: 0 }], payment: { method: 'CASH' } });
+  expect(parseInvoiceDetail({ data: { ...invoice, items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 1500000, position: 0 }], payment: { method: 'CASH', bankAccount: null }, qr: null, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } } })).toMatchObject({ items: [{ position: 0 }], payment: { method: 'CASH' } });
+});
+
+it('parses a pending transfer QR only with payment snapshot data', () => {
+  expect(parseInvoiceDetail({ data: { ...invoice, status: 'PENDING', items: [], payment: { method: 'TRANSFER', bankAccount: { bankCode: 'VCB', accountNumber: '123', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An Mầm 1 chuyển tiền', url: 'https://img.vietqr.io/qr.png' }, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } } })).toMatchObject({ qr: { transferContent: 'Bé An Mầm 1 chuyển tiền' } });
+});
+
+it('rejects QR on drafts and missing payment on locked invoices', () => {
+  const detail = { items: [], payment: { method: 'TRANSFER', bankAccount: { bankCode: 'VCB', accountNumber: '123', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An Mầm 1 chuyển tiền', url: 'https://img.vietqr.io/qr.png' }, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } };
+  expect(() => parseInvoiceDetail({ data: { ...invoice, ...detail } })).toThrow(ApiError);
+  expect(() => parseInvoiceDetail({ data: { ...invoice, status: 'PENDING', ...detail, payment: { method: null, bankAccount: null }, qr: null } })).toThrow(ApiError);
 });
 
 it('accepts a pending operation while reconciling a batch timeout', async () => {
