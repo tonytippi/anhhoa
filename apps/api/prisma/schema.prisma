@@ -15,6 +15,7 @@ model Admin {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   operations  Operation[]
+  createdInvoices Invoice[] @relation("InvoiceCreator")
 }
 
 enum OperationState {
@@ -56,6 +57,12 @@ enum BankAccountStatus {
   INACTIVE
 }
 
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  COMPLETED
+}
+
 model Class {
   id             String      @id @default(uuid()) @db.Uuid
   name           String
@@ -77,8 +84,30 @@ model Student {
   class     Class?        @relation(fields: [classId], references: [id], onDelete: Restrict)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
+  invoices  Invoice[]
 
   @@index([classId, status])
+}
+
+model Invoice {
+  id               String        @id @default(uuid()) @db.Uuid
+  studentId        String        @db.Uuid
+  billingMonth     DateTime      @db.Date
+  studentName      String
+  studentNickname  String?
+  classId          String        @db.Uuid
+  className        String
+  status           InvoiceStatus @default(DRAFT)
+  total            BigInt        @default(0)
+  creatorId        String        @db.Uuid
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  student          Student       @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  creator          Admin         @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, billingMonth])
+  @@index([billingMonth, status, classId, createdAt, id])
+  @@index([billingMonth, createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model InvoiceTemplate {
