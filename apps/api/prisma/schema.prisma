@@ -18,22 +18,22 @@ model Admin {
 }
 
 enum OperationState {
+  PENDING
   COMPLETED
 }
 
 model Operation {
-  id          String         @db.Uuid
+  id          String         @id @db.Uuid
   adminId     String         @db.Uuid
   route       String
   fingerprint String
   state       OperationState @default(COMPLETED)
-  response    Json
+  response    Json?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   admin       Admin          @relation(fields: [adminId], references: [id], onDelete: Restrict)
 
-  @@id([adminId, route, id])
-  @@index([id])
+  @@unique([adminId, route, id])
 }
 
 enum ClassStatus {

@@ -9,7 +9,7 @@ import { ClassDetailPage } from './detail-page';
 const source = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1', monthlyTuition: 1500000, status: 'ACTIVE', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', activeStudentCount: 1 };
 const destination = { ...source, id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 2', activeStudentCount: 0 };
 const student = { id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', fullName: 'Bé An', nickname: null, classId: source.id, class: { id: source.id, name: source.name }, status: 'ACTIVE', createdAt: source.createdAt, updatedAt: source.updatedAt };
-afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); });
+afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); sessionStorage.clear(); });
 function response(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status }); }
 function renderPage() { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[`/lop/${source.id}`]}><Routes><Route path="/lop/:id" element={<ClassDetailPage />} /></Routes></MemoryRouter></QueryClientProvider>); }
 function mockReads() { return vi.fn((url: string) => {
@@ -50,10 +50,27 @@ it('sends one UUID idempotency header and preserves destination while reconcilin
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
   await act(async () => { await vi.advanceTimersByTimeAsync(1_800); });
   vi.useRealTimers();
-  expect(await screen.findByRole('alert')).toHaveTextContent('Kết quả vẫn chưa xác định');
+  expect(await screen.findByRole('alert')).toHaveTextContent('Server xác nhận thao tác chưa được áp dụng');
   const write = (fetch.mock.calls as unknown as [string, RequestInit | undefined][]).find(([url, init]) => url.includes('/transfer') && init?.method === 'POST');
   expect(write?.[1]?.headers).toMatchObject({ 'Idempotency-Key': expect.stringMatching(/^[0-9a-f-]{36}$/i) });
   expect(screen.getByLabelText('Lớp đích')).toHaveValue(destination.id);
-  expect(screen.getByRole('button', { name: 'Xác nhận chuyển' })).toBeDisabled();
-  expect(screen.queryByRole('button', { name: 'Thử lại' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Gửi lại' })).toBeEnabled();
+});
+
+it('keeps a pending operation after reload and reconciles it when it completes', async () => {
+  const operationId = '8a04d9b2-2f11-4a77-8e24-4f0a3c20a9bb';
+  sessionStorage.setItem('anhhoa.pending-class-transfer', JSON.stringify({ sourceClassId: source.id, destinationClassId: destination.id, operationId }));
+  const fetch = mockReads();
+  fetch.mockImplementation((url: string) => {
+    if (url.includes(`/operations/${operationId}`)) return Promise.resolve(response({ data: { source: { ...source, activeStudentCount: 0 }, destination: { ...destination, activeStudentCount: 1 }, affectedStudentCount: 1, operationId } }));
+    if (url.includes(`/classes/${source.id}`)) return Promise.resolve(response({ data: source }));
+    if (url.includes('/students?')) return Promise.resolve(response({ data: [student], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }));
+    if (url.includes('/classes?')) return Promise.resolve(response({ data: [source, destination], meta: { page: 1, pageSize: 100, total: 2, pageCount: 1 } }));
+    return Promise.resolve(response({ data: { csrfToken: 'token' } }));
+  });
+  vi.stubGlobal('fetch', fetch); renderPage();
+  expect(await screen.findByRole('dialog', { name: 'Chuyển học sinh đang học' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra lại kết quả' }));
+  expect(await screen.findByRole('status')).toHaveTextContent('Đã chuyển 1 học sinh sang Mầm 2.');
+  expect(sessionStorage.getItem('anhhoa.pending-class-transfer')).toBeNull();
 });

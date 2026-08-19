@@ -7,6 +7,7 @@ export interface ClassList { data: SchoolClass[]; meta: { page: number; pageSize
 export interface ClassFilters { search: string; status: '' | ClassStatus; page: number; pageSize?: number; }
 export interface ClassInput { name: string; monthlyTuition: number; }
 export interface TransferResult { source: SchoolClass; destination: SchoolClass; affectedStudentCount: number; operationId: string; }
+export interface PendingOperation { operationId: string; state: 'PENDING'; }
 
 function parseClass(value: unknown): SchoolClass {
   if (!value || typeof value !== 'object') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
@@ -32,6 +33,12 @@ function parseTransfer(value: unknown): TransferResult {
   if (!data || !Number.isSafeInteger(data.affectedStudentCount) || (data.affectedStudentCount as number) < 0 || typeof data.operationId !== 'string') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   return { source: parseClass(data.source), destination: parseClass(data.destination), affectedStudentCount: data.affectedStudentCount as number, operationId: data.operationId };
 }
+function parseOperation(value: unknown): TransferResult | PendingOperation {
+  if (!value || typeof value !== 'object' || !('data' in value)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
+  const data = value.data as Record<string, unknown>;
+  if (data?.state === 'PENDING' && typeof data.operationId === 'string') return { operationId: data.operationId, state: 'PENDING' };
+  return parseTransfer(value);
+}
 function queryString(filters: ClassFilters): string { const params = new URLSearchParams({ page: String(filters.page) }); if (filters.pageSize) params.set('pageSize', String(filters.pageSize)); if (filters.search) params.set('search', filters.search); if (filters.status) params.set('status', filters.status); return params.toString(); }
 
 export function useClasses(filters: ClassFilters, enabled = true) { return useQuery({ queryKey: ['classes', filters], queryFn: () => getJson<unknown>(`/classes?${queryString(filters)}`).then(parseList), enabled }); }
@@ -54,4 +61,4 @@ export function useTransferClass() {
   const client = useQueryClient();
   return useMutation({ mutationFn: ({ sourceClassId, destinationClassId, operationId }: { sourceClassId: string; destinationClassId: string; operationId: string }) => requestJson<unknown>(`/classes/${sourceClassId}/transfer`, { method: 'POST', headers: { 'Idempotency-Key': operationId }, body: JSON.stringify({ destinationClassId }) }).then(parseTransfer), onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ['classes'] }), client.invalidateQueries({ queryKey: ['students'] })]) });
 }
-export function getOperation(operationId: string) { return getJson<unknown>(`/operations/${operationId}`).then(parseTransfer); }
+export function getOperation(operationId: string) { return getJson<unknown>(`/operations/${operationId}`).then(parseOperation); }

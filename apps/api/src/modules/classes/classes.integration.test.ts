@@ -52,14 +52,15 @@ describe('ClassesService PostgreSQL contract', () => {
     await expect(service.transfer(source.id, source.id, key, admin.id)).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
   });
 
-  it('serializes concurrent requests with the same operation key into one transfer and one replay', async () => {
+  it('serializes concurrent requests with the same operation key into one transfer and a replayed outcome', async () => {
     const source = await prisma.class.create({ data: { name: 'Mầm 1', monthlyTuition: 1500000n } });
     const destination = await prisma.class.create({ data: { name: 'Mầm 2', monthlyTuition: 1500000n } });
     const admin = await prisma.admin.create({ data: { email: 'admin-concurrent@example.com', displayName: 'Admin', googleId: 'google-concurrent' } });
     await prisma.student.create({ data: { fullName: 'Bé An', status: StudentStatus.ACTIVE, classId: source.id } });
     const key = '3a04d9b2-2f11-4a77-8e24-4f0a3c20a9bb';
     const [first, second] = await Promise.all([service.transfer(source.id, destination.id, key, admin.id), service.transfer(source.id, destination.id, key, admin.id)]);
-    expect(second).toEqual(first);
+    expect(first).toEqual(second);
+    expect(first.data).toMatchObject({ affectedStudentCount: 1, operationId: key });
     await expect(prisma.operation.count({ where: { id: key } })).resolves.toBe(1);
     await expect(prisma.student.count({ where: { classId: destination.id, status: StudentStatus.ACTIVE } })).resolves.toBe(1);
   });

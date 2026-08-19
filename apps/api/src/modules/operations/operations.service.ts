@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
+import { OperationState, Prisma } from '@prisma/client';
 import { IDEMPOTENCY_CONFLICT, DomainException } from '../../common/errors/domain.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 
@@ -13,19 +13,28 @@ export class OperationsService {
   async getForAdmin(id: string, adminId: string) {
     const operation = await this.prisma.operation.findFirst({ where: { id, adminId } });
     if (!operation) throw new NotFoundException('Operation not found.');
+    if (operation.state === OperationState.PENDING) return { data: { operationId: operation.id, state: OperationState.PENDING } };
     return operation.response;
   }
 
-  async replayOrConflict(tx: Prisma.TransactionClient, adminId: string, route: string, id: string, fingerprint: string): Promise<unknown | undefined> {
-    // A transaction-scoped advisory lock serializes concurrent requests before an Operation row exists.
-    await tx.$queryRaw`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtext(${`${adminId}:${route}:${id}`}))`;
-    const operation = await tx.operation.findFirst({ where: { id, adminId, route } });
-    if (!operation) return undefined;
+  async acquireOrReplay(adminId: string, route: string, id: string, fingerprint: string): Promise<unknown | undefined> {
+    const operation = await this.prisma.operation.findUnique({ where: { id } });
+    if (!operation) {
+      try {
+        await this.prisma.operation.create({ data: { id, adminId, route, fingerprint, state: OperationState.PENDING } });
+        return undefined;
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+        return this.acquireOrReplay(adminId, route, id, fingerprint);
+      }
+    }
+    if (operation.adminId !== adminId || operation.route !== route) throw new DomainException(IDEMPOTENCY_CONFLICT, 'Idempotency key was already used for another request.');
     if (operation.fingerprint !== fingerprint) throw new DomainException(IDEMPOTENCY_CONFLICT, 'Idempotency key was already used for another request.');
+    if (operation.state === OperationState.PENDING) return { data: { operationId: operation.id, state: OperationState.PENDING } };
     return operation.response;
   }
 
   async complete(tx: Prisma.TransactionClient, input: { id: string; adminId: string; route: string; fingerprint: string; response: Prisma.InputJsonValue }) {
-    await tx.operation.create({ data: input });
+    await tx.operation.update({ where: { id: input.id }, data: { state: OperationState.COMPLETED, response: input.response } });
   }
 }
