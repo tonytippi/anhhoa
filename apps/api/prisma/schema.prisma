@@ -41,6 +41,7 @@ model Class {
 model Student {
   id        String        @id @default(uuid()) @db.Uuid
   fullName  String
+  nickname  String?
   status    StudentStatus @default(ACTIVE)
   classId   String?       @db.Uuid
   class     Class?        @relation(fields: [classId], references: [id], onDelete: Restrict)
