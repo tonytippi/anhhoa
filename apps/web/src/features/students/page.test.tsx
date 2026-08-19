@@ -7,7 +7,7 @@ import { resetApiClientForTests } from '../../app/api/client';
 import { StudentsPage } from './page';
 
 afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); vi.useRealTimers(); });
-const student = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', fullName: 'Bé An', nickname: 'An', classId: null, status: 'ACTIVE', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
+const student = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', fullName: 'Bé An', nickname: 'An', classId: null, class: null, status: 'ACTIVE', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
 function renderPage(entry = '/hoc-sinh') { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[entry]}><StudentsPage /></MemoryRouter></QueryClientProvider>); }
 
 it('hiển thị bảng searchable cùng trạng thái chữ và dữ liệu inactive', async () => {
@@ -18,11 +18,11 @@ it('hiển thị bảng searchable cùng trạng thái chữ và dữ liệu ina
   expect(screen.getByRole('cell', { name: 'Nghỉ học' })).toBeVisible();
 });
 
-it('chấp nhận Student resource có classId UUID nhưng không hiển thị hoặc gán Lớp', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ ...student, classId: 'b2e36687-69b4-4e89-8ec0-141ff397837f' }], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })));
+it('hiển thị tên Lớp từ class summary', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ ...student, classId: 'b2e36687-69b4-4e89-8ec0-141ff397837f', class: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1' } }], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })));
   renderPage();
   expect(await screen.findByRole('table', { name: 'Danh sách học sinh' })).toBeVisible();
-  expect(screen.queryByText('b2e36687-69b4-4e89-8ec0-141ff397837f')).not.toBeInTheDocument();
+  expect(screen.getByRole('cell', { name: 'Mầm 1' })).toBeVisible();
 });
 
 it('giữ form, map lỗi field và không gửi classId', async () => {
@@ -35,17 +35,49 @@ it('giữ form, map lỗi field và không gửi classId', async () => {
   expect(await screen.findByText('fullName should not be empty')).toHaveAttribute('id', 'student-name-error');
   expect(screen.getByDisplayValue('Bé An')).toBeVisible();
   expect((fetch.mock.calls[2]?.[1] as RequestInit).body).toBe(JSON.stringify({ fullName: 'Bé An', nickname: 'An' }));
-  expect(screen.getByText('Lớp hiện tại sẽ được quản lý ở Story 2.3.')).toBeVisible();
+  expect(screen.queryByLabelText('Lớp hiện tại')).not.toBeInTheDocument();
 });
 
-it('gửi null để xóa biệt danh khi sửa học sinh', async () => {
-  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [student], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...student, nickname: null } }), { status: 200 }));
+it('gửi null để xóa biệt danh nhưng omit classId không thay đổi', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [student], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [], meta: { page: 1, pageSize: 20, total: 0, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...student, nickname: null } }), { status: 200 }));
   vi.stubGlobal('fetch', fetch); renderPage();
   fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu học sinh' })).toBeEnabled());
   fireEvent.change(screen.getByLabelText('Biệt danh (tùy chọn)'), { target: { value: '' } });
   fireEvent.click(screen.getByRole('button', { name: 'Lưu học sinh' }));
   await waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(3));
-  expect((fetch.mock.calls[2]?.[1] as RequestInit).body).toBe(JSON.stringify({ fullName: 'Bé An', nickname: null }));
+  expect((fetch.mock.calls[3]?.[1] as RequestInit).body).toBe(JSON.stringify({ fullName: 'Bé An', nickname: null }));
+});
+
+it('giữ Lớp archived hiện tại và omit classId khi chỉ sửa identity', async () => {
+  const archivedStudent = { ...student, status: 'INACTIVE', classId: 'b2e36687-69b4-4e89-8ec0-141ff397837f', class: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm cũ' } };
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [archivedStudent], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [], meta: { page: 1, pageSize: 100, total: 0, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...archivedStudent, fullName: 'Bé An mới' } }), { status: 200 }));
+  vi.stubGlobal('fetch', fetch); renderPage(); fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
+  await waitFor(() => expect(screen.getByRole('option', { name: 'Mầm cũ (đã lưu trữ, chỉ đọc)' })).toBeVisible());
+  fireEvent.change(screen.getByLabelText('Họ tên'), { target: { value: 'Bé An mới' } }); fireEvent.click(screen.getByRole('button', { name: 'Lưu học sinh' }));
+  await waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(4));
+  expect((fetch.mock.calls[3]?.[1] as RequestInit).body).toBe(JSON.stringify({ fullName: 'Bé An mới', nickname: 'An' }));
+});
+
+it('chặn submit và cho retry khi không tải được Lớp active', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [student], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'INTERNAL_SERVER_ERROR', message: 'Request failed.' } }), { status: 500 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [], meta: { page: 1, pageSize: 100, total: 0, pageCount: 1 } }), { status: 200 }));
+  vi.stubGlobal('fetch', fetch); renderPage(); fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
+  expect(await screen.findByText('Không thể tải Lớp đang hoạt động.')).toBeVisible(); expect(screen.getByRole('button', { name: 'Lưu học sinh' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Thử lại' })); await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu học sinh' })).toBeEnabled());
+});
+
+it('chỉ cho chọn Lớp active, gửi classId và giữ selection khi API từ chối', async () => {
+  const activeClass = { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1', monthlyTuition: 1500000, status: 'ACTIVE', createdAt: student.createdAt, updatedAt: student.updatedAt, activeStudentCount: 0 };
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [student], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [activeClass], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'CLASS_ARCHIVED', message: 'Archived classes cannot accept students.' } }), { status: 409 }));
+  vi.stubGlobal('fetch', fetch); renderPage();
+  fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
+  const picker = await screen.findByLabelText('Lớp hiện tại');
+  await waitFor(() => expect(screen.getByRole('option', { name: 'Mầm 1' })).toBeVisible());
+  fireEvent.change(picker, { target: { value: activeClass.id } });
+  fireEvent.click(screen.getByRole('button', { name: 'Lưu học sinh' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Archived classes cannot accept students.');
+  expect(picker).toHaveValue(activeClass.id);
+  expect((fetch.mock.calls[3]?.[1] as RequestInit).body).toBe(JSON.stringify({ fullName: 'Bé An', nickname: 'An', classId: activeClass.id }));
 });
 
 it('mở confirmation lifecycle và giữ modal khi mutation lỗi', async () => {

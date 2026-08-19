@@ -56,6 +56,7 @@ export class ClassesService {
 
   async archive(id: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Class" WHERE id = ${id}::uuid FOR UPDATE`;
       const record = await tx.class.findUnique({ where: { id }, include: classWithCount });
       if (!record) throw new NotFoundException('Class not found.');
       if (record.status === ClassStatus.ARCHIVED) return { data: serialize(record) };

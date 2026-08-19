@@ -2,16 +2,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, getJson, requestJson } from '../../app/api/client';
 
 export type StudentStatus = 'ACTIVE' | 'INACTIVE';
-export interface Student { id: string; fullName: string; nickname: string | null; classId: string | null; status: StudentStatus; createdAt: string; updatedAt: string; }
+export interface Student { id: string; fullName: string; nickname: string | null; classId: string | null; class: { id: string; name: string } | null; status: StudentStatus; createdAt: string; updatedAt: string; }
 export interface StudentList { data: Student[]; meta: { page: number; pageSize: number; total: number; pageCount: number }; }
 export interface StudentFilters { search: string; status: '' | StudentStatus; page: number; }
-export interface StudentInput { fullName: string; nickname?: string | null; }
+export interface StudentInput { fullName: string; nickname?: string | null; classId?: string | null; }
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function parseStudent(value: unknown): Student {
+export function parseStudent(value: unknown): Student {
   if (!value || typeof value !== 'object') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   const item = value as Record<string, unknown>;
-  if (typeof item.id !== 'string' || typeof item.fullName !== 'string' || (item.nickname !== null && typeof item.nickname !== 'string') || (item.classId !== null && (typeof item.classId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.classId))) || (item.status !== 'ACTIVE' && item.status !== 'INACTIVE') || typeof item.createdAt !== 'string' || Number.isNaN(Date.parse(item.createdAt)) || typeof item.updatedAt !== 'string' || Number.isNaN(Date.parse(item.updatedAt))) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
-  return { id: item.id, fullName: item.fullName, nickname: item.nickname, classId: item.classId, status: item.status, createdAt: item.createdAt, updatedAt: item.updatedAt } as Student;
+  const schoolClass = item.class as Record<string, unknown> | null;
+  if (typeof item.id !== 'string' || typeof item.fullName !== 'string' || (item.nickname !== null && typeof item.nickname !== 'string') || (item.classId !== null && (typeof item.classId !== 'string' || !uuid.test(item.classId))) || (item.classId === null && item.class !== null) || (item.classId !== null && (!schoolClass || typeof schoolClass.id !== 'string' || !uuid.test(schoolClass.id) || schoolClass.id !== item.classId || typeof schoolClass.name !== 'string')) || (item.status !== 'ACTIVE' && item.status !== 'INACTIVE') || typeof item.createdAt !== 'string' || Number.isNaN(Date.parse(item.createdAt)) || typeof item.updatedAt !== 'string' || Number.isNaN(Date.parse(item.updatedAt))) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
+  return { id: item.id, fullName: item.fullName, nickname: item.nickname, classId: item.classId, class: (item.class ?? null) as Student['class'], status: item.status, createdAt: item.createdAt, updatedAt: item.updatedAt } as Student;
 }
 function parseList(value: unknown): StudentList {
   if (!value || typeof value !== 'object') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
@@ -25,5 +27,5 @@ function parseAction(value: unknown): Student { if (!value || typeof value !== '
 function queryString(filters: StudentFilters): string { const params = new URLSearchParams({ page: String(filters.page) }); if (filters.search) params.set('search', filters.search); if (filters.status) params.set('status', filters.status); return params.toString(); }
 
 export function useStudents(filters: StudentFilters) { return useQuery({ queryKey: ['students', filters], queryFn: () => getJson<unknown>(`/students?${queryString(filters)}`).then(parseList) }); }
-export function useSaveStudent() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, input }: { id?: string; input: StudentInput }) => requestJson<unknown>(id ? `/students/${id}` : '/students', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(input) }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['students'] }) }); }
-export function useStudentStatus() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, status }: { id: string; status: StudentStatus }) => requestJson<unknown>(`/students/${id}/${status === 'ACTIVE' ? 'reactivate' : 'withdraw'}`, { method: 'POST' }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['students'] }) }); }
+export function useSaveStudent() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, input }: { id?: string; input: StudentInput }) => requestJson<unknown>(id ? `/students/${id}` : '/students', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(input) }).then(parseAction), onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ['students'] }), client.invalidateQueries({ queryKey: ['classes'] })]) }); }
+export function useStudentStatus() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, status }: { id: string; status: StudentStatus }) => requestJson<unknown>(`/students/${id}/${status === 'ACTIVE' ? 'reactivate' : 'withdraw'}`, { method: 'POST' }).then(parseAction), onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ['students'] }), client.invalidateQueries({ queryKey: ['classes'] })]) }); }

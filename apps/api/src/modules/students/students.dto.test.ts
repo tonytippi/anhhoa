@@ -17,4 +17,10 @@ describe('Student DTOs', () => {
     await expect(validate(plainToInstance(ListStudentsDto, { status: 'ACTIVE', page: '1', pageSize: '20' }))).resolves.toHaveLength(0);
     await expect(validate(plainToInstance(ListStudentsDto, { status: 'ARCHIVED', page: '0', pageSize: '101' }))).resolves.not.toHaveLength(0);
   });
+
+  it('allows omitted or null classId and rejects an invalid assignment target', async () => {
+    await expect(validate(plainToInstance(UpdateStudentDto, { fullName: 'Bé An' }))).resolves.toHaveLength(0);
+    await expect(validate(plainToInstance(UpdateStudentDto, { fullName: 'Bé An', classId: null }))).resolves.toHaveLength(0);
+    await expect(validate(plainToInstance(UpdateStudentDto, { fullName: 'Bé An', classId: 'not-a-uuid' }))).resolves.not.toHaveLength(0);
+  });
 });

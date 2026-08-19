@@ -16,5 +16,7 @@ export class CreateStudentDto {
   @IsOptional() @Transform(trim) @IsString() @MaxLength(100) nickname?: string | null;
 }
 
-export class UpdateStudentDto extends CreateStudentDto {}
+export class UpdateStudentDto extends CreateStudentDto {
+  @IsOptional() @Transform(({ value }) => value === null ? value : value) @IsUUID() classId?: string | null;
+}
 export class StudentIdDto { @IsUUID() id!: string; }

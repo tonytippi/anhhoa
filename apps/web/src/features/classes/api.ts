@@ -4,7 +4,7 @@ import { ApiError, getJson, requestJson } from '../../app/api/client';
 export type ClassStatus = 'ACTIVE' | 'ARCHIVED';
 export interface SchoolClass { id: string; name: string; monthlyTuition: number; status: ClassStatus; createdAt: string; updatedAt: string; activeStudentCount: number; }
 export interface ClassList { data: SchoolClass[]; meta: { page: number; pageSize: number; total: number; pageCount: number }; }
-export interface ClassFilters { search: string; status: '' | ClassStatus; page: number; }
+export interface ClassFilters { search: string; status: '' | ClassStatus; page: number; pageSize?: number; }
 export interface ClassInput { name: string; monthlyTuition: number; }
 
 function parseClass(value: unknown): SchoolClass {
@@ -25,8 +25,8 @@ function parseAction(value: unknown): SchoolClass {
   if (!value || typeof value !== 'object' || !('data' in value)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   return parseClass(value.data);
 }
-function queryString(filters: ClassFilters): string { const params = new URLSearchParams({ page: String(filters.page) }); if (filters.search) params.set('search', filters.search); if (filters.status) params.set('status', filters.status); return params.toString(); }
+function queryString(filters: ClassFilters): string { const params = new URLSearchParams({ page: String(filters.page) }); if (filters.pageSize) params.set('pageSize', String(filters.pageSize)); if (filters.search) params.set('search', filters.search); if (filters.status) params.set('status', filters.status); return params.toString(); }
 
-export function useClasses(filters: ClassFilters) { return useQuery({ queryKey: ['classes', filters], queryFn: () => getJson<unknown>(`/classes?${queryString(filters)}`).then(parseList) }); }
+export function useClasses(filters: ClassFilters, enabled = true) { return useQuery({ queryKey: ['classes', filters], queryFn: () => getJson<unknown>(`/classes?${queryString(filters)}`).then(parseList), enabled }); }
 export function useSaveClass() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, input }: { id?: string; input: ClassInput }) => requestJson<unknown>(id ? `/classes/${id}` : '/classes', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(input) }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['classes'] }) }); }
 export function useArchiveClass() { const client = useQueryClient(); return useMutation({ mutationFn: (id: string) => requestJson<unknown>(`/classes/${id}/archive`, { method: 'POST' }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['classes'] }) }); }

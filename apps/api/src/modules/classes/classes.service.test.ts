@@ -5,7 +5,7 @@ import { ClassesService } from './classes.service.js';
 
 const record = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1', monthlyTuition: 1500000n, status: ClassStatus.ACTIVE, createdAt: new Date('2026-01-01'), updatedAt: new Date('2026-01-01'), _count: { students: 0 } };
 function prisma() {
-  const tx = { class: { findMany: vi.fn().mockResolvedValue([record]), count: vi.fn().mockResolvedValue(1), findUnique: vi.fn().mockResolvedValue(record), update: vi.fn().mockResolvedValue({ ...record, status: ClassStatus.ARCHIVED }) }, student: { count: vi.fn().mockResolvedValue(0) } };
+  const tx = { $queryRaw: vi.fn(), class: { findMany: vi.fn().mockResolvedValue([record]), count: vi.fn().mockResolvedValue(1), findUnique: vi.fn().mockResolvedValue(record), update: vi.fn().mockResolvedValue({ ...record, status: ClassStatus.ARCHIVED }) }, student: { count: vi.fn().mockResolvedValue(0) } };
   return { class: { findMany: vi.fn().mockResolvedValue([record]), count: vi.fn().mockResolvedValue(1), findUnique: vi.fn().mockResolvedValue(record), findUniqueOrThrow: vi.fn().mockResolvedValue(record), create: vi.fn().mockResolvedValue(record), update: vi.fn().mockResolvedValue(record), updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, student: { count: vi.fn() }, $transaction: vi.fn(async (argument: unknown) => Array.isArray(argument) ? Promise.all(argument) : (argument as (client: typeof tx) => Promise<unknown>)(tx)), tx };
 }
 
