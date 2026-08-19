@@ -63,6 +63,11 @@ enum InvoiceStatus {
   COMPLETED
 }
 
+enum InvoicePaymentMethod {
+  CASH
+  TRANSFER
+}
+
 model Class {
   id             String      @id @default(uuid()) @db.Uuid
   name           String
@@ -102,13 +107,17 @@ model Invoice {
   creatorId        String        @db.Uuid
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
+  paymentMethod    InvoicePaymentMethod?
+  bankAccountId    String?       @db.Uuid
   student          Student       @relation(fields: [studentId], references: [id], onDelete: Restrict)
   creator          Admin         @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: Restrict)
   items            InvoiceItem[]
+  bankAccount      BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
 
   @@unique([studentId, billingMonth])
   @@index([billingMonth, status, classId, createdAt, id])
   @@index([billingMonth, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([bankAccountId])
 }
 
 model InvoiceItem {
@@ -157,6 +166,7 @@ model BankAccount {
   status            BankAccountStatus @default(ACTIVE)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
+  invoices          Invoice[]
 
   @@index([status])
 }

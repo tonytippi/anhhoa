@@ -1,13 +1,21 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
-import { BatchInvoiceDto, ListInvoicesDto } from './invoices.dto.js';
+import { BatchInvoiceDto, ListInvoicesDto, UpdateInvoiceDto } from './invoices.dto.js';
 
 describe('ListInvoicesDto', () => {
   it('requires a calendar billing month and valid pagination', async () => {
     await expect(validate(plainToInstance(ListInvoicesDto, { billingMonth: '2026-08', page: '2', pageSize: '50' }))).resolves.toHaveLength(0);
     await expect(validate(plainToInstance(ListInvoicesDto, { billingMonth: '2026-13', page: '0' }))).resolves.not.toHaveLength(0);
     await expect(validate(plainToInstance(ListInvoicesDto, { billingMonth: '0000-01' }))).resolves.not.toHaveLength(0);
+  });
+});
+
+describe('UpdateInvoiceDto', () => {
+  it('allows whole-VND draft lines within the inclusive financial boundary', async () => {
+    await expect(validate(plainToInstance(UpdateInvoiceDto, { items: [{ description: 'Điều chỉnh', amount: -100_000_000 }, { description: 'Thu', amount: 100_000_000 }], paymentMethod: 'CASH' }))).resolves.toHaveLength(0);
+    await expect(validate(plainToInstance(UpdateInvoiceDto, { items: [{ description: 'Quá giới hạn', amount: 100_000_001 }], paymentMethod: 'CASH' }))).resolves.not.toHaveLength(0);
+    await expect(validate(plainToInstance(UpdateInvoiceDto, { items: [], paymentMethod: 'TRANSFER' }))).resolves.not.toHaveLength(0);
   });
 });
 

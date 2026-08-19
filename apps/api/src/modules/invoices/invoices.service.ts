@@ -1,9 +1,9 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { ClassStatus, Prisma, StudentStatus } from '@prisma/client';
+import { ConflictException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { BankAccountStatus, ClassStatus, InvoicePaymentMethod, InvoiceStatus, Prisma, StudentStatus } from '@prisma/client';
 import { DomainException, INVOICE_BATCH_EMPTY, INVOICE_TEMPLATE_EMPTY } from '../../common/errors/domain.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { OperationsService } from '../operations/operations.service.js';
-import type { BatchInvoiceDto, ListInvoicesDto } from './invoices.dto.js';
+import type { BatchInvoiceDto, ListInvoicesDto, UpdateInvoiceDto } from './invoices.dto.js';
 
 function monthStart(value: string): Date { return new Date(`${value}-01T00:00:00.000Z`); }
 function formatMonth(value: Date): string { return value.toISOString().slice(0, 7); }
@@ -14,6 +14,14 @@ function safeMoney(value: bigint): number {
 }
 function serialize(record: { id: string; billingMonth: Date; studentName: string; studentNickname: string | null; classId: string; className: string; status: import('@prisma/client').InvoiceStatus; total: bigint; createdAt: Date; updatedAt: Date }) {
   return { id: record.id, billingMonth: formatMonth(record.billingMonth), student: { name: record.studentName, nickname: record.studentNickname }, schoolClass: { id: record.classId, name: record.className }, status: record.status, total: safeMoney(record.total), createdAt: record.createdAt.toISOString(), updatedAt: record.updatedAt.toISOString() };
+}
+function serializeDetail(record: Prisma.InvoiceGetPayload<{ include: { items: true; creator: true; bankAccount: true } }>) {
+  return {
+    ...serialize(record),
+    items: record.items.sort((a, b) => a.position - b.position).map((item) => ({ id: item.id, description: item.description, feeGroup: item.feeGroup, amount: safeMoney(item.amount), position: item.position })),
+    payment: { method: record.paymentMethod, bankAccount: record.bankAccount ? { id: record.bankAccount.id, bankCode: record.bankAccount.bankCode, accountNumber: record.bankAccount.accountNumber, accountHolderName: record.bankAccount.accountHolderName } : null },
+    createdBy: { id: record.creator.id, displayName: record.creator.displayName },
+  };
 }
 type SkipReason = 'inactiveStudent' | 'missingClass' | 'archivedClass' | 'existingInvoice';
 type Candidate = { id: string; fullName: string; nickname: string | null; status: StudentStatus; classId: string | null; class: { id: string; name: string; monthlyTuition: bigint; status: ClassStatus } | null };
@@ -56,9 +64,34 @@ export class InvoicesService {
   }
 
   async get(id: string) {
-    const record = await this.prisma.invoice.findUnique({ where: { id } });
+    const record = await this.prisma.invoice.findUnique({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, bankAccount: true } });
     if (!record) throw new NotFoundException('Invoice not found.');
-    return { data: serialize(record) };
+    return { data: serializeDetail(record) };
+  }
+
+  async update(id: string, input: UpdateInvoiceDto) {
+    for (let attempt = 0; attempt < 3; attempt += 1) try {
+      return await this.prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.findUnique({ where: { id }, select: { status: true } });
+      if (!invoice) throw new NotFoundException('Invoice not found.');
+      if (invoice.status !== InvoiceStatus.DRAFT) throw new ConflictException('Only draft invoices can be edited.');
+      if (input.paymentMethod === InvoicePaymentMethod.CASH && input.bankAccountId !== undefined) throw new ConflictException('Cash payment cannot include a bank account.');
+      if (input.paymentMethod === InvoicePaymentMethod.TRANSFER) {
+        const account = await tx.bankAccount.findUnique({ where: { id: input.bankAccountId } });
+        if (!account || account.status !== BankAccountStatus.ACTIVE) throw new ConflictException('Transfer payment requires an active bank account.');
+      }
+      const items = input.items.map((item, position) => ({ description: item.description.trim(), feeGroup: item.feeGroup?.trim() || null, amount: BigInt(item.amount), position }));
+      const total = items.reduce((sum, item) => sum + item.amount, 0n);
+      safeMoney(total);
+      await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
+      await tx.invoice.update({ where: { id }, data: { total, paymentMethod: input.paymentMethod, bankAccountId: input.paymentMethod === InvoicePaymentMethod.TRANSFER ? input.bankAccountId : null, items: { create: items } } });
+      const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, bankAccount: true } });
+      return { data: serializeDetail(record) };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (attempt === 2 || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
+    }
+    throw new Error('Unreachable invoice update retry state.');
   }
 
   async preview(input: BatchInvoiceDto) {

@@ -4,7 +4,7 @@ import { ApiError, getJson, requestJson } from '../../app/api/client';
 export type BankAccountStatus = 'ACTIVE' | 'INACTIVE';
 export interface BankAccount { id: string; bankCode: string; accountNumber: string; accountHolderName: string; status: BankAccountStatus; createdAt: string; updatedAt: string; }
 export interface BankAccountList { data: BankAccount[]; meta: { page: number; pageSize: number; total: number; pageCount: number }; }
-export interface BankAccountFilters { search: string; status: '' | BankAccountStatus; page: number; }
+export interface BankAccountFilters { search: string; status: '' | BankAccountStatus; page: number; pageSize?: number; }
 export interface BankAccountInput { bankCode: string; accountNumber: string; accountHolderName: string; }
 
 function invalid(): never { throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.'); }
@@ -23,8 +23,8 @@ function parseList(value: unknown): BankAccountList {
   return { data: response.data.map(parseAccount), meta: meta as BankAccountList['meta'] };
 }
 function parseAction(value: unknown): BankAccount { if (!value || typeof value !== 'object' || !('data' in value)) return invalid(); return parseAccount(value.data); }
-function queryString(filters: BankAccountFilters): string { const params = new URLSearchParams({ page: String(filters.page) }); if (filters.search) params.set('search', filters.search); if (filters.status) params.set('status', filters.status); return params.toString(); }
+function queryString(filters: BankAccountFilters): string { const params = new URLSearchParams({ page: String(filters.page) }); if (filters.pageSize) params.set('pageSize', String(filters.pageSize)); if (filters.search) params.set('search', filters.search); if (filters.status) params.set('status', filters.status); return params.toString(); }
 
-export function useBankAccounts(filters: BankAccountFilters) { return useQuery({ queryKey: ['bank-accounts', filters], queryFn: () => getJson<unknown>(`/bank-accounts?${queryString(filters)}`).then(parseList) }); }
+export function useBankAccounts(filters: BankAccountFilters, enabled = true) { return useQuery({ queryKey: ['bank-accounts', filters], enabled, queryFn: () => getJson<unknown>(`/bank-accounts?${queryString(filters)}`).then(parseList) }); }
 export function useCreateBankAccount() { const client = useQueryClient(); return useMutation({ mutationFn: (input: BankAccountInput) => requestJson<unknown>('/bank-accounts', { method: 'POST', body: JSON.stringify(input) }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['bank-accounts'] }) }); }
 export function useSetBankAccountStatus() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, status }: { id: string; status: BankAccountStatus }) => requestJson<unknown>(`/bank-accounts/${id}/${status === 'ACTIVE' ? 'activate' : 'deactivate'}`, { method: 'POST' }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['bank-accounts'] }) }); }
