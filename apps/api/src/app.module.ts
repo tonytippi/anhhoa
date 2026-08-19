@@ -1,4 +1,12 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ConfigModule } from './common/config/config.module.js';
+import { SessionAuthGuard } from './common/guards/session-auth.guard.js';
+import { CsrfMiddleware } from './common/middleware/csrf.middleware.js';
+import { PrismaModule } from './common/prisma/prisma.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 
-@Module({})
-export class AppModule {}
+@Module({ imports: [ConfigModule, PrismaModule, AuthModule], providers: [{ provide: APP_GUARD, useClass: SessionAuthGuard }] })
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void { consumer.apply(CsrfMiddleware).forRoutes('*'); }
+}

@@ -21,7 +21,7 @@ pnpm build
 pnpm --filter web exec playwright test
 ```
 
-API chỉ giữ biến môi trường mẫu trong `apps/api/.env.example`; không thêm giá trị thật vào repository.
+API tự động nạp `apps/api/.env` khi khởi động; repository chỉ giữ biến môi trường mẫu trong `apps/api/.env.example`, không thêm giá trị thật. Để chạy API, sao chép file này thành `apps/api/.env`, đặt các biến OAuth Google, `JWT_SECRET` (ít nhất 32 ký tự), `ADMIN_EMAILS`, `WEB_ORIGIN`, callback và redirect URLs đã đăng ký. `OAUTH_REDIRECT_URLS` là allowlist URL sau đăng nhập, phân tách bằng dấu phẩy; `OAUTH_DENIED_REDIRECT_URL` phải là một URL trong allowlist này. Google OAuth callback phải trỏ đến `GOOGLE_CALLBACK_URL` trong cấu hình API.
 
 ## Font assets
 
@@ -33,12 +33,13 @@ Prisma chỉ thuộc `apps/api/prisma`. `prisma:generate` chỉ đọc schema n�
 
 ```bash
 pnpm --filter api prisma:generate
+pnpm --filter api exec prisma migrate deploy
 pnpm --filter api prisma:seed
 pnpm --filter api build
 pnpm --filter api start
 ```
 
-`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
+`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. Session chỉ được cấp trong cookie `Secure`, `httpOnly`, `SameSite=Lax`; client cần lấy CSRF token tại `GET /auth/csrf` và gửi lại qua `X-CSRF-Token` cho mutation đã có session. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
 
 ## Yêu cầu
 Tôi muốn làm hệ thống quản lý hóa đơn cho trường mầm non. Hệ thống phải thật đơn giản.
