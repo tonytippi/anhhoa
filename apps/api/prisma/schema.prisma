@@ -104,10 +104,25 @@ model Invoice {
   updatedAt        DateTime      @updatedAt
   student          Student       @relation(fields: [studentId], references: [id], onDelete: Restrict)
   creator          Admin         @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  items            InvoiceItem[]
 
   @@unique([studentId, billingMonth])
   @@index([billingMonth, status, classId, createdAt, id])
   @@index([billingMonth, createdAt(sort: Desc), id(sort: Desc)])
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  invoiceId   String   @db.Uuid
+  description String
+  feeGroup    String?
+  amount      BigInt
+  position    Int
+  createdAt   DateTime @default(now())
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, position])
+  @@index([invoiceId, position])
 }
 
 model InvoiceTemplate {

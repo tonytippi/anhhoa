@@ -1,10 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
-import { ApiError, getJson } from '../../app/api/client';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { ApiError, getJson, requestJson } from '../../app/api/client';
 
 export type InvoiceStatus = 'DRAFT' | 'PENDING' | 'COMPLETED';
 export interface Invoice { id: string; billingMonth: string; student: { name: string; nickname: string | null }; schoolClass: { id: string; name: string }; status: InvoiceStatus; total: number; createdAt: string; updatedAt: string; }
 export interface InvoiceList { data: Invoice[]; meta: { page: number; pageSize: number; total: number; pageCount: number }; }
 export interface InvoiceFilters { billingMonth: string; search: string; status: '' | InvoiceStatus; classId: string; page: number; }
+export interface BatchInput { billingMonth: string; allActiveClasses: boolean; classIds?: string[]; }
+export interface BatchResult { operationId: string; createdCount: number; skipped: BatchSkips; }
+export interface BatchPreview { eligibleCount: number; skipped: BatchSkips; }
+export interface BatchSkips { inactiveStudent: number; missingClass: number; archivedClass: number; existingInvoice: number; }
+export interface PendingBatchOperation { operationId: string; state: 'PENDING'; }
 
 function invalid(): never { throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.'); }
 export function parseInvoice(value: unknown): Invoice {
@@ -20,7 +25,14 @@ function parseList(value: unknown): InvoiceList {
   return { data: response.data.map(parseInvoice), meta: meta as InvoiceList['meta'] };
 }
 function parseAction(value: unknown): Invoice { if (!value || typeof value !== 'object' || !('data' in value)) return invalid(); return parseInvoice(value.data); }
+function parseSkips(value: unknown): BatchSkips { if (!value || typeof value !== 'object') return invalid(); const skips = value as Record<string, unknown>; if (!['inactiveStudent', 'missingClass', 'archivedClass', 'existingInvoice'].every((key) => Number.isSafeInteger(skips[key]) && (skips[key] as number) >= 0)) return invalid(); return { inactiveStudent: skips.inactiveStudent as number, missingClass: skips.missingClass as number, archivedClass: skips.archivedClass as number, existingInvoice: skips.existingInvoice as number }; }
+function parsePreview(value: unknown): BatchPreview { if (!value || typeof value !== 'object' || !('data' in value)) return invalid(); const data = value.data as Record<string, unknown>; if (!Number.isSafeInteger(data.eligibleCount) || (data.eligibleCount as number) < 0) return invalid(); return { eligibleCount: data.eligibleCount as number, skipped: parseSkips(data.skipped) }; }
+export function parseBatchResult(value: unknown): BatchResult { if (!value || typeof value !== 'object' || !('data' in value)) return invalid(); const data = value.data as Record<string, unknown>; if (typeof data.operationId !== 'string' || !Number.isSafeInteger(data.createdCount) || (data.createdCount as number) < 0) return invalid(); return { operationId: data.operationId, createdCount: data.createdCount as number, skipped: parseSkips(data.skipped) }; }
 function queryString(filters: InvoiceFilters): string { const params = new URLSearchParams({ billingMonth: filters.billingMonth, page: String(filters.page) }); if (filters.search) params.set('search', filters.search); if (filters.status) params.set('status', filters.status); if (filters.classId) params.set('classId', filters.classId); return params.toString(); }
 
 export function useInvoices(filters: InvoiceFilters, enabled = true) { return useQuery({ queryKey: ['invoices', filters], enabled, queryFn: () => getJson<unknown>(`/invoices?${queryString(filters)}`).then(parseList) }); }
 export function useInvoice(id: string) { return useQuery({ queryKey: ['invoices', id], enabled: Boolean(id), queryFn: () => getJson<unknown>(`/invoices/${id}`).then(parseAction) }); }
+export function useBatchPreview() { return useMutation({ mutationFn: (input: BatchInput) => requestJson<unknown>('/invoices/batch-preview', { method: 'POST', body: JSON.stringify(input) }).then(parsePreview) }); }
+export function createInvoiceBatch(input: BatchInput, operationId: string) { return requestJson<unknown>('/invoices/batch', { method: 'POST', headers: { 'Idempotency-Key': operationId }, body: JSON.stringify(input) }).then(parseBatchResult); }
+function parseBatchOperation(value: unknown): BatchResult | PendingBatchOperation { if (!value || typeof value !== 'object' || !('data' in value)) return invalid(); const data = value.data as Record<string, unknown>; if (data.state === 'PENDING' && typeof data.operationId === 'string') return { operationId: data.operationId, state: 'PENDING' }; return parseBatchResult(value); }
+export function getInvoiceBatchOperation(operationId: string) { return getJson<unknown>(`/operations/${operationId}`).then(parseBatchOperation); }

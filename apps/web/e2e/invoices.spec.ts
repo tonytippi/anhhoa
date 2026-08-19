@@ -30,7 +30,7 @@ test('tháng trống giữ picker và chỉ hiện một CTA tạo hóa đơn', 
   await page.goto('/hoa-don?month=2026-08');
   await expect(page.getByLabel('Tháng hóa đơn')).toHaveValue('2026-08');
   await expect(page.getByRole('button', { name: 'Tạo hóa đơn tháng' })).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Tạo hóa đơn tháng' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Tạo hóa đơn tháng' })).toBeEnabled();
 });
 
 test('mobile keeps invoice table horizontally scrollable with sticky student identity', async ({ page }) => {

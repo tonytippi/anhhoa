@@ -1,7 +1,9 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ClassStatus, Prisma, StudentStatus } from '@prisma/client';
+import { DomainException, INVOICE_BATCH_EMPTY, INVOICE_TEMPLATE_EMPTY } from '../../common/errors/domain.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import type { ListInvoicesDto } from './invoices.dto.js';
+import { OperationsService } from '../operations/operations.service.js';
+import type { BatchInvoiceDto, ListInvoicesDto } from './invoices.dto.js';
 
 function monthStart(value: string): Date { return new Date(`${value}-01T00:00:00.000Z`); }
 function formatMonth(value: Date): string { return value.toISOString().slice(0, 7); }
@@ -13,10 +15,31 @@ function safeMoney(value: bigint): number {
 function serialize(record: { id: string; billingMonth: Date; studentName: string; studentNickname: string | null; classId: string; className: string; status: import('@prisma/client').InvoiceStatus; total: bigint; createdAt: Date; updatedAt: Date }) {
   return { id: record.id, billingMonth: formatMonth(record.billingMonth), student: { name: record.studentName, nickname: record.studentNickname }, schoolClass: { id: record.classId, name: record.className }, status: record.status, total: safeMoney(record.total), createdAt: record.createdAt.toISOString(), updatedAt: record.updatedAt.toISOString() };
 }
+type SkipReason = 'inactiveStudent' | 'missingClass' | 'archivedClass' | 'existingInvoice';
+type Candidate = { id: string; fullName: string; nickname: string | null; status: StudentStatus; classId: string | null; class: { id: string; name: string; monthlyTuition: bigint; status: ClassStatus } | null };
+type Eligibility = { eligible: Candidate[]; skipped: Record<SkipReason, number> };
+
+async function eligibility(tx: Prisma.TransactionClient, input: BatchInvoiceDto): Promise<Eligibility> {
+  const students = await tx.student.findMany({
+    where: input.allActiveClasses ? {} : { classId: { in: [...new Set(input.classIds ?? [])] } },
+    include: { class: true },
+  });
+  const existing = new Set((await tx.invoice.findMany({ where: { billingMonth: monthStart(input.billingMonth), studentId: { in: students.map((student) => student.id) } }, select: { studentId: true } })).map((invoice) => invoice.studentId));
+  const skipped: Record<SkipReason, number> = { inactiveStudent: 0, missingClass: 0, archivedClass: 0, existingInvoice: 0 };
+  const eligible: Candidate[] = [];
+  for (const student of students) {
+    if (existing.has(student.id)) skipped.existingInvoice += 1;
+    else if (student.status !== StudentStatus.ACTIVE) skipped.inactiveStudent += 1;
+    else if (!student.class) skipped.missingClass += 1;
+    else if (student.class.status !== ClassStatus.ACTIVE) skipped.archivedClass += 1;
+    else eligible.push(student);
+  }
+  return { eligible, skipped };
+}
 
 @Injectable()
 export class InvoicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly operations: OperationsService = new OperationsService(prisma)) {}
 
   async list(query: ListInvoicesDto) {
     const where: Prisma.InvoiceWhereInput = {
@@ -36,5 +59,39 @@ export class InvoicesService {
     const record = await this.prisma.invoice.findUnique({ where: { id } });
     if (!record) throw new NotFoundException('Invoice not found.');
     return { data: serialize(record) };
+  }
+
+  async preview(input: BatchInvoiceDto) {
+    const template = await this.prisma.invoiceTemplate.findFirst({ where: { singleton: true }, select: { items: { select: { id: true } } } });
+    if (!template?.items.length) throw new DomainException(INVOICE_TEMPLATE_EMPTY, 'Invoice template must contain at least one item.');
+    const result = await this.prisma.$transaction((tx) => eligibility(tx, input), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    return { data: { eligibleCount: result.eligible.length, skipped: result.skipped } };
+  }
+
+  async createBatch(input: BatchInvoiceDto, operationId: string, adminId: string) {
+    const route = '/invoices/batch';
+    const fingerprint = this.operations.fingerprint({ billingMonth: input.billingMonth, allActiveClasses: input.allActiveClasses, classIds: input.allActiveClasses ? [] : [...new Set(input.classIds ?? [])].sort() });
+    for (let attempt = 0; attempt < 3; attempt += 1) try {
+      return await this.prisma.$transaction(async (tx) => {
+        const replay = await this.operations.acquireOrReplay(tx, adminId, route, operationId, fingerprint);
+        if (replay !== undefined) return replay as { data: unknown };
+        const template = await tx.invoiceTemplate.findFirst({ where: { singleton: true }, include: { items: { orderBy: { position: 'asc' } } } });
+        if (!template?.items.length) throw new DomainException(INVOICE_TEMPLATE_EMPTY, 'Invoice template must contain at least one item.');
+        const result = await eligibility(tx, input);
+        if (!result.eligible.length) throw new DomainException(INVOICE_BATCH_EMPTY, 'No students are eligible for invoice creation.');
+        for (const student of result.eligible) {
+          const schoolClass = student.class!;
+          const items = template.items.map((item) => ({ description: item.description, feeGroup: item.feeGroup, position: item.position, amount: item.amountSource === 'CLASS_TUITION' ? schoolClass.monthlyTuition : item.fixedAmount! }));
+          const total = items.reduce((sum, item) => sum + item.amount, 0n);
+          await tx.invoice.create({ data: { studentId: student.id, billingMonth: monthStart(input.billingMonth), studentName: student.fullName, studentNickname: student.nickname, classId: schoolClass.id, className: schoolClass.name, total, creatorId: adminId, items: { create: items } } });
+        }
+        const response = { data: { operationId, createdCount: result.eligible.length, skipped: result.skipped } };
+        await this.operations.complete(tx, { id: operationId, adminId, route, fingerprint, response });
+        return response;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (attempt === 2 || !(error instanceof Prisma.PrismaClientKnownRequestError) || !['P2034', 'P2002'].includes(error.code)) throw error;
+    }
+    throw new Error('Unreachable invoice batch retry state.');
   }
 }

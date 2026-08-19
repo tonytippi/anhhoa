@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, Matches } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateIf, Matches } from 'class-validator';
 import { InvoiceStatus } from '@prisma/client';
 
 export class ListInvoicesDto {
@@ -12,3 +12,9 @@ export class ListInvoicesDto {
 }
 
 export class InvoiceIdDto { @IsUUID() id!: string; }
+
+export class BatchInvoiceDto {
+  @Matches(/^(?!0000)\d{4}-(0[1-9]|1[0-2])$/) billingMonth!: string;
+  @IsBoolean() allActiveClasses!: boolean;
+  @ValidateIf((input: BatchInvoiceDto) => !input.allActiveClasses) @IsArray() @ArrayMinSize(1) @IsUUID(undefined, { each: true }) classIds?: string[];
+}

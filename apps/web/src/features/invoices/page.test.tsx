@@ -58,7 +58,31 @@ it('recovers from an out-of-range page instead of presenting it as an empty mont
   renderPage('/hoa-don?month=2026-08&page=3'); expect(await screen.findByText('Trang này không còn hóa đơn.')).toBeVisible(); expect(screen.getByRole('button', { name: 'Trước' })).toBeEnabled();
 });
 
-it('keeps the selected month and explains the unavailable creation workflow', async () => {
+it('keeps the selected month and opens the invoice creation workflow', async () => {
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(responseFor(url, [], { page: 1, pageSize: 20, total: 0, pageCount: 1 }))));
-  renderPage(); expect(await screen.findByText('Chưa có hóa đơn trong 08/2026.')).toBeVisible(); expect(screen.getByLabelText('Tháng hóa đơn')).toHaveValue('2026-08'); expect(screen.getByRole('button', { name: 'Tạo hóa đơn tháng' })).toBeDisabled(); expect(screen.getByRole('status')).toHaveTextContent('sẽ có ở bước tiếp theo');
+  renderPage(); expect(await screen.findByText('Chưa có hóa đơn trong 08/2026.')).toBeVisible(); expect(screen.getByLabelText('Tháng hóa đơn')).toHaveValue('2026-08'); fireEvent.click(screen.getByRole('button', { name: 'Tạo hóa đơn tháng' })); expect(await screen.findByRole('heading', { name: 'Tạo hóa đơn tháng' })).toBeVisible();
+});
+
+it('previews the current scope, creates it, and shows the batch result', async () => {
+  const fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    void init;
+    if (String(url).includes('/auth/csrf')) return Promise.resolve(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 }));
+    if (String(url).includes('/invoices/batch-preview')) return Promise.resolve(new Response(JSON.stringify({ data: { eligibleCount: 2, skipped: { inactiveStudent: 0, missingClass: 0, archivedClass: 0, existingInvoice: 0 } } }), { status: 200 }));
+    if (String(url).includes('/invoices/batch')) return Promise.resolve(new Response(JSON.stringify({ data: { operationId: 'a2e36687-69b4-4e89-8ec0-141ff397837f', createdCount: 2, skipped: { inactiveStudent: 0, missingClass: 0, archivedClass: 0, existingInvoice: 0 } } }), { status: 200 }));
+    return Promise.resolve(responseFor(String(url)));
+  }); vi.stubGlobal('fetch', fetch);
+  renderPage(); await screen.findByRole('table'); fireEvent.click(screen.getByRole('button', { name: 'Tạo hóa đơn tháng' })); fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }));
+  expect(await screen.findByText('Có 2 học sinh đủ điều kiện.')).toBeVisible(); fireEvent.click(screen.getByRole('button', { name: 'Tạo hóa đơn nháp' })); expect(await screen.findByText('Đã tạo 2 hóa đơn nháp.')).toBeVisible();
+  const previewCall = fetch.mock.calls.find(([url]) => String(url).includes('/invoices/batch-preview'))!; const createCall = fetch.mock.calls.find(([url]) => String(url).endsWith('/invoices/batch'))!;
+  expect(JSON.parse(previewCall[1]!.body as string)).toEqual({ billingMonth: '2026-08', allActiveClasses: true }); expect(JSON.parse(createCall[1]!.body as string)).toEqual({ billingMonth: '2026-08', allActiveClasses: true });
+});
+
+it('clears a zero-eligible preview and keeps creation disabled', async () => {
+  const fetch = vi.fn().mockImplementation((url: string) => {
+    if (String(url).includes('/auth/csrf')) return Promise.resolve(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 }));
+    if (String(url).includes('/invoices/batch-preview')) return Promise.resolve(new Response(JSON.stringify({ data: { eligibleCount: 0, skipped: { inactiveStudent: 0, missingClass: 0, archivedClass: 0, existingInvoice: 1 } } }), { status: 200 }));
+    return Promise.resolve(responseFor(String(url), [], { page: 1, pageSize: 20, total: 0, pageCount: 1 }));
+  }); vi.stubGlobal('fetch', fetch);
+  renderPage(); await screen.findByText('Chưa có hóa đơn trong 08/2026.'); fireEvent.click(screen.getByRole('button', { name: 'Tạo hóa đơn tháng' })); fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }));
+  expect(await screen.findByText('Có 0 học sinh đủ điều kiện.')).toBeVisible(); expect(screen.getByRole('button', { name: 'Tạo hóa đơn nháp' })).toBeDisabled(); fireEvent.change(screen.getByLabelText('Tháng tạo hóa đơn'), { target: { value: '2026-09' } }); expect(screen.queryByText('Có 0 học sinh đủ điều kiện.')).not.toBeInTheDocument();
 });

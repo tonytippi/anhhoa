@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { InvoicesService } from './invoices.service.js';
+import { INVOICE_TEMPLATE_EMPTY } from '../../common/errors/domain.exception.js';
 
 const invoice = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: 'Bé An lúc tạo', studentNickname: 'An', classId: 'b2e36687-69b4-4e89-8ec0-141ff397837f', className: 'Mầm 1 lúc tạo', status: 'DRAFT' as const, total: 1500000n, createdAt: new Date('2026-08-02T00:00:00.000Z'), updatedAt: new Date('2026-08-02T00:00:00.000Z') };
 
@@ -15,5 +16,10 @@ describe('InvoicesService', () => {
 
   it('rejects unsafe stored money instead of serializing a lossy JSON number', async () => {
     await expect(new InvoicesService(prisma({ ...invoice, total: BigInt(Number.MAX_SAFE_INTEGER) + 1n }) as never).get(invoice.id)).rejects.toThrow('outside the JSON safe integer range');
+  });
+
+  it('rejects batch preview when the singleton template has no lines', async () => {
+    const db = prisma(); Object.assign(db, { invoiceTemplate: { findFirst: vi.fn().mockResolvedValue({ items: [] }) } });
+    await expect(new InvoicesService(db as never).preview({ billingMonth: '2026-08', allActiveClasses: true })).rejects.toMatchObject({ response: { code: INVOICE_TEMPLATE_EMPTY } });
   });
 });

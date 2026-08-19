@@ -9,7 +9,7 @@ if (process.env.DATABASE_URL !== databaseUrl) throw new Error('Integration tests
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
 const service = new StudentsService(prisma as never);
 const classes = new ClassesService(prisma as never);
-beforeEach(async () => { await prisma.student.deleteMany(); await prisma.class.deleteMany(); });
+beforeEach(async () => { await prisma.invoiceItem.deleteMany(); await prisma.invoice.deleteMany(); await prisma.student.deleteMany(); await prisma.class.deleteMany(); });
 afterAll(async () => { await prisma.$disconnect(); });
 
 describe('StudentsService PostgreSQL contract', () => {
