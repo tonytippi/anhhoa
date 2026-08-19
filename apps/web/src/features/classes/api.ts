@@ -27,9 +27,10 @@ function parseAction(value: unknown): SchoolClass {
   if (!value || typeof value !== 'object' || !('data' in value)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   return parseClass(value.data);
 }
-function parseTransfer(value: unknown): TransferResult {
+function parseTransfer(value: unknown): TransferResult | PendingOperation {
   if (!value || typeof value !== 'object' || !('data' in value)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   const data = value.data as Record<string, unknown>;
+  if (data?.state === 'PENDING' && typeof data.operationId === 'string') return { operationId: data.operationId, state: 'PENDING' };
   if (!data || !Number.isSafeInteger(data.affectedStudentCount) || (data.affectedStudentCount as number) < 0 || typeof data.operationId !== 'string') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   return { source: parseClass(data.source), destination: parseClass(data.destination), affectedStudentCount: data.affectedStudentCount as number, operationId: data.operationId };
 }
@@ -58,7 +59,6 @@ export function useActiveClassesForPicker(enabled = true) {
 export function useSaveClass() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, input }: { id?: string; input: ClassInput }) => requestJson<unknown>(id ? `/classes/${id}` : '/classes', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(input) }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['classes'] }) }); }
 export function useArchiveClass() { const client = useQueryClient(); return useMutation({ mutationFn: (id: string) => requestJson<unknown>(`/classes/${id}/archive`, { method: 'POST' }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['classes'] }) }); }
 export function useTransferClass() {
-  const client = useQueryClient();
-  return useMutation({ mutationFn: ({ sourceClassId, destinationClassId, operationId }: { sourceClassId: string; destinationClassId: string; operationId: string }) => requestJson<unknown>(`/classes/${sourceClassId}/transfer`, { method: 'POST', headers: { 'Idempotency-Key': operationId }, body: JSON.stringify({ destinationClassId }) }).then(parseTransfer), onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ['classes'] }), client.invalidateQueries({ queryKey: ['students'] })]) });
+  return useMutation({ mutationFn: ({ sourceClassId, destinationClassId, operationId }: { sourceClassId: string; destinationClassId: string; operationId: string }) => requestJson<unknown>(`/classes/${sourceClassId}/transfer`, { method: 'POST', headers: { 'Idempotency-Key': operationId }, body: JSON.stringify({ destinationClassId }) }).then(parseTransfer) });
 }
 export function getOperation(operationId: string) { return getJson<unknown>(`/operations/${operationId}`).then(parseOperation); }

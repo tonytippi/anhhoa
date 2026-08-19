@@ -31,7 +31,7 @@ it('shows paginated students and active-only transfer confirmation without writi
   expect((fetch.mock.calls as unknown as [string, RequestInit | undefined][]).some(([url, init]) => url.includes('/transfer') && init?.method === 'POST')).toBe(false);
 });
 
-it('sends one UUID idempotency header and preserves destination while reconciling a timeout', async () => {
+  it('keeps the same UUID and destination after a timeout followed by an uncertain 404', async () => {
   const fetch = mockReads();
   fetch.mockImplementation((url: string, init?: RequestInit) => {
     if (url.includes('/transfer')) return new Promise((_resolve, reject) => (init?.signal as AbortSignal).addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))));
@@ -50,11 +50,16 @@ it('sends one UUID idempotency header and preserves destination while reconcilin
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
   await act(async () => { await vi.advanceTimersByTimeAsync(1_800); });
   vi.useRealTimers();
-  expect(await screen.findByRole('alert')).toHaveTextContent('Server xác nhận thao tác chưa được áp dụng');
+   expect(await screen.findByRole('alert')).toHaveTextContent('Chưa xác định được kết quả thao tác');
   const write = (fetch.mock.calls as unknown as [string, RequestInit | undefined][]).find(([url, init]) => url.includes('/transfer') && init?.method === 'POST');
   expect(write?.[1]?.headers).toMatchObject({ 'Idempotency-Key': expect.stringMatching(/^[0-9a-f-]{36}$/i) });
-  expect(screen.getByLabelText('Lớp đích')).toHaveValue(destination.id);
-  expect(screen.getByRole('button', { name: 'Gửi lại' })).toBeEnabled();
+   expect(screen.getByLabelText('Lớp đích')).toHaveValue(destination.id);
+   expect(screen.getByRole('button', { name: 'Gửi lại' })).toBeEnabled();
+   fireEvent.click(screen.getByRole('button', { name: 'Gửi lại' }));
+   await waitFor(() => expect((fetch.mock.calls as unknown as [string, RequestInit | undefined][]).filter(([url, init]) => url.includes('/transfer') && init?.method === 'POST')).toHaveLength(2));
+   const writes = (fetch.mock.calls as unknown as [string, RequestInit | undefined][]).filter(([url, init]) => url.includes('/transfer') && init?.method === 'POST');
+   expect(writes).toHaveLength(2);
+   expect(writes[1]![1]?.headers).toMatchObject({ 'Idempotency-Key': (writes[0]![1]?.headers as Record<string, string>)['Idempotency-Key'] });
 });
 
 it('keeps a pending operation after reload and reconciles it when it completes', async () => {
@@ -69,8 +74,6 @@ it('keeps a pending operation after reload and reconciles it when it completes',
     return Promise.resolve(response({ data: { csrfToken: 'token' } }));
   });
   vi.stubGlobal('fetch', fetch); renderPage();
-  expect(await screen.findByRole('dialog', { name: 'Chuyển học sinh đang học' })).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra lại kết quả' }));
-  expect(await screen.findByRole('status')).toHaveTextContent('Đã chuyển 1 học sinh sang Mầm 2.');
+   expect(await screen.findByRole('status')).toHaveTextContent('Đã chuyển 1 học sinh sang Mầm 2.');
   expect(sessionStorage.getItem('anhhoa.pending-class-transfer')).toBeNull();
 });

@@ -17,20 +17,17 @@ export class OperationsService {
     return operation.response;
   }
 
-  async acquireOrReplay(adminId: string, route: string, id: string, fingerprint: string): Promise<unknown | undefined> {
-    const operation = await this.prisma.operation.findUnique({ where: { id } });
+  async acquireOrReplay(tx: Prisma.TransactionClient, adminId: string, route: string, id: string, fingerprint: string): Promise<unknown | undefined> {
+    await tx.$queryRaw`SELECT id FROM "Operation" WHERE id = ${id}::uuid FOR UPDATE`;
+    const operation = await tx.operation.findUnique({ where: { id } });
     if (!operation) {
-      try {
-        await this.prisma.operation.create({ data: { id, adminId, route, fingerprint, state: OperationState.PENDING } });
-        return undefined;
-      } catch (error) {
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
-        return this.acquireOrReplay(adminId, route, id, fingerprint);
-      }
+      await tx.operation.create({ data: { id, adminId, route, fingerprint, state: OperationState.PENDING } });
+      return undefined;
     }
     if (operation.adminId !== adminId || operation.route !== route) throw new DomainException(IDEMPOTENCY_CONFLICT, 'Idempotency key was already used for another request.');
     if (operation.fingerprint !== fingerprint) throw new DomainException(IDEMPOTENCY_CONFLICT, 'Idempotency key was already used for another request.');
-    if (operation.state === OperationState.PENDING) return { data: { operationId: operation.id, state: OperationState.PENDING } };
+    // A pending row from the previous protocol is recovered by this transaction.
+    if (operation.state === OperationState.PENDING) return undefined;
     return operation.response;
   }
 

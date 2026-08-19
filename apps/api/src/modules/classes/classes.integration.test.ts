@@ -52,6 +52,30 @@ describe('ClassesService PostgreSQL contract', () => {
     await expect(service.transfer(source.id, source.id, key, admin.id)).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
   });
 
+  it('rolls back a new operation with a rejected transfer so the same key can be retried safely', async () => {
+    const source = await prisma.class.create({ data: { name: 'Mầm 1', monthlyTuition: 1500000n } });
+    const destination = await prisma.class.create({ data: { name: 'Mầm 2', monthlyTuition: 1500000n, status: ClassStatus.ARCHIVED } });
+    const admin = await prisma.admin.create({ data: { email: 'admin-rollback@example.com', displayName: 'Admin', googleId: 'google-rollback' } });
+    const key = '2b04d9b2-2f11-4a77-8e24-4f0a3c20a9bb';
+    await expect(service.transfer(source.id, destination.id, key, admin.id)).rejects.toMatchObject({ response: { code: 'CLASS_ARCHIVED' } });
+    await expect(prisma.operation.count({ where: { id: key } })).resolves.toBe(0);
+    await prisma.class.update({ where: { id: destination.id }, data: { status: ClassStatus.ACTIVE } });
+    await expect(service.transfer(source.id, destination.id, key, admin.id)).resolves.toMatchObject({ data: { operationId: key } });
+  });
+
+  it('recovers a legacy pending operation with the same key inside the transfer transaction', async () => {
+    const source = await prisma.class.create({ data: { name: 'Mầm 1', monthlyTuition: 1500000n } });
+    const destination = await prisma.class.create({ data: { name: 'Mầm 2', monthlyTuition: 1500000n } });
+    const admin = await prisma.admin.create({ data: { email: 'admin-recover@example.com', displayName: 'Admin', googleId: 'google-recover' } });
+    await prisma.student.create({ data: { fullName: 'Bé An', status: StudentStatus.ACTIVE, classId: source.id } });
+    const key = '2c04d9b2-2f11-4a77-8e24-4f0a3c20a9bb';
+    await prisma.operation.create({ data: { id: key, adminId: admin.id, route: `/classes/${source.id}/transfer`, fingerprint: new OperationsService(prisma as never).fingerprint({ sourceClassId: source.id, destinationClassId: destination.id }), state: 'PENDING' } });
+    const result = await service.transfer(source.id, destination.id, key, admin.id);
+    expect(result.data).toMatchObject({ affectedStudentCount: 1, operationId: key });
+    await expect(prisma.operation.findUniqueOrThrow({ where: { id: key } })).resolves.toMatchObject({ state: 'COMPLETED', response: result });
+    await expect(service.transfer(source.id, destination.id, key, admin.id)).resolves.toEqual(result);
+  });
+
   it('serializes concurrent requests with the same operation key into one transfer and a replayed outcome', async () => {
     const source = await prisma.class.create({ data: { name: 'Mầm 1', monthlyTuition: 1500000n } });
     const destination = await prisma.class.create({ data: { name: 'Mầm 2', monthlyTuition: 1500000n } });

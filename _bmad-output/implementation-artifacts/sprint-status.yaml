@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:45
-last_updated: 08-19-2026
+last_updated: 08-19-2026 17:50
 project: anhhoa
 project_key: NOKEY
 tracking_system: file-system
@@ -49,7 +49,7 @@ development_status:
   2-4-chuyển-toàn-bộ-học-sinh-đang-học-của-một-lớp: done
   2-5-quản-lý-mẫu-hóa-đơn-chung: done
   2-6-quản-lý-tài-khoản-nhận-tiền: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   epic-3: backlog
   3-1-xem-danh-sách-hóa-đơn-theo-tháng: backlog
@@ -62,3 +62,20 @@ development_status:
   epic-4: backlog
   4-1-xem-báo-cáo-thu-theo-tháng: backlog
   epic-4-retrospective: optional
+action_items:
+  - id: "epic-2-retro-item-1-sửa-reconciliation-retry-whole-class-tra"
+    epic: 2
+    action: "Sửa reconciliation/retry whole-class transfer để luôn giữ và tái sử dụng
+      operationId ban đầu sau timeout; thêm test delayed POST vượt qua lookup 404
+      và chứng minh không có double transfer."
+    owner: "Amelia"
+    status: done
+    ref: "/home/sonnh/projects/anhhoa/_bmad-output/implementation-artifacts/epic-2-retro-2026-08-19.md"
+  - id: "epic-2-retro-item-2-thiết-kế-recovery-an-toàn-cho-pending-op"
+    epic: 2
+    action: "Thiết kế recovery an toàn cho PENDING operations và đưa acquire/completion
+      vào protocol nguyên tử hoặc leased/recoverable; thêm PostgreSQL integration
+      coverage cho crash-window, replay và recovery."
+    owner: "Amelia"
+    status: done
+    ref: "/home/sonnh/projects/anhhoa/_bmad-output/implementation-artifacts/epic-2-retro-2026-08-19.md"

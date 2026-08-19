@@ -71,31 +71,28 @@ export class ClassesService {
   async transfer(sourceClassId: string, destinationClassId: string, operationId: string, adminId: string) {
     const route = `/classes/${sourceClassId}/transfer`;
     const fingerprint = this.operations.fingerprint({ sourceClassId, destinationClassId });
-    const replay = await this.operations.acquireOrReplay(adminId, route, operationId, fingerprint);
-    if (replay !== undefined) return replay as { data: unknown };
     for (let attempt = 0; attempt < 3; attempt += 1) try {
       return await this.prisma.$transaction(async (tx) => {
-       if (sourceClassId === destinationClassId) throw new DomainException(CLASS_TRANSFER_INVALID, 'Source and destination classes must differ.', undefined, ['destinationClassId Destination class must differ from source class.']);
-      for (const id of [sourceClassId, destinationClassId].sort()) await tx.$queryRaw`SELECT id FROM "Class" WHERE id = ${id}::uuid FOR UPDATE`;
-      const [source, destination] = await Promise.all([
-        tx.class.findUnique({ where: { id: sourceClassId }, include: classWithCount }),
-        tx.class.findUnique({ where: { id: destinationClassId }, include: classWithCount }),
-      ]);
+        const replay = await this.operations.acquireOrReplay(tx, adminId, route, operationId, fingerprint);
+        if (replay !== undefined) return replay as { data: unknown };
+        if (sourceClassId === destinationClassId) throw new DomainException(CLASS_TRANSFER_INVALID, 'Source and destination classes must differ.', undefined, ['destinationClassId Destination class must differ from source class.']);
+        for (const id of [sourceClassId, destinationClassId].sort()) await tx.$queryRaw`SELECT id FROM "Class" WHERE id = ${id}::uuid FOR UPDATE`;
+        const [source, destination] = await Promise.all([
+          tx.class.findUnique({ where: { id: sourceClassId }, include: classWithCount }),
+          tx.class.findUnique({ where: { id: destinationClassId }, include: classWithCount }),
+        ]);
        if (!source) throw new NotFoundException('Source class not found.');
        if (!destination) throw new DomainException(CLASS_NOT_FOUND, 'Destination class not found.', undefined, ['destinationClassId Destination class not found.']);
        if (source.status !== ClassStatus.ACTIVE) throw new DomainException(CLASS_ARCHIVED, 'Archived source classes cannot transfer students.');
        if (destination.status !== ClassStatus.ACTIVE) throw new DomainException(CLASS_ARCHIVED, 'Archived classes cannot accept students.', undefined, ['destinationClassId Archived classes cannot accept students.']);
-      const affectedStudentCount = await tx.student.count({ where: { classId: sourceClassId, status: StudentStatus.ACTIVE } });
-      await tx.student.updateMany({ where: { classId: sourceClassId, status: StudentStatus.ACTIVE }, data: { classId: destinationClassId } });
-      const result = { data: { source: serialize(await tx.class.findUniqueOrThrow({ where: { id: sourceClassId }, include: classWithCount })), destination: serialize(await tx.class.findUniqueOrThrow({ where: { id: destinationClassId }, include: classWithCount })), affectedStudentCount, operationId } };
-       await this.operations.complete(tx, { id: operationId, adminId, route, fingerprint, response: result });
-      return result;
+        const affectedStudentCount = await tx.student.count({ where: { classId: sourceClassId, status: StudentStatus.ACTIVE } });
+        await tx.student.updateMany({ where: { classId: sourceClassId, status: StudentStatus.ACTIVE }, data: { classId: destinationClassId } });
+        const result = { data: { source: serialize(await tx.class.findUniqueOrThrow({ where: { id: sourceClassId }, include: classWithCount })), destination: serialize(await tx.class.findUniqueOrThrow({ where: { id: destinationClassId }, include: classWithCount })), affectedStudentCount, operationId } };
+        await this.operations.complete(tx, { id: operationId, adminId, route, fingerprint, response: result });
+        return result;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
-      if (attempt === 2 || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') {
-        await this.prisma.operation.deleteMany({ where: { id: operationId, adminId, route, state: 'PENDING' } });
-        throw error;
-      }
+      if (attempt === 2 || !(error instanceof Prisma.PrismaClientKnownRequestError) || !['P2034', 'P2002'].includes(error.code)) throw error;
     }
     throw new Error('Unreachable transfer retry state.');
   }

@@ -34,6 +34,6 @@ describe('OperationsService PostgreSQL contract', () => {
     const admin = await prisma.admin.create({ data: { email: 'unique-operation@example.com', displayName: 'Owner', googleId: 'unique-operation' } });
     const id = '7a04d9b2-2f11-4a77-8e24-4f0a3c20a9bb';
     await prisma.operation.create({ data: { id, adminId: admin.id, route: '/classes/source/transfer', fingerprint: 'fingerprint', response: { data: {} } } });
-    await expect(service.acquireOrReplay(admin.id, '/classes/other/transfer', id, 'fingerprint')).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
+    await expect(prisma.$transaction((tx) => service.acquireOrReplay(tx, admin.id, '/classes/other/transfer', id, 'fingerprint'))).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
   });
 });
