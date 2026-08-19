@@ -1,7 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiExceptionFilter } from './api-exception.filter.js';
-import { DomainException } from '../errors/domain.exception.js';
+import { DomainException, IDEMPOTENCY_CONFLICT } from '../errors/domain.exception.js';
 
 describe('ApiExceptionFilter', () => {
   it('uses the standard JSON error contract', () => {
@@ -29,4 +29,10 @@ describe('ApiExceptionFilter', () => {
     new ApiExceptionFilter().catch(new (class extends ForbiddenException { override getResponse() { return { code: 'ARBITRARY', message: 'No.', metadata: { leaked: 1 } }; } })(), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
     expect(json).toHaveBeenCalledWith({ error: { code: 'FORBIDDEN', message: 'No.' } });
   });
+});
+
+it('preserves IDEMPOTENCY_CONFLICT for clients', () => {
+  const status = vi.fn().mockReturnThis(); const json = vi.fn();
+  new ApiExceptionFilter().catch(new DomainException(IDEMPOTENCY_CONFLICT, 'Key conflict.'), { switchToHttp: () => ({ getResponse: () => ({ status, json }) }) } as never);
+  expect(json).toHaveBeenCalledWith({ error: { code: IDEMPOTENCY_CONFLICT, message: 'Key conflict.' } });
 });

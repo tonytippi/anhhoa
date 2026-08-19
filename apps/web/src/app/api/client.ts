@@ -27,6 +27,8 @@ export async function requestJson<T>(path: string, init: RequestInit): Promise<T
   return sendJson<T>(path, init);
 }
 
+export function createOperationId(): string { return crypto.randomUUID(); }
+
 async function sendJson<T>(path: string, init: RequestInit): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string> | undefined) };
   const isWrite = Boolean(init.method && init.method !== 'GET');

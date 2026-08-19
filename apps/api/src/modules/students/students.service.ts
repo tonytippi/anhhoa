@@ -19,6 +19,7 @@ export class StudentsService {
     const search = query.search?.trim();
     const where: Prisma.StudentWhereInput = {
       ...(query.status ? { status: query.status } : {}),
+      ...(query.classId ? { classId: query.classId } : {}),
       ...(search ? { OR: [{ fullName: { contains: search, mode: 'insensitive' } }, { nickname: { contains: search, mode: 'insensitive' } }] } : {}),
     };
     return this.prisma.$transaction(async (tx) => {

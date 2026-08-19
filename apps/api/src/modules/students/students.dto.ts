@@ -7,6 +7,7 @@ const trim = ({ value }: { value: unknown }) => typeof value === 'string' ? valu
 export class ListStudentsDto {
   @IsOptional() @Transform(trim) @IsString() @MaxLength(100) search?: string;
   @IsOptional() @IsEnum(StudentStatus) status?: StudentStatus;
+  @IsOptional() @IsUUID() classId?: string;
   @IsOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1) @Max(10_000) page = 1;
   @IsOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1) @Max(100) pageSize = 20;
 }

@@ -1,7 +1,7 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
-import { CreateClassDto, UpdateClassDto } from './classes.dto.js';
+import { CreateClassDto, TransferClassDto, UpdateClassDto } from './classes.dto.js';
 
 describe('CreateClassDto', () => {
   it('trims names and rejects whitespace-only or names over 100 characters', async () => {
@@ -11,6 +11,11 @@ describe('CreateClassDto', () => {
     await expect(validate(plainToInstance(CreateClassDto, { name: '   ', monthlyTuition: 0 }))).resolves.not.toHaveLength(0);
     await expect(validate(plainToInstance(CreateClassDto, { name: 'a'.repeat(101), monthlyTuition: 0 }))).resolves.not.toHaveLength(0);
   });
+});
+
+it('rejects a transfer payload without a UUID destinationClassId', async () => {
+  const input = Object.assign(new TransferClassDto(), { destinationClassId: 'not-a-uuid' });
+  expect(await validate(input)).not.toHaveLength(0);
 });
 
 describe('UpdateClassDto', () => {

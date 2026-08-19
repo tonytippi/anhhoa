@@ -28,6 +28,15 @@ describe('StudentsService PostgreSQL contract', () => {
     await expect(prisma.student.findUniqueOrThrow({ where: { id: student.id } })).resolves.toMatchObject({ status: StudentStatus.ACTIVE });
   });
 
+  it('paginates students by classId without embedding them in the class resource', async () => {
+    const first = await prisma.class.create({ data: { name: 'Mầm 1', monthlyTuition: 1500000n } });
+    const second = await prisma.class.create({ data: { name: 'Mầm 2', monthlyTuition: 1500000n } });
+    const included = await prisma.student.create({ data: { fullName: 'Bé An', classId: first.id } });
+    await prisma.student.create({ data: { fullName: 'Bé Bình', classId: second.id } });
+    const result = await service.list({ classId: first.id, page: 1, pageSize: 1 });
+    expect(result).toMatchObject({ data: [expect.objectContaining({ id: included.id, classId: first.id })], meta: { total: 1, page: 1, pageSize: 1 } });
+  });
+
   it('preserves an omitted nickname and clears it only when explicitly null', async () => {
     const student = await prisma.student.create({ data: { fullName: 'Bé An', nickname: 'An' } });
     await service.update(student.id, { fullName: 'Bé An mới' });

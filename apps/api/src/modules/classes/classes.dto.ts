@@ -17,3 +17,4 @@ export class CreateClassDto {
 export class UpdateClassDto extends CreateClassDto {}
 
 export class ClassIdDto { @IsUUID() id!: string; }
+export class TransferClassDto { @IsUUID() destinationClassId!: string; }
