@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Req, Res, UseGuards } from '@nestjs/common';
+import { ConflictException, Controller, Get, Inject, Req, Res, UseGuards } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
@@ -34,7 +34,15 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   async callback(@Req() request: Request, @Res() response: Response): Promise<void> {
     const profile = request.user as GoogleAdminProfile;
-    const admin = await this.admins.upsertGoogleAdmin(profile);
+    let admin: Admin;
+    try {
+      admin = await this.admins.upsertGoogleAdmin(profile);
+    } catch (error) {
+      if (!(error instanceof ConflictException)) throw error;
+      response.clearCookie(this.config.oauthStateCookieName, { secure: true, httpOnly: true, sameSite: 'lax', path: '/auth/google' });
+      response.redirect(this.config.oauthDeniedRedirectUrl);
+      return;
+    }
     const session = await this.jwt.signAsync({ sub: admin.id });
     response.clearCookie(this.config.oauthStateCookieName, { secure: true, httpOnly: true, sameSite: 'lax', path: '/auth/google' });
     response.cookie('session', session, { secure: true, httpOnly: true, sameSite: 'lax', path: '/' });

@@ -1,5 +1,6 @@
 export interface AuthConfig {
   port: number;
+  databaseUrl: string;
   webOrigin: string;
   googleClientId: string;
   googleClientSecret: string;
@@ -14,6 +15,7 @@ export interface AuthConfig {
 }
 
 const REQUIRED_VALUES = [
+  'DATABASE_URL',
   'WEB_ORIGIN',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
@@ -55,6 +57,8 @@ export function parsePort(value: string | undefined): number {
 }
 
 export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig {
+  const databaseUrl = required(env, 'DATABASE_URL');
+  if (!/^postgres(?:ql)?:\/\//.test(databaseUrl)) throw new Error('DATABASE_URL must be a PostgreSQL connection URL.');
   const webOrigin = parseUrl(required(env, 'WEB_ORIGIN'), 'WEB_ORIGIN', true);
   const callbackUrl = parseUrl(required(env, 'GOOGLE_CALLBACK_URL'), 'GOOGLE_CALLBACK_URL');
   const redirectUrls = required(env, 'OAUTH_REDIRECT_URLS').split(',').map((value) => parseUrl(value.trim(), 'OAUTH_REDIRECT_URLS'));
@@ -75,7 +79,7 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
   }
 
   return {
-    port: parsePort(env.PORT), webOrigin,
+    port: parsePort(env.PORT), databaseUrl, webOrigin,
     googleClientId: required(env, 'GOOGLE_CLIENT_ID'),
     googleClientSecret: required(env, 'GOOGLE_CLIENT_SECRET'),
     googleCallbackUrl: callbackUrl,

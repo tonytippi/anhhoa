@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 import { AdminsService } from './admins.service.js';
 
 describe('AdminsService', () => {
@@ -18,5 +19,10 @@ describe('AdminsService', () => {
     const service = new AdminsService({ admin: { findUnique: vi.fn().mockResolvedValueOnce({ id: 'same', googleId: 'google-id' }).mockResolvedValueOnce(null), update } } as never);
     await service.upsertGoogleAdmin({ googleId: 'google-id', email: 'new@example.com', displayName: 'New name' });
     expect(update).toHaveBeenCalledWith({ where: { id: 'same' }, data: { email: 'new@example.com', displayName: 'New name', avatarUrl: undefined } });
+  });
+  it('maps a concurrent unique collision to the safe account-link conflict', async () => {
+    const collision = new Prisma.PrismaClientKnownRequestError('Unique constraint failed.', { code: 'P2002', clientVersion: 'test' });
+    const service = new AdminsService({ admin: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockRejectedValue(collision) } } as never);
+    await expect(service.upsertGoogleAdmin({ googleId: 'google-id', email: 'admin@example.com', displayName: 'Admin' })).rejects.toThrow('Unable to link this account.');
   });
 });

@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import type { Admin } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { normalizeEmail } from '../../common/config/auth-config.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 
@@ -23,6 +24,13 @@ export class AdminsService {
     }
     const byEmail = await this.prisma.admin.findUnique({ where: { email } });
     if (byEmail) throw new ConflictException('Unable to link this account.');
-    return this.prisma.admin.create({ data: { email, googleId: profile.googleId, displayName: profile.displayName, avatarUrl: profile.avatarUrl } });
+    try {
+      return await this.prisma.admin.create({ data: { email, googleId: profile.googleId, displayName: profile.displayName, avatarUrl: profile.avatarUrl } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Unable to link this account.');
+      }
+      throw error;
+    }
   }
 }

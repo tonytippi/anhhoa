@@ -7,7 +7,7 @@ const { apiEnvPath, bootstrap, parsePort } = await import('./main.js');
 
 const originalEnv = { ...process.env };
 const authEnv = {
-  WEB_ORIGIN: 'http://localhost:5173', GOOGLE_CLIENT_ID: 'client-id', GOOGLE_CLIENT_SECRET: 'client-secret',
+  DATABASE_URL: 'postgresql://user:password@localhost:5432/anhhoa', WEB_ORIGIN: 'http://localhost:5173', GOOGLE_CLIENT_ID: 'client-id', GOOGLE_CLIENT_SECRET: 'client-secret',
   GOOGLE_CALLBACK_URL: 'http://localhost:3000/auth/google/callback', OAUTH_REDIRECT_URLS: 'http://localhost:5173', OAUTH_DENIED_REDIRECT_URL: 'http://localhost:5173',
   JWT_SECRET: 'a-very-long-secret-that-is-at-least-32-characters', ADMIN_EMAILS: 'admin@example.com',
 };
