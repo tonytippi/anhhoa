@@ -5,6 +5,7 @@ import { PlaceholderPage } from '../features/overview/page';
 import { ClassesPage } from '../features/classes/page';
 import { ClassDetailPage } from '../features/classes/detail-page';
 import { StudentsPage } from '../features/students/page';
+import { InvoiceTemplatePage } from '../features/invoice-template/page';
 import { MenuButton } from '../components/menu-button';
 import { NavigationSheet } from '../components/navigation-sheet';
 import { OfflineNotice } from '../components/offline-notice';
@@ -47,5 +48,5 @@ export function App(): React.JSX.Element {
     return <div className="app-shell"><Sidebar admin={admin} /><header className="mobile-header"><MenuButton isDesktop={isDesktop} isOpen={menuOpen} onClick={() => { menuOpenRef.current = true; setMenuOpen(true); }} trigger={trigger} /><span>Ánh Hoa</span></header>{menuOpen && <NavigationSheet admin={admin} trigger={trigger} onClose={closeMenu} />}<main><Page /></main><OfflineNotice /></div>;
   }
 
-  function Page(): React.JSX.Element { const path = useLocation().pathname; return path === '/lop' ? <ClassesPage /> : /^\/lop\/[^/]+$/.test(path) ? <ClassDetailPage /> : path === '/hoc-sinh' ? <StudentsPage /> : <PlaceholderPage />; }
+  function Page(): React.JSX.Element { const path = useLocation().pathname; return path === '/lop' ? <ClassesPage /> : /^\/lop\/[^/]+$/.test(path) ? <ClassDetailPage /> : path === '/hoc-sinh' ? <StudentsPage /> : path === '/mau-hoa-don' ? <InvoiceTemplatePage /> : <PlaceholderPage />; }
 }

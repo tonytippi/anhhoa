@@ -29,6 +29,12 @@ describe('ApiExceptionFilter', () => {
     new ApiExceptionFilter().catch(new (class extends ForbiddenException { override getResponse() { return { code: 'ARBITRARY', message: 'No.', metadata: { leaked: 1 } }; } })(), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
     expect(json).toHaveBeenCalledWith({ error: { code: 'FORBIDDEN', message: 'No.' } });
   });
+  it('maps a Prisma serialization conflict to the standard 409 response', () => {
+    const json = vi.fn(); const status = vi.fn().mockReturnValue({ json });
+    new ApiExceptionFilter().catch({ code: 'P2034' }, { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
+    expect(status).toHaveBeenCalledWith(409);
+    expect(json).toHaveBeenCalledWith({ error: { code: 'CONFLICT', message: 'Request failed.' } });
+  });
 });
 
 it('preserves IDEMPOTENCY_CONFLICT for clients', () => {

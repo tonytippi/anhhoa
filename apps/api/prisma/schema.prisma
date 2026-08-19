@@ -46,6 +46,11 @@ enum StudentStatus {
   INACTIVE
 }
 
+enum InvoiceTemplateAmountSource {
+  FIXED
+  CLASS_TUITION
+}
+
 model Class {
   id             String      @id @default(uuid()) @db.Uuid
   name           String
@@ -69,4 +74,28 @@ model Student {
   updatedAt DateTime      @updatedAt
 
   @@index([classId, status])
+}
+
+model InvoiceTemplate {
+  id        String                @id @default(uuid()) @db.Uuid
+  singleton Boolean               @unique @default(true)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  items     InvoiceTemplateItem[]
+}
+
+model InvoiceTemplateItem {
+  id           String                      @id @default(uuid()) @db.Uuid
+  templateId   String                      @db.Uuid
+  description  String
+  feeGroup     String?
+  position     Int
+  amountSource InvoiceTemplateAmountSource
+  fixedAmount  BigInt?
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
+  template     InvoiceTemplate             @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  @@unique([templateId, position])
+  @@index([templateId, position])
 }

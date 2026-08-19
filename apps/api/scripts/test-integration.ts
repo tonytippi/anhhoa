@@ -15,6 +15,7 @@ try {
   run('docker', ['compose', '-f', composeFile, 'up', '-d', '--wait']);
   run('pnpm', ['prisma', 'generate']);
   run('pnpm', ['prisma', 'migrate', 'deploy']);
+  run('pnpm', ['prisma', 'db', 'seed']);
   run('pnpm', ['vitest', 'run', '--config', 'vitest.integration.config.ts']);
 } finally {
   run('docker', ['compose', '-f', composeFile, 'down', '-v']);
