@@ -289,6 +289,11 @@ So that danh sách Lớp và học phí tháng phản ánh đúng vận hành hi
 **Then** Lớp chuyển sang trạng thái lưu trữ thay vì bị xóa cứng
 **And** Lớp lưu trữ không còn là lựa chọn gán mới hoặc luồng tạo Hóa đơn mới nhưng vẫn xem được cùng lịch sử tham chiếu.
 
+**Given** một Lớp active còn Học sinh đang học được gán vào
+**When** Admin thử lưu trữ Lớp
+**Then** API từ chối với `CLASS_HAS_ACTIVE_STUDENTS` cùng số lượng Học sinh bị ảnh hưởng
+**And** UI hướng Admin chuyển hoặc cho nghỉ học các em trước khi lưu trữ.
+
 ### Story 2.2: Quản lý Học sinh và Lớp hiện tại
 
 As an Admin,
@@ -371,6 +376,11 @@ So that Hóa đơn mới có bố cục thu phí nhất quán và tự điền �
 **Then** Admin có thể thêm, sửa, bỏ và xem các Dòng mẫu gồm mô tả, nhóm thu tùy chọn, thứ tự và nguồn số tiền
 **And** nguồn tiền chỉ là số cố định VND không phân số hoặc học phí tháng của Lớp.
 
+**Given** hệ thống được khởi tạo
+**When** Admin chưa cấu hình Mẫu hóa đơn chung
+**Then** seed tạo đúng một Mẫu hóa đơn chung không có Dòng mẫu
+**And** Admin có thể thêm và sắp xếp Dòng mẫu trước khi dùng mẫu để tạo Hóa đơn.
+
 **Given** Admin cần đổi thứ tự Dòng mẫu
 **When** chọn nút `Lên` hoặc `Xuống` có nhãn truy cập được
 **Then** thứ tự được persist và phản ánh lại trong danh sách
@@ -444,10 +454,16 @@ So that tôi chuẩn bị thu phí nhanh mà không tạo Hóa đơn trùng ho�
 **Then** web gọi `POST /invoices/batch-preview` là nguồn preflight chính thức và hiển thị số Học sinh đủ điều kiện cùng skip được phân loại: nghỉ học, chưa gán Lớp, Lớp lưu trữ hoặc đã có Hóa đơn
 **And** nếu không có Học sinh đủ điều kiện, UI không gửi lệnh tạo.
 
+**Given** Mẫu hóa đơn chung chưa có Dòng mẫu
+**When** Admin yêu cầu batch preview hoặc tạo Hóa đơn hàng loạt
+**Then** API từ chối bằng lỗi `INVOICE_TEMPLATE_EMPTY`
+**And** không tạo Hóa đơn rỗng.
+
 **Given** Học sinh đang học có Lớp active chưa có Hóa đơn trong tháng
 **When** Admin gửi tạo với UUID `Idempotency-Key`
 **Then** API trong transaction tạo đúng một `DRAFT` cho mỗi cặp `(studentId, billingMonth)`, PostgreSQL enforce unique constraint và response nêu chính xác created/skipped
 **And** mỗi Hóa đơn lưu Admin tạo, timestamp, Học sinh/Lớp snapshot, Dòng mẫu snapshot và giá trị học phí tháng hiện tại khi dòng mẫu dùng nguồn học phí Lớp.
+**And** phương thức thanh toán và Tài khoản nhận tiền chưa được đặt tại thời điểm tạo `DRAFT`.
 
 **Given** hai Admin gửi tạo đồng thời với phạm vi chồng lấp hoặc client retry cùng request
 **When** API xử lý
@@ -476,11 +492,13 @@ So that số tiền và phương thức thanh toán được kiểm tra trước
 **When** thêm, sửa, xóa hoặc dùng nút `Lên`/`Xuống` có nhãn để sắp xếp
 **Then** mỗi dòng lưu mô tả, nhóm tùy chọn và số nguyên VND; dòng có thể là âm hoặc bằng 0 và xóa dòng khác 0 yêu cầu xác nhận nhẹ
 **And** UI cập nhật preview tổng tức thì, còn API là nguồn tính tổng chính xác từ line item và không tin tổng client gửi.
+**And** API chỉ chấp nhận amount của mỗi Dòng hóa đơn trong phạm vi từ `-100.000.000` đến `100.000.000` VND.
 
 **Given** Admin chọn phương thức thanh toán và Tài khoản nhận tiền
 **When** lưu Hóa đơn `DRAFT`
 **Then** tiền mặt không yêu cầu Tài khoản, còn picker chuyển khoản chỉ cho chọn Tài khoản active
 **And** API trả current resource với `billingMonth` `YYYY-MM`, UUID string, timestamp UTC ISO 8601 và tổng/VND JSON integer an toàn.
+**And** các lựa chọn thanh toán còn có thể chỉnh sửa và không thay đổi snapshot của Hóa đơn đã khóa.
 
 **Given** Hóa đơn là `PENDING` hoặc `COMPLETED`
 **When** Admin mở chi tiết
@@ -495,7 +513,7 @@ So that thông tin nhận tiền được cố định, rõ ràng trước khi �
 
 **Acceptance Criteria:**
 
-**Given** Hóa đơn `DRAFT` có tổng lớn hơn 0
+**Given** Hóa đơn `DRAFT` có tổng lớn hơn 0 và không vượt `100.000.000` VND
 **When** Admin chọn `Chuyển sang chờ xác nhận`
 **Then** API chỉ cho phép transition `DRAFT -> PENDING` khi tiền mặt không có Tài khoản hoặc chuyển khoản đã chọn Tài khoản active
 **And** khi điều kiện không hợp lệ, UI giữ dữ liệu, chỉ lỗi đúng field/section cần sửa và không tự đổi trạng thái.
@@ -504,6 +522,7 @@ So that thông tin nhận tiền được cố định, rõ ràng trước khi �
 **When** Admin xem lại chi tiết
 **Then** toàn bộ Dòng hóa đơn, tổng, phương thức và Tài khoản nhận tiền được khóa read-only
 **And** snapshot Học sinh, Lớp, Dòng hóa đơn, phương thức và Tài khoản bảo toàn dù dữ liệu nguồn sau đó bị sửa/ngừng dùng.
+**And** API snapshot phương thức thanh toán và Tài khoản nhận tiền đang được chọn chỉ tại transition thành công này.
 
 **Given** Hóa đơn `PENDING` thanh toán chuyển khoản có Tài khoản snapshot
 **When** summary hiển thị QR card
@@ -513,7 +532,7 @@ So that thông tin nhận tiền được cố định, rõ ràng trước khi �
 **Given** Hóa đơn `PENDING` chưa được xác nhận đã nhận tiền
 **When** Admin chọn `Trả về nháp để chỉnh sửa`
 **Then** API chỉ cho phép `PENDING -> DRAFT` và UI mở lại editor
-**And** khi gửi lại `PENDING`, QR được dựng từ dữ liệu snapshot/payment mới hợp lệ.
+**And** khi gửi lại `PENDING`, API thay thế snapshot thanh toán bằng dữ liệu đang được chọn hợp lệ và QR được dựng từ snapshot mới.
 
 ### Story 3.5: Xác nhận đã nhận tiền và audit Hóa đơn
 
