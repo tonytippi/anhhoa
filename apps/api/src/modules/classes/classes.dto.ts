@@ -10,7 +10,7 @@ export class ListClassesDto {
 }
 
 export class CreateClassDto {
-  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value) @IsString() @IsNotEmpty() @MaxLength(120) name!: string;
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value) @IsString() @IsNotEmpty() @MaxLength(100) name!: string;
   @IsInt() @Min(0) @Max(Number.MAX_SAFE_INTEGER) monthlyTuition!: number;
 }
 

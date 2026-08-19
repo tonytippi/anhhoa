@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
-import { CLASS_HAS_ACTIVE_STUDENTS } from '../errors/domain.exception.js';
+import { CLASS_ARCHIVED, CLASS_HAS_ACTIVE_STUDENTS } from '../errors/domain.exception.js';
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -10,9 +10,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const detail = exception instanceof HttpException ? exception.getResponse() : undefined;
     const message = typeof detail === 'object' && detail && 'message' in detail ? (Array.isArray(detail.message) ? 'Validation failed.' : String(detail.message)) : status === 500 ? 'Internal server error.' : 'Request failed.';
     const fieldErrors = typeof detail === 'object' && detail && 'message' in detail && Array.isArray(detail.message) ? detail.message : undefined;
-    const isApprovedDomainError = typeof detail === 'object' && detail && 'code' in detail && detail.code === CLASS_HAS_ACTIVE_STUDENTS && 'metadata' in detail && detail.metadata && typeof detail.metadata === 'object' && 'activeStudentCount' in detail.metadata && typeof detail.metadata.activeStudentCount === 'number' && Number.isSafeInteger(detail.metadata.activeStudentCount) && detail.metadata.activeStudentCount > 0;
-    const code = isApprovedDomainError ? CLASS_HAS_ACTIVE_STUDENTS : HttpStatus[status];
-    const metadata = isApprovedDomainError ? { activeStudentCount: (detail.metadata as { activeStudentCount: number }).activeStudentCount } : undefined;
+    const isActiveStudentError = typeof detail === 'object' && detail && 'code' in detail && detail.code === CLASS_HAS_ACTIVE_STUDENTS && 'metadata' in detail && detail.metadata && typeof detail.metadata === 'object' && 'activeStudentCount' in detail.metadata && typeof detail.metadata.activeStudentCount === 'number' && Number.isSafeInteger(detail.metadata.activeStudentCount) && detail.metadata.activeStudentCount > 0;
+    const isArchivedError = typeof detail === 'object' && detail && 'code' in detail && detail.code === CLASS_ARCHIVED;
+    const code = isActiveStudentError ? CLASS_HAS_ACTIVE_STUDENTS : isArchivedError ? CLASS_ARCHIVED : HttpStatus[status];
+    const metadata = isActiveStudentError ? { activeStudentCount: (detail.metadata as { activeStudentCount: number }).activeStudentCount } : undefined;
     response.status(status).json({ error: { code, message, ...(fieldErrors ? { fieldErrors } : {}), ...(metadata ? { metadata } : {}) } });
   }
 }

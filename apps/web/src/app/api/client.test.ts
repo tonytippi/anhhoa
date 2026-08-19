@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { ApiError, getJson, requestJson, resetApiClientForTests } from './client';
+import { ApiError, ApiTimeoutError, getJson, requestJson, resetApiClientForTests } from './client';
 
 afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); });
 
@@ -32,4 +32,28 @@ it('returns CSRF rejection without replaying an unsafe mutation', async () => {
   vi.stubGlobal('fetch', fetch);
   await expect(requestJson('/classes', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' } satisfies Partial<ApiError>);
   expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it('times out an unsafe request once without replaying it', async () => {
+  vi.useFakeTimers();
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => (init.signal as AbortSignal).addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))));
+  vi.stubGlobal('fetch', fetch);
+  const request = requestJson('/classes', { method: 'POST', body: '{}' });
+  const rejection = expect(request).rejects.toBeInstanceOf(ApiTimeoutError);
+  await vi.advanceTimersByTimeAsync(10_000);
+  await rejection;
+  expect(fetch).toHaveBeenCalledTimes(2);
+  vi.useRealTimers();
+});
+
+it('times out during CSRF acquisition without sending a write', async () => {
+  vi.useFakeTimers();
+  const fetch = vi.fn().mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => (init.signal as AbortSignal | undefined)?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))));
+  vi.stubGlobal('fetch', fetch);
+  const request = requestJson('/classes', { method: 'POST', body: '{}' });
+  const rejection = expect(request).rejects.toBeInstanceOf(ApiTimeoutError);
+  await vi.advanceTimersByTimeAsync(10_000);
+  await rejection;
+  expect(fetch).toHaveBeenCalledTimes(1);
+  vi.useRealTimers();
 });

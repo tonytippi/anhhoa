@@ -8,7 +8,12 @@ export class ApiError extends Error {
   }
 }
 
+export class ApiTimeoutError extends ApiError {
+  constructor() { super(0, 'REQUEST_TIMEOUT', 'Yêu cầu lưu đã quá thời gian chờ. Hãy làm mới danh sách để đối soát trước khi gửi lại.'); }
+}
+
 const apiBaseUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+const writeTimeoutMs = 10_000;
 
 export function apiUrl(path: string): string {
   return `${apiBaseUrl}${path}`;
@@ -24,13 +29,26 @@ export async function requestJson<T>(path: string, init: RequestInit): Promise<T
 
 async function sendJson<T>(path: string, init: RequestInit): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string> | undefined) };
-  if (init.method && init.method !== 'GET') {
+  const isWrite = Boolean(init.method && init.method !== 'GET');
+  const controller = isWrite ? new AbortController() : undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const deadline = isWrite ? new Promise<never>((_resolve, reject) => { timeout = setTimeout(() => { timedOut = true; controller?.abort(); reject(new ApiTimeoutError()); }, writeTimeoutMs); }) : undefined;
+  try {
+  if (isWrite) {
     headers['Content-Type'] = 'application/json';
-    const csrfToken = await getCsrfToken();
+    const csrfToken = await Promise.race([getCsrfToken(), deadline!]);
     headers['X-CSRF-Token'] = csrfToken;
   }
   const { method, ...rest } = init;
-  const response = await fetch(apiUrl(path), { ...rest, credentials: 'include', headers, ...(method && method !== 'GET' ? { method } : {}) });
+  let response: Response;
+  try {
+    const request = fetch(apiUrl(path), { ...rest, credentials: 'include', headers, signal: controller?.signal, ...(method && method !== 'GET' ? { method } : {}) });
+    response = isWrite ? await Promise.race([request, deadline!]) : await request;
+  } catch (error) {
+    if (timedOut || controller?.signal.aborted) throw new ApiTimeoutError();
+    throw error;
+  }
   const body = await response.json().catch(() => undefined) as unknown;
   if (!response.ok) {
     const error = body as ApiErrorBody | undefined;
@@ -40,6 +58,9 @@ async function sendJson<T>(path: string, init: RequestInit): Promise<T> {
   }
   if (body === undefined) throw new ApiError(response.status, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   return body as T;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 let csrfToken: string | undefined;

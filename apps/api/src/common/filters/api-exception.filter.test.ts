@@ -17,6 +17,12 @@ describe('ApiExceptionFilter', () => {
     new ApiExceptionFilter().catch(new DomainException('CLASS_HAS_ACTIVE_STUDENTS', 'Class has active students.', { activeStudentCount: 2 }), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
     expect(json).toHaveBeenCalledWith({ error: { code: 'CLASS_HAS_ACTIVE_STUDENTS', message: 'Class has active students.', metadata: { activeStudentCount: 2 } } });
   });
+  it('preserves the archived class domain code without metadata', () => {
+    const json = vi.fn();
+    const status = vi.fn().mockReturnValue({ json });
+    new ApiExceptionFilter().catch(new DomainException('CLASS_ARCHIVED', 'Archived classes are read-only.'), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
+    expect(json).toHaveBeenCalledWith({ error: { code: 'CLASS_ARCHIVED', message: 'Archived classes are read-only.' } });
+  });
   it('does not expose unapproved domain-shaped response fields', () => {
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });

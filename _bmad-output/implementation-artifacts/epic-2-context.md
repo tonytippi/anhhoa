@@ -4,7 +4,7 @@
 
 ## Goal
 
-Trang bị cho Admin dữ liệu vận hành đáng tin cậy để lập hóa đơn định kỳ: duy trì Lớp, Học sinh và Lớp hiện tại; chuyển một em hoặc cả Lớp có kiểm soát; cấu hình Mẫu hóa đơn chung; và quản lý Tài khoản nhận tiền. Các thay đổi nguồn phải không phá hủy lịch sử và không được làm sai dữ liệu đã snapshot trên Hóa đơn.
+Enable authenticated Admins to maintain the operational source data that makes monthly billing reliable: Classes and their tuition, Students and their current enrollment, controlled individual and whole-class transfers, the single shared invoice template, and receiving bank accounts. This data must remain suitable for new billing while preserving historical invoice references after source records change or become inactive.
 
 ## Stories
 
@@ -17,35 +17,40 @@ Trang bị cho Admin dữ liệu vận hành đáng tin cậy để lập hóa �
 
 ## Requirements & Constraints
 
-- Chỉ Admin đã xác thực mới được đọc hoặc thay đổi dữ liệu vận hành. API là nguồn chân lý; mọi mutation phải được server validate và trả lỗi theo shape chuẩn.
-- Lớp có tên, học phí tháng không âm và trạng thái active/archived. Không xóa cứng; Lớp archived không được gán mới hoặc tham gia luồng tạo Hóa đơn, nhưng vẫn tra cứu được lịch sử. Không được archive Lớp còn Học sinh active; trả `CLASS_HAS_ACTIVE_STUDENTS` cùng số lượng bị ảnh hưởng để Admin chuyển Lớp hoặc cho nghỉ học trước.
-- Học sinh giữ họ tên, biệt danh tùy chọn, Lớp hiện tại tùy chọn và trạng thái active/inactive. Không xóa cứng. Chỉ Lớp active được chọn làm Lớp hiện tại; Học sinh inactive và Học sinh chưa có Lớp active không đủ điều kiện cho batch invoice mới, nhưng vẫn hiển thị lịch sử.
-- Chuyển từng Học sinh chỉ thay đổi Lớp hiện tại và chỉ chấp nhận Lớp đích active. Chuyển cả Lớp chỉ di chuyển Học sinh active sang Lớp đích active; phải xác nhận trước và chạy nguyên tử. Lịch sử Hóa đơn, gồm snapshot Học sinh, Lớp, học phí và dòng tiền, không đổi sau các thay đổi nguồn này.
-- Chỉ có một Mẫu hóa đơn chung dùng cho Hóa đơn mới. Mỗi Dòng mẫu có mô tả, nhóm thu tùy chọn, thứ tự và nguồn tiền: số VND cố định không phân số hoặc học phí tháng của Lớp. Sửa, bỏ hoặc sắp xếp Mẫu chỉ tác động Hóa đơn tạo sau đó. Seed tạo đúng một Mẫu hóa đơn chung rỗng để Admin tự cấu hình.
-- Tài khoản nhận tiền gồm ngân hàng/mã ngân hàng VietQR, số tài khoản, tên chủ tài khoản và trạng thái. Không có xóa cứng. Chỉ tài khoản active được chọn cho Hóa đơn `DRAFT`; tài khoản ngừng dùng vẫn hiển thị trên Hóa đơn `PENDING`/`COMPLETED` đã snapshot và không cản trở hoàn tất các Hóa đơn đó.
-- Lưu và truyền các giá trị tiền VND dưới dạng số nguyên an toàn, không dùng số thực; học phí tháng lưu PostgreSQL `BIGINT`.
+- Only authenticated Admins may read or mutate operational data. Server-side DTO validation is authoritative; errors use `{ error: { code, message, fieldErrors? } }`.
+- Retain Classes, Students, and Bank Accounts by status, never hard-delete them. Only active Classes can accept Student assignments or enter new billing; only active Bank Accounts can be chosen for a new or editable draft invoice. Inactive records already snapshotted by pending or completed invoices remain visible.
+- A Class has a name and non-negative monthly tuition. Normalize the name by trimming it; it must be non-empty after trimming, at most 100 characters, and need not be unique. Tuition is a non-fractional VND safe JSON integer backed by PostgreSQL `BIGINT`.
+- Class lists are deterministically ordered by `createdAt DESC, id DESC`; status filters accept only `ACTIVE` or `ARCHIVED`; an out-of-range page returns an empty `data` array with valid pagination metadata.
+- Class resources expose `activeStudentCount`, not an unbounded embedded Student list. Student-by-Class listing belongs to the paginated Student resource.
+- Archived Classes are read-only. Archiving is idempotent: re-archiving returns the current archived resource. Do not archive a Class containing active Students; return `CLASS_HAS_ACTIVE_STUDENTS` with `activeStudentCount` in a stable error location so the Admin can transfer or withdraw those Students first.
+- Students have a required full name, optional nickname, optional current Class, and active/inactive enrollment status. Inactive Students remain searchable and retain historical references, but are ineligible for new batch billing. Class pickers and transfer targets show only active Classes.
+- Changing a Student's current Class, individually or in bulk, never changes existing invoice snapshots of Student identity, Class, tuition, or invoice lines.
+- A whole-class transfer changes active Students only, after an explicit confirmation that identifies the destination and affected count. It must be atomic and idempotent using a client UUID `Idempotency-Key`; the same Admin, route, key, and request replays the stored result, while a different request with that key conflicts.
+- Maintain exactly one shared invoice template. Template items have a description, optional fee group, persisted order, and either a fixed whole-VND amount or the current Class monthly tuition as their amount source. Reordering uses accessible Up/Down controls, not drag and drop. Template changes affect only invoices created later. Seed one empty shared template so Admins configure its items before billing.
+- A Bank Account includes bank/VietQR bank code, account number, account-holder name, and status. Accounts can be added, activated, or deactivated but never hard-deleted. A deactivated account is excluded from draft selectors while remaining visible, with its inactive status, on invoices that already snapshot it.
+- Do not automatically replay a mutation after its write request begins. Acquire or refresh CSRF only before the request. On create/update timeout, preserve the form for the Admin to reconcile the list before choosing to resubmit. For uncertain whole-class transfers, retain the operation ID, show a checking-result state, and query `GET /operations/:operationId` before enabling retry.
+- Verify the Class migration against a clean PostgreSQL database. Cover successful and blocked archive paths with integration tests; when Student assignment/reactivation is implemented, add PostgreSQL-backed concurrency coverage proving an active Student cannot end up assigned to an archived Class.
 
 ## Technical Decisions
 
-- Dữ liệu và quy tắc nghiệp vụ nằm độc quyền trong `apps/api`; web chỉ dùng REST JSON credentialed qua React Query và coi response API là authoritative. Module API liên quan là `classes`, `students`, `invoice-template`, và `bank-accounts`; controller chỉ gọi service, không gọi controller domain khác.
-- REST resources dùng `/classes`, `/students`, `/invoice-template`, `/bank-accounts`; JSON camelCase, list response là `{ data, meta }`, action response là `{ data }`, UUID là string. API map `BIGINT` sang JSON integer an toàn.
-- Giữ Class, Student và BankAccount bằng status thay vì xóa. Invoice là chủ sở hữu snapshot; các domain nguồn không được cập nhật snapshot trực tiếp.
-- Chuyển cả Lớp là high-impact mutation: client tạo và giữ UUID `Idempotency-Key`; API scope theo Admin + route, lưu fingerprint và kết quả cùng transaction, replay khi request giống nhau và trả conflict khi cùng key nhưng request khác. `GET /operations/:operationId` cho phép đối soát kết quả không chắc chắn; chỉ invalidate React Query sau response hoặc reconciliation đã xác nhận.
-- Cần PostgreSQL-backed integration coverage cho whole-class transfer và unit/integration coverage cho các quy tắc trạng thái, money, lịch sử snapshot liên quan.
+- Use the layered modular monolith: `classes`, `students`, `invoice-template`, and `bank-accounts` own their domain services; controllers delegate to services and never become cross-domain orchestration points. The API exclusively owns Prisma, PostgreSQL, status rules, money handling, and persistence; the web consumes credentialed REST JSON through React Query.
+- REST resources use `/classes`, `/students`, `/invoice-template`, and `/bank-accounts`; JSON is camelCase, list responses are `{ data, meta }`, and actions return `{ data }`. IDs are UUID strings and timestamps are UTC ISO 8601 strings.
+- Serialize archive and every mutation that assigns a Class or activates a Student in a shared transaction/locking scope. Revalidate the destination Class is active inside that scope; reject rather than persist if it became archived concurrently.
+- Class transfer is a database transaction. Use the operation/idempotency record scoped to authenticated Admin and route, with a request fingerprint and stored final response; invalidate web query data only after a confirmed response or operation reconciliation.
+- Keep Prisma schema, committed migrations, and seeds solely in `apps/api/prisma`; apply migrations in production-like and integration environments rather than using `prisma db push`.
+- Use API unit tests for pure validation and transition rules. Use PostgreSQL-backed integration tests for persistence, archive behavior, transfer atomicity, and the archive-versus-assignment/reactivation race.
 
 ## UX & Interaction Patterns
 
-- Dùng các trang danh sách Lớp, Học sinh, Mẫu hóa đơn và Tài khoản nhận tiền theo data table phân trang: header, hàng tối thiểu 48px, search trước filter, action luôn truy cập được, empty state một CTA, loading skeleton theo cấu trúc và lỗi gần action kèm toast ngắn. Filter liên quan phản ánh trên URL.
-- Tạo/sửa Lớp, Học sinh và Tài khoản nhận tiền qua form dialog ngắn. Validate khi blur và khi lưu, liên kết lỗi với field, giữ dialog mở và dữ liệu đã nhập khi lỗi. Giá trị VND được định dạng phân tách hàng nghìn và hậu tố `đ` khi blur.
-- Picker Lớp của Học sinh chỉ hiển thị Lớp active và phải nhắc thay đổi chỉ áp dụng hiện tại, không đổi Hóa đơn đã tạo. Dòng mẫu sắp xếp bằng nút `Lên`/`Xuống` có nhãn, không drag-and-drop.
-- Archive Lớp, cho Học sinh nghỉ học, ngừng dùng Tài khoản và chuyển cả Lớp đều cần confirmation modal nêu ảnh hưởng, có Hủy, trap focus, trả focus trigger, không tự focus action phá hủy. Khóa action và đóng modal trong lúc submit.
-- Modal chuyển cả Lớp nêu Lớp đích, số Học sinh active bị ảnh hưởng và việc Học sinh inactive không đổi. Khi timeout hoặc mất kết nối sau submit, giữ `Đang kiểm tra kết quả`, khóa retry, đối soát operation ID; thành công hiển thị số đã chuyển và link Lớp đích.
-- Giữ nhận diện vận hành desktop-first: nền kem, card trắng viền mảnh, CTA xanh lá, Inter cho form/bảng và Clash Grotesk cho heading. Đáp ứng WCAG 2.2 AA, gồm một `h1` mỗi route, bảng có caption hoặc aria-label, status có nhãn chữ, không có action chỉ hover, và icon target ít nhất 40x40px. Ở màn hẹp, bảng scroll ngang với cột định danh ghim, modal gần full-screen.
+- Use the established desktop-first operations UI: cream app surface, white bordered cards, restrained green primary actions, Inter for forms/tables and Clash Grotesk for headings. Data tables have labeled headers, at least 48px rows, persistent accessible actions, pagination, search before filters, structural skeletons, and one appropriate empty-state CTA.
+- Classes, Students, and Bank Accounts use short form dialogs. Validate on blur and submit, connect field errors with `aria-describedby` and a live region, and keep the dialog open with entered values after a failed save. Format monthly tuition as whole VND with separators and `đ` on blur; negative tuition is invalid.
+- Class archive, Student withdrawal, Bank Account deactivation, and whole-class transfer require a focused confirmation modal that names the affected records, offers Cancel, returns focus to the trigger, and locks closing/actions during submission. Do not auto-focus the destructive confirmation button.
+- On save errors, preserve entered data, place the error near the field or action, and show only a short supplementary toast. Status must not rely on color alone. Every route has one `h1`; tables need a caption or `aria-label`; icon controls require labels and at least 40x40px targets.
+- Keep list filters reflected in the URL. On narrow screens, administration remains available with horizontally scrollable tables, a pinned identity column where needed, and near-full-screen dialogs below 768px.
 
 ## Cross-Story Dependencies
 
-- Story 2.1 cung cấp Lớp active và học phí tháng cho tạo/sửa Học sinh, chuyển Lớp, Mẫu dùng nguồn học phí Lớp, và các Hóa đơn tạo sau này.
-- Story 2.2 cung cấp trạng thái cùng Lớp hiện tại để Story 2.3 chuyển một Học sinh, Story 2.4 chuyển cả Lớp và Epic 3 xác định học sinh đủ điều kiện tạo Hóa đơn.
-- Story 2.4 phụ thuộc Lớp nguồn/đích và dữ liệu Học sinh active; dùng hạ tầng idempotency và operation lookup dùng chung với các mutation trọng yếu Epic 3.
-- Story 2.5 phải được cấu hình Dòng mẫu trước batch invoice của Epic 3; Mẫu rỗng khiến batch preview và creation bị từ chối với `INVOICE_TEMPLATE_EMPTY`.
-- Story 2.6 cung cấp chỉ các Tài khoản active cho payment flow `DRAFT` của Epic 3; các tài khoản snapshot phải tiếp tục hỗ trợ hiển thị và hoàn tất Hóa đơn lịch sử.
+- Story 2.1 establishes Class status, `activeStudentCount`, archive semantics, and the transaction/revalidation convention that Stories 2.2 and 2.3 must use when assigning or reactivating Students.
+- Stories 2.2 and 2.3 provide the Student lifecycle and current-Class behavior required by Story 2.4. Story 2.4 relies on active source and destination Classes and feeds the idempotent-operation pattern also used by later invoice workflows.
+- Story 2.5 supplies the sole template and ordered template items that Epic 3 snapshots into newly created invoices; its empty seeded state must block batch invoicing until configured.
+- Story 2.6 supplies active account choices for editable draft invoices in Epic 3. Deactivation must not remove the account information needed by pending and completed invoice snapshots.
