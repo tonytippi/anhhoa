@@ -39,7 +39,8 @@ export class StudentsService {
   }
 
   async update(id: string, input: UpdateStudentDto) {
-    const updated = await this.prisma.student.updateMany({ where: { id }, data: { fullName: input.fullName.trim(), ...(input.nickname !== undefined ? { nickname: input.nickname === null ? null : input.nickname.trim() } : {}) } });
+    const nickname = input.nickname?.trim();
+    const updated = await this.prisma.student.updateMany({ where: { id }, data: { fullName: input.fullName.trim(), ...(input.nickname !== undefined ? { nickname: nickname || null } : {}) } });
     if (updated.count === 0) throw new NotFoundException('Student not found.');
     return this.get(id);
   }

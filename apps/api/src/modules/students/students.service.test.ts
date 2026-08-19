@@ -29,6 +29,8 @@ describe('StudentsService', () => {
     expect(db.student.updateMany).toHaveBeenLastCalledWith({ where: { id: record.id }, data: { fullName: 'Bé Bình', nickname: 'Bình' } });
     await service.update(record.id, { fullName: 'Bé Bình', nickname: null });
     expect(db.student.updateMany).toHaveBeenLastCalledWith({ where: { id: record.id }, data: { fullName: 'Bé Bình', nickname: null } });
+    await service.update(record.id, { fullName: 'Bé Bình', nickname: '   ' });
+    expect(db.student.updateMany).toHaveBeenLastCalledWith({ where: { id: record.id }, data: { fullName: 'Bé Bình', nickname: null } });
   });
 
   it('soft transitions status idempotently and returns not found for absent students', async () => {
