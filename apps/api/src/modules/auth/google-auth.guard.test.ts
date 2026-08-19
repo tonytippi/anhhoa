@@ -24,7 +24,7 @@ describe('GoogleAuthGuard', () => {
   it('adds the denied signal only when GoogleStrategy rejects an unallowlisted profile', async () => {
     const guard = new GoogleAuthGuard({} as never, config);
     const response = { clearCookie: vi.fn(), redirect: vi.fn() };
-    await expect((guard as never).deny(response, true)).toBe(false);
+    await expect((guard as unknown as { deny: (value: typeof response, allowlistDenied: boolean) => false }).deny(response, true)).toBe(false);
     expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login?source=oauth&reason=denied#login');
     expect(new GoogleAllowlistDeniedException()).toBeInstanceOf(Error);
   });

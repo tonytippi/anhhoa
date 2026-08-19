@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { ApiError, getJson } from './client';
+import { ApiError, getJson, requestJson, resetApiClientForTests } from './client';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); });
 
 it('gửi REST request credentialed với Accept JSON', async () => {
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: {} }), { status: 200 }));
@@ -18,4 +18,18 @@ it('giữ message và field errors từ API', async () => {
 it('coi JSON malformed là lỗi API', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{', { status: 200 })));
   await expect(getJson('/auth/me')).rejects.toMatchObject({ status: 200, code: 'INVALID_RESPONSE' } satisfies Partial<ApiError>);
+});
+
+it('chia sẻ một request CSRF cho mutation đồng thời', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: {} }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: {} }), { status: 200 }));
+  vi.stubGlobal('fetch', fetch);
+  await Promise.all([requestJson('/classes', { method: 'POST', body: '{}' }), requestJson('/classes', { method: 'POST', body: '{}' })]);
+  expect(fetch.mock.calls.filter(([url]) => url === 'http://localhost:3000/auth/csrf')).toHaveLength(1);
+});
+
+it('returns CSRF rejection without replaying an unsafe mutation', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'old' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Invalid request origin or CSRF token.' } }), { status: 403 }));
+  vi.stubGlobal('fetch', fetch);
+  await expect(requestJson('/classes', { method: 'POST', body: '{}' })).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' } satisfies Partial<ApiError>);
+  expect(fetch).toHaveBeenCalledTimes(2);
 });

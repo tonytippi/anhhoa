@@ -28,6 +28,28 @@ h1 { margin: 0 0 24px; font-size: 28px; line-height: 1.15; }
 h2 { margin: 0 0 8px; font-size: 20px; }
 .placeholder-card { max-width: 620px; border: 1px solid #E4E2D8; border-radius: 14px; background: #FFFFFF; padding: 24px; }
 .placeholder-card p { margin: 0; color: #66695F; line-height: 1.5; }
+.page-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.page-heading p { margin: -12px 0 0; color: #66695F; line-height: 1.5; }
+.primary-action, .danger-action, .table-toolbar input, .table-toolbar select, .dialog input, .dialog button, .row-actions button, .pagination button, .error-state button { min-height: 40px; border-radius: 9px; font: inherit; }
+.primary-action { border: 0; background: #1D6538; color: #fff; padding: 0 14px; font-weight: 600; }
+.danger-action { border: 0; background: #AD3026; color: #fff; padding: 0 14px; font-weight: 600; }
+.table-toolbar { display: flex; gap: 16px; margin-bottom: 16px; }
+.table-toolbar label, .dialog label { display: grid; gap: 6px; color: #4F5249; font-size: 14px; font-weight: 600; }
+.table-toolbar input, .table-toolbar select, .dialog input { width: 100%; border: 1px solid #C9C8BD; background: #fff; color: #24261F; padding: 0 10px; }
+.table-toolbar label:first-child { flex: 1; }
+.table-card { border: 1px solid #E4E2D8; border-radius: 14px; background: #fff; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; min-width: 680px; border-collapse: collapse; text-align: left; }
+th, td { min-height: 48px; border-bottom: 1px solid #EDECE5; padding: 12px 16px; vertical-align: middle; }
+thead th { color: #66695F; font-size: 13px; font-weight: 600; }
+tbody th { font-weight: 600; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+.row-actions { white-space: nowrap; text-align: right; }.row-actions button, .pagination button, .error-state button { border: 1px solid #C9C8BD; background: #fff; color: #1D6538; padding: 0 10px; }.row-actions button + button { margin-left: 8px; }
+.status { display: inline-flex; min-height: 26px; align-items: center; border-radius: 999px; padding: 0 9px; font-size: 13px; font-weight: 600; }.status.active { background: #E7F2E9; color: #1D6538; }.status.archived { background: #F0EFE9; color: #66695F; }
+.student-names { display: block; max-width: 180px; overflow: hidden; color: #66695F; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pagination { display: flex; justify-content: end; align-items: center; gap: 8px; margin-top: 14px; color: #66695F; font-size: 14px; }.pagination button:disabled { opacity: .5; }
+.skeleton, .empty-state, .error-state { min-height: 160px; display: grid; place-content: center; gap: 12px; padding: 24px; text-align: center; color: #66695F; }.skeleton { background: linear-gradient(100deg, #fff 30%, #F6F4EC 50%, #fff 70%); }.empty-state p, .error-state p, .dialog p { margin: 0; line-height: 1.5; }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 40; background: rgb(36 38 31 / 45%); }.dialog { position: fixed; z-index: 41; top: 50%; left: 50%; width: min(460px, calc(100vw - 32px)); transform: translate(-50%, -50%); border: 1px solid #E4E2D8; border-radius: 14px; background: #fff; padding: 24px; box-shadow: 0 20px 50px rgb(36 38 31 / 25%); }.dialog form { display: grid; gap: 16px; }.dialog > p { margin-bottom: 16px; }.dialog [role="alert"] { color: #AD3026; }.dialog-actions { display: flex; justify-content: end; gap: 10px; margin-top: 20px; }.dialog-actions > button, .dialog-actions > span > button { min-height: 40px; border: 1px solid #C9C8BD; border-radius: 9px; background: #fff; padding: 0 14px; font: inherit; }.dialog-actions .primary-action { border: 0; }.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .mobile-header { position: fixed; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .menu-button, .sheet-close { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid #E4E2D8; border-radius: 10px; background: #FFFFFF; color: #24261F; font-size: 20px; }
 .sheet-backdrop { display: none; }
@@ -38,4 +60,4 @@ h2 { margin: 0 0 8px; font-size: 20px; }
 .login-action, .auth-status button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; border: 0; border-radius: 10px; background: #1D6538; color: #FFFFFF; padding: 0 16px; font: inherit; font-weight: 600; text-decoration: none; }
 @media (min-width: 1024px) and (max-width: 1279px) { .sidebar { width: 72px; padding-inline: 12px; } .sidebar-compact { width: 72px; } .sidebar .brand { justify-content: center; padding-inline: 0; } .sidebar .brand > span:last-child, .sidebar .nav-label { display: none; } .sidebar a, .account { justify-content: center; padding: 0; } main { margin-left: 72px; } }
 @media (max-width: 1023px) { .app-shell > .sidebar { display: none; } main { margin-left: 0; padding: 24px; } .mobile-header { position: static; width: auto; height: 64px; overflow: visible; clip: auto; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #E4E2D8; background: #FFFFFF; padding: 12px 16px; white-space: normal; font-family: "Be Vietnam Pro", Inter, sans-serif; font-weight: 600; } .sheet-backdrop { display: block; position: fixed; inset: 0; z-index: 20; background: rgb(36 38 31 / 35%); } .sidebar-sheet { position: fixed; inset: 0 auto 0 0; z-index: 21; width: min(320px, calc(100vw - 32px)); animation: slide-in-from-left 180ms ease-out; } .sidebar-sheet .sidebar { position: absolute; width: 100%; } .sheet-close { position: absolute; top: 16px; right: 16px; color: #24261F; background: #FFFFFF; border-color: #E4E2D8; } }
-@media (max-width: 767px) { main { padding: 20px 16px; } h1 { font-size: 26px; } .offline-notice { right: 16px; bottom: 16px; } }
+@media (max-width: 767px) { main { padding: 20px 16px; } h1 { font-size: 26px; } .offline-notice { right: 16px; bottom: 16px; } .page-heading, .table-toolbar { align-items: stretch; flex-direction: column; } .page-heading .primary-action { width: 100%; } .dialog { width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow-y: auto; padding: 20px; } }

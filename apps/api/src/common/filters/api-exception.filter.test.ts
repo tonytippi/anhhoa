@@ -1,6 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiExceptionFilter } from './api-exception.filter.js';
+import { DomainException } from '../errors/domain.exception.js';
 
 describe('ApiExceptionFilter', () => {
   it('uses the standard JSON error contract', () => {
@@ -9,5 +10,17 @@ describe('ApiExceptionFilter', () => {
     new ApiExceptionFilter().catch(new ForbiddenException('Invalid request origin or CSRF token.'), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith({ error: { code: 'FORBIDDEN', message: 'Invalid request origin or CSRF token.' } });
+  });
+  it('preserves approved domain code and safe metadata', () => {
+    const json = vi.fn();
+    const status = vi.fn().mockReturnValue({ json });
+    new ApiExceptionFilter().catch(new DomainException('CLASS_HAS_ACTIVE_STUDENTS', 'Class has active students.', { activeStudentCount: 2 }), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
+    expect(json).toHaveBeenCalledWith({ error: { code: 'CLASS_HAS_ACTIVE_STUDENTS', message: 'Class has active students.', metadata: { activeStudentCount: 2 } } });
+  });
+  it('does not expose unapproved domain-shaped response fields', () => {
+    const json = vi.fn();
+    const status = vi.fn().mockReturnValue({ json });
+    new ApiExceptionFilter().catch(new (class extends ForbiddenException { override getResponse() { return { code: 'ARBITRARY', message: 'No.', metadata: { leaked: 1 } }; } })(), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
+    expect(json).toHaveBeenCalledWith({ error: { code: 'FORBIDDEN', message: 'No.' } });
   });
 });

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PlaceholderPage } from '../features/overview/page';
+import { ClassesPage } from '../features/classes/page';
 import { MenuButton } from '../components/menu-button';
 import { NavigationSheet } from '../components/navigation-sheet';
 import { OfflineNotice } from '../components/offline-notice';
@@ -41,6 +42,8 @@ export function App(): React.JSX.Element {
     if (identity.isPending) return <main className="auth-status" aria-live="polite"><h1>Đang kiểm tra phiên</h1><p>Vui lòng chờ trong giây lát.</p></main>;
     if (identity.error) return <main className="auth-status" aria-live="assertive"><h1>Không thể kiểm tra phiên</h1><p>Vui lòng kiểm tra kết nối và thử lại.</p><button type="button" onClick={() => void identity.refetch()}>Thử lại</button></main>;
     const admin = identity.data!;
-    return <div className="app-shell"><Sidebar admin={admin} /><header className="mobile-header"><MenuButton isDesktop={isDesktop} isOpen={menuOpen} onClick={() => { menuOpenRef.current = true; setMenuOpen(true); }} trigger={trigger} /><span>Ánh Hoa</span></header>{menuOpen && <NavigationSheet admin={admin} trigger={trigger} onClose={closeMenu} />}<main><PlaceholderPage /></main><OfflineNotice /></div>;
+    return <div className="app-shell"><Sidebar admin={admin} /><header className="mobile-header"><MenuButton isDesktop={isDesktop} isOpen={menuOpen} onClick={() => { menuOpenRef.current = true; setMenuOpen(true); }} trigger={trigger} /><span>Ánh Hoa</span></header>{menuOpen && <NavigationSheet admin={admin} trigger={trigger} onClose={closeMenu} />}<main><Page /></main><OfflineNotice /></div>;
   }
+
+  function Page(): React.JSX.Element { return useLocation().pathname === '/lop' ? <ClassesPage /> : <PlaceholderPage />; }
 }
