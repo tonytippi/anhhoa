@@ -6,6 +6,8 @@ import type { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { AUTH_CONFIG } from '../../common/config/config.module.js';
 import type { AuthConfig } from '../../common/config/auth-config.js';
+import { oauthDeniedRedirect } from './oauth-denied-redirect.js';
+import { GoogleAllowlistDeniedException } from './google.strategy.js';
 
 interface OAuthState { redirect: string; nonce: string; }
 
@@ -35,12 +37,12 @@ export class GoogleAuthGuard extends AuthGuard('google') {
         request.oauthRedirect = payload.redirect;
       } catch { return this.deny(response); }
     }
-    try { return Boolean(await super.canActivate(context)); } catch { return this.deny(response); }
+    try { return Boolean(await super.canActivate(context)); } catch (error) { return this.deny(response, error instanceof GoogleAllowlistDeniedException); }
   }
 
-  private deny(response: Response): false {
+  protected deny(response: Response, allowlistDenied = false): false {
     response.clearCookie(this.config.oauthStateCookieName, { secure: true, httpOnly: true, sameSite: 'lax', path: '/auth/google' });
-    response.redirect(this.config.oauthDeniedRedirectUrl);
+    response.redirect(oauthDeniedRedirect(this.config.oauthDeniedRedirectUrl, allowlistDenied ? 'denied' : undefined));
     return false;
   }
 }

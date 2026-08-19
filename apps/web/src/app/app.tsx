@@ -6,20 +6,41 @@ import { MenuButton } from '../components/menu-button';
 import { NavigationSheet } from '../components/navigation-sheet';
 import { OfflineNotice } from '../components/offline-notice';
 import { Sidebar } from '../components/sidebar';
+import { ApiError } from './api/client';
+import { useCurrentAdmin } from './api/auth';
+import { LoginPage } from '../features/auth/login-page';
 
 export function App(): React.JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuOpenRef = useRef(false);
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches);
   const trigger = useRef<HTMLButtonElement>(null);
   const [queryClient] = useState(() => new QueryClient());
+  const closeMenu = (): void => {
+    if (!menuOpenRef.current) return;
+    menuOpenRef.current = false;
+    setMenuOpen(false);
+    requestAnimationFrame(() => trigger.current?.focus());
+  };
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)');
     const closeAtDesktop = (event: MediaQueryListEvent): void => {
       setIsDesktop(event.matches);
-      if (event.matches) setMenuOpen(false);
+      if (event.matches) {
+        closeMenu();
+      }
     };
     mediaQuery.addEventListener('change', closeAtDesktop);
     return () => mediaQuery.removeEventListener('change', closeAtDesktop);
   }, []);
-  return <QueryClientProvider client={queryClient}><BrowserRouter><div className="app-shell"><Sidebar /><header className="mobile-header"><MenuButton isDesktop={isDesktop} isOpen={menuOpen} onClick={() => setMenuOpen(true)} trigger={trigger} /><span>Ánh Hoa</span></header>{menuOpen && <NavigationSheet trigger={trigger} onClose={() => setMenuOpen(false)} />}<main><PlaceholderPage /></main><OfflineNotice /></div></BrowserRouter></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><BrowserRouter><AuthBoundary /></BrowserRouter></QueryClientProvider>;
+
+  function AuthBoundary(): React.JSX.Element {
+    const identity = useCurrentAdmin();
+    if (identity.sessionRejected || (identity.error instanceof ApiError && (identity.error.status === 401 || identity.error.status === 403))) return <LoginPage />;
+    if (identity.isPending) return <main className="auth-status" aria-live="polite"><h1>Đang kiểm tra phiên</h1><p>Vui lòng chờ trong giây lát.</p></main>;
+    if (identity.error) return <main className="auth-status" aria-live="assertive"><h1>Không thể kiểm tra phiên</h1><p>Vui lòng kiểm tra kết nối và thử lại.</p><button type="button" onClick={() => void identity.refetch()}>Thử lại</button></main>;
+    const admin = identity.data!;
+    return <div className="app-shell"><Sidebar admin={admin} /><header className="mobile-header"><MenuButton isDesktop={isDesktop} isOpen={menuOpen} onClick={() => { menuOpenRef.current = true; setMenuOpen(true); }} trigger={trigger} /><span>Ánh Hoa</span></header>{menuOpen && <NavigationSheet admin={admin} trigger={trigger} onClose={closeMenu} />}<main><PlaceholderPage /></main><OfflineNotice /></div>;
+  }
 }

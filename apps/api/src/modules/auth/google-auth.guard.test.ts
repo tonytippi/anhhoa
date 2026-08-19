@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GoogleAuthGuard } from './google-auth.guard.js';
+import { GoogleAllowlistDeniedException } from './google.strategy.js';
 
-const config = { oauthRedirectUrls: ['http://localhost:5173', 'http://localhost:5173/login'], oauthDeniedRedirectUrl: 'http://localhost:5173/login', oauthStateCookieName: 'oauth_state' } as never;
+const config = { oauthRedirectUrls: ['http://localhost:5173', 'http://localhost:5173/login'], oauthDeniedRedirectUrl: 'http://localhost:5173/login?source=oauth#login', oauthStateCookieName: 'oauth_state' } as never;
 function context(request: object, response: object) { return { switchToHttp: () => ({ getRequest: () => request, getResponse: () => response }) }; }
 
 describe('GoogleAuthGuard', () => {
@@ -18,7 +19,14 @@ describe('GoogleAuthGuard', () => {
     const guard = new GoogleAuthGuard({ verifyAsync: vi.fn() } as never, config);
     const response = { clearCookie: vi.fn(), redirect: vi.fn() };
     await expect(guard.canActivate(context({ path: '/auth/google/callback', query: { state: 'attacker' }, cookies: { oauth_state: 'browser-state' } }, response) as never)).resolves.toBe(false);
-    expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login');
+    expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login?source=oauth#login');
+  });
+  it('adds the denied signal only when GoogleStrategy rejects an unallowlisted profile', async () => {
+    const guard = new GoogleAuthGuard({} as never, config);
+    const response = { clearCookie: vi.fn(), redirect: vi.fn() };
+    await expect((guard as never).deny(response, true)).toBe(false);
+    expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login?source=oauth&reason=denied#login');
+    expect(new GoogleAllowlistDeniedException()).toBeInstanceOf(Error);
   });
   it('accepts matching, unexpired signed state and restores only its allowlisted redirect', async () => {
     const guard = new GoogleAuthGuard({ verifyAsync: vi.fn().mockResolvedValue({ redirect: 'http://localhost:5173/login', nonce: 'nonce' }) } as never, config);

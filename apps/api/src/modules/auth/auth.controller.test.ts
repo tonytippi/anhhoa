@@ -2,7 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthController } from './auth.controller.js';
 
-const config = { csrfCookieName: 'csrf_token', oauthStateCookieName: 'oauth_state', oauthRedirectUrls: ['http://localhost:5173', 'http://localhost:5173/login'], oauthDeniedRedirectUrl: 'http://localhost:5173/login' } as never;
+const config = { csrfCookieName: 'csrf_token', oauthStateCookieName: 'oauth_state', oauthRedirectUrls: ['http://localhost:5173', 'http://localhost:5173/login'], oauthDeniedRedirectUrl: 'http://localhost:5173/login?source=oauth#login' } as never;
 const admin = { id: 'a0b5d395-c2ea-4f15-a954-0a6d8898e8cc', email: 'admin@example.com', displayName: 'Admin', avatarUrl: null, createdAt: new Date('2026-01-01T00:00:00Z'), updatedAt: new Date('2026-01-02T00:00:00Z') };
 
 describe('AuthController', () => {
@@ -24,7 +24,7 @@ describe('AuthController', () => {
     const response = { cookie: vi.fn(), clearCookie: vi.fn(), redirect: vi.fn() };
     await controller.callback({ user: { googleId: 'google-id', email: admin.email, displayName: 'Admin' }, oauthRedirect: 'http://localhost:5173/login' } as never, response as never);
     expect(response.cookie).not.toHaveBeenCalled();
-    expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login');
+    expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login?source=oauth#login');
   });
   it('sets a readable separate CSRF cookie for double submit', () => {
     const controller = new AuthController({} as never, {} as never, config);

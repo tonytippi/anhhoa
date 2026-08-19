@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
 
+const admin = { id: 'admin-1', email: 'admin@example.com', displayName: 'Ngọc Anh', avatarUrl: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
+
+test.beforeEach(async ({ page }) => {
+  await page.route('**/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: admin }) }));
+});
+
 test('shell desktop có điều hướng, heading duy nhất và PWA metadata', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/');
@@ -152,4 +158,13 @@ test('chỉ hiện một thông báo cho mỗi đợt mất mạng', async ({ pa
     window.dispatchEvent(new Event('offline'));
   });
   await expect(page.getByText('Bạn đang ngoại tuyến. Không thể lưu thay đổi.')).toHaveCount(1);
+});
+
+test('khách deep link chỉ thấy đăng nhập Google khi phiên không hợp lệ', async ({ page }) => {
+  await page.unroute('**/auth/me');
+  await page.route('**/auth/me', async (route) => route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }) }));
+  await page.goto('/hoa-don');
+  await expect(page.getByRole('heading', { level: 1, name: 'Đăng nhập Google' })).toHaveCount(1);
+  await expect(page.getByRole('complementary', { name: 'Điều hướng quản trị' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1, name: 'Hóa đơn' })).toHaveCount(0);
 });

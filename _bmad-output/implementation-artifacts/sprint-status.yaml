@@ -39,7 +39,7 @@ development_status:
   epic-1: in-progress
   1-1-khởi-tạo-workspace-và-application-shell: done
   1-2-đăng-nhập-google-theo-danh-sách-admin-cho-phép: done
-  1-3-truy-cập-workspace-được-bảo-vệ: backlog
+  1-3-truy-cập-workspace-được-bảo-vệ: review
   epic-1-retrospective: optional
 
   epic-2: backlog
