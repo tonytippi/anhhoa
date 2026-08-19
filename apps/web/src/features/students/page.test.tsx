@@ -80,6 +80,15 @@ it('chỉ cho chọn Lớp active, gửi classId và giữ selection khi API t�
   expect((fetch.mock.calls[3]?.[1] as RequestInit).body).toBe(JSON.stringify({ fullName: 'Bé An', nickname: 'An', classId: activeClass.id }));
 });
 
+it('tải toàn bộ các trang Lớp active cho picker', async () => {
+  const firstClass = { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1', monthlyTuition: 1500000, status: 'ACTIVE', createdAt: student.createdAt, updatedAt: student.updatedAt, activeStudentCount: 0 };
+  const laterClass = { ...firstClass, id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 101' };
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [student], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [firstClass], meta: { page: 1, pageSize: 100, total: 101, pageCount: 2 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [laterClass], meta: { page: 2, pageSize: 100, total: 101, pageCount: 2 } }), { status: 200 }));
+  vi.stubGlobal('fetch', fetch); renderPage(); fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
+  expect(await screen.findByRole('option', { name: 'Mầm 101' })).toBeVisible();
+  expect(fetch.mock.calls[2]?.[0]).toContain('page=2&pageSize=100&status=ACTIVE');
+});
+
 it('mở confirmation lifecycle và giữ modal khi mutation lỗi', async () => {
   const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [student], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Student not found.' } }), { status: 404 }));
   vi.stubGlobal('fetch', fetch); renderPage();

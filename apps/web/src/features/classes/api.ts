@@ -28,5 +28,17 @@ function parseAction(value: unknown): SchoolClass {
 function queryString(filters: ClassFilters): string { const params = new URLSearchParams({ page: String(filters.page) }); if (filters.pageSize) params.set('pageSize', String(filters.pageSize)); if (filters.search) params.set('search', filters.search); if (filters.status) params.set('status', filters.status); return params.toString(); }
 
 export function useClasses(filters: ClassFilters, enabled = true) { return useQuery({ queryKey: ['classes', filters], queryFn: () => getJson<unknown>(`/classes?${queryString(filters)}`).then(parseList), enabled }); }
+export function useActiveClassesForPicker(enabled = true) {
+  return useQuery({
+    queryKey: ['classes', 'active-picker'],
+    enabled,
+    queryFn: async () => {
+      const first = await getJson<unknown>('/classes?page=1&pageSize=100&status=ACTIVE').then(parseList);
+      const pages = [first];
+      for (let page = 2; page <= first.meta.pageCount; page += 1) pages.push(await getJson<unknown>(`/classes?page=${page}&pageSize=100&status=ACTIVE`).then(parseList));
+      return { data: pages.flatMap((result) => result.data) };
+    },
+  });
+}
 export function useSaveClass() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, input }: { id?: string; input: ClassInput }) => requestJson<unknown>(id ? `/classes/${id}` : '/classes', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(input) }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['classes'] }) }); }
 export function useArchiveClass() { const client = useQueryClient(); return useMutation({ mutationFn: (id: string) => requestJson<unknown>(`/classes/${id}/archive`, { method: 'POST' }).then(parseAction), onSuccess: () => client.invalidateQueries({ queryKey: ['classes'] }) }); }

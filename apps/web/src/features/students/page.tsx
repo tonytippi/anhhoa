@@ -2,7 +2,7 @@ import { Dialog } from '@base-ui/react/dialog';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ApiError, ApiTimeoutError } from '../../app/api/client';
-import { useClasses } from '../classes/api';
+import { useActiveClassesForPicker } from '../classes/api';
 import { type Student, type StudentFilters, useSaveStudent, useStudents, useStudentStatus } from './api';
 
 function filtersFromUrl(params: URLSearchParams): StudentFilters {
@@ -38,7 +38,7 @@ export function StudentsPage(): React.JSX.Element {
 
 function StudentForm({ item, onClose }: { item: Student | null; onClose: () => void }): React.JSX.Element {
   const save = useSaveStudent();
-  const classes = useClasses({ search: '', status: 'ACTIVE', page: 1, pageSize: 100 }, Boolean(item));
+  const classes = useActiveClassesForPicker(Boolean(item));
   const [fullName, setFullName] = useState(item?.fullName ?? '');
   const [nickname, setNickname] = useState(item?.nickname ?? '');
   const [classId, setClassId] = useState(item?.classId ?? '');
