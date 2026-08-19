@@ -23,6 +23,23 @@ pnpm --filter web exec playwright test
 
 API chỉ giữ biến môi trường mẫu trong `apps/api/.env.example`; không thêm giá trị thật vào repository.
 
+## Font assets
+
+Inter và Be Vietnam Pro được bundle từ các gói Fontsource tương ứng, đều theo SIL Open Font License 1.1. Hai file WOFF2 cục bộ chỉ chứa subset tiếng Việt và được phục vụ cùng origin, không dùng font CDN.
+
+## Prisma và production API
+
+Prisma chỉ thuộc `apps/api/prisma`. `prisma:generate` chỉ đọc schema nên chạy được khi chưa cấu hình database; các lệnh truy cập datasource như `prisma:seed` vẫn yêu cầu `DATABASE_URL` cục bộ hợp lệ.
+
+```bash
+pnpm --filter api prisma:generate
+pnpm --filter api prisma:seed
+pnpm --filter api build
+pnpm --filter api start
+```
+
+`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
+
 ## Yêu cầu
 Tôi muốn làm hệ thống quản lý hóa đơn cho trường mầm non. Hệ thống phải thật đơn giản.
 - chỉ có admin login, không có giáo viên, không có phụ huynh.

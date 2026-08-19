@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@font-face { font-family: "Inter"; src: url("/fonts/inter-vietnamese.woff2") format("woff2"); font-display: swap; font-style: normal; font-weight: 100 900; }
+@font-face { font-family: "Be Vietnam Pro"; src: url("/fonts/be-vietnam-pro-vietnamese.woff2") format("woff2"); font-display: swap; font-style: normal; font-weight: 600; }
+
 :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #24261F; background: #FFFDF7; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
@@ -8,7 +11,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 3px solid #277E48; outline-offset: 3px; }
 .app-shell { min-height: 100vh; background: #FFFDF7; }
 .sidebar { display: flex; position: fixed; inset: 0 auto 0 0; z-index: 10; width: 232px; flex-direction: column; border-right: 1px solid #E4E2D8; background: #FFFFFF; padding: 24px 12px 16px; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 28px; font-family: "Clash Grotesk", Inter, sans-serif; font-size: 20px; font-weight: 600; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 28px; font-family: "Be Vietnam Pro", Inter, sans-serif; font-size: 20px; font-weight: 600; }
 .brand-mark { color: #F1C928; font-size: 30px; line-height: 1; text-shadow: 0 0 0 #6A4A16; }
 .sidebar nav { display: grid; gap: 4px; }
 .sidebar a, .account { display: flex; min-height: 44px; align-items: center; gap: 12px; border: 0; border-radius: 10px; color: #66695F; background: transparent; padding: 0 12px; font: inherit; text-align: left; text-decoration: none; }
@@ -19,15 +22,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .avatar { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9999px; background: #E7F2E9; color: #1D6538; font-size: 12px; font-weight: 700; }
 main { margin-left: 232px; min-height: 100vh; padding: 32px; }
 .page { max-width: 1280px; }
-h1, h2 { font-family: "Clash Grotesk", Inter, sans-serif; }
+h1, h2 { font-family: "Be Vietnam Pro", Inter, sans-serif; }
 h1 { margin: 0 0 24px; font-size: 28px; line-height: 1.15; }
 h2 { margin: 0 0 8px; font-size: 20px; }
 .placeholder-card { max-width: 620px; border: 1px solid #E4E2D8; border-radius: 14px; background: #FFFFFF; padding: 24px; }
 .placeholder-card p { margin: 0; color: #66695F; line-height: 1.5; }
-.mobile-header { display: none; }
+.mobile-header { position: fixed; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .menu-button, .sheet-close { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid #E4E2D8; border-radius: 10px; background: #FFFFFF; color: #24261F; font-size: 20px; }
 .sheet-backdrop { display: none; }
 .offline-notice { position: fixed; right: 24px; bottom: 24px; z-index: 30; max-width: calc(100vw - 32px); border: 1px solid #E4E2D8; border-radius: 10px; background: #24261F; color: #FFFFFF; padding: 12px 16px; animation: fade-in-up 180ms ease-out; }
 @media (min-width: 1024px) and (max-width: 1279px) { .sidebar { width: 72px; padding-inline: 12px; } .sidebar-compact { width: 72px; } .sidebar .brand { justify-content: center; padding-inline: 0; } .sidebar .brand > span:last-child, .sidebar .nav-label { display: none; } .sidebar a, .account { justify-content: center; padding: 0; } main { margin-left: 72px; } }
-@media (max-width: 1023px) { .app-shell > .sidebar { display: none; } main { margin-left: 0; padding: 24px; } .mobile-header { display: flex; height: 64px; align-items: center; gap: 12px; border-bottom: 1px solid #E4E2D8; background: #FFFFFF; padding: 12px 16px; font-family: "Clash Grotesk", Inter, sans-serif; font-weight: 600; } .sheet-backdrop { display: block; position: fixed; inset: 0; z-index: 20; background: rgb(36 38 31 / 35%); } .sidebar-sheet { position: relative; width: min(320px, calc(100vw - 32px)); height: 100%; animation: slide-in-from-left 180ms ease-out; } .sidebar-sheet .sidebar { position: absolute; width: 100%; } .sheet-close { position: absolute; top: 16px; right: -48px; color: #FFFFFF; background: transparent; border-color: transparent; } }
+@media (max-width: 1023px) { .app-shell > .sidebar { display: none; } main { margin-left: 0; padding: 24px; } .mobile-header { position: static; width: auto; height: 64px; overflow: visible; clip: auto; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #E4E2D8; background: #FFFFFF; padding: 12px 16px; white-space: normal; font-family: "Be Vietnam Pro", Inter, sans-serif; font-weight: 600; } .sheet-backdrop { display: block; position: fixed; inset: 0; z-index: 20; background: rgb(36 38 31 / 35%); } .sidebar-sheet { position: fixed; inset: 0 auto 0 0; z-index: 21; width: min(320px, calc(100vw - 32px)); animation: slide-in-from-left 180ms ease-out; } .sidebar-sheet .sidebar { position: absolute; width: 100%; } .sheet-close { position: absolute; top: 16px; right: 16px; color: #24261F; background: #FFFFFF; border-color: #E4E2D8; } }
 @media (max-width: 767px) { main { padding: 20px 16px; } h1 { font-size: 26px; } .offline-notice { right: 16px; bottom: 16px; } }
