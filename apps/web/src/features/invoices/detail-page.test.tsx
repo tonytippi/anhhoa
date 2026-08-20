@@ -1,12 +1,12 @@
 import '@testing-library/jest-dom/vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { resetApiClientForTests } from '../../app/api/client';
 import { InvoiceDetailPage } from './detail-page';
 
-const draft = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', billingMonth: '2026-08', student: { name: 'Bé An', nickname: null }, schoolClass: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1' }, status: 'DRAFT', total: 100, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 100, position: 0 }], payment: { method: null, bankAccount: null }, qr: null, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } };
+const draft = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', billingMonth: '2026-08', student: { name: 'Bé An', nickname: null }, schoolClass: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1' }, status: 'DRAFT', total: 100, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 100, position: 0 }], payment: { method: null, bankAccount: null }, qr: null, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' }, completedBy: null, completedAt: null };
 function renderPage() { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[`/hoa-don/${draft.id}`]}><InvoiceDetailPage /></MemoryRouter></QueryClientProvider>); }
 afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); });
 
@@ -33,4 +33,13 @@ it('shows snapshotted QR payment details and lifecycle controls for pending invo
   const pending = { ...draft, status: 'PENDING', payment: { method: 'TRANSFER', bankAccount: { bankCode: 'VCB', accountNumber: '123456', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An Mầm 1 chuyển tiền', url: 'https://img.vietqr.io/qr.png' } };
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: pending }), { status: 200 })));
   renderPage(); await screen.findByRole('img', { name: 'Mã QR chuyển khoản 100 đ' }); expect(screen.getByText('VCB - 123456')).toBeVisible(); expect(screen.getByText('Cô Hoa')).toBeVisible(); expect(screen.getByText('Bé An Mầm 1 chuyển tiền')).toBeVisible(); expect(screen.getByRole('button', { name: 'Trả về nháp' })).toBeVisible();
+});
+
+it('focuses the idle completion dialog, traps Tab, and restores its trigger after Escape', async () => {
+  const pending = { ...draft, status: 'PENDING', payment: { method: 'CASH', bankAccount: null } };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: pending }), { status: 200 })));
+  renderPage(); const trigger = await screen.findByRole('button', { name: 'Xác nhận đã nhận tiền' }); fireEvent.click(trigger);
+  const dialog = within(screen.getByRole('dialog')); const cancel = dialog.getByRole('button', { name: 'Hủy' }); const confirm = dialog.getByRole('button', { name: 'Xác nhận đã nhận tiền' });
+  expect(cancel).toHaveFocus(); fireEvent.keyDown(window, { key: 'Tab', shiftKey: true }); expect(confirm).toHaveFocus(); fireEvent.keyDown(window, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); expect(trigger).toHaveFocus();
 });

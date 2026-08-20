@@ -16,6 +16,7 @@ model Admin {
   updatedAt   DateTime @updatedAt
   operations  Operation[]
   createdInvoices Invoice[] @relation("InvoiceCreator")
+  confirmedInvoices Invoice[] @relation("InvoiceConfirmer")
 }
 
 enum OperationState {
@@ -105,6 +106,8 @@ model Invoice {
   status           InvoiceStatus @default(DRAFT)
   total            BigInt        @default(0)
   creatorId        String        @db.Uuid
+  confirmerId      String?       @db.Uuid
+  completedAt      DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   paymentMethod    InvoicePaymentMethod?
@@ -115,6 +118,7 @@ model Invoice {
   paymentSnapshotAccountHolderName String?
   student          Student       @relation(fields: [studentId], references: [id], onDelete: Restrict)
   creator          Admin         @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  confirmer        Admin?        @relation("InvoiceConfirmer", fields: [confirmerId], references: [id], onDelete: Restrict)
   items            InvoiceItem[]
   bankAccount      BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
 
@@ -122,6 +126,7 @@ model Invoice {
   @@index([billingMonth, status, classId, createdAt, id])
   @@index([billingMonth, createdAt(sort: Desc), id(sort: Desc)])
   @@index([bankAccountId])
+  @@index([confirmerId])
 }
 
 model InvoiceItem {

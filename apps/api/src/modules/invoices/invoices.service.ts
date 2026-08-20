@@ -24,7 +24,7 @@ function snapshotPayment(record: { paymentSnapshotMethod: InvoicePaymentMethod |
 function serialize(record: { id: string; billingMonth: Date; studentName: string; studentNickname: string | null; classId: string; className: string; status: import('@prisma/client').InvoiceStatus; total: bigint; createdAt: Date; updatedAt: Date }) {
   return { id: record.id, billingMonth: formatMonth(record.billingMonth), student: { name: record.studentName, nickname: record.studentNickname }, schoolClass: { id: record.classId, name: record.className }, status: record.status, total: safeMoney(record.total), createdAt: record.createdAt.toISOString(), updatedAt: record.updatedAt.toISOString() };
 }
-function serializeDetail(record: Prisma.InvoiceGetPayload<{ include: { items: true; creator: true; bankAccount: true } }>) {
+function serializeDetail(record: Prisma.InvoiceGetPayload<{ include: { items: true; creator: true; confirmer: true; bankAccount: true } }>) {
   const payment = record.status === InvoiceStatus.DRAFT
     ? { method: record.paymentMethod, bankAccount: record.bankAccount ? { id: record.bankAccount.id, bankCode: record.bankAccount.bankCode, accountNumber: record.bankAccount.accountNumber, accountHolderName: record.bankAccount.accountHolderName } : null }
     : snapshotPayment(record);
@@ -37,6 +37,8 @@ function serializeDetail(record: Prisma.InvoiceGetPayload<{ include: { items: tr
     payment,
     qr,
     createdBy: { id: record.creator.id, displayName: record.creator.displayName },
+    completedBy: record.confirmer ? { id: record.confirmer.id, displayName: record.confirmer.displayName } : null,
+    completedAt: record.completedAt?.toISOString() ?? null,
   };
 }
 type SkipReason = 'inactiveStudent' | 'missingClass' | 'archivedClass' | 'existingInvoice';
@@ -80,7 +82,7 @@ export class InvoicesService {
   }
 
   async get(id: string) {
-    const record = await this.prisma.invoice.findUnique({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, bankAccount: true } });
+    const record = await this.prisma.invoice.findUnique({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, confirmer: true, bankAccount: true } });
     if (!record) throw new NotFoundException('Invoice not found.');
     return { data: serializeDetail(record) };
   }
@@ -101,7 +103,7 @@ export class InvoicesService {
       safeMoney(total);
       await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
       await tx.invoice.update({ where: { id }, data: { total, paymentMethod: input.paymentMethod, bankAccountId: input.paymentMethod === InvoicePaymentMethod.TRANSFER ? input.bankAccountId : null, items: { create: items } } });
-      const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, bankAccount: true } });
+       const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, confirmer: true, bankAccount: true } });
       return { data: serializeDetail(record) };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
@@ -127,7 +129,7 @@ export class InvoicesService {
           paymentSnapshotAccountNumber: invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.accountNumber : null,
           paymentSnapshotAccountHolderName: invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.accountHolderName : null,
         } });
-        const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, bankAccount: true } });
+        const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, confirmer: true, bankAccount: true } });
         return { data: serializeDetail(record) };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
@@ -143,7 +145,7 @@ export class InvoicesService {
         if (!invoice) throw new NotFoundException('Invoice not found.');
         if (invoice.status !== InvoiceStatus.PENDING) throw new ConflictException('Only pending invoices can return to draft.');
         await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.DRAFT } });
-        const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, bankAccount: true } });
+        const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, confirmer: true, bankAccount: true } });
         return { data: serializeDetail(record) };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
@@ -157,6 +159,30 @@ export class InvoicesService {
     if (!template?.items.length) throw new DomainException(INVOICE_TEMPLATE_EMPTY, 'Invoice template must contain at least one item.');
     const result = await this.prisma.$transaction((tx) => eligibility(tx, input), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     return { data: { eligibleCount: result.eligible.length, skipped: result.skipped } };
+  }
+
+  async complete(id: string, operationId: string, adminId: string) {
+    const route = `/invoices/${id}/complete`;
+    const fingerprint = this.operations.fingerprint({});
+    for (let attempt = 0; attempt < 3; attempt += 1) try {
+      return await this.prisma.$transaction(async (tx) => {
+        const replay = await this.operations.acquireOrReplay(tx, adminId, route, operationId, fingerprint);
+        if (replay !== undefined) return replay as { data: unknown };
+        const invoice = await tx.invoice.findUnique({ where: { id } });
+        if (!invoice) throw new NotFoundException('Invoice not found.');
+        if (invoice.status !== InvoiceStatus.PENDING) throw new ConflictException('Only pending invoices can be completed.');
+        if (invoice.total <= 0n) throw new ConflictException('Invoice total must be greater than zero to complete.');
+        await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.COMPLETED, confirmerId: adminId, completedAt: new Date() } });
+        const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, confirmer: true, bankAccount: true } });
+        const response = { data: serializeDetail(record) };
+        await this.operations.complete(tx, { id: operationId, adminId, route, fingerprint, response });
+        return response;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      // A concurrent request with this key can win the initial operation insert; retry to replay it.
+      if (attempt === 2 || !(error instanceof Prisma.PrismaClientKnownRequestError) || !['P2034', 'P2002'].includes(error.code)) throw error;
+    }
+    throw new Error('Unreachable invoice completion retry state.');
   }
 
   async createBatch(input: BatchInvoiceDto, operationId: string, adminId: string) {

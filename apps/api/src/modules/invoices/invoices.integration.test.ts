@@ -90,4 +90,35 @@ describe('InvoicesService PostgreSQL contract', () => {
 
     await expect(service.moveToPending(created.id)).resolves.toMatchObject({ data: { status: InvoiceStatus.PENDING, payment: { method: InvoicePaymentMethod.CASH, bankAccount: null }, qr: null } });
   });
+
+  it('completes a pending positive invoice once, preserves its audit on replay, and rejects invalid lifecycle requests', async () => {
+    const creator = await prisma.admin.create({ data: { email: 'completion-creator@example.com', displayName: 'Creator', googleId: 'completion-creator' } });
+    const confirmer = await prisma.admin.create({ data: { email: 'completion-confirmer@example.com', displayName: 'Confirmer', googleId: 'completion-confirmer' } });
+    const schoolClass = await prisma.class.create({ data: { name: 'Lá 1', monthlyTuition: 100 } });
+    const student = await prisma.student.create({ data: { fullName: 'Bé Cúc', classId: schoolClass.id } });
+    const pending = await prisma.invoice.create({ data: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: student.fullName, classId: schoolClass.id, className: schoolClass.name, status: InvoiceStatus.PENDING, total: 100n, creatorId: creator.id, paymentSnapshotMethod: InvoicePaymentMethod.CASH, items: { create: { description: 'Học phí', amount: 100n, position: 0 } } } });
+    const key = 'd2e36687-69b4-4e89-8ec0-141ff397837f';
+    const first = await service.complete(pending.id, key, confirmer.id);
+    expect(first).toMatchObject({ data: { status: InvoiceStatus.COMPLETED, completedBy: { id: confirmer.id, displayName: 'Confirmer' } } });
+    const stored = await prisma.invoice.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(stored).toMatchObject({ status: InvoiceStatus.COMPLETED, confirmerId: confirmer.id }); expect(stored.completedAt).not.toBeNull();
+    await expect(service.complete(pending.id, key, confirmer.id)).resolves.toEqual(first);
+    await expect(service.moveToDraft(pending.id)).rejects.toThrow('Only pending invoices can return to draft');
+    await expect(service.complete(pending.id, 'e2e36687-69b4-4e89-8ec0-141ff397837f', confirmer.id)).rejects.toThrow('Only pending invoices can be completed');
+  });
+
+  it('replays concurrent completion requests with the same operation key', async () => {
+    const creator = await prisma.admin.create({ data: { email: 'concurrent-creator@example.com', displayName: 'Creator', googleId: 'concurrent-creator' } });
+    const confirmer = await prisma.admin.create({ data: { email: 'concurrent-confirmer@example.com', displayName: 'Confirmer', googleId: 'concurrent-confirmer' } });
+    const schoolClass = await prisma.class.create({ data: { name: 'Lá 2', monthlyTuition: 100 } });
+    const student = await prisma.student.create({ data: { fullName: 'Bé Dâu', classId: schoolClass.id } });
+    const pending = await prisma.invoice.create({ data: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: student.fullName, classId: schoolClass.id, className: schoolClass.name, status: InvoiceStatus.PENDING, total: 100n, creatorId: creator.id, paymentSnapshotMethod: InvoicePaymentMethod.CASH, items: { create: { description: 'Học phí', amount: 100n, position: 0 } } } });
+    const key = 'f2e36687-69b4-4e89-8ec0-141ff397837f';
+
+    const [first, second] = await Promise.all([service.complete(pending.id, key, confirmer.id), service.complete(pending.id, key, confirmer.id)]);
+
+    expect(second).toEqual(first);
+    await expect(prisma.invoice.findUniqueOrThrow({ where: { id: pending.id } })).resolves.toMatchObject({ status: InvoiceStatus.COMPLETED, confirmerId: confirmer.id });
+    await expect(prisma.operation.count({ where: { id: key } })).resolves.toBe(1);
+  });
 });
