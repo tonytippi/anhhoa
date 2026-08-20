@@ -12,7 +12,7 @@ export class ApiTimeoutError extends ApiError {
   constructor() { super(0, 'REQUEST_TIMEOUT', 'Yêu cầu lưu đã quá thời gian chờ. Hãy làm mới danh sách để đối soát trước khi gửi lại.'); }
 }
 
-const apiBaseUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+const apiBaseUrl = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '');
 const writeTimeoutMs = 10_000;
 
 export function apiUrl(path: string): string {

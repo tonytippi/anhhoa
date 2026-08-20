@@ -19,7 +19,7 @@ it('chỉ mount workspace sau khi API trả identity hợp lệ', async () => {
   expect(screen.getByRole('heading', { name: 'Đang kiểm tra phiên' })).toBeVisible();
   expect(await screen.findByRole('heading', { name: 'Tổng quan' })).toBeVisible();
   expect(screen.getByRole('complementary', { name: 'Điều hướng quản trị' })).toBeVisible();
-  expect(fetch).toHaveBeenCalledWith('http://localhost:3000/auth/me', { credentials: 'include', headers: { Accept: 'application/json' } });
+  expect(fetch).toHaveBeenCalledWith('/api/auth/me', { credentials: 'include', headers: { Accept: 'application/json' }, signal: undefined });
 });
 
 it('ẩn workspace và hiển thị đăng nhập khi API trả 401', async () => {

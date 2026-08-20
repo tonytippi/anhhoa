@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { ApiError, ApiTimeoutError, getJson, requestJson, resetApiClientForTests } from './client';
+import { ApiError, ApiTimeoutError, apiUrl, getJson, requestJson, resetApiClientForTests } from './client';
 
 afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); });
 
@@ -7,7 +7,12 @@ it('gửi REST request credentialed với Accept JSON', async () => {
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: {} }), { status: 200 }));
   vi.stubGlobal('fetch', fetch);
   await getJson('/auth/me');
-  expect(fetch).toHaveBeenCalledWith('http://localhost:3000/auth/me', { credentials: 'include', headers: { Accept: 'application/json' } });
+  expect(fetch).toHaveBeenCalledWith('/api/auth/me', { credentials: 'include', headers: { Accept: 'application/json' } });
+});
+
+it('dùng API relative qua web origin khi không có override', () => {
+  expect(apiUrl('/auth/google')).toBe('/api/auth/google');
+  expect(apiUrl('/auth/me')).not.toContain('localhost:3000');
 });
 
 it('giữ message và field errors từ API', async () => {
@@ -24,7 +29,7 @@ it('chia sẻ một request CSRF cho mutation đồng thời', async () => {
   const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: {} }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: {} }), { status: 200 }));
   vi.stubGlobal('fetch', fetch);
   await Promise.all([requestJson('/classes', { method: 'POST', body: '{}' }), requestJson('/classes', { method: 'POST', body: '{}' })]);
-  expect(fetch.mock.calls.filter(([url]) => url === 'http://localhost:3000/auth/csrf')).toHaveLength(1);
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/auth/csrf')).toHaveLength(1);
 });
 
 it('returns CSRF rejection without replaying an unsafe mutation', async () => {

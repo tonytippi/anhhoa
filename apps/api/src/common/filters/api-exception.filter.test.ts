@@ -4,6 +4,11 @@ import { ApiExceptionFilter } from './api-exception.filter.js';
 import { DomainException, IDEMPOTENCY_CONFLICT } from '../errors/domain.exception.js';
 
 describe('ApiExceptionFilter', () => {
+  it('does not write a second response after a guard has redirected', () => {
+    const status = vi.fn();
+    new ApiExceptionFilter().catch(new Error('OAuth callback failed after redirect.'), { switchToHttp: () => ({ getResponse: () => ({ headersSent: true, status }) }) } as never);
+    expect(status).not.toHaveBeenCalled();
+  });
   it('uses the standard JSON error contract', () => {
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });

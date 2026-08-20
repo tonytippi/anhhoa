@@ -6,6 +6,7 @@ import { CLASS_ARCHIVED, CLASS_HAS_ACTIVE_STUDENTS, CLASS_NOT_FOUND, CLASS_TRANS
 export class ApiExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
+    if (response.headersSent) return;
     const isSerializationConflict = typeof exception === 'object' && exception !== null && 'code' in exception && exception.code === 'P2034';
     const status = isSerializationConflict ? HttpStatus.CONFLICT : exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const detail = exception instanceof HttpException ? exception.getResponse() : undefined;
