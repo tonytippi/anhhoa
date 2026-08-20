@@ -59,8 +59,8 @@ development_status:
   3-5-xác-nhận-đã-nhận-tiền-và-audit-hóa-đơn: done
   epic-3-retrospective: done
 
-  epic-4: backlog
-  4-1-xem-báo-cáo-thu-theo-tháng: backlog
+  epic-4: in-progress
+  4-1-xem-báo-cáo-thu-theo-tháng: review
   epic-4-retrospective: optional
 action_items:
   - id: "epic-2-retro-item-1-sửa-reconciliation-retry-whole-class-tra"
