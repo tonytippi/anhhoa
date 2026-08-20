@@ -11,6 +11,6 @@ import { GoogleStrategy } from './google.strategy.js';
 
 @Module({
   imports: [AdminsModule, PassportModule, JwtModule.registerAsync({ inject: [AUTH_CONFIG], useFactory: (config: AuthConfig) => ({ secret: config.jwtSecret, signOptions: { expiresIn: config.jwtExpiresIn } as JwtSignOptions }) })],
-  controllers: [AuthController], providers: [GoogleStrategy, GoogleAuthGuard],
+  controllers: [AuthController], providers: [GoogleStrategy, GoogleAuthGuard], exports: [JwtModule],
 })
 export class AuthModule {}

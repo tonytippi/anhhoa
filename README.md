@@ -41,6 +41,22 @@ pnpm --filter api start
 
 `PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. Session chỉ được cấp trong cookie `Secure`, `httpOnly`, `SameSite=Lax`; client cần lấy CSRF token tại `GET /auth/csrf` và gửi lại qua `X-CSRF-Token` cho mutation đã có session. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
 
+## Docker Compose test deployment
+
+Compose test deployment gồm PostgreSQL 16 trên named volume, migration one-shot, API NestJS và Nginx phục vụ PWA. Chỉ Nginx được map ra loopback của host; PostgreSQL và API chỉ nằm trên Docker network. Nginx rewrite SPA route về `index.html` và proxy `/api` tới API, vì vậy public web và API luôn cùng một HTTPS origin. Đặt `DATABASE_URL` trong `.env.production` dùng hostname Docker nội bộ `postgres` (ví dụ `postgresql://user:password@postgres:5432/database?schema=public`), không dùng `localhost`.
+
+```bash
+cp .env.production.example .env.production
+# Điền giá trị thật trong .env.production, không commit file này.
+docker compose --env-file .env.production config
+docker compose --env-file .env.production up --build -d
+docker compose --env-file .env.production ps
+```
+
+`migrate` chạy `prisma migrate deploy` từ migrations đã commit trước khi API được khởi động. Lần chạy lại an toàn; nếu migration lỗi, API không khởi động. Không dùng `prisma db push` cho deployment. Các giá trị `POSTGRES_DB`, `POSTGRES_USER` và `POSTGRES_PASSWORD` chỉ được dùng khi khởi tạo volume lần đầu; muốn đổi chúng phải tạo database role thủ công hoặc chủ động xóa volume. Dừng stack giữ nguyên database trong named volume `postgres-data`; chỉ chạy `docker compose --env-file .env.production down -v` khi chủ động muốn xóa toàn bộ dữ liệu test.
+
+Tạo Cloudflare Tunnel bên ngoài Compose tới `http://localhost:<WEB_PORT>` (mặc định `8080`). Cấu hình `WEB_ORIGIN` là public HTTPS origin, ví dụ `https://admin.example.com`; đặt `GOOGLE_CALLBACK_URL` là `https://admin.example.com/api/auth/google/callback`; và đăng ký callback đó trong Google OAuth. `OAUTH_REDIRECT_URLS` cùng `OAUTH_DENIED_REDIRECT_URL` phải dùng public origin này. Không thêm container Tunnel, TLS termination, database port hoặc secrets vào Compose/image.
+
 ## Yêu cầu
 Tôi muốn làm hệ thống quản lý hóa đơn cho trường mầm non. Hệ thống phải thật đơn giản.
 - chỉ có admin login, không có giáo viên, không có phụ huynh.

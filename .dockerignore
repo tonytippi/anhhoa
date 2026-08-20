@@ -1,0 +1,15 @@
+.env
+.env.*
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.turbo/
+coverage/
+playwright-report/
+test-results/
+_bmad-output/
+_bmad/
+.agents/
+.opencode/
+.git/
