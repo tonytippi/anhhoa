@@ -10,7 +10,7 @@ function parseItem(value: unknown): InvoiceTemplateItem {
   if (!value || typeof value !== 'object') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   const item = value as Record<string, unknown>;
   if (typeof item.id !== 'string' || typeof item.description !== 'string' || (item.feeGroup !== null && typeof item.feeGroup !== 'string') || !Number.isSafeInteger(item.position) || (item.position as number) < 0 || (item.amountSource !== 'FIXED' && item.amountSource !== 'CLASS_TUITION') || typeof item.createdAt !== 'string' || typeof item.updatedAt !== 'string') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
-  if (item.amountSource === 'FIXED' && (!Number.isSafeInteger(item.fixedAmount) || (item.fixedAmount as number) < 0)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
+  if (item.amountSource === 'FIXED' && !Number.isSafeInteger(item.fixedAmount)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   if (item.amountSource === 'CLASS_TUITION' && 'fixedAmount' in item) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
   return item as unknown as InvoiceTemplateItem;
 }

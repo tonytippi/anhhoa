@@ -7,7 +7,25 @@ export async function seed(): Promise<void> {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.invoiceTemplate.upsert({ where: { singleton: true }, update: {}, create: { singleton: true } });
+      // Serialize seed runs so an empty template receives the defaults exactly once.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(9162026)`;
+      const template = await tx.invoiceTemplate.upsert({ where: { singleton: true }, update: {}, create: { singleton: true } });
+      if (await tx.invoiceTemplateItem.count({ where: { templateId: template.id } }) === 0) {
+        await tx.invoiceTemplateItem.createMany({
+          data: [
+            { templateId: template.id, description: 'Học phí', position: 0, amountSource: 'CLASS_TUITION' },
+            { templateId: template.id, description: 'Xe', position: 1, amountSource: 'FIXED', fixedAmount: 0n },
+            { templateId: template.id, description: 'Khác', position: 2, amountSource: 'FIXED', fixedAmount: 0n },
+            { templateId: template.id, description: 'Tạm thu tiền ăn', position: 3, amountSource: 'FIXED', fixedAmount: 0n },
+            { templateId: template.id, description: 'Phụ phí', position: 4, amountSource: 'FIXED', fixedAmount: 0n },
+            { templateId: template.id, description: 'Phụ ăn', position: 5, amountSource: 'FIXED', fixedAmount: 0n },
+            { templateId: template.id, description: 'Ngoài giờ', position: 6, amountSource: 'FIXED', fixedAmount: 0n },
+            { templateId: template.id, description: 'Ăn tối', position: 7, amountSource: 'FIXED', fixedAmount: 0n },
+            { templateId: template.id, description: 'Đổi trừ Phép T7', position: 8, amountSource: 'FIXED', fixedAmount: 0n },
+            { templateId: template.id, description: 'Khác', position: 9, amountSource: 'FIXED', fixedAmount: 0n },
+          ],
+        });
+      }
 
       const classes = [
         await seedClass(tx, 'Mầm non 3 tuổi A', 2_500_000n),

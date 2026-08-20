@@ -1,29 +1,51 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { InvoiceTemplateAmountSource, PrismaClient } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { InvoiceTemplateService } from './invoice-template.service.js';
 
 const databaseUrl = 'postgresql://anhhoa_test:anhhoa_test@localhost:55432/anhhoa_test?schema=public';
 if (process.env.DATABASE_URL !== databaseUrl) throw new Error('Integration tests require the dedicated Docker Compose PostgreSQL database.');
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
 const service = new InvoiceTemplateService(prisma as never);
+const run = promisify(execFile);
 beforeEach(async () => { await prisma.invoiceTemplateItem.deleteMany(); await prisma.invoiceTemplate.deleteMany(); await prisma.invoiceTemplate.create({ data: { singleton: true } }); });
 afterAll(async () => { await prisma.$disconnect(); });
 
 describe('InvoiceTemplateService PostgreSQL contract', () => {
-  it('runs the idempotent seed executable from the integration runner', async () => {
-    const runner = await readFile(resolve(import.meta.dirname, '../../../scripts/test-integration.ts'), 'utf8');
-    expect(runner).toContain("run('pnpm', ['prisma', 'db', 'seed'])");
-    await prisma.invoiceTemplate.upsert({ where: { singleton: true }, update: {}, create: { singleton: true } });
-    await expect(prisma.invoiceTemplate.count()).resolves.toBe(1);
+  it('seeds default items once and preserves configured template items', async () => {
+    await prisma.invoiceTemplateItem.deleteMany();
+    await prisma.invoiceTemplate.deleteMany();
+    const options = { cwd: resolve(import.meta.dirname, '../../..'), env: { ...process.env, DATABASE_URL: databaseUrl } };
+    await run('pnpm', ['prisma', 'db', 'seed'], options);
+    const seeded = await prisma.invoiceTemplate.findUniqueOrThrow({ where: { singleton: true }, include: { items: { orderBy: { position: 'asc' } } } });
+    expect(seeded.items.map((item) => [item.description, item.amountSource, item.fixedAmount])).toEqual([
+      ['Học phí', InvoiceTemplateAmountSource.CLASS_TUITION, null],
+      ['Xe', InvoiceTemplateAmountSource.FIXED, 0n],
+      ['Khác', InvoiceTemplateAmountSource.FIXED, 0n],
+      ['Tạm thu tiền ăn', InvoiceTemplateAmountSource.FIXED, 0n],
+      ['Phụ phí', InvoiceTemplateAmountSource.FIXED, 0n],
+      ['Phụ ăn', InvoiceTemplateAmountSource.FIXED, 0n],
+      ['Ngoài giờ', InvoiceTemplateAmountSource.FIXED, 0n],
+      ['Ăn tối', InvoiceTemplateAmountSource.FIXED, 0n],
+      ['Đổi trừ Phép T7', InvoiceTemplateAmountSource.FIXED, 0n],
+      ['Khác', InvoiceTemplateAmountSource.FIXED, 0n],
+    ]);
+    await run('pnpm', ['prisma', 'db', 'seed'], options);
+    await expect(prisma.invoiceTemplateItem.count({ where: { templateId: seeded.id } })).resolves.toBe(10);
+    await prisma.invoiceTemplateItem.deleteMany({ where: { templateId: seeded.id } });
+    await prisma.invoiceTemplateItem.create({ data: { templateId: seeded.id, description: 'Cấu hình Admin', position: 0, amountSource: InvoiceTemplateAmountSource.FIXED, fixedAmount: 42n } });
+    await run('pnpm', ['prisma', 'db', 'seed'], options);
+    await expect(prisma.invoiceTemplateItem.findMany({ where: { templateId: seeded.id } })).resolves.toMatchObject([{ description: 'Cấu hình Admin', position: 0, fixedAmount: 42n }]);
   });
 
-  it('enforces non-negative persisted amounts and positions', async () => {
+  it('persists signed JSON-safe amounts and rejects out-of-range amounts and positions', async () => {
     const template = await prisma.invoiceTemplate.findUniqueOrThrow({ where: { singleton: true } });
-    await expect(prisma.invoiceTemplateItem.create({ data: { templateId: template.id, description: 'Sai tiền', position: 0, amountSource: InvoiceTemplateAmountSource.FIXED, fixedAmount: -1n } })).rejects.toThrow();
+    await expect(prisma.invoiceTemplateItem.create({ data: { templateId: template.id, description: 'Giảm trừ', position: 0, amountSource: InvoiceTemplateAmountSource.FIXED, fixedAmount: -135000n } })).resolves.toMatchObject({ fixedAmount: -135000n });
     await expect(prisma.invoiceTemplateItem.create({ data: { templateId: template.id, description: 'Tiền không JSON-safe', position: 0, amountSource: InvoiceTemplateAmountSource.FIXED, fixedAmount: 9007199254740992n } })).rejects.toThrow();
+    await expect(prisma.invoiceTemplateItem.create({ data: { templateId: template.id, description: 'Tiền âm không JSON-safe', position: 1, amountSource: InvoiceTemplateAmountSource.FIXED, fixedAmount: -9007199254740992n } })).rejects.toThrow();
     await expect(prisma.invoiceTemplateItem.create({ data: { templateId: template.id, description: 'Sai thứ tự', position: -1, amountSource: InvoiceTemplateAmountSource.CLASS_TUITION } })).rejects.toThrow();
   });
 

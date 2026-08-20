@@ -40,16 +40,17 @@ describe('InvoicesService PostgreSQL contract', () => {
     await prisma.invoiceTemplateItem.createMany({ data: [
       { templateId: template.id, description: 'Học phí', position: 0, amountSource: InvoiceTemplateAmountSource.CLASS_TUITION },
       { templateId: template.id, description: 'Tiền ăn', feeGroup: 'Ăn uống', position: 1, amountSource: InvoiceTemplateAmountSource.FIXED, fixedAmount: 300000n },
+      { templateId: template.id, description: 'Giảm trừ', position: 2, amountSource: InvoiceTemplateAmountSource.FIXED, fixedAmount: -135000n },
     ] });
 
     await expect(service.preview({ billingMonth: '2026-08', allActiveClasses: true })).resolves.toEqual({ data: { eligibleCount: 1, skipped: { inactiveStudent: 1, missingClass: 1, archivedClass: 1, existingInvoice: 1 } } });
     const created = await service.createBatch({ billingMonth: '2026-08', allActiveClasses: true }, 'a2e36687-69b4-4e89-8ec0-141ff397837f', admin.id);
     expect(created).toMatchObject({ data: { createdCount: 1, skipped: { inactiveStudent: 1, missingClass: 1, archivedClass: 1, existingInvoice: 1 } } });
     const invoice = await prisma.invoice.findUniqueOrThrow({ where: { studentId_billingMonth: { studentId: eligible.id, billingMonth: new Date('2026-08-01T00:00:00.000Z') } }, include: { items: { orderBy: { position: 'asc' } } } });
-    expect(invoice).toMatchObject({ studentName: 'Bé đủ điều kiện', studentNickname: 'Bông', className: 'Mầm active', total: 1800000n, items: [{ description: 'Học phí', amount: 1500000n, position: 0 }, { description: 'Tiền ăn', feeGroup: 'Ăn uống', amount: 300000n, position: 1 }] });
+    expect(invoice).toMatchObject({ studentName: 'Bé đủ điều kiện', studentNickname: 'Bông', className: 'Mầm active', total: 1665000n, items: [{ description: 'Học phí', amount: 1500000n, position: 0 }, { description: 'Tiền ăn', feeGroup: 'Ăn uống', amount: 300000n, position: 1 }, { description: 'Giảm trừ', amount: -135000n, position: 2 }] });
     await prisma.class.update({ where: { id: activeClass.id }, data: { name: 'Tên mới', monthlyTuition: 1 } });
     await prisma.invoiceTemplateItem.updateMany({ where: { templateId: template.id }, data: { description: 'Dòng mới' } });
-    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { items: { orderBy: { position: 'asc' } } } })).toMatchObject({ className: 'Mầm active', total: 1800000n, items: [{ description: 'Học phí', amount: 1500000n }, { description: 'Tiền ăn', amount: 300000n }] });
+    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { items: { orderBy: { position: 'asc' } } } })).toMatchObject({ className: 'Mầm active', total: 1665000n, items: [{ description: 'Học phí', amount: 1500000n }, { description: 'Tiền ăn', amount: 300000n }, { description: 'Giảm trừ', amount: -135000n }] });
   });
 
   it('replays a batch key and prevents duplicates for overlapping batch requests', async () => {

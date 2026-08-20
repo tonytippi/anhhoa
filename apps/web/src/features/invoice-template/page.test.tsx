@@ -31,3 +31,10 @@ it('maps server field errors, keeps form state after timeout, and reports failed
   fireEvent.click(screen.getByRole('button', { name: 'Hủy' })); fireEvent.click(screen.getByRole('button', { name: 'Xuống Tiền ăn' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Không thể đổi vị trí.');
 });
+it('keeps and submits a negative fixed amount', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { id: 'template', items: [first], createdAt: '2026-01-01', updatedAt: '2026-01-01' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...first, fixedAmount: -135000 } }), { status: 200 }));
+  vi.stubGlobal('fetch', fetch); renderPage(); await screen.findByRole('table', { name: 'Dòng mẫu hóa đơn' });
+  fireEvent.click(screen.getByRole('button', { name: 'Sửa' })); fireEvent.change(screen.getByLabelText('Số tiền (VND)'), { target: { value: '-135000' } }); fireEvent.click(screen.getByRole('button', { name: 'Lưu dòng mẫu' }));
+  await vi.waitFor(() => expect(fetch.mock.calls.some(([url, options]) => typeof url === 'string' && url.includes('/invoice-template/items/') && typeof options === 'object' && options !== null && 'body' in options && typeof options.body === 'string' && options.body.includes('"fixedAmount":-135000'))).toBe(true));
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+});

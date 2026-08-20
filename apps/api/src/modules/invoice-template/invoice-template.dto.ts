@@ -6,9 +6,9 @@ import { InvoiceTemplateAmountSource } from '@prisma/client';
 class FixedAmountCompatibleConstraint implements ValidatorConstraintInterface {
   validate(value: unknown, args: ValidationArguments): boolean {
     const item = args.object as CreateInvoiceTemplateItemDto;
-    return item.amountSource === InvoiceTemplateAmountSource.CLASS_TUITION ? value === undefined : Number.isSafeInteger(value) && (value as number) >= 0;
+    return item.amountSource === InvoiceTemplateAmountSource.CLASS_TUITION ? value === undefined : Number.isSafeInteger(value);
   }
-  defaultMessage(args: ValidationArguments): string { return (args.object as CreateInvoiceTemplateItemDto).amountSource === InvoiceTemplateAmountSource.CLASS_TUITION ? 'fixedAmount must not be provided when amountSource is CLASS_TUITION' : 'fixedAmount must be a non-negative safe integer for FIXED'; }
+  defaultMessage(args: ValidationArguments): string { return (args.object as CreateInvoiceTemplateItemDto).amountSource === InvoiceTemplateAmountSource.CLASS_TUITION ? 'fixedAmount must not be provided when amountSource is CLASS_TUITION' : 'fixedAmount must be a safe integer for FIXED'; }
 }
 
 export class CreateInvoiceTemplateItemDto {
