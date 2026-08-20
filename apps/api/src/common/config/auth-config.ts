@@ -1,3 +1,5 @@
+import { getDomain } from 'tldts';
+
 export interface AuthConfig {
   port: number;
   databaseUrl: string;
@@ -48,6 +50,18 @@ function parseUrl(value: string, name: string, originOnly = false): string {
   }
 }
 
+function assertSchemefullySameSite(webOrigin: string, callbackUrl: string): void {
+  const web = new URL(webOrigin);
+  const api = new URL(callbackUrl);
+  const webDomain = getDomain(web.hostname, { allowPrivateDomains: true });
+  const apiDomain = getDomain(api.hostname, { allowPrivateDomains: true });
+  const sameHost = web.hostname === api.hostname;
+
+  if (web.protocol !== api.protocol || (!sameHost && (!webDomain || webDomain !== apiDomain))) {
+    throw new Error('WEB_ORIGIN and GOOGLE_CALLBACK_URL must use the same schemeful site; cross-site web/API deployments are not supported.');
+  }
+}
+
 export function parsePort(value: string | undefined): number {
   if (value === undefined) return 3000;
   if (!/^[1-9]\d*$/.test(value) || Number(value) > 65535) {
@@ -61,6 +75,7 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
   if (!/^postgres(?:ql)?:\/\//.test(databaseUrl)) throw new Error('DATABASE_URL must be a PostgreSQL connection URL.');
   const webOrigin = parseUrl(required(env, 'WEB_ORIGIN'), 'WEB_ORIGIN', true);
   const callbackUrl = parseUrl(required(env, 'GOOGLE_CALLBACK_URL'), 'GOOGLE_CALLBACK_URL');
+  assertSchemefullySameSite(webOrigin, callbackUrl);
   const redirectUrls = required(env, 'OAUTH_REDIRECT_URLS').split(',').map((value) => parseUrl(value.trim(), 'OAUTH_REDIRECT_URLS'));
   const deniedRedirectUrl = parseUrl(required(env, 'OAUTH_DENIED_REDIRECT_URL'), 'OAUTH_DENIED_REDIRECT_URL');
   if (!redirectUrls.includes(deniedRedirectUrl)) throw new Error('OAUTH_DENIED_REDIRECT_URL must be included in OAUTH_REDIRECT_URLS.');

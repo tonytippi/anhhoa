@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ApiError, getJson } from '../../app/api/client';
 
 export interface MonthlyReport { billingMonth: string; counts: { draft: number; pending: number; completed: number }; totalCollected: number; cashCollected: number; transferCollected: number; transferBreakdown: { bankCode: string; accountNumber: string; accountHolderName: string; total: number }[]; }
+export const monthlyReportQueryKey = (billingMonth: string) => ['reports', 'monthly', billingMonth] as const;
 const monthPattern = /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/;
 function invalid(): never { throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.'); }
 
@@ -14,4 +15,4 @@ export function parseMonthlyReport(value: unknown): MonthlyReport {
   return { billingMonth: data.billingMonth, counts: { draft: counts.draft as number, pending: counts.pending as number, completed: counts.completed as number }, totalCollected: data.totalCollected as number, cashCollected: data.cashCollected as number, transferCollected: data.transferCollected as number, transferBreakdown };
 }
 
-export function useMonthlyReport(billingMonth: string, enabled = true) { return useQuery({ queryKey: ['reports', 'monthly', billingMonth], enabled, placeholderData: (previousData) => previousData, queryFn: () => getJson<unknown>(`/reports/monthly?billingMonth=${billingMonth}`).then(parseMonthlyReport) }); }
+export function useMonthlyReport(billingMonth: string, enabled = true) { return useQuery({ queryKey: monthlyReportQueryKey(billingMonth), enabled, staleTime: 60_000, placeholderData: (previousData) => previousData, queryFn: () => getJson<unknown>(`/reports/monthly?billingMonth=${billingMonth}`).then(parseMonthlyReport) }); }

@@ -63,6 +63,42 @@ test('quản trị viên xác nhận đã nhận tiền và xem audit hóa đơn
   await expect(page.getByRole('button', { name: 'Trả về nháp' })).toHaveCount(0);
 });
 
+test('hoàn tất hóa đơn làm mới report đã cache với tổng và snapshot chuyển khoản mới', async ({ page }) => {
+  const transferPending = { ...invoiceDetail, payment: { method: 'TRANSFER', bankAccount: { bankCode: 'VCB', accountNumber: '123', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An Mầm 1 chuyển tiền', url: 'https://img.vietqr.io/qr.png' } };
+  const transferCompleted = { ...transferPending, status: 'COMPLETED', completedBy: { id: admin.id, displayName: admin.displayName }, completedAt: '2026-08-02T00:00:00.000Z' };
+  const before = { data: { billingMonth: '2026-08', counts: { draft: 0, pending: 1, completed: 0 }, totalCollected: 0, cashCollected: 0, transferCollected: 0, transferBreakdown: [] } };
+  const untouchedMonth = { data: { billingMonth: '2026-09', counts: { draft: 0, pending: 0, completed: 0 }, totalCollected: 0, cashCollected: 0, transferCollected: 0, transferBreakdown: [] } };
+  const after = { data: { billingMonth: '2026-08', counts: { draft: 0, pending: 0, completed: 1 }, totalCollected: 1500000, cashCollected: 0, transferCollected: 1500000, transferBreakdown: [{ bankCode: 'VCB', accountNumber: '123', accountHolderName: 'Cô Hoa', total: 1500000 }] } };
+  let completed = false;
+  const reportRequests = new Map<string, number>();
+  await page.route('**/auth/me', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: admin }) }));
+  await page.route('**/auth/csrf', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { csrfToken: 'token' } }) }));
+  await page.route('**/reports/monthly?*', (route) => { const month = new URL(route.request().url()).searchParams.get('billingMonth')!; reportRequests.set(month, (reportRequests.get(month) ?? 0) + 1); return route.fulfill({ contentType: 'application/json', body: JSON.stringify(month === '2026-09' ? untouchedMonth : completed ? after : before) }); });
+  await page.route(/\/invoices\?/, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: [{ ...invoice, status: completed ? 'COMPLETED' : 'PENDING' }], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }) }));
+  await page.route(/\/invoices\/.+/, (route) => { if (route.request().method() === 'POST') { expect(route.request().url()).toContain(`/invoices/${invoice.id}/complete`); completed = true; } return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: completed ? transferCompleted : transferPending }) }); });
+
+  await page.goto('/bao-cao?month=2026-08');
+  await expect(page.getByText('0 đ').first()).toBeVisible();
+  await page.getByLabel('Tháng báo cáo').fill('2026-09');
+  await expect(page.getByRole('heading', { name: 'Chuyển khoản theo tài khoản nhận tiền' })).toBeVisible();
+  await page.getByLabel('Tháng báo cáo').fill('2026-08');
+  await page.getByRole('complementary', { name: 'Điều hướng quản trị' }).getByRole('link', { name: 'Hóa đơn', exact: true }).click();
+  await page.getByRole('link', { name: 'Bé An lúc tạo' }).click();
+  await page.getByRole('button', { name: 'Xác nhận đã nhận tiền' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Xác nhận đã nhận tiền' }).click();
+  await expect(page.getByText('Đã hoàn tất')).toBeVisible();
+  await page.getByRole('complementary', { name: 'Điều hướng quản trị' }).getByRole('link', { name: 'Tổng quan', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Đã hoàn tất' })).toContainText('1');
+  await expect(page.getByRole('article').filter({ hasText: 'Tổng đã thu' }).getByLabel('1.500.000 đ Việt Nam đồng')).toBeVisible();
+  await page.getByRole('complementary', { name: 'Điều hướng quản trị' }).getByRole('link', { name: 'Báo cáo', exact: true }).click();
+  await expect(page.getByText('VCB · 123')).toBeVisible();
+  await expect(page.getByText('Cô Hoa')).toBeVisible();
+  await expect(page.getByRole('article').filter({ hasText: 'Chuyển khoản' }).getByLabel('1.500.000 đ Việt Nam đồng')).toBeVisible();
+  await expect(page.locator('.breakdown-list').getByLabel('1.500.000 đ Việt Nam đồng')).toBeVisible();
+  expect(reportRequests.get('2026-08')).toBe(2);
+  expect(reportRequests.get('2026-09')).toBe(1);
+});
+
 test('hủy xác nhận không gửi completion request', async ({ page }) => {
   let completionPosts = 0;
   await page.route('**/auth/me', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: admin }) }));

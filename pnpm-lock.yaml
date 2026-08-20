@@ -68,6 +68,9 @@ importers:
       rxjs:
         specifier: ^7.8.2
         version: 7.8.2
+      tldts:
+        specifier: ^7.4.10
+        version: 7.4.10
     devDependencies:
       '@types/cookie-parser':
         specifier: ^1.4.10

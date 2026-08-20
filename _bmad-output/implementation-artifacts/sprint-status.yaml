@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:45
-last_updated: 08-20-2026 09:31
+last_updated: 08-20-2026 10:26
 project: anhhoa
 project_key: NOKEY
 tracking_system: file-system
@@ -40,7 +40,7 @@ development_status:
   1-1-khởi-tạo-workspace-và-application-shell: done
   1-2-đăng-nhập-google-theo-danh-sách-admin-cho-phép: done
   1-3-truy-cập-workspace-được-bảo-vệ: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   epic-2: in-progress
   2-1-quản-lý-lớp-đang-hoạt-động-và-lưu-trữ: done
@@ -61,7 +61,7 @@ development_status:
 
   epic-4: done
   4-1-xem-báo-cáo-thu-theo-tháng: done
-  epic-4-retrospective: optional
+  epic-4-retrospective: done
 action_items:
   - id: "epic-2-retro-item-1-sửa-reconciliation-retry-whole-class-tra"
     epic: 2
@@ -105,3 +105,20 @@ action_items:
     owner: "Amelia"
     status: done
     ref: "/home/sonnh/projects/anhhoa/_bmad-output/implementation-artifacts/epic-3-retro-2026-08-20.md"
+  - id: "epic-1-retro-item-6-validate-that-web_origin-and-the-public"
+    epic: 1
+    action: "Validate that WEB_ORIGIN and the public API callback/API origin are same-site
+      whenever session and CSRF cookies retain SameSite=Lax; reject incompatible startup
+      configuration and add config and browser/integration coverage for the rejected
+      topology."
+    owner: "Amelia"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-08-20.md"
+  - id: "epic-4-retro-item-7-invalidate-the-affected-monthly-report-q"
+    epic: 4
+    action: "Invalidate the affected monthly report query after successful invoice
+      completion and add a regression test proving totals, counts, and transfer breakdown
+      refresh after a cached report month receives a new completed invoice."
+    owner: "Amelia"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-08-20.md"

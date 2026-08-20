@@ -21,7 +21,7 @@ pnpm build
 pnpm --filter web exec playwright test
 ```
 
-API tự động nạp `apps/api/.env` khi khởi động; repository chỉ giữ biến môi trường mẫu trong `apps/api/.env.example`, không thêm giá trị thật. Để chạy API, sao chép file này thành `apps/api/.env`, đặt các biến OAuth Google, `JWT_SECRET` (ít nhất 32 ký tự), `ADMIN_EMAILS`, `WEB_ORIGIN`, callback và redirect URLs đã đăng ký. `OAUTH_REDIRECT_URLS` là allowlist URL sau đăng nhập, phân tách bằng dấu phẩy; `OAUTH_DENIED_REDIRECT_URL` phải là một URL trong allowlist này. Google OAuth callback phải trỏ đến `GOOGLE_CALLBACK_URL` trong cấu hình API.
+API tự động nạp `apps/api/.env` khi khởi động; repository chỉ giữ biến môi trường mẫu trong `apps/api/.env.example`, không thêm giá trị thật. Để chạy API, sao chép file này thành `apps/api/.env`, đặt các biến OAuth Google, `JWT_SECRET` (ít nhất 32 ký tự), `ADMIN_EMAILS`, `WEB_ORIGIN`, callback và redirect URLs đã đăng ký. `OAUTH_REDIRECT_URLS` là allowlist URL sau đăng nhập, phân tách bằng dấu phẩy; `OAUTH_DENIED_REDIRECT_URL` phải là một URL trong allowlist này. Google OAuth callback phải trỏ đến `GOOGLE_CALLBACK_URL` trong cấu hình API. `WEB_ORIGIN` và public origin của `GOOGLE_CALLBACK_URL` phải cùng schemeful site: khác port hoặc sibling subdomain được phép, còn cross-site hoặc khác `http`/`https` sẽ bị từ chối khi API khởi động. `VITE_API_URL` của web phải trỏ đúng public API origin từ callback này.
 
 ## Font assets
 

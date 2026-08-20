@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { ApiError, ApiTimeoutError, createOperationId } from '../../app/api/client';
 import { useBankAccounts } from '../bank-accounts/api';
+import { monthlyReportQueryKey } from '../reports/api';
 import { completeInvoice, getInvoiceCompletionOperation, type UpdateInvoiceInput, useInvoice, useInvoiceLifecycle, useUpdateInvoice } from './api';
 
 function formatVnd(amount: number): string { return `${new Intl.NumberFormat('vi-VN').format(amount)} đ`; }
@@ -68,7 +69,7 @@ function InvoiceDetail({ invoice }: { invoice: NonNullable<ReturnType<typeof use
   const paymentDescription = invoice.payment.method === 'CASH' ? 'Tiền mặt' : invoice.payment.bankAccount ? `${invoice.payment.bankAccount.bankCode} - ${invoice.payment.bankAccount.accountNumber} (${invoice.payment.bankAccount.accountHolderName})` : 'Chưa chọn';
   const copyTransferContent = async () => { if (!invoice.qr) return; setCopyNotice(''); try { await navigator.clipboard.writeText(invoice.qr.transferContent); setError(''); setCopyNotice('Đã sao chép nội dung chuyển khoản.'); } catch { setError('Không thể sao chép nội dung chuyển khoản.'); } };
   const clearCompletion = () => { sessionStorage.removeItem(pendingCompletionKey); setCompletionOperationId(null); setCompletionUnknown(false); };
-  const finishCompletion = (result: typeof invoice) => { queryClient.setQueryData(['invoices', result.id], result); void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'invoices' && typeof query.queryKey[1] === 'object' }); clearCompletion(); setCompletionOpen(false); setCompletionState('idle'); completionTrigger.current?.focus(); };
+  const finishCompletion = (result: typeof invoice) => { queryClient.setQueryData(['invoices', result.id], result); void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'invoices' && typeof query.queryKey[1] === 'object' }); if (result.status === 'COMPLETED') void queryClient.invalidateQueries({ queryKey: monthlyReportQueryKey(result.billingMonth), exact: true }); clearCompletion(); setCompletionOpen(false); setCompletionState('idle'); completionTrigger.current?.focus(); };
   const reconcileCompletion = async (operationId: string) => {
     setCompletionState('reconciling'); setCompletionUnknown(false); setError('');
     for (let attempt = 0; attempt < reconciliationAttempts; attempt += 1) {

@@ -70,4 +70,15 @@ describe('bootstrap', () => {
     expect(create).not.toHaveBeenCalled();
     expect(listen).not.toHaveBeenCalled();
   });
+
+  it('rejects cross-site auth topology before creating or listening on the app', async () => {
+    Object.assign(process.env, authEnv, { WEB_ORIGIN: 'https://admin.anhhoa.vn', GOOGLE_CALLBACK_URL: 'https://api.example.net/auth/google/callback' });
+    const listen = vi.fn().mockResolvedValue(undefined);
+    create.mockResolvedValue({ listen });
+
+    await expect(bootstrap()).rejects.toThrow('WEB_ORIGIN and GOOGLE_CALLBACK_URL must use the same schemeful site');
+
+    expect(create).not.toHaveBeenCalled();
+    expect(listen).not.toHaveBeenCalled();
+  });
 });
