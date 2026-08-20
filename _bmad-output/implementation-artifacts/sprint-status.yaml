@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:45
-last_updated: 08-20-2026 08:34
+last_updated: 08-20-2026 09:31
 project: anhhoa
 project_key: NOKEY
 tracking_system: file-system
@@ -59,8 +59,8 @@ development_status:
   3-5-xác-nhận-đã-nhận-tiền-và-audit-hóa-đơn: done
   epic-3-retrospective: done
 
-  epic-4: in-progress
-  4-1-xem-báo-cáo-thu-theo-tháng: review
+  epic-4: done
+  4-1-xem-báo-cáo-thu-theo-tháng: done
   epic-4-retrospective: optional
 action_items:
   - id: "epic-2-retro-item-1-sửa-reconciliation-retry-whole-class-tra"

@@ -128,3 +128,12 @@ Verification performed:
 - `git diff --check` -- pass.
 
 Residual risks: Báo cáo aggregate dữ liệu tháng trong service memory, phù hợp quy mô vận hành mầm non hiện tại nhưng cần chuyển aggregate xuống PostgreSQL nếu quy mô hóa đơn tăng đáng kể. Hạ tầng integration test hiện phát cảnh báo deprecation của `pg` khi teardown concurrent query; suite vẫn pass và không do Story này tạo ra.
+
+### Review Findings
+
+- [x] [Review][Decision] Chấp thuận Be Vietnam Pro làm phông tiêu đề thay Clash Grotesk — quyết định của Tony trong code review 2026-08-20; không sửa UX artifact đã final.
+- [x] [Review][Patch] Hiển thị từng tài khoản nhận tiền thành card trên mobile [apps/web/src/index.css:70]
+- [x] [Review][Patch] Phát toast cho từng đợt lỗi của tháng mới [apps/web/src/features/reports/report-error-toast.tsx:3]
+- [x] [Review][Patch] Dùng khóa breakdown không thể va chạm [apps/api/src/modules/reports/reports.service.ts:36]
+- [x] [Review][Patch] Parse `data: null` thành lỗi contract có kiểm soát [apps/web/src/features/reports/api.ts:9]
+- [x] [Review][Patch] Kiểm chứng HTTP route báo cáo vẫn yêu cầu session auth [apps/api/src/modules/reports/reports.controller.test.ts:37]

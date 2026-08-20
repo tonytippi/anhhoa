@@ -6,7 +6,7 @@ const monthPattern = /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/;
 function invalid(): never { throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.'); }
 
 export function parseMonthlyReport(value: unknown): MonthlyReport {
-  if (!value || typeof value !== 'object' || !('data' in value)) return invalid();
+  if (!value || typeof value !== 'object' || !('data' in value) || !value.data || typeof value.data !== 'object') return invalid();
   const data = value.data as Record<string, unknown>; const counts = data.counts as Record<string, unknown>;
   if (!counts || typeof data.billingMonth !== 'string' || !monthPattern.test(data.billingMonth) || !['draft', 'pending', 'completed'].every((key) => Number.isSafeInteger(counts[key]) && (counts[key] as number) >= 0) || !['totalCollected', 'cashCollected', 'transferCollected'].every((key) => Number.isSafeInteger(data[key]) && (data[key] as number) >= 0) || (data.totalCollected as number) !== (data.cashCollected as number) + (data.transferCollected as number) || !Array.isArray(data.transferBreakdown)) return invalid();
   const transferBreakdown = data.transferBreakdown.map((value) => { const item = value as Record<string, unknown>; if (!item || !['bankCode', 'accountNumber', 'accountHolderName'].every((key) => typeof item[key] === 'string') || !Number.isSafeInteger(item.total) || (item.total as number) < 0) return invalid(); return { bankCode: item.bankCode as string, accountNumber: item.accountNumber as string, accountHolderName: item.accountHolderName as string, total: item.total as number }; });

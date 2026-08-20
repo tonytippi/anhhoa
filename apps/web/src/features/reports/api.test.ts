@@ -11,4 +11,5 @@ it('parses safe monthly totals and immutable transfer identifiers', () => {
 it('rejects unsafe or inconsistent report totals', () => {
   expect(() => parseMonthlyReport({ data: { ...report.data, totalCollected: Number.MAX_SAFE_INTEGER + 1 } })).toThrow(ApiError);
   expect(() => parseMonthlyReport({ data: { ...report.data, cashCollected: 101 } })).toThrow(ApiError);
+  expect(() => parseMonthlyReport({ data: null })).toThrow(ApiError);
 });

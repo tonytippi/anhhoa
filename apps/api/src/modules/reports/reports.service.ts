@@ -33,7 +33,7 @@ export class ReportsService {
       if (invoice.paymentSnapshotMethod === InvoicePaymentMethod.CASH) { cashCollected += invoice.total; continue; }
       if (invoice.paymentSnapshotMethod !== InvoicePaymentMethod.TRANSFER || !invoice.paymentSnapshotBankCode || !invoice.paymentSnapshotAccountNumber || !invoice.paymentSnapshotAccountHolderName) throw new InternalServerErrorException('Completed invoice is missing its payment snapshot.');
       transferCollected += invoice.total;
-      const key = `${invoice.paymentSnapshotBankCode}\u0000${invoice.paymentSnapshotAccountNumber}\u0000${invoice.paymentSnapshotAccountHolderName}`;
+      const key = JSON.stringify([invoice.paymentSnapshotBankCode, invoice.paymentSnapshotAccountNumber, invoice.paymentSnapshotAccountHolderName]);
       const existing = transfers.get(key);
       if (existing) existing.total += invoice.total;
       else transfers.set(key, { bankCode: invoice.paymentSnapshotBankCode, accountNumber: invoice.paymentSnapshotAccountNumber, accountHolderName: invoice.paymentSnapshotAccountHolderName, total: invoice.total });

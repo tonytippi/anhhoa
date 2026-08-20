@@ -28,4 +28,13 @@ describe('ReportsService', () => {
     findMany.mockResolvedValue([]);
     await expect(new ReportsService({ invoice: { findMany } } as never).monthly({ billingMonth: '2026-10' })).resolves.toMatchObject({ data: { totalCollected: 0, transferBreakdown: [] } });
   });
+
+  it('keeps transfer snapshots distinct when a field contains a NUL character', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      { ...base, total: 100n, paymentSnapshotMethod: 'TRANSFER', paymentSnapshotBankCode: 'A\u0000B', paymentSnapshotAccountNumber: 'C', paymentSnapshotAccountHolderName: 'D' },
+      { ...base, total: 200n, paymentSnapshotMethod: 'TRANSFER', paymentSnapshotBankCode: 'A', paymentSnapshotAccountNumber: 'B\u0000C', paymentSnapshotAccountHolderName: 'D' },
+    ]);
+    const result = await new ReportsService({ invoice: { findMany } } as never).monthly({ billingMonth: '2026-08' });
+    expect(result.data.transferBreakdown).toHaveLength(2);
+  });
 });
