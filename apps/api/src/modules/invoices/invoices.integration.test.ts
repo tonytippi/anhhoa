@@ -66,6 +66,17 @@ describe('InvoicesService PostgreSQL contract', () => {
     await expect(prisma.invoice.count({ where: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z') } })).resolves.toBe(1);
   });
 
+  it('persists reordered draft lines, a server-calculated BigInt total, and an active transfer account', async () => {
+    const admin = await prisma.admin.create({ data: { email: 'update@example.com', displayName: 'Admin', googleId: 'update-admin' } });
+    const schoolClass = await prisma.class.create({ data: { name: 'Mầm 2', monthlyTuition: 100 } });
+    const student = await prisma.student.create({ data: { fullName: 'Bé Em', classId: schoolClass.id } });
+    const account = await prisma.bankAccount.create({ data: { bankCode: 'VCB', accountNumber: '456789', accountHolderName: 'Cô Hoa' } });
+    const invoice = await prisma.invoice.create({ data: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: student.fullName, classId: schoolClass.id, className: schoolClass.name, total: 0n, creatorId: admin.id, items: { create: [{ description: 'Dòng cũ', amount: 0n, position: 0 }] } } });
+
+    await expect(service.update(invoice.id, { items: [{ description: 'Dòng hai', amount: 200 }, { description: 'Dòng một', feeGroup: 'Ăn', amount: 100 }], paymentMethod: InvoicePaymentMethod.TRANSFER, bankAccountId: account.id })).resolves.toMatchObject({ data: { total: 300, payment: { method: InvoicePaymentMethod.TRANSFER, bankAccount: { id: account.id } }, items: [{ description: 'Dòng hai', position: 0 }, { description: 'Dòng một', position: 1 }] } });
+    await expect(prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { items: { orderBy: { position: 'asc' } } } })).resolves.toMatchObject({ total: 300n, paymentMethod: InvoicePaymentMethod.TRANSFER, bankAccountId: account.id, items: [{ description: 'Dòng hai', amount: 200n, position: 0 }, { description: 'Dòng một', feeGroup: 'Ăn', amount: 100n, position: 1 }] });
+  });
+
   it('locks a transfer snapshot and QR content independently from mutable sources, then returns to draft', async () => {
     const admin = await prisma.admin.create({ data: { email: 'pending@example.com', displayName: 'Admin', googleId: 'pending-admin' } });
     const schoolClass = await prisma.class.create({ data: { name: 'Mầm 1', monthlyTuition: 100 } });

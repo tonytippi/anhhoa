@@ -1,12 +1,12 @@
 import '@testing-library/jest-dom/vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { resetApiClientForTests } from '../../app/api/client';
 import { InvoicesPage } from './page';
 
-afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); resetApiClientForTests(); sessionStorage.clear(); });
 const schoolClass = { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1', monthlyTuition: 1500000, status: 'ARCHIVED', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', activeStudentCount: 0 };
 const invoice = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', billingMonth: '2026-08', student: { name: 'Bé An', nickname: 'An' }, schoolClass: { id: schoolClass.id, name: 'Mầm 1' }, status: 'PENDING', total: 1500000, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' };
 const classesResponse = { data: [schoolClass], meta: { page: 1, pageSize: 100, total: 1, pageCount: 1 } };
@@ -68,7 +68,7 @@ it('previews the current scope, creates it, and shows the batch result', async (
     void init;
     if (String(url).includes('/auth/csrf')) return Promise.resolve(new Response(JSON.stringify({ data: { csrfToken: 'token' } }), { status: 200 }));
     if (String(url).includes('/invoices/batch-preview')) return Promise.resolve(new Response(JSON.stringify({ data: { eligibleCount: 2, skipped: { inactiveStudent: 0, missingClass: 0, archivedClass: 0, existingInvoice: 0 } } }), { status: 200 }));
-    if (String(url).includes('/invoices/batch')) return Promise.resolve(new Response(JSON.stringify({ data: { operationId: 'a2e36687-69b4-4e89-8ec0-141ff397837f', createdCount: 2, skipped: { inactiveStudent: 0, missingClass: 0, archivedClass: 0, existingInvoice: 0 } } }), { status: 200 }));
+    if (String(url).includes('/invoices/batch')) return Promise.resolve(new Response(JSON.stringify({ data: { operationId: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'], createdCount: 2, skipped: { inactiveStudent: 0, missingClass: 0, archivedClass: 0, existingInvoice: 0 } } }), { status: 200 }));
     return Promise.resolve(responseFor(String(url)));
   }); vi.stubGlobal('fetch', fetch);
   renderPage(); await screen.findByRole('table'); fireEvent.click(screen.getByRole('button', { name: 'Tạo hóa đơn tháng' })); fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }));
@@ -85,4 +85,26 @@ it('clears a zero-eligible preview and keeps creation disabled', async () => {
   }); vi.stubGlobal('fetch', fetch);
   renderPage(); await screen.findByText('Chưa có hóa đơn trong 08/2026.'); fireEvent.click(screen.getByRole('button', { name: 'Tạo hóa đơn tháng' })); fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }));
   expect(await screen.findByText('Có 0 học sinh đủ điều kiện.')).toBeVisible(); expect(screen.getByRole('button', { name: 'Tạo hóa đơn nháp' })).toBeDisabled(); fireEvent.change(screen.getByLabelText('Tháng tạo hóa đơn'), { target: { value: '2026-09' } }); expect(screen.queryByText('Có 0 học sinh đủ điều kiện.')).not.toBeInTheDocument();
+});
+
+it('reconciles a saved batch through 404 and pending without sending another POST', async () => {
+  const operationId = 'c2e36687-69b4-4e89-8ec0-141ff397837f';
+  sessionStorage.setItem('anhhoa.pending-invoice-batch', JSON.stringify({ operationId, input: { billingMonth: '2026-08', allActiveClasses: true } }));
+  let lookups = 0;
+  const fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    if (String(url).includes(`/operations/${operationId}`)) {
+      lookups += 1;
+      if (lookups === 1) return Promise.resolve(new Response(JSON.stringify({ error: { code: 'NOT_FOUND' } }), { status: 404 }));
+      if (lookups === 2) return Promise.resolve(new Response(JSON.stringify({ data: { operationId, state: 'PENDING' } }), { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ data: { operationId, createdCount: 2, skipped: { inactiveStudent: 0, missingClass: 0, archivedClass: 0, existingInvoice: 0 } } }), { status: 200 }));
+    }
+    void init;
+    return Promise.resolve(responseFor(String(url), [], { page: 1, pageSize: 20, total: 0, pageCount: 1 }));
+  });
+  vi.stubGlobal('fetch', fetch); vi.useFakeTimers(); renderPage();
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1_600); });
+  expect(screen.getByText('Đã tạo 2 hóa đơn nháp.')).toBeVisible();
+  expect((fetch.mock.calls as unknown as [string, RequestInit | undefined][]).filter(([url, init]) => String(url).endsWith('/invoices/batch') && init?.method === 'POST')).toHaveLength(0);
+  expect(sessionStorage.getItem('anhhoa.pending-invoice-batch')).toBeNull();
 });

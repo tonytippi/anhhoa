@@ -8,7 +8,7 @@ import { InvoiceDetailPage } from './detail-page';
 
 const draft = { id: 'a2e36687-69b4-4e89-8ec0-141ff397837f', billingMonth: '2026-08', student: { name: 'Bé An', nickname: null }, schoolClass: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1' }, status: 'DRAFT', total: 100, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', items: [{ id: 'c2e36687-69b4-4e89-8ec0-141ff397837f', description: 'Học phí', feeGroup: null, amount: 100, position: 0 }], payment: { method: null, bankAccount: null }, qr: null, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' }, completedBy: null, completedAt: null };
 function renderPage() { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[`/hoa-don/${draft.id}`]}><InvoiceDetailPage /></MemoryRouter></QueryClientProvider>); }
-afterEach(() => { vi.unstubAllGlobals(); resetApiClientForTests(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); resetApiClientForTests(); sessionStorage.clear(); });
 
 it('edits a draft with immediate total preview and persists only server-owned fields', async () => {
   const fetch = vi.fn().mockImplementation((url: string) => Promise.resolve(new Response(JSON.stringify(String(url).includes('/auth/csrf') ? { data: { csrfToken: 'token' } } : String(url).includes('/bank-accounts') ? { data: [], meta: { page: 1, pageSize: 20, total: 0, pageCount: 1 } } : { data: draft }), { status: 200 }))); vi.stubGlobal('fetch', fetch);
@@ -42,4 +42,29 @@ it('focuses the idle completion dialog, traps Tab, and restores its trigger afte
   const dialog = within(screen.getByRole('dialog')); const cancel = dialog.getByRole('button', { name: 'Hủy' }); const confirm = dialog.getByRole('button', { name: 'Xác nhận đã nhận tiền' });
   expect(cancel).toHaveFocus(); fireEvent.keyDown(window, { key: 'Tab', shiftKey: true }); expect(confirm).toHaveFocus(); fireEvent.keyDown(window, { key: 'Escape' });
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); expect(trigger).toHaveFocus();
+});
+
+it('reconciles a saved completion through 404 and pending without another completion POST', async () => {
+  const operationId = 'e2e36687-69b4-4e89-8ec0-141ff397837f';
+  const pending = { ...draft, status: 'PENDING', payment: { method: 'CASH', bankAccount: null } };
+  const completed = { ...pending, status: 'COMPLETED', completedBy: { id: 'f2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Confirmer' }, completedAt: '2026-08-02T00:00:00.000Z' };
+  sessionStorage.setItem('anhhoa.pending-invoice-completion', JSON.stringify({ invoiceId: draft.id, operationId }));
+  let lookups = 0;
+  let terminal = false;
+  const fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    if (String(url).includes(`/operations/${operationId}`)) {
+      lookups += 1;
+      if (lookups === 1) return Promise.resolve(new Response(JSON.stringify({ error: { code: 'NOT_FOUND' } }), { status: 404 }));
+      if (lookups === 2) return Promise.resolve(new Response(JSON.stringify({ data: { operationId, state: 'PENDING' } }), { status: 200 }));
+      terminal = true;
+      return Promise.resolve(new Response(JSON.stringify({ data: completed }), { status: 200 }));
+    }
+    void init;
+    return Promise.resolve(new Response(JSON.stringify({ data: terminal ? completed : pending }), { status: 200 }));
+  });
+  vi.stubGlobal('fetch', fetch); renderPage();
+  await screen.findByRole('dialog');
+  expect(await screen.findByText('Đã hoàn tất', {}, { timeout: 3_000 })).toBeVisible();
+  expect((fetch.mock.calls as unknown as [string, RequestInit | undefined][]).filter(([url, init]) => String(url).endsWith('/complete') && init?.method === 'POST')).toHaveLength(0);
+  expect(sessionStorage.getItem('anhhoa.pending-invoice-completion')).toBeNull();
 });

@@ -8,6 +8,8 @@ const noCompletion = { completedBy: null, completedAt: null };
 it('parses only safe invoice JSON values', () => {
   expect(parseInvoice(invoice)).toMatchObject({ student: { name: 'Bé An' }, total: 1500000 });
   expect(() => parseInvoice({ ...invoice, total: Number.MAX_SAFE_INTEGER + 1 })).toThrow(ApiError);
+  expect(() => parseInvoice({ ...invoice, billingMonth: '0000-01' })).toThrow(ApiError);
+  expect(() => parseInvoice({ ...invoice, billingMonth: ['2026-08'] })).toThrow(ApiError);
 });
 
 it('parses ordered draft lines and editable payment selection', () => {
@@ -22,6 +24,10 @@ it('rejects QR on drafts and missing payment on locked invoices', () => {
   const detail = { items: [], payment: { method: 'TRANSFER', bankAccount: { bankCode: 'VCB', accountNumber: '123', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An Mầm 1 chuyển tiền', url: 'https://img.vietqr.io/qr.png' }, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } };
   expect(() => parseInvoiceDetail({ data: { ...invoice, ...detail } })).toThrow(ApiError);
   expect(() => parseInvoiceDetail({ data: { ...invoice, status: 'PENDING', ...detail, payment: { method: null, bankAccount: null }, qr: null } })).toThrow(ApiError);
+});
+
+it('rejects details without explicit nullable completion audit fields', () => {
+  expect(() => parseInvoiceDetail({ data: { ...invoice, items: [], payment: { method: null, bankAccount: null }, qr: null, createdBy: { id: 'd2e36687-69b4-4e89-8ec0-141ff397837f', displayName: 'Admin' } } })).toThrow(ApiError);
 });
 
 it('accepts a pending operation while reconciling a batch timeout', async () => {
