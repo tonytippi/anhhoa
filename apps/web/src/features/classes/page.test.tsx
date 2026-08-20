@@ -15,7 +15,18 @@ it('hiển thị bảng lớp cùng trạng thái bằng chữ và học phí VN
   renderPage();
   expect(await screen.findByRole('table', { name: 'Danh sách lớp' })).toBeVisible();
   expect(screen.getByText('1.500.000 đ')).toBeVisible();
-  expect(screen.getByRole('cell', { name: 'Đang hoạt động' })).toBeVisible();
+  expect(screen.getByRole('cell', { name: 'Đang dùng' })).toBeVisible();
+});
+
+it('phân biệt danh sách chưa có dữ liệu với bộ lọc không có kết quả', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ data: [], meta: { page: 1, pageSize: 20, total: 0, pageCount: 1 } }), { status: 200 }))));
+  const view = renderPage();
+  expect(await screen.findByText('Chưa có lớp nào.')).toBeVisible();
+  expect(screen.getAllByRole('button', { name: 'Thêm lớp' })).toHaveLength(2);
+  view.unmount();
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={['/lop?search=Mầm']}><ClassesPage /></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByText('Không tìm thấy lớp phù hợp.')).toBeVisible();
+  expect(screen.getAllByRole('button', { name: 'Thêm lớp' })).toHaveLength(1);
 });
 
 it('giữ form và nêu lỗi khi API từ chối lưu', async () => {

@@ -34,6 +34,20 @@ test('tháng trống giữ picker và chỉ hiện một CTA tạo hóa đơn', 
   await expect(page.getByRole('button', { name: 'Tạo hóa đơn tháng' })).toBeEnabled();
 });
 
+test('toolbar hóa đơn dành vùng co giãn chính cho tìm kiếm trên desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.route('**/auth/me', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: admin }) }));
+  await page.route('**/classes?*', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: [schoolClass], meta: { page: 1, pageSize: 100, total: 1, pageCount: 1 } }) }));
+  await page.route(/\/invoices\?/, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: [invoice], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }) }));
+  await page.goto('/hoa-don?month=2026-08');
+  await expect(page.locator('.table-toolbar')).toBeVisible();
+  const widths = await page.locator('.table-toolbar label').evaluateAll((labels) => labels.map((label) => label.getBoundingClientRect().width));
+  expect(widths).toHaveLength(4);
+  const [monthWidth, searchWidth, statusWidth, classWidth] = widths as [number, number, number, number];
+  expect(searchWidth).toBeGreaterThan(Math.max(monthWidth, statusWidth, classWidth) * 1.25);
+  expect(Math.min(monthWidth, statusWidth, classWidth)).toBeGreaterThanOrEqual(150);
+});
+
 test('mobile keeps invoice table horizontally scrollable with sticky student identity', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await page.route('**/auth/me', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: admin }) }));
@@ -60,7 +74,7 @@ test('quản trị viên xác nhận đã nhận tiền và xem audit hóa đơn
   await expect(page.getByText('Đã hoàn tất')).toBeVisible();
   await expect(page.getByText('Người xác nhận')).toBeVisible();
   await expect(page.locator('.invoice-summary dd').filter({ hasText: admin.displayName }).last()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Trả về nháp' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Chuyển về bản nháp' })).toHaveCount(0);
 });
 
 test('hoàn tất hóa đơn làm mới report đã cache với tổng và snapshot chuyển khoản mới', async ({ page }) => {

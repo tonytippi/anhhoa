@@ -152,7 +152,7 @@ export function InvoicesPage(): React.JSX.Element {
         ) : null}
       </div>
       <div className="table-toolbar">
-        <label>
+        <label className="toolbar-control">
           Tháng
           <input
             aria-label="Tháng hóa đơn"
@@ -163,7 +163,7 @@ export function InvoicesPage(): React.JSX.Element {
             }
           />
         </label>
-        <label>
+        <label className="toolbar-search">
           Tìm học sinh
           <input
             value={filters.search}
@@ -171,7 +171,7 @@ export function InvoicesPage(): React.JSX.Element {
             placeholder="Tìm theo tên học sinh"
           />
         </label>
-        <label>
+        <label className="toolbar-control">
           Trạng thái
           <select
             value={filters.status}
@@ -187,10 +187,10 @@ export function InvoicesPage(): React.JSX.Element {
             <option value="COMPLETED">Đã hoàn tất</option>
           </select>
         </label>
-        <label>
-          Lớp snapshot
+        <label className="toolbar-control">
+          Lớp tại thời điểm lập hóa đơn
           <select
-            aria-label="Lớp snapshot"
+            aria-label="Lớp tại thời điểm lập hóa đơn"
             value={filters.classId}
             onChange={(event) => updateFilters({ classId: event.target.value })}
             disabled={classes.isPending || Boolean(classes.error)}
@@ -251,7 +251,7 @@ export function InvoicesPage(): React.JSX.Element {
               <thead>
                 <tr>
                   <th className="invoice-identity">Học sinh</th>
-                  <th>Lớp snapshot</th>
+                  <th>Lớp lúc lập hóa đơn</th>
                   <th>Trạng thái</th>
                   <th className="money">Tổng cộng</th>
                 </tr>

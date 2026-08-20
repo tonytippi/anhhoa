@@ -83,7 +83,7 @@ it("renders snapshots, VND, status text, and URL-driven filters with archived cl
   ).toBeVisible();
   expect(screen.getByText("1.500.000 đ")).toBeVisible();
   expect(screen.getByRole("cell", { name: "Chờ xác nhận" })).toBeVisible();
-  fireEvent.change(screen.getByLabelText("Lớp snapshot"), {
+  fireEvent.change(screen.getByLabelText("Lớp tại thời điểm lập hóa đơn"), {
     target: { value: schoolClass.id },
   });
   await waitFor(() =>
@@ -194,7 +194,7 @@ it("resets page when changing every invoice filter", async () => {
   );
   await expectFirstPageRequest(
     () =>
-      fireEvent.change(screen.getByLabelText("Lớp snapshot"), {
+      fireEvent.change(screen.getByLabelText("Lớp tại thời điểm lập hóa đơn"), {
         target: { value: schoolClass.id },
       }),
     `classId=${schoolClass.id}`,

@@ -18,6 +18,14 @@ it('hiển thị bảng searchable cùng trạng thái chữ và dữ liệu ina
   expect(screen.getByRole('cell', { name: 'Nghỉ học' })).toBeVisible();
 });
 
+it('không gợi ý tạo mới khi bộ lọc học sinh không có kết quả', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [], meta: { page: 1, pageSize: 20, total: 0, pageCount: 1 } }), { status: 200 })));
+  renderPage('/hoc-sinh?status=INACTIVE');
+  expect(await screen.findByText('Không tìm thấy học sinh phù hợp.')).toBeVisible();
+  expect(screen.getAllByRole('button', { name: 'Thêm học sinh' })).toHaveLength(1);
+  expect(screen.getByPlaceholderText('Tìm theo tên hoặc tên gọi')).toBeVisible();
+});
+
 it('hiển thị tên Lớp từ class summary', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ ...student, classId: 'b2e36687-69b4-4e89-8ec0-141ff397837f', class: { id: 'b2e36687-69b4-4e89-8ec0-141ff397837f', name: 'Mầm 1' } }], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })));
   renderPage();
@@ -30,7 +38,7 @@ it('giữ form, map lỗi field và không gửi classId', async () => {
   vi.stubGlobal('fetch', fetch); renderPage();
   fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' }));
   fireEvent.change(screen.getByLabelText('Họ tên'), { target: { value: 'Bé An' } });
-  fireEvent.change(screen.getByLabelText('Biệt danh (tùy chọn)'), { target: { value: 'An' } });
+  fireEvent.change(screen.getByLabelText('Tên gọi (tùy chọn)'), { target: { value: 'An' } });
   fireEvent.click(screen.getByRole('button', { name: 'Lưu học sinh' }));
   expect(await screen.findByText('fullName should not be empty')).toHaveAttribute('id', 'student-name-error');
   expect(screen.getByDisplayValue('Bé An')).toBeVisible();
@@ -43,7 +51,7 @@ it('gửi null để xóa biệt danh nhưng omit classId không thay đổi', a
   vi.stubGlobal('fetch', fetch); renderPage();
   fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu học sinh' })).toBeEnabled());
-  fireEvent.change(screen.getByLabelText('Biệt danh (tùy chọn)'), { target: { value: '' } });
+  fireEvent.change(screen.getByLabelText('Tên gọi (tùy chọn)'), { target: { value: '' } });
   fireEvent.click(screen.getByRole('button', { name: 'Lưu học sinh' }));
   await waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(3));
   expect((fetch.mock.calls[3]?.[1] as RequestInit).body).toBe(JSON.stringify({ fullName: 'Bé An', nickname: null }));
@@ -62,7 +70,7 @@ it('giữ Lớp archived hiện tại và omit classId khi chỉ sửa identity'
 it('chặn submit và cho retry khi không tải được Lớp active', async () => {
   const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [student], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'INTERNAL_SERVER_ERROR', message: 'Request failed.' } }), { status: 500 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [], meta: { page: 1, pageSize: 100, total: 0, pageCount: 1 } }), { status: 200 }));
   vi.stubGlobal('fetch', fetch); renderPage(); fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }));
-  expect(await screen.findByText('Không thể tải Lớp đang hoạt động.')).toBeVisible(); expect(screen.getByRole('button', { name: 'Lưu học sinh' })).toBeDisabled();
+  expect(await screen.findByText('Không thể tải lớp đang hoạt động.')).toBeVisible(); expect(screen.getByRole('button', { name: 'Lưu học sinh' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Thử lại' })); await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu học sinh' })).toBeEnabled());
 });
 

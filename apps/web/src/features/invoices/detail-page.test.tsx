@@ -32,7 +32,7 @@ it('requires saving draft changes before moving to pending', async () => {
 it('shows snapshotted QR payment details and lifecycle controls for pending invoices', async () => {
   const pending = { ...draft, status: 'PENDING', payment: { method: 'TRANSFER', bankAccount: { bankCode: 'VCB', accountNumber: '123456', accountHolderName: 'Cô Hoa' } }, qr: { transferContent: 'Bé An Mầm 1 chuyển tiền', url: 'https://img.vietqr.io/qr.png' } };
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: pending }), { status: 200 })));
-  renderPage(); await screen.findByRole('img', { name: 'Mã QR chuyển khoản 100 đ' }); expect(screen.getByText('VCB - 123456')).toBeVisible(); expect(screen.getByText('Cô Hoa')).toBeVisible(); expect(screen.getByText('Bé An Mầm 1 chuyển tiền')).toBeVisible(); expect(screen.getByRole('button', { name: 'Trả về nháp' })).toBeVisible();
+  renderPage(); await screen.findByRole('img', { name: 'Mã QR chuyển khoản 100 đ' }); expect(screen.getByText('VCB - 123456')).toBeVisible(); expect(screen.getByText('Cô Hoa')).toBeVisible(); expect(screen.getByText('Bé An Mầm 1 chuyển tiền')).toBeVisible(); expect(screen.getByText('Học sinh lúc lập hóa đơn')).toBeVisible(); expect(screen.getByText('Lớp tại thời điểm lập hóa đơn')).toBeVisible(); expect(screen.getByRole('button', { name: 'Chuyển về bản nháp' })).toBeVisible();
 });
 
 it('focuses the idle completion dialog, traps Tab, and restores its trigger after Escape', async () => {

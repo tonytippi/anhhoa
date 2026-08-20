@@ -13,7 +13,15 @@ it('hiển thị table có trạng thái bằng chữ và không có thao tác x
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [item], meta: { page: 1, pageSize: 20, total: 1, pageCount: 1 } }), { status: 200 })));
   renderPage();
   expect(await screen.findByRole('table', { name: 'Danh sách tài khoản nhận tiền' })).toBeVisible();
-  expect(screen.getByRole('cell', { name: 'Đang hoạt động' })).toBeVisible(); expect(screen.queryByRole('button', { name: /xóa/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('cell', { name: 'Đang dùng' })).toBeVisible(); expect(screen.queryByRole('button', { name: /xóa/i })).not.toBeInTheDocument();
+});
+
+it('không gợi ý tạo tài khoản khi bộ lọc không có kết quả', async () => {
+  window.history.replaceState(null, '', '/tai-khoan-nhan-tien?search=VCB');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [], meta: { page: 1, pageSize: 20, total: 0, pageCount: 1 } }), { status: 200 })));
+  renderPage();
+  expect(await screen.findByText('Không tìm thấy tài khoản phù hợp.')).toBeVisible();
+  expect(screen.getAllByRole('button', { name: 'Thêm tài khoản' })).toHaveLength(1);
 });
 
 it('giữ form và lỗi khi write thất bại', async () => {

@@ -29,7 +29,7 @@ test('quản trị viên chọn Lớp active khi sửa học sinh', async ({ pag
   await page.getByRole('button', { name: 'Sửa' }).click();
   await expect(page.getByRole('option', { name: archivedClass.name })).toHaveCount(0);
   await page.getByLabel('Lớp hiện tại').selectOption(schoolClass.id);
-  await expect(page.getByText('Thay đổi Lớp chỉ áp dụng hiện tại, không làm thay đổi snapshot của các Hóa đơn đã có.')).toBeVisible();
+  await expect(page.getByText('Thay đổi lớp chỉ áp dụng từ bây giờ; lớp trên các hóa đơn đã lập không thay đổi.')).toBeVisible();
   await page.getByRole('button', { name: 'Lưu học sinh' }).click();
   await expect(page.getByRole('cell', { name: schoolClass.name })).toBeVisible();
 });
