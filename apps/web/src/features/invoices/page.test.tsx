@@ -303,10 +303,11 @@ it("previews the current scope, creates it, and shows the batch result", async (
   renderPage();
   await screen.findByRole("table");
   fireEvent.click(screen.getByRole("button", { name: "Tạo hóa đơn tháng" }));
-  fireEvent.click(screen.getByRole("button", { name: "Xem trước" }));
   expect(await screen.findByText("Có 2 học sinh đủ điều kiện.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Tạo hóa đơn nháp" }));
   expect(await screen.findByText("Đã tạo 2 hóa đơn nháp.")).toBeVisible();
+  expect(screen.queryByText(/Bỏ qua:/)).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Xem hóa đơn" })).toBeVisible();
   const previewCall = fetch.mock.calls.find(([url]) =>
     String(url).includes("/invoices/batch-preview"),
   )!;
@@ -317,6 +318,11 @@ it("previews the current scope, creates it, and shows the batch result", async (
     billingMonth: "2026-08",
     allActiveClasses: true,
   });
+  expect(
+    fetch.mock.calls.filter(([url]) =>
+      String(url).includes("/invoices/batch-preview"),
+    ),
+  ).toHaveLength(1);
   expect(JSON.parse(createCall[1]!.body as string)).toEqual({
     billingMonth: "2026-08",
     allActiveClasses: true,
@@ -335,7 +341,6 @@ it("previews selected classes when the class scope is chosen", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Tạo hóa đơn tháng" }));
   fireEvent.click(screen.getByRole("radio", { name: "Chọn lớp" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Mầm 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Xem trước" }));
   await screen.findByText("Có 1 học sinh đủ điều kiện.");
   const previewCall = fetch.mock.calls.find(([url]) => String(url).includes("/invoices/batch-preview"))!;
   expect(JSON.parse(previewCall[1]!.body as string)).toEqual({ billingMonth: "2026-08", allActiveClasses: false, classIds: [schoolClass.id] });
@@ -358,7 +363,6 @@ it("shows active-class loading errors for class scope and retries", async () => 
   await waitFor(() => expect(screen.getByRole("radio", { name: "Chọn lớp" })).toBeEnabled());
   fireEvent.click(screen.getByRole("radio", { name: "Chọn lớp" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Không thể tải danh sách lớp.");
-  expect(screen.getByRole("button", { name: "Xem trước" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Thử lại" }));
   await screen.findByRole("checkbox", { name: "Mầm 1" });
   expect(activeClassRequests).toBe(2);
@@ -402,7 +406,6 @@ it("clears a zero-eligible preview and keeps creation disabled", async () => {
   renderPage();
   await screen.findByText("Chưa có hóa đơn trong 08/2026.");
   fireEvent.click(screen.getByRole("button", { name: "Tạo hóa đơn tháng" }));
-  fireEvent.click(screen.getByRole("button", { name: "Xem trước" }));
   expect(await screen.findByText("Có 0 học sinh đủ điều kiện.")).toBeVisible();
   expect(
     screen.getByRole("button", { name: "Tạo hóa đơn nháp" }),

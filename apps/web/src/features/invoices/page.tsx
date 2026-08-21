@@ -349,6 +349,7 @@ function BatchDialog({
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [unknown, setUnknown] = useState(Boolean(savedBatch));
+  const previewFingerprint = useRef("");
   const input = (): BatchInput => ({
     billingMonth,
     allActiveClasses,
@@ -360,11 +361,15 @@ function BatchDialog({
       setError("");
     }
   };
-  const activeClassesUnavailable =
-    !allActiveClasses && (classes.isPending || Boolean(classes.error));
   const locked =
     preview.isPending || checking || submitting || Boolean(pendingBatch);
-  const check = () => {
+  const canPreview =
+    !pendingBatch &&
+    monthPattern.test(billingMonth) &&
+    (allActiveClasses || classIds.length > 0);
+  const previewInput = JSON.stringify(input());
+  const checkPreview = useEffectEvent(() => {
+    previewFingerprint.current = previewInput;
     setError("");
     setResult(undefined);
     preview.mutate(input(), {
@@ -375,7 +380,12 @@ function BatchDialog({
             : "Không thể xem trước hóa đơn.",
         ),
     });
-  };
+  });
+  useEffect(() => {
+    if (!canPreview || previewFingerprint.current === previewInput) return;
+    const timer = setTimeout(() => checkPreview(), 200);
+    return () => clearTimeout(timer);
+  }, [canPreview, checkPreview, previewInput]);
   const clearPending = () => {
     sessionStorage.removeItem(pendingBatchKey);
     setPendingBatch(null);
@@ -483,14 +493,13 @@ function BatchDialog({
           {result ? (
             <>
               <p>Đã tạo {result.createdCount} hóa đơn nháp.</p>
-              <SkipSummary skipped={result.skipped} />
               <div className="dialog-actions">
                 <Link
                   className="primary-action"
                   to={`/hoa-don?month=${billingMonth}&status=DRAFT`}
                   onClick={onComplete}
                 >
-                  Xem hóa đơn nháp
+                  Xem hóa đơn
                 </Link>
               </div>
             </>
@@ -562,18 +571,7 @@ function BatchDialog({
                   </p>
                 )}
               </fieldset>
-              <button
-                type="button"
-                onClick={check}
-                disabled={
-                  locked ||
-                  activeClassesUnavailable ||
-                  !monthPattern.test(billingMonth) ||
-                  (!allActiveClasses && !classIds.length)
-                }
-              >
-                Xem trước
-              </button>
+              {preview.isPending && <p aria-live="polite">Đang xem trước...</p>}
               {preview.data && (
                 <div aria-live="polite">
                   <p>Có {preview.data.eligibleCount} học sinh đủ điều kiện.</p>

@@ -532,7 +532,7 @@ tbody tr:last-child td {
   gap: 10px;
   margin-top: 20px;
 }
-.dialog-actions > button,
+.dialog-actions > button:not(.primary-action):not(.danger-action),
 .dialog-actions > span > button {
   min-height: 40px;
   border: 1px solid #c9c8bd;
