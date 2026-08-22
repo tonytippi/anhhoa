@@ -10,6 +10,7 @@ const authEnv = {
   DATABASE_URL: 'postgresql://user:password@localhost:5432/anhhoa', WEB_ORIGIN: 'http://localhost:5173', GOOGLE_CLIENT_ID: 'client-id', GOOGLE_CLIENT_SECRET: 'client-secret',
   GOOGLE_CALLBACK_URL: 'http://localhost:3000/auth/google/callback', OAUTH_REDIRECT_URLS: 'http://localhost:5173', OAUTH_DENIED_REDIRECT_URL: 'http://localhost:5173',
   JWT_SECRET: 'a-very-long-secret-that-is-at-least-32-characters', ADMIN_EMAILS: 'admin@example.com',
+  PARENT_WEB_ORIGIN: 'http://localhost:5174', PARENT_GOOGLE_CALLBACK_URL: 'http://localhost:3000/parent/auth/google/callback', PARENT_OAUTH_REDIRECT_URLS: 'http://localhost:5174', PARENT_OAUTH_DENIED_REDIRECT_URL: 'http://localhost:5174', PARENT_SESSION_COOKIE_NAME: 'parent_session',
 };
 
 afterEach(() => {
@@ -45,7 +46,7 @@ describe('bootstrap', () => {
     await bootstrap();
 
     expect(listen).toHaveBeenCalledWith(3000);
-    expect(app.enableCors).toHaveBeenCalledWith({ origin: 'http://localhost:5173', credentials: true });
+    expect(app.enableCors).toHaveBeenCalledWith({ origin: ['http://localhost:5173', 'http://localhost:5174'], credentials: true });
   });
 
   it('listens on the valid explicit PORT', async () => {

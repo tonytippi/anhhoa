@@ -13,8 +13,9 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
 import { InvoicesModule } from './modules/invoices/invoices.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
 import { ParentsModule } from './modules/parents/parents.module.js';
+import { ParentAuthModule } from './modules/parent-auth/parent-auth.module.js';
 
-@Module({ imports: [ConfigModule, PrismaModule, AuthModule, ClassesModule, StudentsModule, OperationsModule, InvoiceTemplateModule, BankAccountsModule, InvoicesModule, ReportsModule, ParentsModule], providers: [{ provide: APP_GUARD, useClass: SessionAuthGuard }] })
+@Module({ imports: [ConfigModule, PrismaModule, AuthModule, ParentAuthModule, ClassesModule, StudentsModule, OperationsModule, InvoiceTemplateModule, BankAccountsModule, InvoicesModule, ReportsModule, ParentsModule], providers: [{ provide: APP_GUARD, useClass: SessionAuthGuard }] })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void { consumer.apply(CsrfMiddleware).forRoutes('*'); }
 }

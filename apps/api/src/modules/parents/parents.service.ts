@@ -92,6 +92,18 @@ export class ParentsService {
     return { invoiceId: invoice.id, studentId: link.studentId };
   }
 
+  async bindGoogleSubject(email: string, googleSubject: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await tx.parent.findFirst({ where: { emailNormalized: email, status: ParentStatus.ACTIVE, students: { some: { status: StudentParentStatus.ACTIVE } } } });
+      if (!parent || (parent.googleSubject && parent.googleSubject !== googleSubject)) throw new UnauthorizedException('Parent is not authorized.');
+      return parent.googleSubject ? parent : tx.parent.update({ where: { id: parent.id }, data: { googleSubject } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async activeParent(parentId: string) {
+    return this.prisma.parent.findFirst({ where: { id: parentId, status: ParentStatus.ACTIVE, students: { some: { status: StudentParentStatus.ACTIVE } } } });
+  }
+
   private async grantInTransaction(tx: Prisma.TransactionClient, studentId: string, emailNormalized: string) {
     const parent = await tx.parent.upsert({ where: { emailNormalized }, create: { emailNormalized, status: ParentStatus.ACTIVE }, update: { status: ParentStatus.ACTIVE } });
     const existing = await tx.studentParent.findUnique({ where: { parentId_studentId: { parentId: parent.id, studentId } } });

@@ -5,6 +5,7 @@ const validEnv = {
   DATABASE_URL: 'postgresql://user:password@localhost:5432/anhhoa', WEB_ORIGIN: 'http://localhost:5173', GOOGLE_CLIENT_ID: 'client-id', GOOGLE_CLIENT_SECRET: 'client-secret',
   GOOGLE_CALLBACK_URL: 'http://localhost:3000/auth/google/callback', OAUTH_REDIRECT_URLS: 'http://localhost:5173,http://localhost:5173/login', OAUTH_DENIED_REDIRECT_URL: 'http://localhost:5173/login',
   JWT_SECRET: 'a-very-long-secret-that-is-at-least-32-characters', ADMIN_EMAILS: 'Admin@example.com,other@example.com',
+  PARENT_WEB_ORIGIN: 'http://localhost:5174', PARENT_GOOGLE_CALLBACK_URL: 'http://localhost:3000/parent/auth/google/callback', PARENT_OAUTH_REDIRECT_URLS: 'http://localhost:5174,http://localhost:5174/login', PARENT_OAUTH_DENIED_REDIRECT_URL: 'http://localhost:5174/login', PARENT_SESSION_COOKIE_NAME: 'parent_session',
 };
 
 describe('auth config', () => {
@@ -13,6 +14,7 @@ describe('auth config', () => {
     expect(normalizeEmail(' Admin@EXAMPLE.com ')).toBe('admin@example.com');
     expect(config.adminEmails.has('admin@example.com')).toBe(true);
     expect(config.oauthRedirectUrls).toEqual(['http://localhost:5173', 'http://localhost:5173/login']);
+    expect(config.parentSessionCookieName).toBe('parent_session');
   });
   it.each([
     { ...validEnv, WEB_ORIGIN: 'https://admin.anhhoa.vn', GOOGLE_CALLBACK_URL: 'https://api.anhhoa.vn/auth/google/callback' },
@@ -33,6 +35,9 @@ describe('auth config', () => {
     expect(() => loadAuthConfig(env)).toThrow();
   });
   it.each([{ ...validEnv, WEB_ORIGIN: 'http://localhost:5173/path' }, { ...validEnv, JWT_EXPIRES_IN: 'later' }, { ...validEnv, CSRF_COOKIE_NAME: 'session' }])('rejects invalid origin, lifetime, and CSRF cookie settings', (env) => {
+    expect(() => loadAuthConfig(env)).toThrow();
+  });
+  it.each([{ ...validEnv, PARENT_WEB_ORIGIN: '' }, { ...validEnv, PARENT_OAUTH_DENIED_REDIRECT_URL: 'http://localhost:5174/nope' }, { ...validEnv, PARENT_SESSION_COOKIE_NAME: 'session' }, { ...validEnv, PARENT_WEB_ORIGIN: 'https://parent.example.com', PARENT_GOOGLE_CALLBACK_URL: 'http://api.example.com/parent/auth/google/callback' }])('fails fast for unsafe Parent topology and cookie configuration', (env) => {
     expect(() => loadAuthConfig(env)).toThrow();
   });
 });

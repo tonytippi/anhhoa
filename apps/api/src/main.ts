@@ -16,7 +16,7 @@ export async function bootstrap(): Promise<void> {
   const config = loadAuthConfig();
   const port = config.port;
   const app = await NestFactory.create(AppModule);
-  app.enableCors({ origin: config.webOrigin, credentials: true });
+  app.enableCors({ origin: [config.webOrigin, config.parentWebOrigin], credentials: true });
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new ApiExceptionFilter());

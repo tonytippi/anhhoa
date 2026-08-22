@@ -14,6 +14,13 @@ export interface AuthConfig {
   adminEmails: Set<string>;
   csrfCookieName: string;
   oauthStateCookieName: string;
+  parentWebOrigin: string;
+  parentGoogleCallbackUrl: string;
+  parentOauthRedirectUrls: string[];
+  parentOauthDeniedRedirectUrl: string;
+  parentSessionCookieName: string;
+  parentCsrfCookieName: string;
+  parentOauthStateCookieName: string;
 }
 
 const REQUIRED_VALUES = [
@@ -26,6 +33,11 @@ const REQUIRED_VALUES = [
   'OAUTH_DENIED_REDIRECT_URL',
   'JWT_SECRET',
   'ADMIN_EMAILS',
+  'PARENT_WEB_ORIGIN',
+  'PARENT_GOOGLE_CALLBACK_URL',
+  'PARENT_OAUTH_REDIRECT_URLS',
+  'PARENT_OAUTH_DENIED_REDIRECT_URL',
+  'PARENT_SESSION_COOKIE_NAME',
 ] as const;
 
 export function normalizeEmail(email: string): string {
@@ -71,6 +83,7 @@ export function parsePort(value: string | undefined): number {
 }
 
 export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig {
+  const port = parsePort(env.PORT);
   const databaseUrl = required(env, 'DATABASE_URL');
   if (!/^postgres(?:ql)?:\/\//.test(databaseUrl)) throw new Error('DATABASE_URL must be a PostgreSQL connection URL.');
   const webOrigin = parseUrl(required(env, 'WEB_ORIGIN'), 'WEB_ORIGIN', true);
@@ -93,8 +106,18 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     throw new Error('CSRF_COOKIE_NAME must be a valid cookie name other than session.');
   }
 
+  const parentWebOrigin = parseUrl(required(env, 'PARENT_WEB_ORIGIN'), 'PARENT_WEB_ORIGIN', true);
+  const parentGoogleCallbackUrl = parseUrl(required(env, 'PARENT_GOOGLE_CALLBACK_URL'), 'PARENT_GOOGLE_CALLBACK_URL');
+  assertSchemefullySameSite(parentWebOrigin, parentGoogleCallbackUrl);
+  const parentOauthRedirectUrls = required(env, 'PARENT_OAUTH_REDIRECT_URLS').split(',').map((value) => parseUrl(value.trim(), 'PARENT_OAUTH_REDIRECT_URLS'));
+  const parentOauthDeniedRedirectUrl = parseUrl(required(env, 'PARENT_OAUTH_DENIED_REDIRECT_URL'), 'PARENT_OAUTH_DENIED_REDIRECT_URL');
+  if (!parentOauthRedirectUrls.includes(parentOauthDeniedRedirectUrl)) throw new Error('PARENT_OAUTH_DENIED_REDIRECT_URL must be included in PARENT_OAUTH_REDIRECT_URLS.');
+  const parentSessionCookieName = required(env, 'PARENT_SESSION_COOKIE_NAME');
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(parentSessionCookieName) || parentSessionCookieName === 'session') throw new Error('PARENT_SESSION_COOKIE_NAME must be a valid cookie name other than session.');
+  const parentCsrfCookieName = env.PARENT_CSRF_COOKIE_NAME?.trim() || 'parent_csrf_token';
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(parentCsrfCookieName) || parentCsrfCookieName === parentSessionCookieName) throw new Error('PARENT_CSRF_COOKIE_NAME must be a valid cookie name distinct from the Parent session cookie.');
   return {
-    port: parsePort(env.PORT), databaseUrl, webOrigin,
+    port, databaseUrl, webOrigin,
     googleClientId: required(env, 'GOOGLE_CLIENT_ID'),
     googleClientSecret: required(env, 'GOOGLE_CLIENT_SECRET'),
     googleCallbackUrl: callbackUrl,
@@ -105,5 +128,12 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     adminEmails,
     csrfCookieName,
     oauthStateCookieName: 'oauth_state',
+    parentWebOrigin,
+    parentGoogleCallbackUrl,
+    parentOauthRedirectUrls,
+    parentOauthDeniedRedirectUrl,
+    parentSessionCookieName,
+    parentCsrfCookieName,
+    parentOauthStateCookieName: 'parent_oauth_state',
   };
 }
