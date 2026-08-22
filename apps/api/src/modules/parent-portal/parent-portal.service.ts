@@ -1,8 +1,10 @@
-import { Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { InvoicePaymentMethod, InvoiceStatus, Prisma, StudentParentStatus } from '@prisma/client';
 import QRCode from 'qrcode';
 import { Banks, QRPay } from 'vietnam-qr-pay';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { AUTH_CONFIG } from '../../common/config/config.module.js';
+import type { AuthConfig } from '../../common/config/auth-config.js';
 import type { ListParentInvoicesDto } from './parent-portal.dto.js';
 
 const allowedStatuses = [InvoiceStatus.PENDING, InvoiceStatus.COMPLETED];
@@ -58,10 +60,17 @@ function vietQrPayload(payment: NonNullable<ReturnType<typeof paymentSnapshot>>)
   if (!bank) throw new InternalServerErrorException('Payment snapshot bank code cannot generate VietQR.');
   return QRPay.initVietQR({ bankBin: bank.bin, bankNumber: payment.accountNumber, amount: payment.total.toString(), purpose: payment.transferContent }).build();
 }
+function bankDeepLink(payment: NonNullable<ReturnType<typeof paymentSnapshot>>, config: AuthConfig) {
+  const template = config.bankDeepLinks.get(payment.bankCode)?.template;
+  if (!template) return undefined;
+  const values: Record<string, string> = { bankCode: payment.bankCode, accountNumber: payment.accountNumber, accountHolderName: payment.accountHolderName, transferContent: payment.transferContent, total: payment.total.toString() };
+  const uri = template.replace(/\{([A-Za-z]+)\}/g, (_, name: string) => encodeURIComponent(values[name]!));
+  try { new URL(uri); return { uri }; } catch { return undefined; }
+}
 
 @Injectable()
 export class ParentPortalService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Inject(AUTH_CONFIG) private readonly config: AuthConfig) {}
 
   async students(parentId: string) {
     const records = await this.prisma.studentParent.findMany({
@@ -105,7 +114,8 @@ export class ParentPortalService {
     });
     const snapshot = record && paymentSnapshot(record);
     if (!snapshot) this.denied();
-    return { data: snapshot, vietQr: vietQrPayload(snapshot) };
+    const action = bankDeepLink(snapshot, this.config);
+    return { data: snapshot, vietQr: vietQrPayload(snapshot), ...(action ? { action } : {}) };
   }
 
   async paymentPng(parentId: string, invoiceId: string) {

@@ -21,6 +21,37 @@ export interface AuthConfig {
   parentSessionCookieName: string;
   parentCsrfCookieName: string;
   parentOauthStateCookieName: string;
+  bankDeepLinks: Map<string, BankDeepLinkConfig>;
+}
+
+export interface BankDeepLinkConfig { template: string; }
+const DEEP_LINK_PLACEHOLDERS = new Set(['bankCode', 'accountNumber', 'accountHolderName', 'transferContent', 'total']);
+
+function loadBankDeepLinks(value: string | undefined): Map<string, BankDeepLinkConfig> {
+  if (!value?.trim()) return new Map();
+  try {
+    const config: unknown = JSON.parse(value);
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return new Map();
+    const record = config as Record<string, unknown>;
+    if (record.version !== 1 || typeof record.expiresAt !== 'string' || typeof record.revalidateAt !== 'string' || typeof record.owner !== 'string' || !record.owner.trim() || typeof record.cadence !== 'string' || !record.cadence.trim() || !Array.isArray(record.banks)) return new Map();
+    const expiresAt = Date.parse(record.expiresAt);
+    const revalidateAt = Date.parse(record.revalidateAt);
+    if (!Number.isFinite(expiresAt) || !Number.isFinite(revalidateAt) || revalidateAt > expiresAt || expiresAt <= Date.now() || revalidateAt <= Date.now()) return new Map();
+    const banks = new Map<string, BankDeepLinkConfig>();
+    for (const entry of record.banks) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return new Map();
+      const bank = entry as Record<string, unknown>;
+      if (typeof bank.bankCode !== 'string' || !/^[A-Z0-9]+$/.test(bank.bankCode) || typeof bank.template !== 'string' || !bank.template || !bank.support || typeof bank.support !== 'object' || Array.isArray(bank.support)) return new Map();
+      const support = bank.support as Record<string, unknown>;
+      if (support.tested !== true || !Array.isArray(support.matrix) || !support.matrix.length || !support.matrix.every((item) => item && typeof item === 'object' && !Array.isArray(item) && (item as Record<string, unknown>).platform === 'all' && (item as Record<string, unknown>).browser === 'all' && typeof (item as Record<string, unknown>).testedAt === 'string' && Number.isFinite(Date.parse((item as Record<string, unknown>).testedAt as string)))) return new Map();
+      const placeholders = [...bank.template.matchAll(/\{([A-Za-z]+)\}/g)].map((match) => match[1]!);
+      if (!placeholders.length || placeholders.some((placeholder) => !DEEP_LINK_PLACEHOLDERS.has(placeholder)) || /\{[^}]*\}/.test(bank.template.replace(/\{[A-Za-z]+\}/g, ''))) return new Map();
+      const url = new URL(bank.template.replace(/\{[A-Za-z]+\}/g, 'x'));
+      if (!/^([a-z][a-z0-9+.-]*):$/i.test(url.protocol) || /^(?:javascript|data):$/i.test(url.protocol) || /\s/.test(bank.template) || banks.has(bank.bankCode)) return new Map();
+      banks.set(bank.bankCode, { template: bank.template });
+    }
+    return banks;
+  } catch { return new Map(); }
 }
 
 const REQUIRED_VALUES = [
@@ -135,5 +166,6 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     parentSessionCookieName,
     parentCsrfCookieName,
     parentOauthStateCookieName: 'parent_oauth_state',
+    bankDeepLinks: loadBankDeepLinks(env.BANK_DEEP_LINK_CONFIG),
   };
 }

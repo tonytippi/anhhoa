@@ -16,6 +16,13 @@ describe('auth config', () => {
     expect(config.oauthRedirectUrls).toEqual(['http://localhost:5173', 'http://localhost:5173/login']);
     expect(config.parentSessionCookieName).toBe('parent_session');
   });
+  it('enables only current, owned, tested deep-link configurations', () => {
+    const bankConfig = { version: 1, expiresAt: '2030-01-01T00:00:00.000Z', revalidateAt: '2029-12-01T00:00:00.000Z', owner: 'payment-platform', cadence: 'monthly', banks: [{ bankCode: 'VCB', template: 'mybank://transfer?account={accountNumber}&amount={total}', support: { tested: true, matrix: [{ platform: 'all', browser: 'all', testedAt: '2026-08-01T00:00:00.000Z' }] } }] };
+    expect(loadAuthConfig({ ...validEnv, BANK_DEEP_LINK_CONFIG: JSON.stringify(bankConfig) }).bankDeepLinks.get('VCB')).toEqual({ template: bankConfig.banks[0]!.template });
+  });
+  it.each([undefined, ' ', '{}', '{not-json}', JSON.stringify({ version: 1, expiresAt: '2020-01-01T00:00:00.000Z', revalidateAt: '2020-01-01T00:00:00.000Z', owner: 'owner', cadence: 'monthly', banks: [] }), JSON.stringify({ version: 1, expiresAt: '2030-01-01T00:00:00.000Z', revalidateAt: '2031-01-01T00:00:00.000Z', owner: 'owner', cadence: 'monthly', banks: [] }), JSON.stringify({ version: 1, expiresAt: '2030-01-01T00:00:00.000Z', revalidateAt: '2029-01-01T00:00:00.000Z', owner: 'owner', cadence: 'monthly', banks: [{ bankCode: 'VCB', template: 'javascript:alert(1)?amount={total}', support: { tested: true, matrix: [{ platform: 'all', browser: 'all', testedAt: '2026-08-01T00:00:00.000Z' }] } }] })])('fails closed for absent, invalid, unsafe, or expired deep-link configuration', (BANK_DEEP_LINK_CONFIG) => {
+    expect(loadAuthConfig({ ...validEnv, BANK_DEEP_LINK_CONFIG }).bankDeepLinks.size).toBe(0);
+  });
   it.each([
     { ...validEnv, WEB_ORIGIN: 'https://admin.anhhoa.vn', GOOGLE_CALLBACK_URL: 'https://api.anhhoa.vn/auth/google/callback' },
     { ...validEnv, WEB_ORIGIN: 'https://admin.example.co.uk:5173', GOOGLE_CALLBACK_URL: 'https://api.example.co.uk:3000/auth/google/callback' },

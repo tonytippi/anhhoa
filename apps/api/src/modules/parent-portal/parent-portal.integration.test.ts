@@ -7,7 +7,7 @@ import { InvoicesService } from '../invoices/invoices.service.js';
 const databaseUrl = 'postgresql://anhhoa_test:anhhoa_test@localhost:55432/anhhoa_test?schema=public';
 if (process.env.DATABASE_URL !== databaseUrl) throw new Error('Integration tests require the dedicated Docker Compose PostgreSQL database.');
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
-const service = new ParentPortalService(prisma as never);
+const service = new ParentPortalService(prisma as never, { bankDeepLinks: new Map() } as never);
 
 beforeEach(async () => {
   await prisma.studentParent.deleteMany();
@@ -139,5 +139,17 @@ describe('ParentPortalService PostgreSQL contract', () => {
     await prisma.studentParent.update({ where: { parentId_studentId: { parentId: parent.id, studentId: student.id } }, data: { status: StudentParentStatus.REVOKED } });
     await expect(service.payment(parent.id, invoice.id)).rejects.toMatchObject({ status: 401 });
     await expect(service.paymentPng(parent.id, invoice.id)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('adds a configured bank URI from the locked snapshot without mutating the invoice', async () => {
+    const schoolClass = await prisma.class.create({ data: { name: 'Mầm 1', monthlyTuition: 1n } });
+    const student = await prisma.student.create({ data: { fullName: 'Bé An', classId: schoolClass.id } });
+    const parent = await prisma.parent.create({ data: { emailNormalized: 'parent@example.com' } });
+    const admin = await prisma.admin.create({ data: { email: 'admin@example.com', displayName: 'Admin', googleId: 'admin-google' } });
+    await prisma.studentParent.create({ data: { parentId: parent.id, studentId: student.id } });
+    const invoice = await prisma.invoice.create({ data: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: 'Bé snapshot', classId: schoolClass.id, className: schoolClass.name, status: InvoiceStatus.PENDING, total: 100n, creatorId: admin.id, paymentSnapshotMethod: InvoicePaymentMethod.TRANSFER, paymentSnapshotBankCode: 'VCB', paymentSnapshotAccountNumber: '123 456', paymentSnapshotAccountHolderName: 'Cô Hoa', paymentSnapshotTransferContent: 'Nội dung test' } });
+    const configured = new ParentPortalService(prisma as never, { bankDeepLinks: new Map([['VCB', { template: 'mybank://transfer?account={accountNumber}&amount={total}&content={transferContent}' }]]) } as never);
+    await expect(configured.payment(parent.id, invoice.id)).resolves.toMatchObject({ action: { uri: 'mybank://transfer?account=123%20456&amount=100&content=N%E1%BB%99i%20dung%20test' } });
+    await expect(prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).resolves.toMatchObject({ status: InvoiceStatus.PENDING });
   });
 });

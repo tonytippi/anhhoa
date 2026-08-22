@@ -223,6 +223,17 @@ describe('Parent payment sheet', () => {
     expect(screen.getByText('Đang chờ nhà trường xác nhận')).toBeTruthy();
     expect(screen.queryByText(/xác nhận đã nhận/i)).toBeNull();
   });
+  it('shows a server-provided bank action and keeps QR and copy fallback after it cannot open', async () => {
+    const linkedPayment = { ...payment, action: { uri: 'mybank://transfer?amount=1500000' } };
+    mockPayment(new Response(JSON.stringify(linkedPayment), { status: 200 })); window.history.pushState({}, '', '/'); render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chuyển tiền' }));
+    const action = await screen.findByRole('button', { name: 'Mở app ngân hàng' });
+    fireEvent.click(action);
+    fireEvent.focus(window);
+    expect(screen.getByText('Không thể mở app ngân hàng. Bạn vẫn có thể quét mã QR hoặc sao chép thông tin.')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Mã QR chuyển khoản cho Bé An, 1.500.000 đồng' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Sao chép/ })).toHaveLength(5);
+  });
   it('downloads PNG with the required Accept header and keeps the sheet open after a retryable failure', async () => {
     mockPayment(); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() })); const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined); window.history.pushState({}, '', '/'); render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Chuyển tiền' })); await screen.findByRole('button', { name: 'Tải mã QR' });

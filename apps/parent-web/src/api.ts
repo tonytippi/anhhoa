@@ -15,7 +15,7 @@ export interface ParentInvoice {
 export interface ParentInvoiceItem { description: string; feeGroup: string; amount: number; position: number; }
 export interface ParentInvoicePage { data: ParentInvoice[]; meta: { page: number; pageSize: number; total: number; pageCount: number }; }
 export interface ParentPayment { id: string; student: { id: string; name: string }; billingMonth: string; total: number; bankCode: string; accountNumber: string; accountHolderName: string; transferContent: string; }
-export interface ParentPaymentResponse { data: ParentPayment; vietQr: string; }
+export interface ParentPaymentResponse { data: ParentPayment; vietQr: string; action?: { uri: string }; }
 
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
