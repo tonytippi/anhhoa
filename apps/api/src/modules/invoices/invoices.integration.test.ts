@@ -10,7 +10,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: data
 const service = new InvoicesService(prisma as never);
 
 beforeEach(async () => {
-  await prisma.invoiceItem.deleteMany(); await prisma.invoice.deleteMany(); await prisma.operation.deleteMany(); await prisma.invoiceTemplateItem.deleteMany(); await prisma.invoiceTemplate.deleteMany(); await prisma.student.deleteMany(); await prisma.bankAccount.deleteMany(); await prisma.class.deleteMany(); await prisma.admin.deleteMany();
+  await prisma.studentParent.deleteMany(); await prisma.parent.deleteMany(); await prisma.invoiceItem.deleteMany(); await prisma.invoice.deleteMany(); await prisma.operation.deleteMany(); await prisma.invoiceTemplateItem.deleteMany(); await prisma.invoiceTemplate.deleteMany(); await prisma.student.deleteMany(); await prisma.bankAccount.deleteMany(); await prisma.class.deleteMany(); await prisma.admin.deleteMany();
 });
 afterAll(async () => { await prisma.$disconnect(); });
 
