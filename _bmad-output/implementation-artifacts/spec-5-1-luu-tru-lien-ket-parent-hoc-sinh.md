@@ -67,6 +67,31 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-08-22 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2 (high 1, medium 1)
+- defer: 0
+- reject: 11
+- addressed_findings:
+  - `[high] [patch]` Grant nay reactivate `Parent` INACTIVE de lien ket ACTIVE co hieu luc cho authorization cua story sau; them integration coverage.
+  - `[medium] [patch]` Revoke kiem tra Admin ton tai truoc khi ghi FK de tra domain not-found thay vi loi Prisma; them integration coverage.
+
+## Auto Run Result
+
+- Summary: Da them retained Parent-Student persistence, lifecycle service noi bo va PostgreSQL integration coverage cho Story 5.1.
+- Files changed:
+  - `apps/api/prisma/schema.prisma` -- Parent/StudentParent models, enums va relations.
+  - `apps/api/prisma/migrations/20260822000000_add_parents_and_student_parents/migration.sql` -- PostgreSQL schema, unique/indexes va restrictive FK.
+  - `apps/api/src/modules/parents/parents.module.ts` va `parents.service.ts` -- module va grant/reactivate/revoke lifecycle transactions.
+  - `apps/api/src/modules/parents/parents.integration.test.ts` -- lifecycle, unique, retained FK va many-to-many tests.
+  - `apps/api/src/app.module.ts` va integration test cleanup -- register module va xoa retained links truoc dependencies.
+  - `_bmad-output/implementation-artifacts/sprint-status.yaml` -- Epic 5 in-progress, Story 5.1 done.
+- Review findings: 2 patches da ap dung (high 1, medium 1; score 3); 0 defer; 11 reject do thuoc Story 5.2/5.3, khong nam contract Story 5.1, hoac khong phu hop convention hien co.
+- Follow-up review recommendation: false (patched high: 1; patched medium: 1; patched low: 0; score: 3).
+- Verification: `pnpm --filter api prisma:generate` pass; `pnpm --filter api test:integration` pass (8 files, 41 tests, migrations applied); `pnpm --filter api build` pass. Khi bo timeout 15 giay, test seed co san timeout o 5 giay; da giu timeout 15 giay de phu hop thoi gian setup PostgreSQL/seed.
+- Residual risks: Integration suite van co canh bao `pg` da ton tai ve concurrent `client.query`; khong phat sinh tu Parent lifecycle.
+
 ## Design Notes
 
 `ParentStatus` dung `ACTIVE`/`INACTIVE`; `ACTIVE` la default cua Parent duoc Admin grant, con `INACTIVE` cung cap trang thai ma Parent authorization cua story sau can kiem tra. `displayName` nullable vi chua co nguon du lieu truoc Google OAuth.

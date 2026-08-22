@@ -17,7 +17,7 @@ export class ParentsService {
       const parent = await tx.parent.upsert({
         where: { emailNormalized },
         create: { emailNormalized, status: ParentStatus.ACTIVE },
-        update: {},
+        update: { status: ParentStatus.ACTIVE },
       });
       const existing = await tx.studentParent.findUnique({ where: { parentId_studentId: { parentId: parent.id, studentId } } });
 
@@ -37,6 +37,8 @@ export class ParentsService {
 
   async revoke(parentId: string, studentId: string, adminId: string) {
     return this.prisma.$transaction(async (tx) => {
+      const admin = await tx.admin.findUnique({ where: { id: adminId } });
+      if (!admin) throw new NotFoundException('Admin not found.');
       const link = await tx.studentParent.findUnique({ where: { parentId_studentId: { parentId, studentId } } });
       if (!link || link.status !== StudentParentStatus.ACTIVE) throw new NotFoundException('Active parent-student link not found.');
       return tx.studentParent.update({

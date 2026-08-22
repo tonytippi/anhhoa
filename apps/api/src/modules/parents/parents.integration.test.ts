@@ -38,6 +38,14 @@ describe('ParentsService PostgreSQL contract', () => {
     await expect(prisma.studentParent.count({ where: { parentId: granted.parent.id, studentId: student.id } })).resolves.toBe(1);
   });
 
+  it('reactivates an inactive parent when granting access', async () => {
+    const student = await prisma.student.create({ data: { fullName: 'Bé An' } });
+    const parent = await prisma.parent.create({ data: { emailNormalized: 'parent@example.com', status: 'INACTIVE' } });
+    const granted = await service.grant(student.id, parent.emailNormalized);
+    expect(granted.parent.status).toBe('ACTIVE');
+    expect(granted.link.status).toBe(StudentParentStatus.ACTIVE);
+  });
+
   it('retains a revoked link and records the revoking admin', async () => {
     const student = await prisma.student.create({ data: { fullName: 'Bé An' } });
     const admin = await prisma.admin.create({ data: { email: 'admin@example.com', displayName: 'Admin', googleId: 'admin-google-id' } });
@@ -46,6 +54,7 @@ describe('ParentsService PostgreSQL contract', () => {
     expect(revoked).toMatchObject({ id: granted.link.id, status: StudentParentStatus.REVOKED, revokedBy: admin.id });
     expect(revoked.revokedAt).toBeInstanceOf(Date);
     await expect(service.revoke(granted.parent.id, student.id, admin.id)).rejects.toThrow('Active parent-student link not found.');
+    await expect(service.revoke(granted.parent.id, student.id, '00000000-0000-0000-0000-000000000000')).rejects.toThrow('Admin not found.');
     await expect(prisma.parent.findUniqueOrThrow({ where: { id: granted.parent.id } })).resolves.toBeDefined();
   });
 

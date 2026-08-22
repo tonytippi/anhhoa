@@ -63,8 +63,8 @@ development_status:
   4-1-xem-báo-cáo-thu-theo-tháng: done
   epic-4-retrospective: done
 
-  epic-5: backlog
-  5-1-luu-tru-lien-ket-parent-hoc-sinh: review
+  epic-5: in-progress
+  5-1-luu-tru-lien-ket-parent-hoc-sinh: done
   5-2-admin-cap-va-thu-hoi-quyen-parent-theo-tung-hoc-sinh: backlog
   5-3-kiem-tra-quyen-parent-theo-tung-request: backlog
   epic-5-retrospective: optional
