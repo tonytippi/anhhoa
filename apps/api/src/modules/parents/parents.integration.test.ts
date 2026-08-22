@@ -94,4 +94,19 @@ describe('ParentsService PostgreSQL contract', () => {
     await expect(prisma.studentParent.count({ where: { studentId: student.id } })).resolves.toBe(2);
     await expect(service.grantBatch(student.id, ['different@example.com'], operationId, admin.id)).rejects.toThrow('Idempotency key was already used for another request.');
   });
+
+  it('revokes once, replays the stored outcome, and requires an existing admin', async () => {
+    const student = await prisma.student.create({ data: { fullName: 'Bé An' } });
+    const admin = await prisma.admin.create({ data: { email: 'admin@example.com', displayName: 'Admin', googleId: 'admin-google-id' } });
+    const otherAdmin = await prisma.admin.create({ data: { email: 'other-admin@example.com', displayName: 'Other admin', googleId: 'other-admin-google-id' } });
+    const granted = await service.grant(student.id, 'parent@example.com');
+    const operationId = 'b2e36687-69b4-4e89-8ec0-141ff397837f';
+    const first = await service.revokeWithOperation(student.id, granted.parent.id, operationId, admin.id);
+    const replay = await service.revokeWithOperation(student.id, granted.parent.id, operationId, admin.id);
+    expect(first).toEqual(replay);
+    expect(first).toMatchObject({ data: { parentId: granted.parent.id, status: 'REVOKED' } });
+    await expect(service.revokeWithOperation(student.id, granted.parent.id, 'c2e36687-69b4-4e89-8ec0-141ff397837f', '00000000-0000-0000-0000-000000000000')).rejects.toThrow('Admin not found.');
+    await expect(service.revokeWithOperation(student.id, granted.parent.id, operationId, admin.id)).resolves.toEqual(first);
+    await expect(service.revokeWithOperation(student.id, granted.parent.id, operationId, otherAdmin.id)).rejects.toThrow('Idempotency key was already used for another request.');
+  });
 });

@@ -6,7 +6,7 @@ status: 'done'
 baseline_revision: '4e72569d160c0b69b50028438db85916257e8ae1'
 baseline_commit: '4e72569d160c0b69b50028438db85916257e8ae1'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '_bmad-output/implementation-artifacts/epic-5-context.md'
 warnings: []
@@ -59,6 +59,7 @@ deferred: []
 - [x] `apps/api/src/modules/parents/parents.integration.test.ts` va controller test moi -- bao phu atomic validation, outcomes, replay/conflict va security mutation -- ngan regression contract API.
 - [x] `apps/web/src/features/students/api.ts`, `detail-page.tsx`, `detail-page.test.tsx`, `page.tsx`, `app/app.tsx` -- them route/detail, list Parent scoped, grant form, revoke modal va recovery timeout -- hoan tat be mat Admin accessible.
 - [x] `apps/web/e2e/students.spec.ts` -- kiem thu luong Admin tren browser va header mutation -- bao ve integration CSRF/idempotency.
+- [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- danh dau Story 5.2 done sau khi verification/review dat -- dong bo tracker.
 
 **Acceptance Criteria:**
 - Given Admin mo chi tiet Hoc sinh, when Parent section tai thanh cong, then chi email Parent lien ket va status `ACTIVE`/`REVOKED` cua Hoc sinh do hien thi.
@@ -72,6 +73,16 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-08-22 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2 (medium 2)
+- defer: 0
+- reject: 15
+- addressed_findings:
+  - `[medium] [patch]` Giu va doi soat operation UUID cho moi loi transport/server khong xac dinh; luu du context mutation, khong ghi de pending khac, va tu choi gui neu sessionStorage khong luu duoc.
+  - `[medium] [patch]` Them parser response Parent/mutation chat, trang thai/empty state de hieu, Link router, va test revoke + reconcile; mo rong integration revoke replay/conflict/Admin not found.
+
 ## Design Notes
 
 Batch validation can dien ra truoc transaction de bao dam email sai khong tao mutation mot phan. Chi sau khi danh sach hop le, service transaction dung `OperationsService` va lifecycle `grant`/`revoke`; response luu operation phai la JSON serializable DTO, khong tra Prisma object tho.
@@ -84,6 +95,20 @@ Batch validation can dien ra truoc transaction de bao dam email sai khong tao mu
 - `pnpm --filter api build` -- expected: Nest API compile/typecheck thanh cong.
 - `pnpm --filter web test` -- expected: unit tests cua detail Parent va suite web pass.
 - `pnpm --filter web build` -- expected: Vite production build thanh cong.
+
+## Auto Run Result
+
+- Summary: Da them REST va UI quan ly lien ket Parent theo tung Hoc sinh, bao gom batch grant, revoke retained, idempotency va timeout reconciliation.
+- Files changed:
+  - `apps/api/src/modules/parents/parents.controller.ts`, `parents.dto.ts`, `parents.module.ts`, `parents.service.ts` -- Parent REST surface scoped va lifecycle mutation idempotent.
+  - `apps/api/src/modules/parents/parents.integration.test.ts` -- grant/revoke transaction va idempotency contracts.
+  - `apps/web/src/features/students/api.ts`, `detail-page.tsx`, `detail-page.test.tsx`, `page.tsx`, `app/app.tsx` -- Student detail Parent surface, client parsing va recovery mutation.
+  - `apps/web/e2e/students.spec.ts` -- browser flow grant voi CSRF/idempotency.
+  - `_bmad-output/implementation-artifacts/sprint-status.yaml` -- Story 5.2 done.
+- Review findings: 2 medium patches da ap dung; 0 deferred; 15 rejected vi la test-depth/scale hardening ngoai can thiet cua Story hoac da duoc bao phu boi contract/pattern co san.
+- Follow-up review recommendation: true (patched high: 0; patched medium: 2; patched low: 0; score: 6).
+- Verification: `pnpm --filter api prisma:generate`, `pnpm --filter api test:integration` (8 files, 44 tests), `pnpm --filter api build`, `pnpm --filter web test`, `pnpm --filter web build`, va `pnpm --filter web test:e2e -- students.spec.ts` (28 tests) deu pass. `git diff --check` pass.
+- Residual risks: E2E wrapper hien chay toan bo Playwright suite thay vi chi file duoc truyen; proxy warning cua cac test mock song song khong lam suite that bai.
 
 ## Suggested Review Order
 

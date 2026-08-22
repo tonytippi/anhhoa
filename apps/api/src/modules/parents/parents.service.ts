@@ -30,6 +30,8 @@ export class ParentsService {
   }
 
   async revokeWithOperation(studentId: string, parentId: string, operationId: string, adminId: string) {
+    const admin = await this.prisma.admin.findUnique({ where: { id: adminId } });
+    if (!admin) throw new NotFoundException('Admin not found.');
     const route = `/students/${studentId}/parents/${parentId}/revoke`;
     const fingerprint = this.operations.fingerprint({ studentId, parentId });
     return this.withOperation(adminId, route, operationId, fingerprint, async (tx) => {

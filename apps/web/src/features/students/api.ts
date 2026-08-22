@@ -7,7 +7,8 @@ export interface StudentList { data: Student[]; meta: { page: number; pageSize: 
 export interface StudentFilters { search: string; status: '' | StudentStatus; page: number; }
 export interface StudentInput { fullName: string; nickname?: string | null; classId?: string | null; }
 export interface ParentLink { parentId: string; email: string; status: 'ACTIVE' | 'REVOKED'; createdAt: string; revokedAt: string | null; }
-export interface ParentMutation { operationId: string; state?: 'PENDING'; }
+export interface ParentGrantOutcome { email: string; outcome: 'created' | 'reactivated' | 'active'; parentId: string; status: 'ACTIVE'; }
+export type ParentMutation = { operationId: string; state: 'PENDING' } | { operationId: string; outcomes: ParentGrantOutcome[] } | { operationId: string; parentId: string; email: string; status: 'REVOKED' };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function parseStudent(value: unknown): Student {
@@ -32,8 +33,23 @@ export function useStudents(filters: StudentFilters) { return useQuery({ queryKe
 export function useStudentsInClass(classId: string, page: number) { return useQuery({ queryKey: ['students', 'class', classId, page], queryFn: () => getJson<unknown>(`/students?${queryString({ search: '', status: '', page, classId })}`).then(parseList), enabled: Boolean(classId) }); }
 export function useSaveStudent() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, input }: { id?: string; input: StudentInput }) => requestJson<unknown>(id ? `/students/${id}` : '/students', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(input) }).then(parseAction), onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ['students'] }), client.invalidateQueries({ queryKey: ['classes'] })]) }); }
 export function useStudentStatus() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, status }: { id: string; status: StudentStatus }) => requestJson<unknown>(`/students/${id}/${status === 'ACTIVE' ? 'reactivate' : 'withdraw'}`, { method: 'POST' }).then(parseAction), onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ['students'] }), client.invalidateQueries({ queryKey: ['classes'] })]) }); }
-function parseParentLinks(value: unknown): ParentLink[] { if (!value || typeof value !== 'object' || !Array.isArray((value as { data?: unknown }).data)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.'); return (value as { data: unknown[] }).data as ParentLink[]; }
-function parseParentMutation(value: unknown): ParentMutation { if (!value || typeof value !== 'object' || !('data' in value) || typeof ((value as { data: Record<string, unknown> }).data).operationId !== 'string') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.'); return (value as { data: ParentMutation }).data; }
+function validTimestamp(value: unknown): value is string { return typeof value === 'string' && !Number.isNaN(Date.parse(value)); }
+export function parseParentLink(value: unknown): ParentLink {
+  if (!value || typeof value !== 'object') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
+  const item = value as Record<string, unknown>;
+  if (typeof item.parentId !== 'string' || !uuid.test(item.parentId) || typeof item.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.email) || (item.status !== 'ACTIVE' && item.status !== 'REVOKED') || !validTimestamp(item.createdAt) || (item.revokedAt !== null && !validTimestamp(item.revokedAt)) || (item.status === 'ACTIVE' && item.revokedAt !== null)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
+  return { parentId: item.parentId, email: item.email, status: item.status, createdAt: item.createdAt, revokedAt: item.revokedAt } as ParentLink;
+}
+function parseParentLinks(value: unknown): ParentLink[] { if (!value || typeof value !== 'object' || !Array.isArray((value as { data?: unknown }).data)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.'); return (value as { data: unknown[] }).data.map(parseParentLink); }
+export function parseParentMutation(value: unknown): ParentMutation {
+  if (!value || typeof value !== 'object' || !('data' in value) || !(value as { data?: unknown }).data || typeof (value as { data: unknown }).data !== 'object') throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
+  const data = (value as { data: Record<string, unknown> }).data;
+  if (typeof data.operationId !== 'string' || !uuid.test(data.operationId)) throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
+  if (data.state === 'PENDING' && Object.keys(data).length === 2) return { operationId: data.operationId, state: 'PENDING' };
+  if (Array.isArray(data.outcomes) && Object.keys(data).length === 2 && data.outcomes.every((outcome) => outcome && typeof outcome === 'object' && typeof (outcome as Record<string, unknown>).email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((outcome as Record<string, unknown>).email as string) && ['created', 'reactivated', 'active'].includes((outcome as Record<string, unknown>).outcome as string) && typeof (outcome as Record<string, unknown>).parentId === 'string' && uuid.test((outcome as Record<string, unknown>).parentId as string) && (outcome as Record<string, unknown>).status === 'ACTIVE')) return { operationId: data.operationId, outcomes: data.outcomes as ParentGrantOutcome[] };
+  if (typeof data.parentId === 'string' && uuid.test(data.parentId) && typeof data.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) && data.status === 'REVOKED' && Object.keys(data).length === 4) return { operationId: data.operationId, parentId: data.parentId, email: data.email, status: 'REVOKED' };
+  throw new ApiError(502, 'INVALID_RESPONSE', 'Phản hồi API không hợp lệ.');
+}
 export function useStudent(id: string) { return useQuery({ queryKey: ['students', id], queryFn: () => getJson<unknown>(`/students/${id}`).then(parseAction), enabled: Boolean(id) }); }
 export function useParentLinks(studentId: string) { return useQuery({ queryKey: ['students', studentId, 'parents'], queryFn: () => getJson<unknown>(`/students/${studentId}/parents`).then(parseParentLinks), enabled: Boolean(studentId) }); }
 export function useGrantParents() { const client = useQueryClient(); return useMutation({ mutationFn: ({ studentId, emails, operationId }: { studentId: string; emails: string[]; operationId: string }) => requestJson<unknown>(`/students/${studentId}/parents/grant`, { method: 'POST', headers: { 'Idempotency-Key': operationId }, body: JSON.stringify({ parents: emails.map((email) => ({ email })) }) }).then(parseParentMutation), onSuccess: (_result, variables) => client.invalidateQueries({ queryKey: ['students', variables.studentId, 'parents'] }) }); }
