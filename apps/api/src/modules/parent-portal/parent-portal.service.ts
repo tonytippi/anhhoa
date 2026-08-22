@@ -1,5 +1,7 @@
 import { Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
-import { InvoiceStatus, Prisma, StudentParentStatus } from '@prisma/client';
+import { InvoicePaymentMethod, InvoiceStatus, Prisma, StudentParentStatus } from '@prisma/client';
+import QRCode from 'qrcode';
+import { Banks, QRPay } from 'vietnam-qr-pay';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import type { ListParentInvoicesDto } from './parent-portal.dto.js';
 
@@ -9,6 +11,12 @@ const invoiceSelect = {
   paymentSnapshotMethod: true, items: { select: { description: true, feeGroup: true, amount: true, position: true }, orderBy: { position: 'asc' as const } },
 } satisfies Prisma.InvoiceSelect;
 type ParentInvoice = Prisma.InvoiceGetPayload<{ select: typeof invoiceSelect }>;
+const paymentSelect = {
+  id: true, studentId: true, billingMonth: true, studentName: true, className: true, status: true, total: true,
+  paymentSnapshotMethod: true, paymentSnapshotBankCode: true, paymentSnapshotAccountNumber: true,
+  paymentSnapshotAccountHolderName: true, paymentSnapshotTransferContent: true,
+} satisfies Prisma.InvoiceSelect;
+type ParentPayment = Prisma.InvoiceGetPayload<{ select: typeof paymentSelect }>;
 
 function formatMonth(month: Date) { return month.toISOString().slice(0, 7); }
 function money(value: bigint) {
@@ -27,6 +35,28 @@ function serializeInvoice(invoice: ParentInvoice) {
     paymentMethod: invoice.paymentSnapshotMethod,
     items: invoice.items.map((item) => ({ description: item.description, feeGroup: item.feeGroup, amount: money(item.amount), position: item.position })),
   };
+}
+function paymentSnapshot(invoice: ParentPayment) {
+  const bankCode = invoice.paymentSnapshotBankCode?.trim();
+  const accountNumber = invoice.paymentSnapshotAccountNumber?.trim();
+  const accountHolderName = invoice.paymentSnapshotAccountHolderName?.trim();
+  const transferContent = invoice.paymentSnapshotTransferContent?.trim();
+  if (invoice.status !== InvoiceStatus.PENDING || invoice.paymentSnapshotMethod !== InvoicePaymentMethod.TRANSFER || invoice.total <= 0n || !invoice.studentName.trim() || !invoice.className.trim() || !bankCode || !accountNumber || !accountHolderName || !transferContent || !(Banks as Array<{ code: string }>).some((bank) => bank.code === bankCode)) return null;
+  return {
+    id: invoice.id,
+    student: { id: invoice.studentId, name: invoice.studentName },
+    billingMonth: formatMonth(invoice.billingMonth),
+    total: money(invoice.total),
+    bankCode,
+    accountNumber,
+    accountHolderName,
+    transferContent,
+  };
+}
+function vietQrPayload(payment: NonNullable<ReturnType<typeof paymentSnapshot>>) {
+  const bank = (Banks as Array<{ code: string; bin: string }>).find((entry) => entry.code === payment.bankCode);
+  if (!bank) throw new InternalServerErrorException('Payment snapshot bank code cannot generate VietQR.');
+  return QRPay.initVietQR({ bankBin: bank.bin, bankNumber: payment.accountNumber, amount: payment.total.toString(), purpose: payment.transferContent }).build();
 }
 
 @Injectable()
@@ -65,6 +95,26 @@ export class ParentPortalService {
     });
     if (!record) this.denied();
     return { data: serializeInvoice(record) };
+  }
+
+  async payment(parentId: string, invoiceId: string) {
+    if (!this.isUuid(invoiceId)) this.denied();
+    const record = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, student: { parents: { some: { parentId, status: StudentParentStatus.ACTIVE, parent: { status: 'ACTIVE' } } } } },
+      select: paymentSelect,
+    });
+    const snapshot = record && paymentSnapshot(record);
+    if (!snapshot) this.denied();
+    return { data: snapshot, vietQr: vietQrPayload(snapshot) };
+  }
+
+  async paymentPng(parentId: string, invoiceId: string) {
+    const payment = await this.payment(parentId, invoiceId);
+    try {
+      return await QRCode.toBuffer(payment.vietQr, { type: 'png', errorCorrectionLevel: 'M', margin: 2, width: 512 });
+    } catch {
+      throw new InternalServerErrorException('Unable to generate VietQR PNG.');
+    }
   }
 
   private async assertStudent(parentId: string, studentId: string) {

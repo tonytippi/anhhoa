@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { BankAccountStatus, ClassStatus, InvoicePaymentMethod, InvoiceStatus, Prisma, StudentStatus } from '@prisma/client';
+import { Banks } from 'vietnam-qr-pay';
 import { DomainException, INVOICE_BATCH_EMPTY, INVOICE_TEMPLATE_EMPTY } from '../../common/errors/domain.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { OperationsService } from '../operations/operations.service.js';
@@ -15,6 +16,9 @@ function safeMoney(value: bigint): number {
 function transferContent(record: { studentName: string; studentNickname: string | null; className: string }): string {
   return `${record.studentName}${record.studentNickname ? ` [${record.studentNickname}]` : ''} ${record.className} chuyển tiền`;
 }
+function isVietQrBankCode(bankCode: string): boolean {
+  return (Banks as Array<{ code: string }>).some((bank) => bank.code === bankCode);
+}
 function snapshotPayment(record: { paymentSnapshotMethod: InvoicePaymentMethod | null; paymentSnapshotBankCode: string | null; paymentSnapshotAccountNumber: string | null; paymentSnapshotAccountHolderName: string | null }) {
   if (!record.paymentSnapshotMethod) return null;
   if (record.paymentSnapshotMethod === InvoicePaymentMethod.CASH) return { method: InvoicePaymentMethod.CASH, bankAccount: null };
@@ -28,8 +32,8 @@ function serializeDetail(record: Prisma.InvoiceGetPayload<{ include: { items: tr
   const payment = record.status === InvoiceStatus.DRAFT
     ? { method: record.paymentMethod, bankAccount: record.bankAccount ? { id: record.bankAccount.id, bankCode: record.bankAccount.bankCode, accountNumber: record.bankAccount.accountNumber, accountHolderName: record.bankAccount.accountHolderName } : null }
     : snapshotPayment(record);
-  const qr = (record.status === InvoiceStatus.PENDING || record.status === InvoiceStatus.COMPLETED) && payment?.method === InvoicePaymentMethod.TRANSFER && payment.bankAccount
-    ? { transferContent: transferContent(record), url: `https://img.vietqr.io/image/${encodeURIComponent(payment.bankAccount.bankCode)}-${encodeURIComponent(payment.bankAccount.accountNumber)}-compact2.png?amount=${safeMoney(record.total)}&addInfo=${encodeURIComponent(transferContent(record))}&accountName=${encodeURIComponent(payment.bankAccount.accountHolderName)}` }
+  const qr = (record.status === InvoiceStatus.PENDING || record.status === InvoiceStatus.COMPLETED) && payment?.method === InvoicePaymentMethod.TRANSFER && payment.bankAccount && record.paymentSnapshotTransferContent
+    ? { transferContent: record.paymentSnapshotTransferContent, url: `https://img.vietqr.io/image/${encodeURIComponent(payment.bankAccount.bankCode)}-${encodeURIComponent(payment.bankAccount.accountNumber)}-compact2.png?amount=${safeMoney(record.total)}&addInfo=${encodeURIComponent(record.paymentSnapshotTransferContent)}&accountName=${encodeURIComponent(payment.bankAccount.accountHolderName)}` }
     : null;
   return {
     ...serialize(record),
@@ -120,14 +124,23 @@ export class InvoicesService {
         if (invoice.status !== InvoiceStatus.DRAFT) throw new ConflictException('Only draft invoices can move to pending.');
         if (invoice.total <= 0n || invoice.total > 100_000_000n) throw new ConflictException('Invoice total must be greater than zero and no more than 100,000,000 VND.');
         if (!invoice.paymentMethod) throw new ConflictException('Select a payment method before moving to pending.');
+        if (!invoice.studentName.trim() || !invoice.className.trim()) throw new ConflictException('Transfer payment requires complete invoice student and class snapshots.');
         if (invoice.paymentMethod === InvoicePaymentMethod.CASH && invoice.bankAccountId) throw new ConflictException('Cash payment cannot include a bank account.');
         if (invoice.paymentMethod === InvoicePaymentMethod.TRANSFER && (!invoice.bankAccount || invoice.bankAccount.status !== BankAccountStatus.ACTIVE)) throw new ConflictException('Transfer payment requires an active bank account.');
+        const bankCode = invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.bankCode.trim() : null;
+        const accountNumber = invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.accountNumber.trim() : null;
+        const accountHolderName = invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.accountHolderName.trim() : null;
+        if (invoice.paymentMethod === InvoicePaymentMethod.TRANSFER && (!bankCode || !accountNumber || !accountHolderName)) throw new ConflictException('Transfer payment requires complete bank account details.');
+        if (invoice.paymentMethod === InvoicePaymentMethod.TRANSFER && !isVietQrBankCode(bankCode!)) throw new ConflictException('Transfer payment requires a VietQR-supported bank code.');
+        const content = invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? transferContent(invoice) : null;
+        if (invoice.paymentMethod === InvoicePaymentMethod.TRANSFER && !content?.trim()) throw new ConflictException('Transfer payment requires transfer content.');
         await tx.invoice.update({ where: { id }, data: {
           status: InvoiceStatus.PENDING,
           paymentSnapshotMethod: invoice.paymentMethod,
-          paymentSnapshotBankCode: invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.bankCode : null,
-          paymentSnapshotAccountNumber: invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.accountNumber : null,
-          paymentSnapshotAccountHolderName: invoice.paymentMethod === InvoicePaymentMethod.TRANSFER ? invoice.bankAccount!.accountHolderName : null,
+          paymentSnapshotBankCode: bankCode,
+          paymentSnapshotAccountNumber: accountNumber,
+          paymentSnapshotAccountHolderName: accountHolderName,
+          paymentSnapshotTransferContent: content,
         } });
         const record = await tx.invoice.findUniqueOrThrow({ where: { id }, include: { items: { orderBy: { position: 'asc' } }, creator: true, confirmer: true, bankAccount: true } });
         return { data: serializeDetail(record) };

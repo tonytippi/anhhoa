@@ -158,6 +158,7 @@ model Invoice {
   paymentSnapshotBankCode          String?
   paymentSnapshotAccountNumber     String?
   paymentSnapshotAccountHolderName String?
+  paymentSnapshotTransferContent   String?
   student          Student       @relation(fields: [studentId], references: [id], onDelete: Restrict)
   creator          Admin         @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: Restrict)
   confirmer        Admin?        @relation("InvoiceConfirmer", fields: [confirmerId], references: [id], onDelete: Restrict)

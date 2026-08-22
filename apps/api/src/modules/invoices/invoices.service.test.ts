@@ -29,6 +29,24 @@ describe('InvoicesService', () => {
     expect(db.invoice.update).not.toHaveBeenCalled();
   });
 
+  it('rejects incomplete transfer accounts before writing any payment snapshot', async () => {
+    const db = prisma({ ...invoice, paymentMethod: 'TRANSFER', bankAccountId: 'bank', bankAccount: { status: 'ACTIVE', bankCode: 'VCB', accountNumber: '', accountHolderName: 'Cô Hoa' } });
+    await expect(new InvoicesService(db as never).moveToPending(invoice.id)).rejects.toThrow('complete bank account details');
+    expect(db.invoice.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects transfer accounts with an unsupported VietQR bank code before writing a snapshot', async () => {
+    const db = prisma({ ...invoice, paymentMethod: 'TRANSFER', bankAccountId: 'bank', bankAccount: { status: 'ACTIVE', bankCode: 'UNKNOWN', accountNumber: '123', accountHolderName: 'Cô Hoa' } });
+    await expect(new InvoicesService(db as never).moveToPending(invoice.id)).rejects.toThrow('VietQR-supported bank code');
+    expect(db.invoice.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects blank invoice student or class snapshots before writing a transfer snapshot', async () => {
+    const db = prisma({ ...invoice, studentName: ' ', paymentMethod: 'TRANSFER', bankAccountId: 'bank', bankAccount: { status: 'ACTIVE', bankCode: 'VCB', accountNumber: '123', accountHolderName: 'Cô Hoa' } });
+    await expect(new InvoicesService(db as never).moveToPending(invoice.id)).rejects.toThrow('complete invoice student and class snapshots');
+    expect(db.invoice.update).not.toHaveBeenCalled();
+  });
+
   it('completes only positive pending invoices and stores the operation response atomically', async () => {
     const completed = { ...invoice, status: 'COMPLETED' as const, total: 100n, paymentSnapshotMethod: 'CASH', paymentSnapshotBankCode: null, paymentSnapshotAccountNumber: null, paymentSnapshotAccountHolderName: null, items: [], creator: { id: 'admin', displayName: 'Creator' }, confirmer: { id: 'admin', displayName: 'Admin' }, bankAccount: null, completedAt: new Date('2026-08-03T00:00:00.000Z') };
     const db = prisma(completed); db.invoice.findUnique.mockResolvedValueOnce({ ...completed, status: 'PENDING' }); const operations = { fingerprint: vi.fn().mockReturnValue('fingerprint'), acquireOrReplay: vi.fn().mockResolvedValue(undefined), complete: vi.fn() };

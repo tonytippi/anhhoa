@@ -31,9 +31,11 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.23.0",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "tldts": "^7.4.10"
+    "tldts": "^7.4.10",
+    "vietnam-qr-pay": "^1.5.1"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.2.1",
@@ -42,6 +44,7 @@
     "@types/node": "^22.0.0",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/pg": "^8.23.1",
+    "@types/qrcode": "^1.5.6",
     "prisma": "^7.9.1",
     "tsc-watch": "^7.2.1",
     "tsx": "^4.20.6",

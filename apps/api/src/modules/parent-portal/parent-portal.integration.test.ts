@@ -2,6 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { InvoicePaymentMethod, InvoiceStatus, PrismaClient, StudentParentStatus } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { ParentPortalService } from './parent-portal.service.js';
+import { InvoicesService } from '../invoices/invoices.service.js';
 
 const databaseUrl = 'postgresql://anhhoa_test:anhhoa_test@localhost:55432/anhhoa_test?schema=public';
 if (process.env.DATABASE_URL !== databaseUrl) throw new Error('Integration tests require the dedicated Docker Compose PostgreSQL database.');
@@ -97,5 +98,46 @@ describe('ParentPortalService PostgreSQL contract', () => {
 
     await expect(service.invoices(parent.id, { page: 1, pageSize: 20 })).rejects.toMatchObject({ status: 500 });
     await expect(service.invoice(parent.id, invoice.id)).rejects.toMatchObject({ status: 500 });
+  });
+
+  it('returns payment and PNG only from a lifecycle-locked transfer snapshot and denies every ineligible state opaquely', async () => {
+    const schoolClass = await prisma.class.create({ data: { name: 'Mầm nguồn', monthlyTuition: 1n } });
+    const student = await prisma.student.create({ data: { fullName: 'Tên nguồn', classId: schoolClass.id } });
+    const parent = await prisma.parent.create({ data: { emailNormalized: 'parent@example.com' } });
+    await prisma.studentParent.create({ data: { parentId: parent.id, studentId: student.id } });
+    const admin = await prisma.admin.create({ data: { email: 'admin@example.com', displayName: 'Admin', googleId: 'admin-google' } });
+    const account = await prisma.bankAccount.create({ data: { bankCode: ' VCB ', accountNumber: ' 123456 ', accountHolderName: ' Cô Hoa ' } });
+    const invoice = await prisma.invoice.create({ data: { studentId: student.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: 'Bé snapshot', classId: schoolClass.id, className: 'Lớp snapshot', total: 1500000n, creatorId: admin.id, paymentMethod: InvoicePaymentMethod.TRANSFER, bankAccountId: account.id } });
+    await new InvoicesService(prisma as never).moveToPending(invoice.id);
+    await prisma.student.update({ where: { id: student.id }, data: { fullName: 'Tên đã đổi' } });
+    await prisma.class.update({ where: { id: schoolClass.id }, data: { name: 'Lớp đã đổi' } });
+    await prisma.bankAccount.update({ where: { id: account.id }, data: { bankCode: 'BID', accountNumber: '654321', accountHolderName: 'Nguồn mới', status: 'INACTIVE' } });
+
+    await expect(service.payment(parent.id, invoice.id)).resolves.toEqual({ data: { id: invoice.id, student: { id: student.id, name: 'Bé snapshot' }, billingMonth: '2026-08', total: 1500000, bankCode: 'VCB', accountNumber: '123456', accountHolderName: 'Cô Hoa', transferContent: 'Bé snapshot Lớp snapshot chuyển tiền' }, vietQr: expect.any(String) });
+    const png = await service.paymentPng(parent.id, invoice.id);
+    expect(png.subarray(1, 4).toString()).toBe('PNG');
+    await expect(prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).resolves.toMatchObject({ status: InvoiceStatus.PENDING, paymentSnapshotBankCode: 'VCB', paymentSnapshotAccountNumber: '123456', paymentSnapshotAccountHolderName: 'Cô Hoa', paymentSnapshotTransferContent: 'Bé snapshot Lớp snapshot chuyển tiền' });
+
+    const createIneligible = async (data: Record<string, unknown>) => {
+      const child = await prisma.student.create({ data: { fullName: `Bé ${crypto.randomUUID()}`, classId: schoolClass.id } });
+      await prisma.studentParent.create({ data: { parentId: parent.id, studentId: child.id } });
+      return prisma.invoice.create({ data: { studentId: child.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: 'Bé snapshot', classId: schoolClass.id, className: 'Lớp snapshot', total: 1n, creatorId: admin.id, ...data } });
+    };
+    const [draft, completed, cash, incomplete, unsupported] = await Promise.all([
+      createIneligible({ status: InvoiceStatus.DRAFT, paymentMethod: InvoicePaymentMethod.TRANSFER }),
+      createIneligible({ status: InvoiceStatus.COMPLETED, paymentSnapshotMethod: InvoicePaymentMethod.TRANSFER, paymentSnapshotBankCode: 'VCB', paymentSnapshotAccountNumber: '1', paymentSnapshotAccountHolderName: 'Cô Hoa', paymentSnapshotTransferContent: 'Nội dung' }),
+      createIneligible({ status: InvoiceStatus.PENDING, paymentSnapshotMethod: InvoicePaymentMethod.CASH }),
+      createIneligible({ status: InvoiceStatus.PENDING, paymentSnapshotMethod: InvoicePaymentMethod.TRANSFER, paymentSnapshotBankCode: 'VCB', paymentSnapshotAccountNumber: null, paymentSnapshotAccountHolderName: 'Cô Hoa', paymentSnapshotTransferContent: 'Nội dung' }),
+      createIneligible({ status: InvoiceStatus.PENDING, paymentSnapshotMethod: InvoicePaymentMethod.TRANSFER, paymentSnapshotBankCode: 'NOPE', paymentSnapshotAccountNumber: '1', paymentSnapshotAccountHolderName: 'Cô Hoa', paymentSnapshotTransferContent: 'Nội dung' }),
+    ]);
+    const otherStudent = await prisma.student.create({ data: { fullName: 'Bé khác', classId: schoolClass.id } });
+    const other = await prisma.invoice.create({ data: { studentId: otherStudent.id, billingMonth: new Date('2026-08-01T00:00:00.000Z'), studentName: 'Bé khác', classId: schoolClass.id, className: 'Lớp snapshot', status: InvoiceStatus.PENDING, total: 1n, creatorId: admin.id, paymentSnapshotMethod: InvoicePaymentMethod.TRANSFER, paymentSnapshotBankCode: 'VCB', paymentSnapshotAccountNumber: '1', paymentSnapshotAccountHolderName: 'Cô Hoa', paymentSnapshotTransferContent: 'Nội dung' } });
+    for (const id of [draft.id, completed.id, cash.id, incomplete.id, unsupported.id, other.id, 'a2e36687-69b4-4e89-8ec0-141ff397837f']) {
+      await expect(service.payment(parent.id, id)).rejects.toMatchObject({ status: 401 });
+      await expect(service.paymentPng(parent.id, id)).rejects.toMatchObject({ status: 401 });
+    }
+    await prisma.studentParent.update({ where: { parentId_studentId: { parentId: parent.id, studentId: student.id } }, data: { status: StudentParentStatus.REVOKED } });
+    await expect(service.payment(parent.id, invoice.id)).rejects.toMatchObject({ status: 401 });
+    await expect(service.paymentPng(parent.id, invoice.id)).rejects.toMatchObject({ status: 401 });
   });
 });
