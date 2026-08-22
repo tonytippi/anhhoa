@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ParentStatus, Prisma, StudentParentStatus } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { OperationsService } from '../operations/operations.service.js';
@@ -69,12 +69,46 @@ export class ParentsService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
+  async authorizeStudent(parentId: string, studentId: string) {
+    if (!this.isUuid(parentId) || !this.isUuid(studentId)) throw new UnauthorizedException('Parent is not authorized to access this resource.');
+    const link = await this.findActiveLink(parentId, studentId);
+    if (!link) throw new UnauthorizedException('Parent is not authorized to access this resource.');
+    return { studentId: link.studentId };
+  }
+
+  async authorizeInvoice(parentId: string, invoiceId: string) {
+    if (!this.isUuid(parentId) || !this.isUuid(invoiceId)) throw new UnauthorizedException('Parent is not authorized to access this resource.');
+    const link = await this.prisma.studentParent.findFirst({
+      where: {
+        parentId,
+        status: StudentParentStatus.ACTIVE,
+        parent: { status: ParentStatus.ACTIVE },
+        student: { invoices: { some: { id: invoiceId } } },
+      },
+      select: { studentId: true, student: { select: { invoices: { where: { id: invoiceId }, select: { id: true }, take: 1 } } } },
+    });
+    const invoice = link?.student.invoices[0];
+    if (!link || !invoice) throw new UnauthorizedException('Parent is not authorized to access this resource.');
+    return { invoiceId: invoice.id, studentId: link.studentId };
+  }
+
   private async grantInTransaction(tx: Prisma.TransactionClient, studentId: string, emailNormalized: string) {
     const parent = await tx.parent.upsert({ where: { emailNormalized }, create: { emailNormalized, status: ParentStatus.ACTIVE }, update: { status: ParentStatus.ACTIVE } });
     const existing = await tx.studentParent.findUnique({ where: { parentId_studentId: { parentId: parent.id, studentId } } });
     if (!existing) return { outcome: 'created' as const, parent, link: await tx.studentParent.create({ data: { parentId: parent.id, studentId } }) };
     if (existing.status === StudentParentStatus.REVOKED) return { outcome: 'reactivated' as const, parent, link: await tx.studentParent.update({ where: { id: existing.id }, data: { status: StudentParentStatus.ACTIVE, revokedAt: null, revokedBy: null } }) };
     return { outcome: 'active' as const, parent, link: existing };
+  }
+
+  private findActiveLink(parentId: string, studentId: string) {
+    return this.prisma.studentParent.findFirst({
+      where: { parentId, studentId, status: StudentParentStatus.ACTIVE, parent: { status: ParentStatus.ACTIVE } },
+      select: { studentId: true },
+    });
+  }
+
+  private isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
   private async withOperation(adminId: string, route: string, operationId: string, fingerprint: string, action: (tx: Prisma.TransactionClient) => Promise<{ data: unknown }>) {
