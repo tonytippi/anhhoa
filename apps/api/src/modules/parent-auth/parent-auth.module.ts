@@ -14,5 +14,6 @@ import { ParentSessionGuard } from './parent-session.guard.js';
   imports: [ParentsModule, PassportModule, JwtModule.registerAsync({ inject: [AUTH_CONFIG], useFactory: (config: AuthConfig) => ({ secret: config.jwtSecret, signOptions: { expiresIn: config.jwtExpiresIn } as JwtSignOptions }) })],
   controllers: [ParentAuthController],
   providers: [ParentGoogleStrategy, ParentGoogleGuard, ParentSessionGuard],
+  exports: [JwtModule, ParentsModule],
 })
 export class ParentAuthModule {}

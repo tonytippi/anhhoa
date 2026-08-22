@@ -1,47 +1,49 @@
-# Epic 6 Context: Phụ huynh đăng nhập và xem Hóa đơn cần thanh toán
+# Epic 6 Context: Phu huynh dang nhap va xem Hoa don can thanh toan
 
 <!-- Generated from planning artifacts. Regenerate with compile-epic-context if planning docs change. -->
 
 ## Goal
 
-Cho phép Parent đã được ủy quyền đăng nhập Google an toàn vào Parent PWA độc lập, xem ngay các Hóa đơn `PENDING` của một hoặc nhiều Học sinh trên Home mobile-first, đồng thời mở chi tiết read-only và lịch sử `COMPLETED`. Epic bảo đảm Parent chỉ nhận dữ liệu tối thiểu còn được ủy quyền và dữ liệu đã bảo vệ bị xóa ngay khi session hoặc quyền truy cập không còn hợp lệ.
+Epic nay cung cap Parent PWA rieng de phu huynh da duoc uy quyen dang nhap Google an toan, vao ngay Home mobile-first va xem dung Hoa don `PENDING` cua mot hoac nhieu con. Parent co the xem chi tiet Hoa don va lich su `COMPLETED` theo be mat read-only, trong khi server van kiem tra quyen hien tai o moi request va client xoa du lieu ngay khi mat quyen. Dieu nay tao kenh tu phuc vu an toan ma khong mo rong quyen quan tri hay cho Parent xac nhan thanh toan.
 
 ## Stories
 
-- Story 6.1: Khởi tạo Parent PWA và Parent Google session.
-- Story 6.2: Cung cấp Parent REST read model.
-- Story 6.3: Home hiển thị Hóa đơn cần thanh toán của nhiều con.
-- Story 6.4: Chi tiết Hóa đơn và lịch sử thanh toán read-only.
+- Story 6.1: Khoi tao Parent PWA va Parent Google session
+- Story 6.2: Cung cap Parent REST read model
+- Story 6.3: Home hien thi Hoa don can thanh toan cua nhieu con
+- Story 6.4: Chi tiet Hoa don va lich su thanh toan read-only
 
 ## Requirements & Constraints
 
-- Parent đăng nhập bằng Google email đã verified. Lần đăng nhập đầu bind email đã chuẩn hóa với Google subject; những lần sau subject phải khớp. Email chưa được gán, Parent inactive, không còn liên kết `StudentParent` `ACTIVE`, subject thay đổi hoặc OAuth lỗi phải bị từ chối an toàn, không tạo partial session.
-- Session Parent riêng với Admin. Logout, session expiry và `401` phải xóa protected state trước khi điều hướng về Đăng nhập. Revoke một Học sinh chỉ xóa dữ liệu của Học sinh đó; Parent giữ session và dữ liệu các liên kết `ACTIVE` khác, chỉ bị sign-out khi không còn liên kết active hoặc session không hợp lệ.
-- Mọi request Parent kiểm tra server-side Parent active và liên kết `StudentParent` active hiện hành. UUID, URL và filter không là bằng chứng ủy quyền; không tiết lộ sự tồn tại của Học sinh hay Hóa đơn không được phép. DTO chỉ gồm dữ liệu cần cho Parent, không audit Admin, Parent khác hay dữ liệu nội bộ.
-- Parent chỉ xem Hóa đơn `PENDING` và `COMPLETED`; không được trả hoặc lọc `DRAFT`. Danh sách phải có pagination, page size giới hạn, stable sort và filter server-validated theo Học sinh được ủy quyền, tháng hóa đơn và trạng thái hợp lệ. Chi tiết là read-only: Học sinh snapshot, tháng, dòng phí, tổng VND, phương thức và trạng thái.
-- Không cache protected REST response hoặc payment snapshot trong service worker; protected client data chỉ ở memory. Revalidate khi app foreground, tab focus và trước protected view; khi bị từ chối, không để dữ liệu cũ tiếp tục hiển thị.
-- Epic không bao gồm payment eligibility, VietQR, CTA `Chuyển tiền`, payment sheet, download PNG hay deep link ngân hàng. `PENDING` + `CASH` chỉ hướng dẫn thanh toán tiền mặt; `PENDING` + `TRANSFER` vẫn chỉ đọc trong Epic này.
-- Kiểm thử API PostgreSQL phải bao phủ identity, authorization từng endpoint, nhiều con, revoke, pagination/sort/filter, direct UUID, `DRAFT` và DTO minimization. Playwright E2E phải bao phủ login, nhiều Học sinh, revoke trong session và protected-state clearing.
+- Parent chi dang nhap khi Google tra email da verified, Parent dang active, co it nhat mot lien ket `StudentParent` `ACTIVE`, va Google subject khop subject da bind; loi identity, OAuth state, provider, Parent inactive hay khong con lien ket active khong duoc tao partial session.
+- Parent chi xem Hoc sinh dang duoc uy quyen va Hoa don `PENDING`/`COMPLETED`. Server phai tu choi UUID, URL va filter cua Hoc sinh/Hoa don khong duoc uy quyen ma khong tiet lo su ton tai; `DRAFT` khong duoc xuat hien o list, filter hay detail.
+- Parent API phai tra DTO toi thieu, chi gom du lieu can cho xem read-only; khong tra audit Admin, danh sach Parent khac, source Bank Account mutable, payment payload hay mutation control.
+- Danh sach Hoa don dung phan trang, page size gioi han, sap xep on dinh va validation filter server-side theo Hoc sinh duoc uy quyen, `billingMonth` va status hop le. Lich su chi hien `COMPLETED`; filter Hoc sinh/Thang can duoc dong bo vao URL/query state.
+- Logout, session expiry, `401` va revoke phai xoa protected state truoc khi hien thi route dang nhap hay du lieu cu. Revoke mot Hoc sinh chi xoa du lieu cua Hoc sinh do; Parent van giu session neu con lien ket `ACTIVE` khac.
+- Parent khong sua Hoc sinh, Hoa don, phuong thuc, tai khoan nhan tien hay trang thai. Pham vi Epic 6 khong bao gom payment eligibility, CTA `Chuyen tien`, VietQR, deep link hay Parent xac nhan da chuyen tien.
+- Kiem thu API unit/PostgreSQL integration cho identity, authorization moi endpoint, filter/pagination/sort, nhieu con, revoke, `DRAFT`, UUID truc tiep va response minimization; Playwright E2E bao phu login, multi-child, revoke, Home, detail va History.
 
 ## Technical Decisions
 
-- Tạo `apps/parent-web` là React/Vite PWA độc lập, có router, manifest, icon, service worker, REST client và React Query cache riêng. Không import `apps/web`, dùng chung router/session/service worker/browser state hay gọi Admin business endpoint; chỉ có thể chia sẻ pure contracts/utilities từ `packages`.
-- Trong `apps/api`, `parent-auth` sở hữu Google OAuth và Parent session; `parent-portal` sở hữu read DTO đã authorize; `parents` sở hữu Parent/StudentParent. Portal chỉ phụ thuộc Prisma cùng query service hẹp được export từ `parents`, `students`, `invoices`; không gọi controller khác hoặc ghi invoice lifecycle.
-- Parent REST được namespace dưới `/api/parent`: `/me`, `/students`, `/invoices`, `/invoices/:invoiceId`. List dùng `{ data, meta }`; JSON camelCase, DTO/validation/error envelope theo convention API hiện có. Query keys bắt đầu bằng `parent`; `401` là chuyển trạng thái authorization, không phải query error để retry.
-- OAuth state phải random, browser/callback-bound, single-use và expiring. Chỉ cấp cookie Parent `Secure`, `httpOnly`, `SameSite=Lax` sau toàn bộ kiểm tra identity và active link; cookie không đọc được từ JavaScript hay được chấp nhận như Admin session. API bootstrap phải validate Parent origin, callback allowlist, cookie name và scope cấu hình, không khởi động với default không an toàn.
-- Giữ các invariant nền tảng: UUID, tháng `YYYY-MM`, UTC timestamp, tiền VND `BIGINT` boundary mapping, controller delegate service. Parent PWA chỉ gọi REST; API giữ mọi quyết định authorization và dữ liệu tiền.
+- `apps/parent-web` la React/Vite PWA doc lap, co router, manifest, service worker, REST client va React Query cache rieng; khong import `apps/web`, chia se Admin router/session/browser state hay goi Admin business endpoint. Chi co the chia se pure TypeScript utilities/contracts tu `packages`.
+- API dung NestJS modular monolith: `parents` so huu Parent/StudentParent; `parent-auth` so huu Google OAuth va Parent session; `parent-portal` so huu DTO read da authorize, chi dung Prisma va narrow query exports tu `parents`, `students`, `invoices`, khong goi controller va khong ghi invoice lifecycle.
+- Parent routes nam duoi `/api/parent`: `/me`, `/students`, `/invoices`, `/invoices/:invoiceId`; list dung envelope `{ data, meta }`. JSON camelCase, UUID, `YYYY-MM`, UTC va VND `BIGINT` tuan theo convention hien co; query key protected bat dau bang `parent`.
+- OAuth state phai random, browser/callback-bound, single-use va expiring. Parent dung cookie rieng `Secure`, `httpOnly`, `SameSite=Lax`, scoped Parent surface va khong bao gio duoc chap nhan nhu Admin session. API bootstrap phai validate Parent origin, callback allowlist, cookie name va scope; cau hinh thieu/invalid phai fail ro rang.
+- Moi Parent request lay identity tu Parent session va kiem tra Parent `ACTIVE` cung `StudentParent` `ACTIVE` tai server. Service worker khong cache protected REST response, payment snapshot hay du lieu protected; React Query data chi o memory va bi clear khi logout/`401`.
+- Invoice lifecycle duoc ke thua: Parent chi doc `PENDING` va `COMPLETED`; `COMPLETED` read-only. Parent payment endpoint va snapshot guidance la capability Epic 7, khong duoc them som vao read model Epic 6.
 
 ## UX & Interaction Patterns
 
-- Parent PWA mobile-first, một cột, nền kem, card trắng, gutter 20px, Inter cho nội dung và Clash Grotesk cho heading. Sau login luôn mở tab `Trang chủ` với một `h1` `Hóa đơn cần thanh toán`; không dùng KPI, bảng, carousel, sidebar hoặc push notification. Bottom navigation gồm `Trang chủ` và `Lịch sử`; menu header hiện email, trợ giúp ngắn và đăng xuất không cần modal.
-- Home ưu tiên `PENDING` ngay vùng nhìn thấy đầu tiên. Khi có từ hai Học sinh, dùng student switcher scroll ngang với `Tất cả` mặc định; ở chế độ này mọi card vẫn hiện rõ tên Học sinh. Chỉ group Học sinh có `PENDING`, group theo invoice mới nhất rồi tên Học sinh; card trong group theo billing month mới nhất. Không có pending thì hiện `Không còn Hóa đơn cần thanh toán` và link `Xem lịch sử`.
-- Card hoặc row mở chi tiết bằng touch/keyboard. Chi tiết hiển thị snapshot, dòng phí, tổng VND, phương thức và status, toàn bộ read-only. `CASH` nêu `Thanh toán tiền mặt tại nhà trường`; `COMPLETED` chỉ là lịch sử, không có payment CTA.
-- `Lịch sử` chỉ hiện `COMPLETED`, có pagination và filter Học sinh/tháng; filter được đồng bộ URL/query state và không được chọn Học sinh không còn quyền. Trong chế độ `Tất cả`, mỗi row vẫn nêu tên Học sinh.
-- Loading dùng skeleton theo header, chips và card/row; refresh giữ dữ liệu đang đọc với indicator nhỏ. Offline hiển thị một banner và không coi data cached là mới hay queue action. Revoke đóng/xóa chi tiết của Học sinh đó và refresh switcher; `401` đóng protected surface, clear toàn bộ state rồi về Đăng nhập.
-- Tuân WCAG 2.2 AA: target tối thiểu 44x44px, status có nhãn chữ, tổng tiền đọc kèm VND, live region cho lỗi/trạng thái và responsive một cột. Trên tablet/desktop chỉ mở rộng content tối đa, không chuyển sang layout Admin.
+- Parent PWA mobile-first mot cot, nen kem, card trang, gutter 20px, Inter cho body va Clash Grotesk cho heading; touch target toi thieu 44x44px. Su dung xanh duong kem nhan `Can thanh toan` cho `PENDING`, xanh la kem nhan `Da hoan tat` cho `COMPLETED`; khong dung dashboard KPI, bang, carousel, sidebar hay banner marketing.
+- Sau login, mo tab `Trang chu` voi duy nhat `h1` `Hoa don can thanh toan`. Hien `PENDING` trong vung nhin thay dau tien; chi group Hoc sinh co Pending, group theo invoice moi nhat roi ten Hoc sinh, card theo billing month moi nhat.
+- Khi Parent co tu hai Hoc sinh, hien student switcher cuon ngang voi `Tat ca` mac dinh. O `Tat ca`, tung card/row phai hien ten Hoc sinh; chon filter cap nhat tai cho va URL ma khong xoa du lieu dang tai.
+- Pending card va completed row mo invoice detail bang touch/keyboard. Detail chi hien student snapshot, billing month, dong phi, tong VND, phuong thuc va badge status; `CASH` hien huong dan thanh toan tai truong, `COMPLETED` khong co CTA thanh toan.
+- Bottom navigation gom `Trang chu` va `Lich su`; History chi hien `COMPLETED`, co pagination va filter. Empty Home hien `Khong con Hoa don can thanh toan` va link `Xem lich su`.
+- Loading dung skeleton theo header/chips/card; refresh giu noi dung dang doc voi indicator nho; offline hien banner mot lan va khong coi du lieu cu la moi. Revalidate khi foreground, tab focus va truoc protected view; khi revoke, dong/xoa detail cua Hoc sinh do va refresh switcher.
+- Tuan WCAG 2.2 AA: moi route co mot `h1`, status khong chi dung mau, tien duoc doc kem VND, card/control dung keyboard, skeleton khong duoc screen reader doc va loi/thay doi trang thai dung live region.
 
 ## Cross-Story Dependencies
 
-- Epic 5, đặc biệt Story 5.1 và 5.3, phải hoàn thành trước Epic 6 để cung cấp relation retained và server-side Parent authorization. Story 5.2 cung cấp luồng Admin grant/revoke tạo dữ liệu truy cập thực tế.
-- Story 6.1 thiết lập Parent PWA, OAuth và session bootstrap qua `/me`. Story 6.2 mở rộng read model bằng `/students`, `/invoices` và `/invoices/:invoiceId`; Story 6.3 và 6.4 chỉ bắt đầu sau Story 6.2.
-- Epic 7 phụ thuộc read model của Story 6.2 và chỉ tích hợp UI sau Home/chi tiết khi cần. Epic 6 không được chờ endpoint payment để hoàn thành luồng xem read-only.
+- Epic 5 phai hoan thanh Parent/StudentParent persistence, Admin grant/revoke va authorization theo request truoc Parent OAuth va Parent portal cua Epic 6.
+- Story 6.1 khoi tao Parent PWA va session bootstrap qua `/me`; Story 6.2 mo rong read model bang `/students`, `/invoices` va `/invoices/:invoiceId`. Story 6.3 va 6.4 bat dau sau Story 6.2.
+- Epic 7 bat dau sau Story 6.2 va tich hop payment UI sau Story 6.3/6.4. Epic 6 phai giu UI read-only, khong phu thuoc payment endpoint hay payment snapshot cua Epic 7.
