@@ -33,3 +33,23 @@ test('quản trị viên chọn Lớp active khi sửa học sinh', async ({ pag
   await page.getByRole('button', { name: 'Lưu học sinh' }).click();
   await expect(page.getByRole('cell', { name: schoolClass.name })).toBeVisible();
 });
+
+test('quản trị viên cấp quyền Parent từ chi tiết học sinh với CSRF và idempotency key', async ({ page }) => {
+  const link = { parentId: 'b2e36687-69b4-4e89-8ec0-141ff397837f', email: 'parent@example.com', status: 'ACTIVE', createdAt: '2026-01-01T00:00:00.000Z', revokedAt: null };
+  await page.route('**/auth/me', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: admin }) }));
+  await page.route(`**/students/${student.id}`, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: student }) }));
+  await page.route(`**/students/${student.id}/parents**`, async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: [link] }) });
+    expect(route.request().headers()['x-csrf-token']).toBe('token');
+    expect(route.request().headers()['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(route.request().postDataJSON()).toEqual({ parents: [{ email: 'new@example.com' }] });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { operationId: route.request().headers()['idempotency-key'], outcomes: [] } }) });
+  });
+  await page.route('**/csrf', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { csrfToken: 'token' } }) }));
+  await page.goto(`/hoc-sinh/${student.id}`);
+  await expect(page.getByRole('heading', { level: 1, name: student.fullName })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Parent của học sinh' })).toContainText(link.email);
+  await page.getByLabel('Email Parent, cách nhau bằng dấu phẩy hoặc dòng mới').fill('new@example.com');
+  await page.getByRole('button', { name: 'Cấp quyền Parent' }).click();
+  await expect(page.getByRole('status')).toContainText('Đã cấp quyền Parent.');
+});

@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:45
-last_updated: 08-22-2026 12:00
+last_updated: 08-22-2026
 project: anhhoa
 project_key: NOKEY
 tracking_system: file-system
@@ -65,7 +65,7 @@ development_status:
 
   epic-5: in-progress
   5-1-luu-tru-lien-ket-parent-hoc-sinh: done
-  5-2-admin-cap-va-thu-hoi-quyen-parent-theo-tung-hoc-sinh: backlog
+  5-2-admin-cap-va-thu-hoi-quyen-parent-theo-tung-hoc-sinh: review
   5-3-kiem-tra-quyen-parent-theo-tung-request: backlog
   epic-5-retrospective: optional
 

@@ -76,4 +76,22 @@ describe('ParentsService PostgreSQL contract', () => {
     await expect(prisma.parent.delete({ where: { id: granted.parent.id } })).rejects.toMatchObject({ code: 'P2003' });
     await expect(prisma.student.delete({ where: { id: student.id } })).rejects.toMatchObject({ code: 'P2003' });
   });
+
+  it('validates the full batch before changing any retained link', async () => {
+    const student = await prisma.student.create({ data: { fullName: 'Bé An' } });
+    await expect(service.grantBatch(student.id, ['valid@example.com', 'not-an-email'], 'a2e36687-69b4-4e89-8ec0-141ff397837f', 'admin-1')).rejects.toThrow('Each parent email must be valid.');
+    await expect(prisma.studentParent.count()).resolves.toBe(0);
+  });
+
+  it('grants atomically and replays a completed operation without duplicating links', async () => {
+    const student = await prisma.student.create({ data: { fullName: 'Bé An' } });
+    const admin = await prisma.admin.create({ data: { email: 'admin@example.com', displayName: 'Admin', googleId: 'admin-google-id' } });
+    const operationId = 'a2e36687-69b4-4e89-8ec0-141ff397837f';
+    const first = await service.grantBatch(student.id, ['First@Example.com', 'second@example.com'], operationId, admin.id);
+    const replay = await service.grantBatch(student.id, ['first@example.com', 'second@example.com'], operationId, admin.id);
+    expect(first).toEqual(replay);
+    expect(first).toMatchObject({ data: { outcomes: [{ email: 'first@example.com', outcome: 'created' }, { email: 'second@example.com', outcome: 'created' }] } });
+    await expect(prisma.studentParent.count({ where: { studentId: student.id } })).resolves.toBe(2);
+    await expect(service.grantBatch(student.id, ['different@example.com'], operationId, admin.id)).rejects.toThrow('Idempotency key was already used for another request.');
+  });
 });
