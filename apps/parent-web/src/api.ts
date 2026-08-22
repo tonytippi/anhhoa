@@ -14,6 +14,8 @@ export interface ParentInvoice {
 }
 export interface ParentInvoiceItem { description: string; feeGroup: string; amount: number; position: number; }
 export interface ParentInvoicePage { data: ParentInvoice[]; meta: { page: number; pageSize: number; total: number; pageCount: number }; }
+export interface ParentPayment { id: string; student: { id: string; name: string }; billingMonth: string; total: number; bankCode: string; accountNumber: string; accountHolderName: string; transferContent: string; }
+export interface ParentPaymentResponse { data: ParentPayment; vietQr: string; }
 
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
@@ -52,4 +54,15 @@ export function completedInvoices(filters: { studentId?: string; billingMonth?: 
   if (filters.studentId) params.set('studentId', filters.studentId);
   if (filters.billingMonth) params.set('billingMonth', filters.billingMonth);
   return request<ParentInvoicePage>(`/parent/invoices?${params}`);
+}
+
+export function parentPayment(invoiceId: string): Promise<ParentPaymentResponse> {
+  return request<ParentPaymentResponse>(`/parent/invoices/${invoiceId}/payment`);
+}
+
+export async function paymentPng(invoiceId: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${base}/parent/invoices/${invoiceId}/payment`, { headers: { Accept: 'image/png' }, credentials: 'include' });
+  if (!response.ok) throw new ApiError(response.status);
+  const filename = response.headers.get('content-disposition')?.match(/filename="?([^";]+)"?/i)?.[1] ?? `anh-hoa-${invoiceId}.png`;
+  return { blob: await response.blob(), filename };
 }

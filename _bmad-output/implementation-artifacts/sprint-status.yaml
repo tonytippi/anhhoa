@@ -78,7 +78,7 @@ development_status:
 
   epic-7: in-progress
   7-1-cung-cap-payment-snapshot-va-vietqr-cho-parent: done
-  7-2-payment-sheet-voi-vietqr-sao-chep-va-tai-qr: backlog
+  7-2-payment-sheet-voi-vietqr-sao-chep-va-tai-qr: done
   7-3-mo-deep-link-ngan-hang-co-fallback: backlog
   epic-7-retrospective: optional
 action_items:

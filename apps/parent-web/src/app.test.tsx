@@ -177,4 +177,77 @@ describe('Parent invoice detail and History', () => {
   });
 });
 
-afterEach(() => cleanup());
+describe('Parent payment sheet', () => {
+  const payment = { data: { id: 'a-1', student: { id: 'student-a', name: 'Bé An' }, billingMonth: '2026-08', total: 1500000, bankCode: 'VCB', accountNumber: '123456789', accountHolderName: 'NGUYEN VAN A', transferContent: 'ANH HOA' }, vietQr: '000201010212' };
+  function mockPayment(paymentResponse: Response = new Response(JSON.stringify(payment), { status: 200 })): void {
+    vi.stubGlobal('fetch', vi.fn((input: string) => {
+      if (input.endsWith('/parent/me')) return Promise.resolve(new Response(JSON.stringify({ data: parent }), { status: 200 }));
+      if (input.endsWith('/parent/students')) return Promise.resolve(new Response(JSON.stringify({ data: students }), { status: 200 }));
+      if (input.includes('/payment')) return Promise.resolve(paymentResponse);
+      return Promise.resolve(new Response(JSON.stringify({ data: [invoice('a-1', 'Bé An', '2026-08')], meta: { page: 1, pageSize: 100, total: 1, pageCount: 1 } }), { status: 200 }));
+    }));
+  }
+  it('keeps the sheet closed while eligibility is pending, then opens it only after JSON succeeds', async () => {
+    let resolvePayment: ((response: Response) => void) | undefined;
+    mockPayment();
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation((input: string) => {
+      if (input.includes('/payment')) return new Promise<Response>((resolve) => { resolvePayment = resolve; });
+      if (input.endsWith('/parent/me')) return Promise.resolve(new Response(JSON.stringify({ data: parent }), { status: 200 }));
+      if (input.endsWith('/parent/students')) return Promise.resolve(new Response(JSON.stringify({ data: students }), { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ data: [invoice('a-1', 'Bé An', '2026-08')], meta: { page: 1, pageSize: 100, total: 1, pageCount: 1 } }), { status: 200 }));
+    });
+    window.history.pushState({}, '', '/'); render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chuyển tiền' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Đang kiểm tra hướng dẫn...' })).toHaveProperty('disabled', true);
+    resolvePayment?.(new Response(JSON.stringify(payment), { status: 200 }));
+    expect(await screen.findByRole('dialog', { name: 'Hướng dẫn chuyển tiền' })).toBeTruthy();
+  });
+  it('keeps a transient JSON eligibility error inline and retries without treating it as denial', async () => {
+    mockPayment(new Response(JSON.stringify({}), { status: 500 })); window.history.pushState({}, '', '/'); render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chuyển tiền' }));
+    expect(await screen.findByText('Không thể tải hướng dẫn chuyển tiền. Vui lòng thử lại.')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(JSON.stringify(payment), { status: 200 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại hướng dẫn chuyển tiền' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+  it('loads only the server payment payload, renders QR and five independent copy controls', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined); Object.assign(navigator, { clipboard: { writeText } }); mockPayment(); window.history.pushState({}, '', '/'); render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chuyển tiền' }));
+    expect(await screen.findByRole('dialog', { name: 'Hướng dẫn chuyển tiền' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Mã QR chuyển khoản cho Bé An, 1.500.000 đồng' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Sao chép/ })).toHaveLength(5);
+    fireEvent.click(screen.getByRole('button', { name: 'Sao chép Số tài khoản' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('123456789'));
+    expect(screen.getByText('Đang chờ nhà trường xác nhận')).toBeTruthy();
+    expect(screen.queryByText(/xác nhận đã nhận/i)).toBeNull();
+  });
+  it('downloads PNG with the required Accept header and keeps the sheet open after a retryable failure', async () => {
+    mockPayment(); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() })); const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined); window.history.pushState({}, '', '/'); render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chuyển tiền' })); await screen.findByRole('button', { name: 'Tải mã QR' });
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 500 })); fireEvent.click(screen.getByRole('button', { name: 'Tải mã QR' }));
+    expect(await screen.findByText('Không thể tải mã QR. Vui lòng thử lại.')).toBeTruthy(); expect(screen.getByRole('dialog')).toBeTruthy();
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response('png', { status: 200, headers: { 'content-disposition': 'attachment; filename="anh-hoa-a-1.png"' } })); fireEvent.click(screen.getByRole('button', { name: 'Tải mã QR' }));
+    await waitFor(() => expect(click).toHaveBeenCalled()); const request = (fetch as ReturnType<typeof vi.fn>).mock.calls.at(-1); expect(request?.[1]?.headers).toEqual({ Accept: 'image/png' });
+  });
+  it('disables duplicate PNG downloads and clears the sheet for a denied PNG response', async () => {
+    let resolvePng: ((response: Response) => void) | undefined;
+    mockPayment(); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() })); window.history.pushState({}, '', '/'); render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chuyển tiền' })); await screen.findByRole('dialog');
+    (fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(() => new Promise<Response>((resolve) => { resolvePng = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tải mã QR' }));
+    expect(screen.getByRole('button', { name: 'Đang tải mã QR...' })).toHaveProperty('disabled', true);
+    fireEvent.click(screen.getByRole('button', { name: 'Đang tải mã QR...' }));
+    expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => String(url).includes('/payment'))).toHaveLength(2);
+    resolvePng?.(new Response(JSON.stringify({}), { status: 403 }));
+    expect(await screen.findByText('Hướng dẫn chuyển tiền không còn khả dụng')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('returns focus to the opener on Escape and clears protected state on payment 401', async () => {
+    mockPayment(); window.history.pushState({}, '', '/'); render(<App />); const opener = await screen.findByRole('button', { name: 'Chuyển tiền' }); fireEvent.click(opener); await screen.findByRole('dialog'); fireEvent.keyDown(window, { key: 'Escape' }); await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull()); expect(document.activeElement).toBe(opener);
+    mockPayment(new Response(JSON.stringify({}), { status: 401 })); fireEvent.click(opener); expect(await screen.findByRole('heading', { name: 'Dành cho phụ huynh' })).toBeTruthy();
+  });
+});
+
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
