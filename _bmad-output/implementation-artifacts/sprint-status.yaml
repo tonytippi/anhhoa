@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-18-2026 10:45
-last_updated: 08-20-2026 10:26
+last_updated: 08-22-2026 12:00
 project: anhhoa
 project_key: NOKEY
 tracking_system: file-system
@@ -62,6 +62,25 @@ development_status:
   epic-4: done
   4-1-xem-báo-cáo-thu-theo-tháng: done
   epic-4-retrospective: done
+
+  epic-5: backlog
+  5-1-luu-tru-lien-ket-parent-hoc-sinh: backlog
+  5-2-admin-cap-va-thu-hoi-quyen-parent-theo-tung-hoc-sinh: backlog
+  5-3-kiem-tra-quyen-parent-theo-tung-request: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-khoi-tao-parent-pwa-va-parent-google-session: backlog
+  6-2-cung-cap-parent-rest-read-model: backlog
+  6-3-home-hien-thi-hoa-don-can-thanh-toan-cua-nhieu-con: backlog
+  6-4-chi-tiet-hoa-don-va-lich-su-thanh-toan-read-only: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-cung-cap-payment-snapshot-va-vietqr-cho-parent: backlog
+  7-2-payment-sheet-voi-vietqr-sao-chep-va-tai-qr: backlog
+  7-3-mo-deep-link-ngan-hang-co-fallback: backlog
+  epic-7-retrospective: optional
 action_items:
   - id: "epic-2-retro-item-1-sửa-reconciliation-retry-whole-class-tra"
     epic: 2
