@@ -5,7 +5,7 @@ import type { ListParentInvoicesDto } from './parent-portal.dto.js';
 
 const allowedStatuses = [InvoiceStatus.PENDING, InvoiceStatus.COMPLETED];
 const invoiceSelect = {
-  id: true, billingMonth: true, studentName: true, studentNickname: true, status: true, total: true,
+  id: true, studentId: true, billingMonth: true, studentName: true, studentNickname: true, status: true, total: true,
   paymentSnapshotMethod: true, items: { select: { description: true, feeGroup: true, amount: true, position: true }, orderBy: { position: 'asc' as const } },
 } satisfies Prisma.InvoiceSelect;
 type ParentInvoice = Prisma.InvoiceGetPayload<{ select: typeof invoiceSelect }>;
@@ -20,7 +20,7 @@ function serializeInvoice(invoice: ParentInvoice) {
   if (!invoice.paymentSnapshotMethod) throw new InternalServerErrorException('Visible invoice is missing its payment snapshot method.');
   return {
     id: invoice.id,
-    student: { name: invoice.studentName, nickname: invoice.studentNickname },
+    student: { id: invoice.studentId, name: invoice.studentName, nickname: invoice.studentNickname },
     billingMonth: formatMonth(invoice.billingMonth),
     status: invoice.status,
     total: money(invoice.total),

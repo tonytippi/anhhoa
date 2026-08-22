@@ -2,6 +2,17 @@ export class ApiError extends Error { constructor(readonly status: number) { sup
 const base = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '');
 let csrfToken: string | undefined;
 
+export interface ParentStudent { id: string; fullName: string; nickname: string | null; }
+export interface ParentInvoice {
+  id: string;
+  student: { id: string; name: string; nickname: string | null };
+  billingMonth: string;
+  status: 'PENDING';
+  total: number;
+  paymentMethod: 'TRANSFER' | 'CASH';
+}
+interface Page<T> { data: T[]; meta: { page: number; pageSize: number; total: number; pageCount: number }; }
+
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.method && init.method !== 'GET') {
@@ -14,3 +25,18 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 }
 
 export function clearClientSession(): void { csrfToken = undefined; }
+
+export function parentStudents(): Promise<ParentStudent[]> {
+  return request<{ data: ParentStudent[] }>('/parent/students').then((result) => result.data);
+}
+
+export async function pendingInvoices(studentId?: string): Promise<ParentInvoice[]> {
+  const invoices: ParentInvoice[] = [];
+  for (let page = 1; ; page += 1) {
+    const params = new URLSearchParams({ status: 'PENDING', page: String(page), pageSize: '100' });
+    if (studentId) params.set('studentId', studentId);
+    const result = await request<Page<ParentInvoice>>(`/parent/invoices?${params}`);
+    invoices.push(...result.data);
+    if (page >= result.meta.pageCount) return invoices;
+  }
+}

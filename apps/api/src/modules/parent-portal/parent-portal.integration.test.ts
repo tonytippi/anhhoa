@@ -38,14 +38,14 @@ describe('ParentPortalService PostgreSQL contract', () => {
     expect(invoices.meta).toEqual({ page: 1, pageSize: 20, total: 2, pageCount: 1 });
     const listedPending = invoices.data.find((invoice) => invoice.id === pending.id)!;
     expect(Object.keys(listedPending).sort()).toEqual(['billingMonth', 'id', 'items', 'paymentMethod', 'status', 'student', 'total']);
-    expect(Object.keys(listedPending.student).sort()).toEqual(['name', 'nickname']);
+    expect(Object.keys(listedPending.student).sort()).toEqual(['id', 'name', 'nickname']);
     expect(Object.keys(listedPending.items[0]!).sort()).toEqual(['amount', 'description', 'feeGroup', 'position']);
-    expect(listedPending).toMatchObject({ student: { name: 'Snapshot An', nickname: null }, billingMonth: '2026-08', paymentMethod: 'CASH', items: [{ description: 'Học phí', amount: 100, feeGroup: null, position: 0 }] });
+    expect(listedPending).toMatchObject({ student: { id: first.id, name: 'Snapshot An', nickname: null }, billingMonth: '2026-08', paymentMethod: 'CASH', items: [{ description: 'Học phí', amount: 100, feeGroup: null, position: 0 }] });
     expect(invoices.data.find((invoice) => invoice.status === InvoiceStatus.COMPLETED)).toBeDefined();
     const detail = await service.invoice(parent.id, pending.id);
     expect(Object.keys(detail)).toEqual(['data']);
     expect(Object.keys(detail.data).sort()).toEqual(['billingMonth', 'id', 'items', 'paymentMethod', 'status', 'student', 'total']);
-    expect(Object.keys(detail.data.student).sort()).toEqual(['name', 'nickname']);
+    expect(Object.keys(detail.data.student).sort()).toEqual(['id', 'name', 'nickname']);
     expect(Object.keys(detail.data.items[0]!).sort()).toEqual(['amount', 'description', 'feeGroup', 'position']);
     expect(detail.data).toEqual(listedPending);
   });
