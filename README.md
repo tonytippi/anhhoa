@@ -21,6 +21,22 @@ pnpm build
 pnpm --filter web exec playwright test
 ```
 
+## Chạy Parent PWA local
+
+Parent PWA là ứng dụng riêng tại `apps/parent-web`. Sau khi đã chạy `pnpm install`, khởi động ứng dụng bằng:
+
+```bash
+pnpm --filter parent-web dev
+```
+
+Chạy test Vitest của riêng Parent PWA tại môi trường local bằng:
+
+```bash
+pnpm --filter parent-web test
+```
+
+Lệnh này chạy các test trong `apps/parent-web` với cấu hình local `vitest.config.ts`; không cần khởi động API cho các test component hiện có.
+
 API tự động nạp `apps/api/.env` khi khởi động; repository chỉ giữ biến môi trường mẫu trong `apps/api/.env.example`, không thêm giá trị thật. Để chạy API, sao chép file này thành `apps/api/.env`, đặt các biến OAuth Google, `JWT_SECRET` (ít nhất 32 ký tự), `ADMIN_EMAILS`, `WEB_ORIGIN`, callback và redirect URLs đã đăng ký. `OAUTH_REDIRECT_URLS` là allowlist URL sau đăng nhập, phân tách bằng dấu phẩy; `OAUTH_DENIED_REDIRECT_URL` phải là một URL trong allowlist này. Khi phát triển local, đăng ký chính xác `http://localhost:5173/api/auth/google/callback` trong Google Console và đặt URL này cho `GOOGLE_CALLBACK_URL`; Vite chuyển tiếp callback đến Nest tại `/auth/google/callback`. `WEB_ORIGIN` và public origin của `GOOGLE_CALLBACK_URL` phải cùng schemeful site: khác port hoặc sibling subdomain được phép, còn cross-site hoặc khác `http`/`https` sẽ bị từ chối khi API khởi động. Web mặc định dùng `VITE_API_URL=/api`; chỉ đặt override này khi có một public API base path khác.
 
 ## Font assets
