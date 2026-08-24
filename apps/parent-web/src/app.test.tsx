@@ -85,6 +85,21 @@ describe('Parent Home', () => {
     expect(screen.queryByText('Cần thanh toán')).toBeNull();
   });
 
+  it('presents invoice details with separated summary, line items, and total', async () => {
+    const detail = invoice('cash-1', 'Bé An', '2026-08', 'CASH');
+    vi.stubGlobal('fetch', vi.fn((input: string) => {
+      if (input.endsWith('/parent/me')) return Promise.resolve(new Response(JSON.stringify({ data: parent }), { status: 200 }));
+      if (input.endsWith('/parent/students')) return Promise.resolve(new Response(JSON.stringify({ data: students }), { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ data: detail }), { status: 200 }));
+    }));
+    window.history.pushState({}, '', '/invoices/cash-1');
+    render(<App />);
+    expect(await screen.findByText('Học sinh')).toBeTruthy();
+    expect(screen.getByText('Chi tiết các khoản thu')).toBeTruthy();
+    expect(screen.getAllByText('1.500.000 VND')).toHaveLength(2);
+    expect(screen.getByText('Tiền mặt')).toBeTruthy();
+  });
+
   it('clears protected Home content when a protected request returns 401', async () => {
     vi.stubGlobal('fetch', vi.fn((input: string) => Promise.resolve(new Response(JSON.stringify(input.endsWith('/parent/me') ? { data: parent } : {}), { status: input.endsWith('/parent/me') ? 200 : 401 }))));
     window.history.pushState({}, '', '/');
@@ -136,7 +151,8 @@ describe('Parent invoice detail and History', () => {
     render(<App />);
     expect(await screen.findByRole('heading', { name: 'Chi tiết Hóa đơn' })).toBeTruthy();
     expect(await screen.findByText('Thanh toán tiền mặt tại nhà trường.')).toBeTruthy();
-    expect(screen.getByText('Tổng cộng: 1.500.000 VND')).toBeTruthy();
+    expect(screen.getByText('Tổng cộng')).toBeTruthy();
+    expect(screen.getAllByText('1.500.000 VND')).toHaveLength(2);
     expect(screen.queryByRole('button', { name: /thanh toán/i })).toBeNull();
   });
 
