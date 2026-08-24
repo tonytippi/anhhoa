@@ -29,6 +29,8 @@ Parent PWA là ứng dụng riêng tại `apps/parent-web`. Sau khi đã chạy 
 pnpm --filter parent-web dev
 ```
 
+Vite development server chạy cố định tại `http://localhost:5174`. Trong `apps/api/.env` local, đặt `PARENT_WEB_ORIGIN=http://localhost:5174` để API chấp nhận origin này. Nếu port `5174` đang được sử dụng, lệnh khởi động sẽ báo lỗi thay vì tự đổi port; hãy giải phóng port đó để giữ origin API nhất quán.
+
 Chạy test Vitest của riêng Parent PWA tại môi trường local bằng:
 
 ```bash
