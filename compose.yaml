@@ -46,6 +46,12 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       ADMIN_EMAILS: ${ADMIN_EMAILS:?Set ADMIN_EMAILS in .env.production}
       CSRF_COOKIE_NAME: ${CSRF_COOKIE_NAME:-csrf_token}
+      PARENT_WEB_ORIGIN: ${PARENT_WEB_ORIGIN:?Set PARENT_WEB_ORIGIN in .env.production}
+      PARENT_GOOGLE_CALLBACK_URL: ${PARENT_GOOGLE_CALLBACK_URL:?Set PARENT_GOOGLE_CALLBACK_URL in .env.production}
+      PARENT_OAUTH_REDIRECT_URLS: ${PARENT_OAUTH_REDIRECT_URLS:?Set PARENT_OAUTH_REDIRECT_URLS in .env.production}
+      PARENT_OAUTH_DENIED_REDIRECT_URL: ${PARENT_OAUTH_DENIED_REDIRECT_URL:?Set PARENT_OAUTH_DENIED_REDIRECT_URL in .env.production}
+      PARENT_SESSION_COOKIE_NAME: ${PARENT_SESSION_COOKIE_NAME:?Set PARENT_SESSION_COOKIE_NAME in .env.production}
+      PARENT_CSRF_COOKIE_NAME: ${PARENT_CSRF_COOKIE_NAME:-parent_csrf_token}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -65,6 +71,25 @@ services:
         VITE_API_URL: /api
     ports:
       - '127.0.0.1:${WEB_PORT:-8080}:80'
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1/']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  parent-web:
+    build:
+      context: .
+      dockerfile: apps/parent-web/Dockerfile
+      args:
+        VITE_API_URL: /api
+    ports:
+      - '127.0.0.1:${PARENT_WEB_PORT:-8081}:80'
     depends_on:
       api:
         condition: service_healthy

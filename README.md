@@ -61,7 +61,7 @@ pnpm --filter api start
 
 ## Docker Compose test deployment
 
-Compose test deployment gồm PostgreSQL 16 trên named volume, migration one-shot, API NestJS và Nginx phục vụ PWA. Chỉ Nginx được map ra loopback của host; PostgreSQL và API chỉ nằm trên Docker network. Nginx rewrite SPA route về `index.html` và proxy `/api` tới API, vì vậy public web và API luôn cùng một HTTPS origin. Đặt `DATABASE_URL` trong `.env.production` dùng hostname Docker nội bộ `postgres` (ví dụ `postgresql://user:password@postgres:5432/database?schema=public`), không dùng `localhost`.
+Compose test deployment gồm PostgreSQL 16 trên named volume, migration one-shot, API NestJS va hai Nginx gateway PWA doc lap: Admin va Parent. Chi hai gateway duoc map ra loopback cua host; PostgreSQL va API chi nam tren Docker network. Moi gateway rewrite SPA route ve `index.html` va proxy relative `/api` toi API, vi vay PWA va API luon dung cung public HTTPS origin. Dat `DATABASE_URL` trong `.env.production` dung hostname Docker noi bo `postgres` (vi du `postgresql://user:password@postgres:5432/database?schema=public`), khong dung `localhost`.
 
 ```bash
 cp .env.production.example .env.production
@@ -73,7 +73,7 @@ docker compose --env-file .env.production ps
 
 `migrate` chạy `prisma migrate deploy` từ migrations đã commit trước khi API được khởi động. Lần chạy lại an toàn; nếu migration lỗi, API không khởi động. Không dùng `prisma db push` cho deployment. Các giá trị `POSTGRES_DB`, `POSTGRES_USER` và `POSTGRES_PASSWORD` chỉ được dùng khi khởi tạo volume lần đầu; muốn đổi chúng phải tạo database role thủ công hoặc chủ động xóa volume. Dừng stack giữ nguyên database trong named volume `postgres-data`; chỉ chạy `docker compose --env-file .env.production down -v` khi chủ động muốn xóa toàn bộ dữ liệu test.
 
-Tạo Cloudflare Tunnel bên ngoài Compose tới `http://localhost:<WEB_PORT>` (mặc định `8080`). Cấu hình `WEB_ORIGIN` là public HTTPS origin, ví dụ `https://admin.example.com`; đặt `GOOGLE_CALLBACK_URL` là `https://admin.example.com/api/auth/google/callback`; và đăng ký callback đó trong Google OAuth. `OAUTH_REDIRECT_URLS` cùng `OAUTH_DENIED_REDIRECT_URL` phải dùng public origin này. Không thêm container Tunnel, TLS termination, database port hoặc secrets vào Compose/image.
+Tao hai Cloudflare Tunnel ben ngoai Compose: Admin toi `http://localhost:<WEB_PORT>` (mac dinh `8080`) va Parent toi `http://localhost:<PARENT_WEB_PORT>` (mac dinh `8081`). Cau hinh `WEB_ORIGIN` la public HTTPS origin Admin, vi du `https://admin.example.com`; dat `GOOGLE_CALLBACK_URL` la `https://admin.example.com/api/auth/google/callback`. Cau hinh `PARENT_WEB_ORIGIN` la public HTTPS origin Parent rieng, vi du `https://parent.example.com`; dat `PARENT_GOOGLE_CALLBACK_URL` la `https://parent.example.com/api/parent/auth/google/callback`. Dang ky ca hai callback trong Google OAuth. Moi cap `*_OAUTH_REDIRECT_URLS` va `*_OAUTH_DENIED_REDIRECT_URL` phai dung origin tuong ung; Parent phai dung `PARENT_SESSION_COOKIE_NAME` va `PARENT_CSRF_COOKIE_NAME` khac cookie Admin. Kiem tra gateway Parent bang `curl -i http://127.0.0.1:${PARENT_WEB_PORT:-8081}/api/parent/auth/csrf`. Khong them container Tunnel, TLS termination, database port hoac secrets vao Compose/image.
 
 ## Yêu cầu
 Tôi muốn làm hệ thống quản lý hóa đơn cho trường mầm non. Hệ thống phải thật đơn giản.
