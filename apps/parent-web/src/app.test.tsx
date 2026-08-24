@@ -8,7 +8,8 @@ describe('Parent PWA login shell', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 401 })));
     window.history.pushState({}, '', '/');
     render(<App />);
-    expect(await screen.findByRole('heading', { name: 'Dành cho phụ huynh' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Đăng nhập' })).toBeTruthy();
+    expect(screen.getByText('Anh Hoa Preschool')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Tiếp tục với Google' }).getAttribute('href')).toBe('/api/parent/auth/google');
   });
   it('clears the protected surface and routes to login even when logout fails', async () => {
@@ -20,7 +21,7 @@ describe('Parent PWA login shell', () => {
     window.history.pushState({}, '', '/');
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Đăng xuất' }));
-    expect(await screen.findByRole('heading', { name: 'Dành cho phụ huynh' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Đăng nhập' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Hóa đơn cần thanh toán' })).toBeNull();
   });
 });
@@ -71,7 +72,7 @@ describe('Parent Home', () => {
     vi.stubGlobal('fetch', vi.fn((input: string) => Promise.resolve(new Response(JSON.stringify(input.endsWith('/parent/me') ? { data: parent } : {}), { status: input.endsWith('/parent/me') ? 200 : 401 }))));
     window.history.pushState({}, '', '/');
     render(<App />);
-    expect(await screen.findByRole('heading', { name: 'Dành cho phụ huynh' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Đăng nhập' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Hóa đơn cần thanh toán' })).toBeNull();
   });
 
@@ -146,7 +147,7 @@ describe('Parent invoice detail and History', () => {
     }));
     window.history.pushState({}, '', '/invoices/unknown');
     render(<App />);
-    expect(await screen.findByRole('heading', { name: 'Dành cho phụ huynh' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Đăng nhập' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Chi tiết Hóa đơn' })).toBeNull();
   });
 
@@ -257,7 +258,7 @@ describe('Parent payment sheet', () => {
   });
   it('returns focus to the opener on Escape and clears protected state on payment 401', async () => {
     mockPayment(); window.history.pushState({}, '', '/'); render(<App />); const opener = await screen.findByRole('button', { name: 'Chuyển tiền' }); fireEvent.click(opener); await screen.findByRole('dialog'); fireEvent.keyDown(window, { key: 'Escape' }); await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull()); expect(document.activeElement).toBe(opener);
-    mockPayment(new Response(JSON.stringify({}), { status: 401 })); fireEvent.click(opener); expect(await screen.findByRole('heading', { name: 'Dành cho phụ huynh' })).toBeTruthy();
+    mockPayment(new Response(JSON.stringify({}), { status: 401 })); fireEvent.click(opener); expect(await screen.findByRole('heading', { name: 'Đăng nhập' })).toBeTruthy();
   });
 });
 
