@@ -178,6 +178,7 @@ h2 {
 .dialog input,
 .dialog button,
 .row-actions button,
+.row-action-link,
 .pagination button,
 .error-state button {
   min-height: 40px;
@@ -232,6 +233,50 @@ h2 {
   border-radius: 14px;
   background: #fff;
 }
+.parent-grant-card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+.parent-grant-card h2,
+.parent-grant-card p {
+  margin: 0;
+}
+.parent-grant-card label {
+  display: grid;
+  gap: 6px;
+  color: #4f5249;
+  font-size: 14px;
+  font-weight: 600;
+}
+.parent-grant-card textarea {
+  min-height: 104px;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #c9c8bd;
+  border-radius: 9px;
+  background: #fff;
+  color: #24261f;
+  padding: 10px;
+  font: inherit;
+}
+.parent-grant-card [role="alert"] {
+  color: #ad3026;
+}
+.parent-grant-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.parent-grant-actions > button:not(.primary-action) {
+  min-height: 40px;
+  border: 1px solid #c9c8bd;
+  border-radius: 9px;
+  background: #fff;
+  color: #1d6538;
+  padding: 0 14px;
+  font: inherit;
+}
 .table-scroll {
   overflow-x: auto;
 }
@@ -265,6 +310,7 @@ tbody tr:last-child td {
   text-align: right;
 }
 .row-actions button,
+.row-action-link,
 .pagination button,
 .error-state button {
   border: 1px solid #c9c8bd;
@@ -272,7 +318,12 @@ tbody tr:last-child td {
   color: #1d6538;
   padding: 0 10px;
 }
-.row-actions button + button {
+.row-action-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.row-actions > * + * {
   margin-left: 8px;
 }
 .status {

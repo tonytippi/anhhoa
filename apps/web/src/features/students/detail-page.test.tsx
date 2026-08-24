@@ -19,6 +19,12 @@ it('hiển thị Parent scoped và giữ confirmation thu hồi với email cùn
   expect(screen.getByRole('dialog', { name: 'Thu hồi quyền Parent?' })).toHaveTextContent(`${parent.email} sẽ không còn xem được thông tin của ${student.fullName}.`);
 });
 
+it('hiển thị vùng nhập email Parent riêng để cấp quyền', async () => {
+  vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(new Response(JSON.stringify(url.endsWith('/parents') ? { data: [] } : { data: student }), { status: 200 }))));
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[`/hoc-sinh/${student.id}`]}><StudentDetailPage /></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByRole('textbox', { name: 'Email Parent, cách nhau bằng dấu phẩy hoặc dòng mới' })).toBeVisible();
+});
+
 it('gửi revoke với UUID idempotency và cập nhật UI sau response terminal', async () => {
   const parent = { parentId: 'b2e36687-69b4-4e89-8ec0-141ff397837f', email: 'parent@example.com', status: 'ACTIVE', createdAt: '2026-01-01T00:00:00.000Z', revokedAt: null };
   let revoked = false;
