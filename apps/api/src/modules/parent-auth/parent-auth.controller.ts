@@ -11,7 +11,7 @@ import { ParentGoogleGuard } from './parent-google.guard.js';
 import type { GoogleParentProfile } from './parent-google.strategy.js';
 import { ParentSessionGuard } from './parent-session.guard.js';
 
-function safeParent(parent: Parent) { return { id: parent.id, email: parent.emailNormalized, displayName: parent.displayName }; }
+function safeParent(parent: Parent) { return { id: parent.id, email: parent.emailNormalized, displayName: parent.displayName, avatarUrl: parent.avatarUrl }; }
 
 @Public()
 @Controller('parent')
@@ -37,7 +37,7 @@ export class ParentAuthController {
   async callback(@Req() request: Request, @Res() response: Response): Promise<void> {
     try {
       const profile = request.user as GoogleParentProfile;
-      const parent = await this.parents.bindGoogleSubject(profile.email, profile.subject);
+      const parent = await this.parents.bindGoogleSubject(profile.email, profile.subject, profile);
       const session = await this.jwt.signAsync({ sub: parent.id, kind: 'parent' });
       response.cookie(this.config.parentSessionCookieName, session, { secure: true, httpOnly: true, sameSite: 'lax', path: '/' });
       response.redirect(request.parentOauthRedirect!);

@@ -92,11 +92,11 @@ export class ParentsService {
     return { invoiceId: invoice.id, studentId: link.studentId };
   }
 
-  async bindGoogleSubject(email: string, googleSubject: string) {
+  async bindGoogleSubject(email: string, googleSubject: string, profile: { displayName: string | null; avatarUrl: string | null }) {
     return this.prisma.$transaction(async (tx) => {
       const parent = await tx.parent.findFirst({ where: { emailNormalized: email, status: ParentStatus.ACTIVE, students: { some: { status: StudentParentStatus.ACTIVE } } } });
       if (!parent || (parent.googleSubject && parent.googleSubject !== googleSubject)) throw new UnauthorizedException('Parent is not authorized.');
-      return parent.googleSubject ? parent : tx.parent.update({ where: { id: parent.id }, data: { googleSubject } });
+      return tx.parent.update({ where: { id: parent.id }, data: { googleSubject, displayName: profile.displayName, avatarUrl: profile.avatarUrl } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 

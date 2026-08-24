@@ -9,7 +9,7 @@ describe('Parent PWA login shell', () => {
     window.history.pushState({}, '', '/');
     render(<App />);
     expect(await screen.findByRole('heading', { name: 'Đăng nhập' })).toBeTruthy();
-    expect(screen.getByText('Anh Hoa Preschool')).toBeTruthy();
+    expect(screen.getByText('Ánh Hoa Preschool')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Tiếp tục với Google' }).getAttribute('href')).toBe('/api/parent/auth/google');
   });
   it('clears the protected surface and routes to login even when logout fails', async () => {
@@ -20,13 +20,14 @@ describe('Parent PWA login shell', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 500 })));
     window.history.pushState({}, '', '/');
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Đăng xuất' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tài khoản của parent@example.com' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất' }));
     expect(await screen.findByRole('heading', { name: 'Đăng nhập' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Hóa đơn cần thanh toán' })).toBeNull();
   });
 });
 
-const parent = { id: 'parent-1', email: 'parent@example.com', displayName: null };
+const parent = { id: 'parent-1', email: 'parent@example.com', displayName: 'Nguyễn Mai', avatarUrl: 'https://example.com/mai.jpg' };
 const students = [{ id: 'student-a', fullName: 'Bé An', nickname: 'An' }, { id: 'student-b', fullName: 'Bé Bình', nickname: null }];
 const invoice = (id: string, student: string, billingMonth: string, paymentMethod: 'CASH' | 'TRANSFER' = 'TRANSFER', status: 'PENDING' | 'COMPLETED' = 'PENDING') => ({ id, student: { id: student === 'Bé An' ? 'student-a' : 'student-b', name: student, nickname: null }, billingMonth, status, total: 1500000, paymentMethod, items: [{ description: 'Học phí', feeGroup: 'TUITION', amount: 1500000, position: 1 }] });
 
@@ -40,6 +41,22 @@ function mockHome(invoices: ReturnType<typeof invoice>[], visibleStudents = stud
 }
 
 describe('Parent Home', () => {
+  it('shows the Parent Google profile in the account menu', async () => {
+    mockHome([]);
+    window.history.pushState({}, '', '/');
+    render(<App />);
+    const account = await screen.findByRole('button', { name: 'Tài khoản của Nguyễn Mai' });
+    expect(account.querySelector('img')?.getAttribute('src')).toBe('https://example.com/mai.jpg');
+    fireEvent.click(account);
+    expect(screen.getAllByText('Nguyễn Mai')).toHaveLength(2);
+    expect(screen.getByText('parent@example.com')).toBeTruthy();
+    expect(screen.getByText('Các bé đang liên kết')).toBeTruthy();
+    expect(screen.getByText('Bé An')).toBeTruthy();
+    expect(screen.getAllByText('Bé Bình')).toHaveLength(2);
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText('Các bé đang liên kết')).toBeNull();
+  });
+
   it('groups pending invoices by the newest invoice and filters a selected student', async () => {
     mockHome([invoice('b-1', 'Bé Bình', '2026-08'), invoice('a-1', 'Bé An', '2026-08'), invoice('b-2', 'Bé Bình', '2026-09')]);
     window.history.pushState({}, '', '/');
@@ -64,7 +81,7 @@ describe('Parent Home', () => {
     mockHome([]);
     render(<App />);
     expect(await screen.findByText('Không còn Hóa đơn cần thanh toán')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Xem lịch sử' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Xem lịch sử thanh toán' })).toBeTruthy();
     expect(screen.queryByText('Cần thanh toán')).toBeNull();
   });
 

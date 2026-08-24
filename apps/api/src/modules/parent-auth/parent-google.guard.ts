@@ -9,7 +9,10 @@ import { AUTH_CONFIG } from '../../common/config/config.module.js';
 import { ParentOauthStateStore } from './parent-oauth-state.js';
 
 const states = new ParentOauthStateStore();
-const stateCookieOptions = { secure: true, httpOnly: true, sameSite: 'lax' as const, path: '/parent/auth/google', maxAge: 600_000 };
+function stateCookieOptions(config: AuthConfig) {
+  const callbackPath = new URL(config.parentGoogleCallbackUrl).pathname;
+  return { secure: true, httpOnly: true, sameSite: 'lax' as const, path: callbackPath.replace(/\/callback$/, ''), maxAge: 600_000 };
+}
 
 @Injectable()
 export class ParentGoogleGuard extends AuthGuard('parent-google') {
@@ -22,7 +25,7 @@ export class ParentGoogleGuard extends AuthGuard('parent-google') {
     const redirect = this.config.parentOauthRedirectUrls.includes(String(request.query.redirect ?? '')) ? String(request.query.redirect) : this.config.parentOauthRedirectUrls[0]!;
     const state = randomBytes(32).toString('base64url');
     states.create(state, redirect);
-    response.cookie(this.config.parentOauthStateCookieName, state, stateCookieOptions);
+    response.cookie(this.config.parentOauthStateCookieName, state, stateCookieOptions(this.config));
     return { session: false, state };
   }
 
@@ -32,7 +35,7 @@ export class ParentGoogleGuard extends AuthGuard('parent-google') {
     if (request.path.endsWith('/callback')) {
       const state = typeof request.query.state === 'string' ? request.query.state : '';
       const saved = states.consume(state, request.cookies?.[this.config.parentOauthStateCookieName]);
-      response.clearCookie(this.config.parentOauthStateCookieName, stateCookieOptions);
+      response.clearCookie(this.config.parentOauthStateCookieName, stateCookieOptions(this.config));
       if (!saved) return this.deny(response);
       request.parentOauthRedirect = saved.redirect;
     }

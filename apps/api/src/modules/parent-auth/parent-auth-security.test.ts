@@ -13,7 +13,7 @@ describe('Parent authentication security', () => {
     const strategy = new ParentGoogleStrategy(config);
     expect(() => strategy.validate('', '', { id: ' ', emails: [{ value: 'parent@example.com', verified: true }] })).toThrow(UnauthorizedException);
     expect(() => strategy.validate('', '', { id: 'subject', emails: [{ value: 'not-an-email', verified: true }] })).toThrow(UnauthorizedException);
-    expect(strategy.validate('', '', { id: ' subject ', emails: [{ value: ' Parent@Example.COM ', verified: true }] })).toMatchObject({ subject: 'subject', email: 'parent@example.com' });
+    expect(strategy.validate('', '', { id: ' subject ', emails: [{ value: ' Parent@Example.COM ', verified: true }], photos: [{ value: 'https://example.com/avatar.jpg' }] })).toMatchObject({ subject: 'subject', email: 'parent@example.com', avatarUrl: 'https://example.com/avatar.jpg' });
   });
   it('rejects Parent sessions when the current Parent has no active link', async () => {
     const guard = new ParentSessionGuard({ verifyAsync: vi.fn().mockResolvedValue({ sub: 'parent-id', kind: 'parent' }) } as never, { activeParent: vi.fn().mockResolvedValue(null) } as never, config);
@@ -22,12 +22,12 @@ describe('Parent authentication security', () => {
   it('rejects a changed Google subject without changing Parent lifecycle', async () => {
     const prisma = { $transaction: async (action: (tx: any) => unknown) => action({ parent: { findFirst: vi.fn().mockResolvedValue({ id: 'parent-id', googleSubject: 'original-subject' }) } }) };
     const service = new ParentsService(prisma as never);
-    await expect(service.bindGoogleSubject('parent@example.com', 'changed-subject')).rejects.toThrow('Parent is not authorized.');
+    await expect(service.bindGoogleSubject('parent@example.com', 'changed-subject', { displayName: 'Parent', avatarUrl: null })).rejects.toThrow('Parent is not authorized.');
   });
   it('sets the state cookie on the real Parent start and callback route prefix', () => {
-    const guard = new ParentGoogleGuard({ googleClientId: 'client', googleClientSecret: 'secret', parentGoogleCallbackUrl: 'http://localhost:3000/parent/auth/google/callback', parentSessionCookieName: 'parent_session', parentOauthRedirectUrls: ['http://localhost:5174'], parentOauthStateCookieName: 'parent_oauth_state' } as never);
+    const guard = new ParentGoogleGuard({ googleClientId: 'client', googleClientSecret: 'secret', parentGoogleCallbackUrl: 'http://localhost:5174/api/parent/auth/google/callback', parentSessionCookieName: 'parent_session', parentOauthRedirectUrls: ['http://localhost:5174'], parentOauthStateCookieName: 'parent_oauth_state' } as never);
     const response = { cookie: vi.fn() };
     guard.getAuthenticateOptions({ switchToHttp: () => ({ getRequest: () => ({ path: '/parent/auth/google', query: {} }), getResponse: () => response }) } as never);
-    expect(response.cookie).toHaveBeenCalledWith('parent_oauth_state', expect.any(String), expect.objectContaining({ path: '/parent/auth/google' }));
+    expect(response.cookie).toHaveBeenCalledWith('parent_oauth_state', expect.any(String), expect.objectContaining({ path: '/api/parent/auth/google' }));
   });
 });
