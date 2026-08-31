@@ -17,7 +17,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const isClassNotFoundError = typeof detail === 'object' && detail && 'code' in detail && detail.code === CLASS_NOT_FOUND;
     const isIdempotencyConflict = typeof detail === 'object' && detail && 'code' in detail && detail.code === IDEMPOTENCY_CONFLICT;
     const isTransferInvalid = typeof detail === 'object' && detail && 'code' in detail && detail.code === CLASS_TRANSFER_INVALID;
-    const code = isActiveStudentError ? CLASS_HAS_ACTIVE_STUDENTS : isArchivedError ? CLASS_ARCHIVED : isClassNotFoundError ? CLASS_NOT_FOUND : isIdempotencyConflict ? IDEMPOTENCY_CONFLICT : isTransferInvalid ? CLASS_TRANSFER_INVALID : isSerializationConflict ? 'CONFLICT' : HttpStatus[status];
+    const isSessionExpired = typeof detail === 'object' && detail && 'code' in detail && detail.code === 'SESSION_EXPIRED' && status === HttpStatus.UNAUTHORIZED;
+    const code = isActiveStudentError ? CLASS_HAS_ACTIVE_STUDENTS : isArchivedError ? CLASS_ARCHIVED : isClassNotFoundError ? CLASS_NOT_FOUND : isIdempotencyConflict ? IDEMPOTENCY_CONFLICT : isTransferInvalid ? CLASS_TRANSFER_INVALID : isSessionExpired ? 'SESSION_EXPIRED' : isSerializationConflict ? 'CONFLICT' : HttpStatus[status];
     const metadata = isActiveStudentError ? { activeStudentCount: (detail.metadata as { activeStudentCount: number }).activeStudentCount } : undefined;
     response.status(status).json({ error: { code, message, ...(fieldErrors ? { fieldErrors } : {}), ...(metadata ? { metadata } : {}) } });
   }

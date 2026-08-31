@@ -11,6 +11,7 @@ export interface AuthConfig {
   oauthDeniedRedirectUrl: string;
   jwtSecret: string;
   jwtExpiresIn: string;
+  sessionCookieMaxAge: number;
   adminEmails: Set<string>;
   csrfCookieName: string;
   oauthStateCookieName: string;
@@ -113,6 +114,26 @@ export function parsePort(value: string | undefined): number {
   return Number(value);
 }
 
+const DURATION_MILLISECONDS: Record<string, number> = {
+  ms: 1,
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+  w: 604_800_000,
+  y: 31_557_600_000,
+};
+
+export function parseDurationMilliseconds(value: string): number {
+  const match = /^(\d+)(ms|s|m|h|d|w|y)$/.exec(value);
+  if (!match) throw new Error('JWT_EXPIRES_IN must be a positive duration such as 8h.');
+  const milliseconds = BigInt(match[1]!) * BigInt(DURATION_MILLISECONDS[match[2]!]!);
+  if (milliseconds < 1_000n || milliseconds % 1_000n !== 0n || milliseconds > 8_640_000_000_000_000n - BigInt(Date.now())) {
+    throw new Error('JWT_EXPIRES_IN must be a whole-second duration that fits a cookie expiry, such as 8h.');
+  }
+  return Number(milliseconds);
+}
+
 export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig {
   const port = parsePort(env.PORT);
   const databaseUrl = required(env, 'DATABASE_URL');
@@ -130,8 +151,8 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
   }
   const jwtSecret = required(env, 'JWT_SECRET');
   if (jwtSecret.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters.');
-  const jwtExpiresIn = env.JWT_EXPIRES_IN?.trim() || '8h';
-  if (!/^\d+(?:ms|s|m|h|d|w|y)$/.test(jwtExpiresIn)) throw new Error('JWT_EXPIRES_IN must be a positive duration such as 8h.');
+  const jwtExpiresIn = env.JWT_EXPIRES_IN?.trim() || '24h';
+  const sessionCookieMaxAge = parseDurationMilliseconds(jwtExpiresIn);
   const csrfCookieName = env.CSRF_COOKIE_NAME?.trim() || 'csrf_token';
   if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(csrfCookieName) || csrfCookieName === 'session') {
     throw new Error('CSRF_COOKIE_NAME must be a valid cookie name other than session.');
@@ -156,6 +177,7 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     oauthDeniedRedirectUrl: deniedRedirectUrl,
     jwtSecret,
     jwtExpiresIn,
+    sessionCookieMaxAge,
     adminEmails,
     csrfCookieName,
     oauthStateCookieName: 'oauth_state',

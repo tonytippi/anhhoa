@@ -10,6 +10,7 @@ import type { Admin } from '@prisma/client';
 import { AdminsService, type GoogleAdminProfile } from '../admins/admins.service.js';
 import { GoogleAuthGuard } from './google-auth.guard.js';
 import { oauthDeniedRedirect } from './oauth-denied-redirect.js';
+import { sessionCookieOptions } from '../../common/auth/session-cookie.js';
 
 function safeAdmin(admin: Admin) { return { id: admin.id, email: admin.email, displayName: admin.displayName, avatarUrl: admin.avatarUrl, createdAt: admin.createdAt.toISOString(), updatedAt: admin.updatedAt.toISOString() }; }
 
@@ -46,7 +47,7 @@ export class AuthController {
     }
     const session = await this.jwt.signAsync({ sub: admin.id });
     response.clearCookie(this.config.oauthStateCookieName, { secure: true, httpOnly: true, sameSite: 'lax', path: '/auth/google' });
-    response.cookie('session', session, { secure: true, httpOnly: true, sameSite: 'lax', path: '/' });
+    response.cookie('session', session, sessionCookieOptions(this.config));
     response.redirect(request.oauthRedirect!);
   }
 

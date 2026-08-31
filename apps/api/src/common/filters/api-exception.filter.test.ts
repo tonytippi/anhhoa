@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiExceptionFilter } from './api-exception.filter.js';
 import { DomainException, IDEMPOTENCY_CONFLICT } from '../errors/domain.exception.js';
@@ -15,6 +15,13 @@ describe('ApiExceptionFilter', () => {
     new ApiExceptionFilter().catch(new ForbiddenException('Invalid request origin or CSRF token.'), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith({ error: { code: 'FORBIDDEN', message: 'Invalid request origin or CSRF token.' } });
+  });
+  it('preserves the public expired-session code for login recovery', () => {
+    const json = vi.fn();
+    const status = vi.fn().mockReturnValue({ json });
+    new ApiExceptionFilter().catch(new UnauthorizedException({ code: 'SESSION_EXPIRED', message: 'Session expired.' }), { switchToHttp: () => ({ getResponse: () => ({ status }) }) } as never);
+    expect(status).toHaveBeenCalledWith(401);
+    expect(json).toHaveBeenCalledWith({ error: { code: 'SESSION_EXPIRED', message: 'Session expired.' } });
   });
   it('preserves approved domain code and safe metadata', () => {
     const json = vi.fn();

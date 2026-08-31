@@ -19,12 +19,13 @@ describe('GoogleAuthGuard', () => {
     const guard = new GoogleAuthGuard({ verifyAsync: vi.fn() } as never, config);
     const response = { clearCookie: vi.fn(), redirect: vi.fn() };
     await expect(guard.canActivate(context({ path: '/auth/google/callback', query: { state: 'attacker' }, cookies: { oauth_state: 'browser-state' } }, response) as never)).resolves.toBe(false);
-    expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login?source=oauth#login');
+    expect(response.clearCookie).toHaveBeenCalledWith('oauth_state', { secure: true, httpOnly: true, sameSite: 'lax', path: '/auth/google' });
+    expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login?source=oauth&reason=oauth_state_invalid#login');
   });
   it('adds the denied signal only when GoogleStrategy rejects an unallowlisted profile', async () => {
     const guard = new GoogleAuthGuard({} as never, config);
     const response = { clearCookie: vi.fn(), redirect: vi.fn() };
-    await expect((guard as unknown as { deny: (value: typeof response, allowlistDenied: boolean) => false }).deny(response, true)).toBe(false);
+    await expect((guard as unknown as { deny: (value: typeof response, reason: 'denied') => false }).deny(response, 'denied')).toBe(false);
     expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login?source=oauth&reason=denied#login');
     expect(new GoogleAllowlistDeniedException()).toBeInstanceOf(Error);
   });
@@ -34,5 +35,11 @@ describe('GoogleAuthGuard', () => {
     const response = { clearCookie: vi.fn(), redirect: vi.fn() };
     await expect(guard.canActivate(context(request, response) as never)).resolves.toBe(false);
     expect(request).toMatchObject({ oauthRedirect: 'http://localhost:5173/login' });
+  });
+  it('uses a public state-invalid reason when signed state has expired', async () => {
+    const guard = new GoogleAuthGuard({ verifyAsync: vi.fn().mockRejectedValue(new Error('jwt expired')) } as never, config);
+    const response = { clearCookie: vi.fn(), redirect: vi.fn() };
+    await expect(guard.canActivate(context({ path: '/auth/google/callback', query: { state: 'expired' }, cookies: { oauth_state: 'expired' } }, response) as never)).resolves.toBe(false);
+    expect(response.redirect).toHaveBeenCalledWith('http://localhost:5173/login?source=oauth&reason=oauth_state_invalid#login');
   });
 });

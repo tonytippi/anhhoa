@@ -1,7 +1,9 @@
-export function oauthDeniedRedirect(destination: string, reason?: 'denied'): string {
+export type OAuthDeniedReason = 'denied' | 'oauth_state_invalid';
+
+export function oauthDeniedRedirect(destination: string, reason?: OAuthDeniedReason): string {
   try {
     const url = new URL(destination);
-    if (reason === 'denied') url.searchParams.set('reason', 'denied');
+    if (reason) url.searchParams.set('reason', reason);
     else url.searchParams.delete('reason');
     return url.toString();
   } catch {

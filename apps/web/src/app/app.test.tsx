@@ -38,6 +38,19 @@ it('hiển thị lỗi OAuth bị từ chối mà không lộ dữ liệu worksp
   expect(screen.queryByText('Tổng quan')).not.toBeInTheDocument();
 });
 
+it('hiển thị hướng dẫn đăng nhập lại khi phiên đã hết hạn', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'SESSION_EXPIRED' } }), { status: 401 })));
+  render(<App />);
+  expect(await screen.findByText('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để tiếp tục.')).toBeVisible();
+});
+
+it('hiển thị hướng dẫn thử lại cho OAuth state không hợp lệ', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED' } }), { status: 401 })));
+  window.history.pushState({}, '', '/?reason=oauth_state_invalid');
+  render(<App />);
+  expect(await screen.findByText('Phiên xác thực Google đã hết hạn hoặc không hợp lệ. Vui lòng thử đăng nhập lại.')).toBeVisible();
+});
+
 it('401 không có tín hiệu dùng thông báo đăng nhập trung tính', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED' } }), { status: 401 })));
   render(<App />);

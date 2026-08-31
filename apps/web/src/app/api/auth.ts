@@ -14,6 +14,7 @@ export interface Admin {
 export function useCurrentAdmin() {
   const queryClient = useQueryClient();
   const [sessionRejected, setSessionRejected] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   useEffect(() => {
     if (sessionRejected) queryClient.removeQueries({ queryKey: ['auth', 'me'], exact: true });
   }, [queryClient, sessionRejected]);
@@ -24,7 +25,10 @@ export function useCurrentAdmin() {
       try {
         return parseAdmin(await getJson<unknown>('/auth/me'));
       } catch (error) {
-        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) setSessionRejected(true);
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          setSessionExpired(error.code === 'SESSION_EXPIRED');
+          setSessionRejected(true);
+        }
         throw error;
       }
     },
@@ -32,7 +36,7 @@ export function useCurrentAdmin() {
     refetchOnWindowFocus: true,
     refetchOnMount: 'always',
   });
-  return { ...query, sessionRejected };
+  return { ...query, sessionRejected, sessionExpired };
 }
 
 function parseAdmin(response: unknown): Admin {

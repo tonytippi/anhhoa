@@ -13,4 +13,7 @@ describe('oauthDeniedRedirect', () => {
     expect(oauthDeniedRedirect('http://localhost:5173/login?reason=denied#entry')).toBe('http://localhost:5173/login#entry');
     expect(oauthDeniedRedirect('not a URL', 'denied')).toBe('not a URL');
   });
+  it('allows only the caller-provided public OAuth state reason while preserving URL parts', () => {
+    expect(oauthDeniedRedirect('http://localhost:5173/login?source=oauth#entry', 'oauth_state_invalid')).toBe('http://localhost:5173/login?source=oauth&reason=oauth_state_invalid#entry');
+  });
 });

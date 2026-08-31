@@ -6,7 +6,7 @@ import type { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { AUTH_CONFIG } from '../../common/config/config.module.js';
 import type { AuthConfig } from '../../common/config/auth-config.js';
-import { oauthDeniedRedirect } from './oauth-denied-redirect.js';
+import { oauthDeniedRedirect, type OAuthDeniedReason } from './oauth-denied-redirect.js';
 import { GoogleAllowlistDeniedException } from './google.strategy.js';
 
 interface OAuthState { redirect: string; nonce: string; }
@@ -30,19 +30,19 @@ export class GoogleAuthGuard extends AuthGuard('google') {
     const response = context.switchToHttp().getResponse<Response>();
     if (request.path.endsWith('/callback')) {
       const state = typeof request.query.state === 'string' ? request.query.state : '';
-      if (!state || state !== request.cookies?.[this.config.oauthStateCookieName]) return this.deny(response);
+      if (!state || state !== request.cookies?.[this.config.oauthStateCookieName]) return this.deny(response, 'oauth_state_invalid');
       try {
         const payload = await this.jwt.verifyAsync<OAuthState>(state);
-        if (!this.config.oauthRedirectUrls.includes(payload.redirect) || !payload.nonce) return this.deny(response);
+        if (!this.config.oauthRedirectUrls.includes(payload.redirect) || !payload.nonce) return this.deny(response, 'oauth_state_invalid');
         request.oauthRedirect = payload.redirect;
-      } catch { return this.deny(response); }
+      } catch { return this.deny(response, 'oauth_state_invalid'); }
     }
-    try { return Boolean(await super.canActivate(context)); } catch (error) { return this.deny(response, error instanceof GoogleAllowlistDeniedException); }
+    try { return Boolean(await super.canActivate(context)); } catch (error) { return this.deny(response, error instanceof GoogleAllowlistDeniedException ? 'denied' : 'oauth_state_invalid'); }
   }
 
-  protected deny(response: Response, allowlistDenied = false): false {
+  protected deny(response: Response, reason: OAuthDeniedReason = 'oauth_state_invalid'): false {
     response.clearCookie(this.config.oauthStateCookieName, { secure: true, httpOnly: true, sameSite: 'lax', path: '/auth/google' });
-    response.redirect(oauthDeniedRedirect(this.config.oauthDeniedRedirectUrl, allowlistDenied ? 'denied' : undefined));
+    response.redirect(oauthDeniedRedirect(this.config.oauthDeniedRedirectUrl, reason));
     return false;
   }
 }

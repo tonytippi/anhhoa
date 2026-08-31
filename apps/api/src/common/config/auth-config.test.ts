@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadAuthConfig, normalizeEmail } from './auth-config.js';
+import { loadAuthConfig, normalizeEmail, parseDurationMilliseconds } from './auth-config.js';
 
 const validEnv = {
   DATABASE_URL: 'postgresql://user:password@localhost:5432/anhhoa', WEB_ORIGIN: 'http://localhost:5173', GOOGLE_CLIENT_ID: 'client-id', GOOGLE_CLIENT_SECRET: 'client-secret',
@@ -15,6 +15,7 @@ describe('auth config', () => {
     expect(config.adminEmails.has('admin@example.com')).toBe(true);
     expect(config.oauthRedirectUrls).toEqual(['http://localhost:5173', 'http://localhost:5173/login']);
     expect(config.parentSessionCookieName).toBe('parent_session');
+    expect(config.sessionCookieMaxAge).toBe(86_400_000);
   });
   it('enables only current, owned, tested deep-link configurations', () => {
     const bankConfig = { version: 1, expiresAt: '2030-01-01T00:00:00.000Z', revalidateAt: '2029-12-01T00:00:00.000Z', owner: 'payment-platform', cadence: 'monthly', banks: [{ bankCode: 'VCB', template: 'mybank://transfer?account={accountNumber}&amount={total}', support: { tested: true, matrix: [{ platform: 'all', browser: 'all', testedAt: '2026-08-01T00:00:00.000Z' }] } }] };
@@ -43,6 +44,20 @@ describe('auth config', () => {
   });
   it.each([{ ...validEnv, WEB_ORIGIN: 'http://localhost:5173/path' }, { ...validEnv, JWT_EXPIRES_IN: 'later' }, { ...validEnv, CSRF_COOKIE_NAME: 'session' }])('rejects invalid origin, lifetime, and CSRF cookie settings', (env) => {
     expect(() => loadAuthConfig(env)).toThrow();
+  });
+  it.each([
+    ['1s', 1_000],
+    ['8h', 28_800_000],
+    ['24h', 86_400_000],
+    ['2d', 172_800_000],
+  ])('converts a valid JWT lifetime to cookie milliseconds', (input, expected) => {
+    expect(parseDurationMilliseconds(input)).toBe(expected);
+  });
+  it.each(['0s', '1ms', '1500ms', '10000000000000000000y'])('rejects a non-positive, partial-second, or unsafe cookie lifetime', (input) => {
+    expect(() => parseDurationMilliseconds(input)).toThrow(/JWT_EXPIRES_IN must be (?:a positive|a whole-second) duration/);
+  });
+  it('rejects malformed JWT lifetimes', () => {
+    expect(() => parseDurationMilliseconds('1.5h')).toThrow('JWT_EXPIRES_IN must be a positive duration');
   });
   it.each([{ ...validEnv, PARENT_WEB_ORIGIN: '' }, { ...validEnv, PARENT_OAUTH_DENIED_REDIRECT_URL: 'http://localhost:5174/nope' }, { ...validEnv, PARENT_SESSION_COOKIE_NAME: 'session' }, { ...validEnv, PARENT_WEB_ORIGIN: 'https://parent.example.com', PARENT_GOOGLE_CALLBACK_URL: 'http://api.example.com/parent/auth/google/callback' }])('fails fast for unsafe Parent topology and cookie configuration', (env) => {
     expect(() => loadAuthConfig(env)).toThrow();

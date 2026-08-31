@@ -1,11 +1,17 @@
 import { useLocation } from 'react-router-dom';
 import { apiUrl } from '../../app/api/client';
 
-export function LoginPage(): React.JSX.Element {
+export function LoginPage({ sessionExpired = false }: { sessionExpired?: boolean }): React.JSX.Element {
   const location = useLocation();
   const search = new URLSearchParams(location.search);
-  const denied = search.get('reason') === 'denied';
-  const message = denied ? 'Email này không có quyền truy cập Ánh Hoa Admin.' : 'Vui lòng đăng nhập để tiếp tục.';
+  const reason = search.get('reason');
+  const message = reason === 'denied'
+    ? 'Email này không có quyền truy cập Ánh Hoa Admin.'
+    : sessionExpired || reason === 'session_expired'
+      ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để tiếp tục.'
+      : reason === 'oauth_state_invalid'
+        ? 'Phiên xác thực Google đã hết hạn hoặc không hợp lệ. Vui lòng thử đăng nhập lại.'
+        : 'Vui lòng đăng nhập để tiếp tục.';
   const redirect = encodeURIComponent(window.location.origin);
 
   return <main className="login-page"><section className="login-card" aria-describedby="login-message">

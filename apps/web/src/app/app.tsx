@@ -46,7 +46,7 @@ export function App(): React.JSX.Element {
 
   function AuthBoundary(): React.JSX.Element {
     const identity = useCurrentAdmin();
-    if (identity.sessionRejected || (identity.error instanceof ApiError && (identity.error.status === 401 || identity.error.status === 403))) return <LoginPage />;
+    if (identity.sessionRejected || (identity.error instanceof ApiError && (identity.error.status === 401 || identity.error.status === 403))) return <LoginPage sessionExpired={identity.sessionExpired} />;
     if (identity.isPending) return <main className="auth-status" aria-live="polite"><h1>Đang kiểm tra phiên</h1><p>Vui lòng chờ trong giây lát.</p></main>;
     if (identity.error) return <main className="auth-status" aria-live="assertive"><h1>Không thể kiểm tra phiên</h1><p>Vui lòng kiểm tra kết nối và thử lại.</p><button type="button" onClick={() => void identity.refetch()}>Thử lại</button></main>;
     const admin = identity.data!;

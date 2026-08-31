@@ -57,7 +57,7 @@ pnpm --filter api build
 pnpm --filter api start
 ```
 
-`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. Session chỉ được cấp trong cookie `Secure`, `httpOnly`, `SameSite=Lax`; client cần lấy CSRF token tại `GET /auth/csrf` và gửi lại qua `X-CSRF-Token` cho mutation đã có session. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
+`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. `JWT_SECRET` phải ổn định giữa deploy/restart; `JWT_EXPIRES_IN` là thời hạn duy nhất cho cả JWT và cookie session. Session chỉ được cấp trong cookie `Secure`, `httpOnly`, `SameSite=Lax`; client cần lấy CSRF token tại `GET /auth/csrf` và gửi lại qua `X-CSRF-Token` cho mutation đã có session. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
 
 ## Docker Compose test deployment
 
@@ -74,6 +74,8 @@ docker compose --env-file .env.production ps
 `migrate` chạy `prisma migrate deploy` từ migrations đã commit trước khi API được khởi động. Lần chạy lại an toàn; nếu migration lỗi, API không khởi động. Không dùng `prisma db push` cho deployment. Các giá trị `POSTGRES_DB`, `POSTGRES_USER` và `POSTGRES_PASSWORD` chỉ được dùng khi khởi tạo volume lần đầu; muốn đổi chúng phải tạo database role thủ công hoặc chủ động xóa volume. Dừng stack giữ nguyên database trong named volume `postgres-data`; chỉ chạy `docker compose --env-file .env.production down -v` khi chủ động muốn xóa toàn bộ dữ liệu test.
 
 Tao hai Cloudflare Tunnel ben ngoai Compose: Admin toi `http://localhost:<WEB_PORT>` (mac dinh `8080`) va Parent toi `http://localhost:<PARENT_WEB_PORT>` (mac dinh `8081`). Cau hinh `WEB_ORIGIN` la public HTTPS origin Admin, vi du `https://admin.example.com`; dat `GOOGLE_CALLBACK_URL` la `https://admin.example.com/api/auth/google/callback`. Cau hinh `PARENT_WEB_ORIGIN` la public HTTPS origin Parent rieng, vi du `https://parent.example.com`; dat `PARENT_GOOGLE_CALLBACK_URL` la `https://parent.example.com/api/parent/auth/google/callback`. Dang ky ca hai callback trong Google OAuth. Moi cap `*_OAUTH_REDIRECT_URLS` va `*_OAUTH_DENIED_REDIRECT_URL` phai dung origin tuong ung; Parent phai dung `PARENT_SESSION_COOKIE_NAME` va `PARENT_CSRF_COOKIE_NAME` khac cookie Admin. Kiem tra gateway Parent bang `curl -i http://127.0.0.1:${PARENT_WEB_PORT:-8081}/api/parent/auth/csrf`. Khong them container Tunnel, TLS termination, database port hoac secrets vao Compose/image.
+
+Khi chẩn đoán OAuth Admin ở production, bật Preserve log trong DevTools Network. `GET /api/auth/google` phải trả cookie `oauth_state` với path `/api/auth/google`; callback hợp lệ phải ghi cookie `session` path `/`, có `Max-Age` bằng `JWT_EXPIRES_IN`, rồi `GET /api/auth/me` trả `200`. Xác minh `WEB_ORIGIN`, callback Google và từng URL redirect khớp tuyệt đối origin public Admin.
 
 ## Yêu cầu
 Tôi muốn làm hệ thống quản lý hóa đơn cho trường mầm non. Hệ thống phải thật đơn giản.
