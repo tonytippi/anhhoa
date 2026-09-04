@@ -1,6 +1,6 @@
 ---
 title: "Sprint Change Proposal - Multi-school school operations platform"
-status: proposed
+status: approved
 created: 2026-08-31
 mode: batch
 change-scope: major
@@ -63,7 +63,7 @@ Các artifact hiện tại định nghĩa một dashboard thu học phí cho **m
 11. Release đầu server tự sinh `studentCode` theo prefix của School và sequence unique trong trường, ví dụ Ánh Hoa `AH1`, `AH2`. Manual/import code là extension sau có validation/audit, không phải UI release đầu.
 12. Student lifecycle dùng đủ bảy trạng thái Kidsonline trên `StudentEnrollment` của từng SchoolYear: `TRIAL`, `WAITING_FOR_CLASS`, `SCHEDULED_TO_START`, `ENROLLED`, `ON_LEAVE`, `WITHDRAWN`, `GRADUATED`. Chỉ `ENROLLED` mặc định vào attendance/collection run; `TRIAL` là workflow ngoại lệ có audit khi được phát hành.
 13. School Admin có thể tạo Parent/link bằng email, tên và số điện thoại bắt buộc trước Google login. Số điện thoại là contact vận hành; Parent được tự sửa số của mình với audit, không đổi identity/quyền và chưa cần SMS verification. StudentParent active mặc định cấp Parent portal, obligations và payment instructions; relationship label không quyết định quyền. Parent có một trường đi thẳng home, nhiều trường thì chooser; revoke hiệu lực request tiếp theo, không gửi notification release đầu.
-14. `ParentProfile` là global, không có `schoolId`; school context của Parent chỉ suy ra từ `StudentParent -> Student`. Parent không xem ledger chi tiết và không có mutation finance/school data. Ngoại lệ release đầu là leave request cho trẻ được ủy quyền theo policy ở mục 25. Khi enrollment `ON_LEAVE`/`WITHDRAWN`/`GRADUATED`, dữ liệu vận hành/nhạy cảm chỉ còn xem 30 ngày lịch từ `StudentEnrollment.endedOn`, nhưng invoice issued, payment instruction, receipt/refund và settlement vẫn xem khi còn balance/nộp trước/refund chưa quyết toán; `ParentAccessPolicy` của School áp dụng retention finance riêng server-side sau settlement.
+14. `ParentProfile` là global, không có `schoolId`; school context của Parent chỉ suy ra từ `StudentParent -> Student`. Parent không xem ledger chi tiết và không có mutation finance/school data. Ngoại lệ release đầu là leave request cho trẻ được ủy quyền theo policy ở mục 25. Khi enrollment `ON_LEAVE`/`WITHDRAWN`/`GRADUATED`, dữ liệu vận hành/nhạy cảm chỉ còn xem 30 ngày lịch từ `StudentEnrollment.endedOn`, nhưng invoice issued, payment instruction, receipt/refund và settlement vẫn xem khi còn balance/nộp trước/refund chưa quyết toán; sau settlement, `ParentAccessPolicy` của School áp dụng retention finance server-side mặc định 12 tháng, có audit/version và không để Parent PWA tự tính.
 15. Staff profile release đầu gồm họ tên, email, điện thoại, ngày sinh, giới tính và địa chỉ; không có HR/payroll/password. Staff class assignment là many-to-many có effective dates/audit, không phân giáo viên chính/phụ.
 16. Mỗi School có tối đa một `SchoolYear` active do `SCHOOL_ADMIN` quản lý. Calendar và attendance/late-pickup policy mặc định chung toàn trường, phù hợp release đầu cho mầm non; nếu sau này có nhu cầu thật theo lớp/chương trình thì bổ sung override domain với effective date/precedence, không dùng adjustment thủ công. Class là cohort theo SchoolYear, nên wizard chuyển năm có thể map một phần trẻ từ lớp nguồn `3-4 tuổi` sang lớp đích mới `4-6 tuổi` và giữ/move các trẻ khác theo lựa chọn. Close-year đóng SchoolYear/kết thúc class assignment nhưng giữ enrollment lịch sử `ENROLLED`; wizard tạo enrollment mới `ENROLLED` khi gán lớp đích. `GRADUATED` chỉ dành cho trẻ thực sự hoàn thành/chuyển cấp rời trường.
 17. Khi tạo hóa đơn mới trong cùng SchoolYear, server gộp từng nợ mở của học sinh thành dòng `PRIOR_DEBT` có origin invoice rõ ràng và `DebtTransfer` nguyên tử để loại số tiền đó khỏi outstanding invoice nguồn, tránh thu/đếm hai lần. Không auto-carryover công nợ sang SchoolYear mới; School Admin quyết toán bằng thu, adjustment hoặc write-off có lý do/audit.
@@ -245,10 +245,10 @@ Do not begin E3-E7 before E1 has proven route-level tenant isolation. Do not beg
 | 4.4 Recommended path | Done | Same repo, clean-break domain replan |
 | 5.1-5.5 Proposal/handoff | Done | This document defines scope, impacts, approach and owners |
 | 6.1-6.2 Review | Done | Proposal checked against current PRD, epics, architecture, UX and discovery inputs |
-| 6.3 Approval | Action-needed | User approval required before artifact or code replacement |
-| 6.4 Sprint status | Action-needed | Update only after approval and replacement epics exist |
-| 6.5 Final handoff | Action-needed | Starts upon approval |
+| 6.3 Approval | Done | User approved this proposal on 2026-09-04; approval authorizes replacement planning artifacts, not code implementation |
+| 6.4 Sprint status | Action-needed | Update only after replacement epics exist |
+| 6.5 Final handoff | Done | Routed to Product Manager and Solution Architect for superseding artifacts; Developer begins only after PRD, architecture, UX and epics are approved |
 
 ## 8. Approval request
 
-Approve this proposal to authorize creation of superseding PRD, architecture, UX and epics. Approval does **not** authorize modifying the frozen `final` artifacts directly and does not yet authorize schema/code implementation; those begin after replacement planning artifacts are approved.
+Approved on 2026-09-04. This approval authorizes creation of superseding PRD, architecture, UX and epics. It does **not** authorize modifying frozen `final` artifacts directly or schema/code implementation; those begin after replacement planning artifacts are approved.
