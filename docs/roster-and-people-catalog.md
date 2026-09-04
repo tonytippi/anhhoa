@@ -52,7 +52,7 @@ Màn danh sách nhân viên có:
 | Mã học sinh | Server sinh bắt buộc theo prefix trường, unique theo trường, bất biến sau khi dùng finance/attendance | Cần cho tìm kiếm, import và receipt; không dùng UUID nội bộ làm mã vận hành; manual/import là extension sau |
 | Năm học | `SchoolYear` có ngày bắt đầu/kết thúc và trạng thái | Nền cho enrollment, lớp, calendar, run tài chính và báo cáo |
 | Vòng đời học sinh | Đủ bảy trạng thái Kidsonline theo enrollment năm học, không phải một `Student.status` toàn cục | Một trẻ có thể bảo lưu/nghỉ/tốt nghiệp một năm nhưng vẫn giữ lịch sử identity |
-| Parent profile | Identity/email/điện thoại riêng, nhiều-nhiều với học sinh | Giữ Parent PWA Google flow hiện có; không dùng default password |
+| Parent profile | `ParentProfile` identity/email/điện thoại toàn platform, nhiều-nhiều với học sinh | Không có `schoolId`; trường của Parent được suy ra qua `StudentParent -> Student`; giữ Parent PWA Google flow hiện có, không dùng default password |
 | Link Parent-Học sinh | Active/revoked, relation label, quyền thanh toán/thông báo/đón tùy scope | Revoke phải có hiệu lực request tiếp theo |
 | Nhân viên | Nhân viên active/inactive, role grant, class assignment, audit | Cần trước attendance/handover; không cần hồ sơ HR đầy đủ ngay |
 | Role nghiệp vụ | Permission rõ theo domain, không dùng string title làm authorization | Ví dụ `ATTENDANCE_RECORD`, `HANDOVER_RECORD`, `FINANCE_POST_RECEIPT` |
@@ -110,29 +110,30 @@ ON_LEAVE -> ENROLLED | WITHDRAWN
 
 Không cho chuyển ngược `WITHDRAWN`/`GRADUATED` thành `ENROLLED` bằng thao tác status thường. Trẻ quay lại dùng workflow re-enrollment có lý do/audit; nếu thuộc năm học mới, tạo enrollment mới.
 
-### 4.3 `Parent` và `StudentParent`
+### 4.3 `ParentProfile` và `StudentParent`
 
-`Parent` là contact/profile toàn platform có email normalized unique, tên và số điện thoại bắt buộc khi School Admin tạo trước login, Google subject sau đăng nhập thành công, trạng thái active/inactive và metadata identity tối thiểu. School Admin có thể tạo Parent/link bằng email, tên và số điện thoại trước khi Parent từng login. Số điện thoại là phương tiện liên lạc vận hành của trường; Parent được tự cập nhật số điện thoại của chính mình trong Parent portal. Thay đổi lưu actor/timestamp/giá trị cũ-mới, không đổi email/Google subject hoặc quyền `StudentParent`, và chưa yêu cầu OTP/SMS verification ở release đầu.
+`ParentProfile` là contact/profile toàn platform, không chứa `schoolId`: tên và số điện thoại bắt buộc khi School Admin tạo trước login, trạng thái active/inactive và metadata identity tối thiểu. ParentProfile tham chiếu `UserIdentity`; email normalized/Google subject canonical chỉ nằm trên UserIdentity, không nhân bản thành identity riêng cho Parent. Khi School Admin tạo ParentProfile/link bằng email, API tìm hoặc tạo UserIdentity pending theo email normalized; lần login Google verified đầu tiên bind Google subject vào identity đó. Số điện thoại là phương tiện liên lạc vận hành; Parent được tự cập nhật số điện thoại của chính mình trong Parent portal. Thay đổi lưu actor/timestamp/giá trị cũ-mới, không đổi UserIdentity hoặc quyền `StudentParent`, và chưa yêu cầu OTP/SMS verification ở release đầu.
 
 `StudentParent` là liên kết nhiều-nhiều:
 
 - `studentId`, `parentId`, `status` `ACTIVE`/`REVOKED`, `linkedAt`, `revokedAt`, `revokedBy`.
+- `StudentParent` không có `schoolId`: mọi school context, authorization và unique query được suy ra/validate qua `Student.schoolId`. Không tạo một ParentProfile mới khi cùng Parent đã có trẻ ở trường khác.
 - `relationshipLabel` tùy chọn, ví dụ Mẹ/Bố/Người giám hộ; chỉ là nhãn hiển thị, không quyết định authorization.
 - `canViewParentPortal`, `canViewObligations`, `canViewPaymentInstructions` mặc định true khi link `ACTIVE` trong release đầu.
 - `canViewFinancialLedger`, `canReceiveFinancialNotices`, `canApprovePickupChange` chỉ thêm khi các domain tương ứng được phát hành; default deny. Parent không xem receipt/allocation/nộp trước/debt ledger chi tiết, không sửa dữ liệu finance hoặc xác nhận payment. Ngoại lệ release đầu: Parent tạo/xem/hủy/sửa leave request khi request còn pending và nhận attendance-event notification; Parent không xem evidence ảnh.
 - Revoke chặn request Parent tiếp theo, xóa state client và không xóa lịch sử link/audit.
 
-Sau Google OAuth với email verified, API bind Google subject cho Parent lần đầu. Lần login sau subject phải khớp; subject thay đổi/email bị cấp lại bị từ chối đến khi School Admin revoke và grant lại link. Không có password mặc định, reset password hay SMS/OTP fallback ở release đầu. Parent profile self-edit release đầu chỉ gồm số điện thoại; email identity, Parent link và quyền vẫn do trường quản lý.
+Sau Google OAuth với email verified, API bind Google subject vào UserIdentity pending khớp email và dùng ParentProfile đã liên kết lần đầu. Lần login sau Google subject trên UserIdentity phải khớp; subject thay đổi/email bị cấp lại bị từ chối đến khi School Admin revoke và grant lại link. Parent portal vẫn dùng callback, cookie, CSRF scope và ParentSessionGuard riêng, với session audience `parent`; không có password mặc định, reset password hay SMS/OTP fallback ở release đầu. Parent profile self-edit release đầu chỉ gồm số điện thoại; email identity, Parent link và quyền vẫn do trường quản lý.
 
 Parent có link `ACTIVE` ở một trường được vào thẳng home của trường đó. Khi có active Parent portal links ở nhiều trường, `parent.passionedu.org` hiển thị chọn trường; mọi child/obligation/payment request vẫn scoped và authorize theo school context. Revoke một link chỉ xóa data của trẻ/trường đó; chỉ sign-out khi Parent không còn Parent portal link `ACTIVE` nào.
 
 ### 4.4 Parent access sau khi enrollment kết thúc
 
-Khi StudentEnrollment chuyển `ON_LEAVE`, `WITHDRAWN` hoặc `GRADUATED`, Parent link không tự revoke. Parent vẫn được xem obligations/payment history đã phát hành trong một cửa sổ retention hậu enrollment; không tạo obligation mới do enrollment đó không còn `ENROLLED`.
+Khi StudentEnrollment chuyển `ON_LEAVE`, `WITHDRAWN` hoặc `GRADUATED`, Parent link không tự revoke. Không tạo obligation mới do enrollment đó không còn `ENROLLED`. Quyền xem dữ liệu vận hành của trẻ và quyền settlement finance được áp dụng độc lập.
 
-- Retention là đúng 30 ngày lịch kể từ `StudentEnrollment.endedOn`. `endedOn` là field bắt buộc khi chuyển enrollment sang `ON_LEAVE`, `WITHDRAWN` hoặc `GRADUATED`; API không dùng ngày Admin thao tác hay close date collection run để tính quyền.
-- Policy thuộc School/Parent access settings, có `effectiveFrom`, audit/version và được API áp dụng. Không để Parent PWA tự tính ngày hết hạn.
-- Khi cửa sổ hết hạn, API từ chối dữ liệu protected của enrollment đó dù `StudentParent` link vẫn retained; School Admin có thể revoke link sớm khi cần.
+- Dữ liệu vận hành/nhạy cảm của enrollment có retention đúng 30 ngày lịch kể từ `StudentEnrollment.endedOn`. `endedOn` là field bắt buộc khi chuyển enrollment sang `ON_LEAVE`, `WITHDRAWN` hoặc `GRADUATED`; API không dùng ngày Admin thao tác hay close date collection run để tính quyền.
+- Finance settlement (`ISSUED` invoice, payment instruction, receipt/refund và trạng thái outstanding) vẫn hiển thị khi còn balance, nộp trước hoặc refund/reversal chưa quyết toán. Khi tất cả đã settled, `ParentAccessPolicy` của School áp dụng retention finance riêng có `effectiveFrom`, audit/version; Parent PWA không tự tính ngày hết hạn.
+- Khi retention tương ứng hết hạn, API từ chối surface protected đó dù `StudentParent` link vẫn retained; School Admin có thể revoke link sớm khi cần.
 - Đây là policy quyền xem, không xóa invoice, receipt, audit hoặc Parent link. Hết hạn tại một trường không ảnh hưởng active links hợp lệ của Parent ở trường khác.
 
 Không trả số điện thoại, nghề nghiệp, lịch sử finance hay link của phụ huynh khác cho Parent PWA trừ trường dữ liệu thật sự cần thiết.
@@ -147,7 +148,7 @@ Không trả số điện thoại, nghề nghiệp, lịch sử finance hay link
 | `StaffRoleGrant` | Role enum/permission set, effective start/end, granted/revoked by Admin; không dùng text `Giáo viên` làm auth |
 | `StaffClassAssignment` | staff, class, effective start/end, reason/audit; many-to-many; không có assignment type giáo viên chính/phụ ở release đầu; inactive staff/lớp không nhận assignment mới |
 
-Staff profile và quyền login tách biệt. Tạo/sửa `Staff` không cấp access portal; chỉ `User` có `SchoolMembership` active và `SchoolRoleGrant` mới login/truy cập `app.passionedu.org`. Một staff profile có thể được liên kết User/membership sau khi School Admin cấp role, nhưng Staff chưa có login vẫn là staff hợp lệ cho roster/assignment. Role release đầu nên cực nhỏ và tách theo capability: `SCHOOL_ADMIN`, `FINANCE_MANAGER`, `ATTENDANCE_RECORDER`, `HANDOVER_RECORDER`, `CLASS_TEACHER`.
+Staff profile và quyền login tách biệt. Tạo/sửa `Staff` không cấp access portal; chỉ `UserIdentity` có `SchoolMembership` active và `SchoolRoleGrant` mới login/truy cập `app.passionedu.org`. Một staff profile có thể được liên kết UserIdentity/membership sau khi School Admin cấp role, nhưng Staff chưa có login vẫn là staff hợp lệ cho roster/assignment. Role release đầu nên cực nhỏ và tách theo capability: `SCHOOL_ADMIN`, `FINANCE_MANAGER`, `ATTENDANCE_RECORDER`, `HANDOVER_RECORDER`, `CLASS_TEACHER`.
 
 Staff profile không cần học vấn, kinh nghiệm, thành tích, hợp đồng, lương hoặc password ở release đầu. Quyền self-edit số điện thoại của Staff chưa chốt; release đầu School Admin quản lý Staff profile.
 
@@ -162,7 +163,7 @@ Staff profile không cần học vấn, kinh nghiệm, thành tích, hợp đồ
 - Không bắt buộc chuyển toàn bộ lớp nguồn sang một lớp đích: School Admin có thể chọn một phần trẻ sang `4-6 tuổi`, để trẻ khác vào một lớp mới cùng tên `3-4 tuổi`, lớp đích khác, hoặc bỏ khỏi batch để xử lý `GRADUATED`, `WITHDRAWN`, `ON_LEAVE` hay workflow riêng có lý do/audit.
 - Chuyển lớp trong cùng năm lưu `EnrollmentClassAssignment` có `startsOn`, `endedOn`, actor và reason; không chỉ overwrite `classId`. Chuyển hàng loạt dùng wizard mapping lớp đích, preview, confirmation và idempotency.
 - Finance snapshot enrollment/lớp lúc generate; không tự prorate khi chuyển lớp. Mọi khoản điều chỉnh dùng refund/adjustment có lý do/audit. `Cơ sở vật chất` không có policy hệ thống theo ngày nhập học; nếu School dùng đơn vị `năm theo ngày nhập học`, kế toán điều chỉnh invoice `DRAFT` có ghi chú/audit.
-- Calendar chung theo toàn trường gồm working weekdays, ngày nghỉ/lễ và ngày học bù. Chỉ `SCHOOL_ADMIN` sửa. Thay đổi calendar không tính lại finance/attendance lịch sử; API/policy snapshot là source of truth.
+- Calendar chung theo toàn trường gồm working weekdays, ngày nghỉ/lễ và ngày học bù. Đây là scope đúng cho release đầu của trường mầm non; chỉ `SCHOOL_ADMIN` sửa. Nếu một trường thực tế cần lịch/policy riêng theo lớp hoặc chương trình, đó là extension domain rõ ràng với override/effective date, không dùng adjustment thủ công để giả lập. Thay đổi calendar không tính lại finance/attendance lịch sử; API/policy snapshot là source of truth.
 
 ### 4.7 Chính sách mã học sinh đã chốt
 

@@ -31,16 +31,16 @@ Màn này không hiển thị role của người dùng ở từng trường. Kh
 
 | Model | Trách nhiệm | Quy tắc |
 | --- | --- | --- |
-| `User` | Identity người dùng toàn cục | Email normalized và Google subject unique toàn hệ thống; status login; không có role toàn cục mặc định |
+| `UserIdentity` | Identity Google canonical toàn platform | Email normalized và Google subject unique toàn hệ thống; giữ display name/avatar tối thiểu, status login và timestamps; không có `schoolId`, role hay dữ liệu profile nghiệp vụ |
 | `School` | Tenant pháp lý/vận hành | Mã trường unique toàn hệ thống, profile, timezone, lifecycle; Ánh Hoa là một bản ghi `School`; không hard delete |
-| `SchoolMembership` | User thuộc trường nào | `userId`, `schoolId`, `ACTIVE`/`SUSPENDED`/`REVOKED`, hiệu lực, audit; unique một membership mỗi cặp user-trường |
-| `SchoolRoleGrant` | Quyền của membership trong trường | Role/capability, effective dates, granted/revoked by; không gắn quyền trực tiếp vào `User` |
+| `SchoolMembership` | UserIdentity thuộc trường nào | `userIdentityId`, `schoolId`, `ACTIVE`/`SUSPENDED`/`REVOKED`, hiệu lực, audit; unique một membership mỗi cặp identity-trường |
+| `SchoolRoleGrant` | Quyền của membership trong trường | Role/capability, effective dates, granted/revoked by; không gắn quyền trực tiếp vào `UserIdentity` |
 
-`Admin`, `Staff` và về sau `Parent` không nên là ba identity tables tách rời có session/Google subject riêng. Chúng là persona/profile hoặc membership/domain link của một `User`:
+`Admin`, `Staff` và `Parent` không là ba identity tables tách rời có Google subject riêng. Chúng là persona/profile hoặc membership/domain link của một `UserIdentity`; mỗi portal vẫn giữ callback, cookie, CSRF scope, session audience và guard riêng:
 
 - Membership vận hành cấp `SCHOOL_ADMIN`, `FINANCE_MANAGER`, `ATTENDANCE_RECORDER`, `HANDOVER_RECORDER`, `CLASS_TEACHER`.
 - `StaffProfile` chỉ lưu thông tin nhân sự theo trường nếu cần; việc là nhân viên ở trường A không tự cho quyền ở trường B.
-- `Parent` là profile liên hệ/portal, có link tới học sinh thuộc một trường. Một User có thể là phụ huynh ở một trường và nhân viên ở trường khác.
+- `ParentProfile` là profile liên hệ/portal toàn platform, không có `schoolId`, được bind với `UserIdentity` khi Parent login; một identity có thể là phụ huynh ở một trường và nhân viên ở trường khác. School context của Parent luôn được suy ra từ `Student` qua `StudentParent`, không phải từ profile.
 
 ### 3.2 Control plane của PassionEdu
 
@@ -50,7 +50,7 @@ PassionEdu cần một bề mặt **Platform Operations** tối thiểu. Không 
 
 | Model/capability | Trách nhiệm | Không được phép mặc định |
 | --- | --- | --- |
-| `PlatformOperatorGrant` | Gắn capability global cho một `User`, có hiệu lực, cấp/thu hồi và audit | Không tạo school membership hoặc quyền đọc dữ liệu trường chỉ nhờ grant này |
+| `PlatformOperatorGrant` | Gắn capability global cho một `UserIdentity`, có hiệu lực, cấp/thu hồi và audit | Không tạo school membership hoặc quyền đọc dữ liệu trường chỉ nhờ grant này |
 | `PLATFORM_SCHOOL_PROVISION` | Tạo/suspend/reactivate `School`, khởi tạo profile và cấp owner membership đầu tiên | Xem/sửa danh bộ, finance, attendance, Parent data |
 | `PLATFORM_ACCESS_ADMIN` | Quản lý PlatformOperatorGrant và account provisioning theo quy trình hai người khi có thể | Thao tác trong tenant như một School Admin |
 | `PLATFORM_SUPPORT` | Xem metadata vận hành tối thiểu như trạng thái tenant, health/config version và audit support | Đọc PII, receipt, invoice, attendance hoặc Parent payload |
@@ -61,14 +61,16 @@ Trang control plane đặt tại `ops.passionedu.org`, tách route, origin, cook
 - Cấp/thu hồi owner membership đầu tiên và xem membership metadata, không hiển thị dữ liệu nghiệp vụ của trường.
 - Audit append-only cho mọi provisioning, suspension và platform grant.
 
+Không có `OpsUser`, `OperationalUserProfile` hoặc bảng người dùng vận hành global riêng. `ops.passionedu.org` xác thực `UserIdentity` bằng callback/session audience `ops`, rồi `OpsSessionGuard` tải `PlatformOperatorGrant` hiệu lực và kiểm capability route. Grant không cấp quyền vào `app.passionedu.org`; chỉ `SchoolMembership` + `SchoolRoleGrant` mới cấp quyền vận hành trong School.
+
 Hỗ trợ truy cập dữ liệu một trường là capability riêng, **không nằm trong release đầu**. Nếu cần sau này, phải tạo support session just-in-time có trường đích, lý do/ticket, scope read-only hoặc capability hẹp, thời hạn, banner rõ ràng cho operator và audit bất biến. Không implement impersonation im lặng, không dùng `SUPER_ADMIN` bypass mọi `SchoolMembership`.
 
 ### 3.3 Bootstrap và provisioning đã chốt
 
 - `SUPERADMIN_EMAIL` là một biến environment duy nhất, chứa email Google normalized của Platform Operator bootstrap. Không commit giá trị thật; chỉ mô tả biến trong `.env.example`.
-- `SUPERADMIN_EMAIL` chỉ dùng để cấp/tái xác nhận `PLATFORM_ACCESS_ADMIN` và `PLATFORM_SCHOOL_PROVISION` cho User tương ứng khi người đó đăng nhập. Các PlatformOperatorGrant khác vẫn là record có audit; không dùng biến môi trường như một role check rải rác trong business routes.
-- Khi Platform Operator tạo `School`, form nhận email của `SCHOOL_ADMIN` đầu tiên. API tạo `SchoolMembership` active dạng pending identity cho email normalized đó và grant `SCHOOL_ADMIN` ngay trong transaction provisioning.
-- Lần đầu email owner đăng nhập Google verified, API bind/update `User` identity/profile và liên kết membership pending với User. Không phát sinh password mặc định hay account nội bộ riêng.
+- `SUPERADMIN_EMAIL` chỉ dùng để cấp/tái xác nhận `PLATFORM_ACCESS_ADMIN` và `PLATFORM_SCHOOL_PROVISION` cho UserIdentity tương ứng khi người đó đăng nhập. Các PlatformOperatorGrant khác vẫn là record có audit; không dùng biến môi trường như một role check rải rác trong business routes.
+- Khi Platform Operator tạo `School`, form nhận email của `SCHOOL_ADMIN` đầu tiên. API tạo `UserIdentity` pending theo email normalized nếu chưa có, rồi tạo `SchoolMembership` active và grant `SCHOOL_ADMIN` ngay trong transaction provisioning.
+- Lần đầu email owner đăng nhập Google verified, API bind Google subject/update UserIdentity pending đó. Không phát sinh password mặc định hay account nội bộ riêng.
 - Không xóa `School`. Platform Operator chỉ `SUSPEND`/`REACTIVATE`; school suspended bị từ chối ở mọi school business request tiếp theo. Không cần cơ chế hủy toàn bộ session ngay ở release đầu.
 
 ### 3.4 Role matrix release đầu
@@ -83,15 +85,15 @@ Khảo sát Kidsonline tại `/school/3139/access-role/index` cho thấy role `P
 | `ATTENDANCE_RECORDER` | Ghi/xem attendance trong phạm vi phân công khi Epic attendance phát hành; `PRESENT` tuân theo School `photoEvidenceMode` và confirmation | Finance, handover override, lịch sử quá khứ nếu chưa cấp capability riêng, approval đơn nghỉ sau deadline |
 | `HANDOVER_RECORDER` | Xác nhận trả trẻ trong phạm vi phân công khi Epic handover phát hành | Finance, attendance backdate, pickup authorization policy, approval đơn nghỉ sau deadline |
 
-`SCHOOL_ADMIN` có thể cấp/thu các school role preset cho membership trong cùng trường, với audit. `FINANCE_MANAGER` có thể post receipt và reversal; School cấu hình reversal `DIRECT` hoặc `SCHOOL_ADMIN_APPROVAL`. Với mode hai bước, Finance Manager tạo yêu cầu và School Admin duyệt, hai actor phải khác nhau. `SCHOOL_ADMIN` hoặc `FINANCE_MANAGER` duyệt/từ chối leave request gửi từ 15:00 trở đi; request trước 15:00 tự duyệt. Chỉ School Admin quyết định adjustment/write-off khi quyết toán năm. Không làm UI tự tạo role hoặc gán từng checkbox capability ở release đầu.
+`SCHOOL_ADMIN` có thể cấp/thu các school role preset cho membership trong cùng trường, với audit. `FINANCE_MANAGER` có thể post receipt và reversal; School cấu hình reversal `DIRECT` hoặc `SCHOOL_ADMIN_APPROVAL`. Với mode hai bước, Finance Manager tạo yêu cầu và School Admin duyệt, hai actor phải khác nhau. School cấu hình leave deadline; `SCHOOL_ADMIN` hoặc `FINANCE_MANAGER` duyệt/từ chối request sau deadline, request trước deadline tự duyệt. Chỉ School Admin quyết định adjustment/write-off khi quyết toán năm. Không làm UI tự tạo role hoặc gán từng checkbox capability ở release đầu.
 
-`Staff` là hồ sơ nhân sự, không phải principal đăng nhập. Tạo Staff profile hoặc StaffClassAssignment không tạo `User`, `SchoolMembership` hay session. Chỉ khi School Admin liên kết/cấp membership và role cho một Google `User` thì người đó mới truy cập portal; revoke membership không xóa Staff history.
+`Staff` là hồ sơ nhân sự theo School, không phải principal đăng nhập. Tạo Staff profile hoặc StaffClassAssignment không tạo `UserIdentity`, `SchoolMembership` hay session. Chỉ khi School Admin liên kết/cấp membership và role cho một Google UserIdentity thì người đó mới truy cập portal; revoke membership không xóa Staff history.
 
 ### 3.5 Ownership của dữ liệu
 
-Tất cả aggregate business dưới đây phải chứa `schoolId` và toàn bộ unique/index/foreign-key query phải scope theo school:
+Tất cả aggregate business dưới đây, trừ identity/profile toàn platform, phải chứa `schoolId` và toàn bộ unique/index/foreign-key query phải scope theo school:
 
-- `SchoolYear`, `Class`, `Student`, `StudentEnrollment`, `Parent`, `StudentParent`, Staff profile/assignment.
+- `SchoolYear`, `Class`, `Student`, `StudentEnrollment`, `StudentParent`, Staff profile/assignment. `ParentProfile` là global; mọi truy cập Parent vào dữ liệu school phải join qua `StudentParent -> Student.schoolId` và validate school context đó.
 - Calendar và toàn bộ policy/configuration.
 - `ReceivableGroup`, `Receivable`, `DiscountPolicy`, `CollectionRun`, `ChargeRule`, invoice, receipt, nộp trước, allocation và bank account.
 - Attendance, handover, late pickup, notification, operations và audit.
@@ -100,10 +102,10 @@ Ví dụ đúng: mã học sinh và mã khoản thu unique trong cùng `schoolId
 
 ## 4. Authorization và request context
 
-1. Google OAuth xác thực `User`; session chỉ chứa identity tối thiểu (`sub`) và audience portal, không nhét danh sách role/trường có thể stale vào JWT.
+1. Google OAuth xác thực `UserIdentity`; session chỉ chứa identity tối thiểu (`sub`) và audience portal, không nhét danh sách role/trường có thể stale vào JWT.
 2. `GET /me/schools` trả các membership active và metadata tối thiểu để render màn chọn trường.
 3. Khi người dùng chọn trường, web đi tới route scoped, ví dụ `/schools/:schoolId/...`; API dùng `/schools/:schoolId/...` tương ứng.
-4. Một guard tải `SchoolMembership` active cho `User + schoolId`, sau đó kiểm tra capability được route yêu cầu. Thiếu membership trả 404 hoặc 403 theo policy chống lộ tenant; không fallback sang trường mặc định.
+4. Guard của `app.passionedu.org` tải `SchoolMembership` active cho `UserIdentity + schoolId`, sau đó kiểm tra capability được route yêu cầu. Thiếu membership trả 404 hoặc 403 theo policy chống lộ tenant; không fallback sang trường mặc định.
 5. Service/repository nhận `schoolId` bắt buộc. Với update/delete, query phải match cả `id` và `schoolId` trong transaction.
 6. `Operation`/idempotency uniqueness phải chứa school scope, ví dụ `@@unique([schoolId, actorMembershipId, route, id])`; audit lưu actor user, actor membership và school.
 7. Revoke/suspend membership hoặc suspend School phải vô hiệu hóa school business request kế tiếp và xóa school context đã chọn ở client. Session identity có thể còn hợp lệ cho trường khác mà user vẫn thuộc.
@@ -115,11 +117,11 @@ Không tin `X-School-Id`, local storage hay schoolId trong request body như aut
 Schema hiện có là single-school:
 
 - `Admin` giữ Google identity và quyền ngầm cho toàn hệ thống.
-- `Class`, `Student`, `Parent`, invoice, bank account và `Operation` không có `schoolId`.
+- `Class`, `Student`, invoice, bank account và `Operation` không có `schoolId`; `Parent` hiện chưa được tách thành `ParentProfile` global với school context suy ra qua `StudentParent`.
 - `StudentParent.revokedBy`, invoice creator/confirmer và `Operation.adminId` trỏ trực tiếp `Admin`.
 - `InvoiceTemplate` singleton dùng `singleton Boolean @unique`, không thể tồn tại một cấu hình riêng theo trường.
 
-Clean-break cần thay `Admin` bằng `User`, `SchoolMembership` và `SchoolRoleGrant`; thêm owner school vào toàn bộ aggregate; chuyển actor/audit relation sang membership. `InvoiceTemplate` vốn đã bị finance blueprint thay thế, nên không cần thiết kế biến thể per-school của nó.
+Clean-break cần thay `Admin` bằng `UserIdentity`, `SchoolMembership` và `SchoolRoleGrant`; thêm owner school vào toàn bộ aggregate tenant-scoped, đồng thời tách `ParentProfile` global khỏi school context suy ra qua `StudentParent -> Student`; chuyển actor/audit relation sang membership. `InvoiceTemplate` vốn đã bị finance blueprint thay thế, nên không cần thiết kế biến thể per-school của nó.
 
 ## 6. UX và vận hành
 
@@ -139,14 +141,15 @@ Clean-break cần thay `Admin` bằng `User`, `SchoolMembership` và `SchoolRole
 
 ## 8. Acceptance criteria bắt buộc
 
-- Một User được cấp role khác nhau tại hai trường; API chỉ cho thao tác tương ứng từng trường.
+- Một UserIdentity được cấp role khác nhau tại hai trường; API chỉ cho thao tác tương ứng từng trường.
 - URL/id của bản ghi trường A không thể đọc, cập nhật hoặc xóa qua membership trường B.
 - Revoke membership ở trường A chặn request tiếp theo ở A nhưng không ảnh hưởng quyền hợp lệ ở B.
 - Mã học sinh, khoản thu và class có thể trùng giữa A/B, nhưng unique trong từng trường.
 - Invoice/receipt/nộp trước/attendance/audit không thể join hoặc aggregate lẫn tenant.
 - Idempotency key giống nhau được dùng ở hai trường không va chạm; retry trong cùng trường vẫn trả operation cũ.
 - Parent với children ở hai trường chỉ thấy dữ liệu theo từng school scope và không đọc chéo qua URL/API.
-- Bootstrap User từ `SUPERADMIN_EMAIL` có thể provision/suspend một trường và bootstrap owner, nhưng không thể gọi school business API nếu không có membership hoặc support session hợp lệ.
+- Bootstrap UserIdentity từ `SUPERADMIN_EMAIL` có thể đăng nhập Ops và provision/suspend một trường, bootstrap owner, nhưng không thể gọi school business API nếu không có membership hoặc support session hợp lệ.
+- UserIdentity có `PlatformOperatorGrant` hiệu lực vào được `ops.passionedu.org` với session audience `ops`; không có `OpsUser` table và grant này không cho vào `app.passionedu.org` hoặc đọc dữ liệu School.
 - Platform support metadata không chứa dữ liệu trẻ em, receipt, invoice, attendance hoặc Parent payload.
 
 ## 9. Câu hỏi cần chốt

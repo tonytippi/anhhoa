@@ -67,7 +67,7 @@ Các tab còn lại là bằng chứng về phạm vi cấu hình nhưng Browser
 
 `SchoolCalendar` và `CalendarException`:
 
-- Một lịch chung toàn trường: working weekdays, ví dụ thứ 2-thứ 7; chưa có lịch riêng theo lớp ở release đầu.
+- Một lịch chung toàn trường: working weekdays, ví dụ thứ 2-thứ 7. Đây là scope phù hợp release đầu cho trường mầm non; chưa làm lịch riêng theo lớp/chương trình. Nếu vận hành thực tế cần khác biệt, bổ sung override domain có effective date thay vì dùng adjustment tài chính để bù.
 - Ngày nghỉ/lễ, ngày học bù và mô tả.
 - API hỏi calendar bằng ngày, không để web tự suy ra ngày nghỉ.
 - Thay đổi lịch có `effectiveFrom`; không tự tính lại hoàn trả/nộp trước/late-pickup/meal đã snapshot hoặc invoice đã `ISSUED`.
@@ -88,28 +88,30 @@ Không lưu các policy trên trong JSON blob. Chúng phải có typed columns/e
 
 ### 4.3 Attendance và đón muộn
 
-`AttendancePolicy`:
+`AttendancePolicy` mặc định theo School cho release đầu:
 
 - Các status đến/về được phép, deadline điểm danh, thời hạn/lý do bắt buộc khi sửa sau cutoff.
-- Parent tạo đơn nghỉ cho trẻ được ủy quyền. Đơn gửi trước `15:00` ngày ngay trước ngày nghỉ đầu tiên tự duyệt; từ `15:00` trở đi cần `SCHOOL_ADMIN` hoặc `FINANCE_MANAGER` duyệt mới được trừ tiền ăn. Một đơn nhiều ngày hợp lệ áp dụng toàn bộ ngày đã duyệt. API snapshot thời điểm gửi, approval và ngày áp dụng vào invoice.
+- Parent tạo đơn nghỉ cho trẻ được ủy quyền. School cấu hình deadline; đơn gửi trước deadline tự duyệt, sau deadline cần `SCHOOL_ADMIN` hoặc `FINANCE_MANAGER` duyệt. API tự bỏ ngày SchoolCalendar nghỉ/lễ trong đơn nhiều ngày và snapshot deadline, thời điểm gửi, approval cùng ngày áp dụng vào adjustment tiền ăn trên invoice `DRAFT` kế tiếp.
 - `AttendancePolicy.photoEvidenceMode` là cấu hình theo School: `REQUIRED` buộc giáo viên upload ảnh trước khi xác nhận `PRESENT`; `OPTIONAL` cho phép xác nhận không ảnh. API snapshot mode áp dụng. Parent nhận notification in-app sau confirmation nhưng không xem evidence ảnh release đầu. Attendance không được tạo/xác nhận vào ngày SchoolCalendar nghỉ/lễ, trừ ngày học bù đã cấu hình.
 - Đơn duyệt tạo proposed absence cho attendance nhưng không khóa giáo viên xác nhận `PRESENT`. `PRESENT` có ảnh trên ngày trùng override deduction finance/gói thứ bảy của ngày đó, đánh dấu conflict trên leave request và thông báo Parent; không sửa invoice đã `ISSUED`.
 - Ảnh attendance là evidence nhạy cảm: blob/bản xem giữ đúng hai tháng lịch từ confirmation rồi xóa; audit metadata giữ deletion timestamp nhưng không giữ ảnh. Chỉ Staff có attendance capability và School Admin xem trong school scope; Parent không xem/browse/tải ảnh release đầu. Parent notification chỉ xác nhận event, không đính kèm ảnh.
 - Quyền sửa dữ liệu quá khứ và audit bất biến.
 
-`ServiceEnrollmentPolicy`:
+`ServiceEnrollmentPolicy` mặc định theo School cho release đầu:
 
 - School cấu hình dịch vụ thu định kỳ như học full thứ bảy; `StudentServiceEnrollment` có effective dates, trạng thái và audit.
 - Học sinh không có đăng ký thứ bảy bị tính học lẻ từ attendance giáo viên ghi. Không charge trùng ngày đã được service enrollment active bao phủ.
 - Gói thứ bảy chỉ được trừ khi có leave request đủ điều kiện và không có `PRESENT` đã xác nhận trong ngày đó; hủy dịch vụ được duyệt là nguồn hợp lệ cho refund. Finance chỉ tạo refund/adjustment trong `DRAFT` hoặc record mới có liên kết sau `ISSUED`.
 - Parent hoặc School Admin tạo yêu cầu nghỉ dài hạn; chỉ School Admin duyệt/từ chối và xác nhận effective date không trước ngày yêu cầu. School Admin hoặc Finance Manager tạo/hủy service enrollment theo thông báo/yêu cầu Parent; Parent không tự hủy dịch vụ. Sau approval, API dừng charge future run từ effective date.
 
-`LatePickupPolicy`:
+`LatePickupPolicy` mặc định theo School cho release đầu:
 
 - School cấu hình cutoff, grace, `blockMinutes` và rounding `CEILING`; `17:30` chỉ là ví dụ, không phải default platform. Policy có version/effective date khi thay đổi sau.
-- Giáo viên xác nhận `pickedUpAt` thực tế trong app; API tính blocks và snapshot cutoff/block/unit price/source event vào invoice.
+- Giáo viên hoặc lễ tân xác nhận `pickedUpAt` thực tế trong app; Finance tham chiếu handover và snapshot cutoff/grace/block, timestamp nguồn, lý do/actor khi tạo dòng `MANUAL` hoặc adjustment trong invoice `DRAFT`. API không tự tính block hoặc fee từ handover.
 - Danh sách lý do miễn/override và vai trò có quyền duyệt.
 - `effectiveFrom` và phiên bản policy snapshot trên sự kiện phí.
+
+Các policy trên không cần scope lớp/chương trình ở release đầu vì vận hành mầm non hiện tại chủ yếu thống nhất toàn trường. Khi có nhu cầu thật, mở rộng bằng override được version/effective-date và precedence rõ ràng; không thay đổi hoặc tái tính dữ liệu đã snapshot.
 
 Không cho sửa grace/cutoff để thay đổi phí của các bản ghi đã bill. Quy tắc mới chỉ áp dụng cho record có thời điểm sau hiệu lực.
 
