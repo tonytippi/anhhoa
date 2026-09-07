@@ -5,41 +5,11 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>PassionEdu Quản trị và nhân sự</title>
     <link rel="stylesheet" href="prototype.css" />
+    <script defer src="admin-shell.js"></script>
     <script src="prototype.js" defer></script>
   </head>
   <body>
-    <a class="skip" href="#main">Bỏ qua điều hướng</a>
-    <div class="shell">
-      <aside class="sidebar">
-        <p class="brand"><b>P</b> PassionEdu</p>
-        <nav aria-label="Điều hướng quản trị và nhân sự">
-          <p class="nav-group">VẬN HÀNH</p>
-          <a class="side-link active" href="#overview">Tổng quan</a
-          ><a class="side-link" href="#attendance">Điểm danh</a
-          ><a class="side-link" href="#leave">Xin nghỉ</a
-          ><a class="side-link" href="#handover">Bàn giao</a>
-          <p class="nav-group">DANH BỘ</p>
-          <a class="side-link" href="#roster">Danh bộ</a
-          ><a class="side-link" href="#settings">Cấu hình trường</a>
-          <p class="nav-group">TÀI CHÍNH</p>
-          <a class="side-link" href="receivable-configuration.html">Khoản thu</a
-          ><a class="side-link" href="invoice-generation.html">Đợt thu</a
-          ><a class="side-link" href="#settlement">Thu tiền / Công nợ</a
-          ><a class="side-link" href="#report">Báo cáo</a>
-        </nav>
-      </aside>
-      <main id="main" class="workspace">
-        <header class="topbar">
-          <button
-            class="context"
-            data-confirm="Đổi trường|Bạn đang xem Ánh Hoa. Biểu mẫu đang soạn sẽ không được tự lưu."
-          >
-            Ánh Hoa ▾
-          </button>
-          <div class="avatar">
-            <span class="muted">Hoa Nguyễn</span><i>HN</i>
-          </div>
-        </header>
+    <div data-admin-shell data-admin-route="overview">
         <section id="overview">
           <div class="route-head">
             <div>
@@ -738,7 +708,6 @@
             không phải phép tính phí tự động.
           </div>
         </section>
-      </main>
     </div>
   </body>
 </html>

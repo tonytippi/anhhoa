@@ -5,14 +5,11 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>PassionEdu · Rà soát hóa đơn</title>
     <link rel="stylesheet" href="prototype.css" />
+    <script defer src="admin-shell.js"></script>
     <script src="prototype.js" defer></script>
   </head>
   <body>
-    <a class="skip" href="#main">Bỏ qua điều hướng</a>
-    <div class="shell">
-      <aside class="sidebar"><p class="brand"><b>P</b> PassionEdu</p><nav aria-label="Điều hướng quản trị và nhân sự"><p class="nav-group">TÀI CHÍNH</p><a class="side-link" href="receivable-configuration.html">Khoản thu</a><a class="side-link" href="invoice-generation.html">Đợt thu</a><a class="side-link active" aria-current="page" href="invoice-detail-review.html">Rà soát hóa đơn</a><a class="side-link" href="admin-staff.html#settlement">Thu tiền / Công nợ</a></nav></aside>
-      <main id="main" class="workspace">
-        <header class="topbar"><a class="context" href="admin-staff.html#runs">Ánh Hoa · Năm học 2026-2027</a><div class="avatar"><span class="muted">Hoa Nguyễn</span><i>HN</i></div></header>
+    <div data-admin-shell data-admin-route="invoice-review">
         <section>
           <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027 · THÁNG 09/2026</p>
           <div class="route-head"><div><h1>Hóa đơn MH-202609-041 · Bé An</h1><p class="muted">Đợt thu <a href="invoice-generation.html">CR-202609-01</a> · AH-129 · Mầm 3-4 tuổi</p></div><span class="badge warning">DRAFT · Có thể rà soát</span></div>
@@ -50,7 +47,6 @@
           <div class="notice info"><b>Snapshot nghĩa vụ đã khóa:</b> phát hành lúc 05/09/2026 09:18:11 · tổng hóa đơn <b>2.100.000 đ</b> · dư nợ hiện tại do sổ cái trả về riêng tại thời điểm tra cứu.</div>
           <p class="muted">Thu tiền chỉ chọn hóa đơn đã phát hành của riêng Bé An và yêu cầu đúng toàn bộ số tiền. Không có trạng thái thanh toán một phần; chỉ sổ cái từ phiếu thu/phân bổ hợp lệ mới phản ánh tất toán đầy đủ.</p>
         </section>
-      </main>
     </div>
   </body>
 </html>
