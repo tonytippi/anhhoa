@@ -1,3 +1,166 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PassionEdu Platform Ops</title><link rel="stylesheet" href="prototype.css"><script src="prototype.js" defer></script></head>
-<body><main class="ops-shell"><header class="ops-top"><div><p class="eyebrow">PLATFORM OPERATIONS</p><h1>Schools</h1><p class="muted">Van hanh tenant, khong truy cap du lieu nghiep vu cua truong.</p></div><button class="button" data-confirm="Provision School moi|Tao School va owner bootstrap theo email qua Operation idempotent.">Provision School</button></header><div class="notice info"><b>Boundary:</b> Platform Operator chi xem identity, lifecycle va owner bootstrap status. Khong co link toi dashboard, danh bo hay tai chinh cua School.</div><div class="toolbar"><div class="filters"><button class="filter">Tat ca trang thai ▾</button><button class="filter">Sap xep: moi nhat ▾</button></div><button class="button secondary" data-operation>Doi soat Operation</button></div><div class="table-wrap"><table><caption>Danh sach School cua nen tang</caption><thead><tr><th>School</th><th>Ma tenant</th><th>Owner bootstrap</th><th>Trang thai</th><th>Cap nhat</th><th></th></tr></thead><tbody><tr><td><b>Truong MN Anh Hoa</b><br><span class="muted">anhhoa@passionedu.org</span></td><td>sch_anhhoa</td><td><span class="badge success">Owner da bind</span></td><td><span class="badge success">ACTIVE</span></td><td>05/09/2026 08:40</td><td><button class="button secondary" data-confirm="Tam ngung Truong MN Anh Hoa|Business request ke tiep se bi chan. Global identity va School khac khong bi anh huong.">Tam ngung</button></td></tr><tr><td><b>Truong MN Hoa Sen</b><br><span class="muted">hoasen@passionedu.org</span></td><td>sch_hoasen</td><td><span class="badge warning">Dang cho owner bind</span></td><td><span class="badge success">ACTIVE</span></td><td>04/09/2026 16:10</td><td><button class="button secondary" data-confirm="Tam ngung Truong MN Hoa Sen|Business request ke tiep se bi chan. Global identity va School khac khong bi anh huong.">Tam ngung</button></td></tr><tr><td><b>Truong MN Tuoi Tho</b><br><span class="muted">tuoitho@passionedu.org</span></td><td>sch_tuoitho</td><td><span class="badge success">Owner da bind</span></td><td><span class="badge danger-badge">SUSPENDED</span></td><td>03/09/2026 14:22</td><td><button class="button" data-confirm="Kich hoat lai Truong MN Tuoi Tho|Business request ke tiep se chi duoc phep sau khi server xac nhan ACTIVE.">Kich hoat lai</button></td></tr></tbody></table></div><section class="grid two" style="margin-top:20px"><article class="card"><h2>Provision form preview</h2><div class="form-grid"><div class="field"><label>Ten School</label><input value="Truong MN Binh Minh"></div><div class="field"><label>Email owner dau tien</label><input value="owner@binhminh.edu.vn"></div><div class="field full"><label>Ma tenant</label><input value="binh-minh" aria-describedby="tenant-help"><small id="tenant-help" class="muted">Duoc kiem tra server-side truoc khi provision.</small></div></div><p class="muted">Failure khong de lai School, UserIdentity, membership hay grant partial.</p><button class="button" data-operation>Gui provision</button></article><article class="card"><h2>Trang thai timeout</h2><div class="operation"><b>OP-20260905-0007</b><p>Dang kiem tra ket qua provision voi he thong. Khong retry voi fingerprint khac.</p></div><p class="muted">Neu failed, form giu gia tri da nhap va hien thi field/action error de gui lai ro rang.</p><button class="button secondary" data-operation>Kiem tra Operation</button></article></section></main></body></html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PassionEdu Vận hành nền tảng</title>
+    <link rel="stylesheet" href="prototype.css" />
+    <script src="prototype.js" defer></script>
+  </head>
+  <body>
+    <main class="ops-shell">
+      <header class="ops-top">
+        <div>
+          <p class="eyebrow">VẬN HÀNH NỀN TẢNG</p>
+          <h1>Trường học</h1>
+          <p class="muted">
+            Vận hành các trường, không truy cập dữ liệu nghiệp vụ của từng
+            trường.
+          </p>
+        </div>
+        <button
+          class="button"
+          data-provision
+        >
+          Khởi tạo trường
+        </button>
+      </header>
+      <div class="notice info">
+        <b>Ranh giới:</b> Nhân sự vận hành nền tảng chỉ xem danh tính, vòng đời
+        và trạng thái chủ sở hữu ban đầu. Không có liên kết tới bảng điều khiển,
+        danh bộ hay tài chính của trường.
+      </div>
+      <div class="toolbar">
+        <div class="filters">
+          <button class="filter">Tất cả trạng thái ▾</button
+          ><button class="filter">Sắp xếp: mới nhất ▾</button>
+        </div>
+        <button class="button secondary" data-operation>
+          Đối soát thao tác
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <caption>
+            Danh sách trường của nền tảng
+          </caption>
+          <thead>
+            <tr>
+              <th>Trường</th>
+              <th>Mã trường</th>
+              <th>Chủ sở hữu ban đầu</th>
+              <th>Trạng thái</th>
+              <th>Cập nhật</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <b>Trường MN Ánh Hoa</b><br /><span class="muted"
+                  >anhhoa@passionedu.org</span
+                >
+              </td>
+              <td>sch_anhhoa</td>
+              <td><span class="badge success">Chủ sở hữu đã liên kết</span></td>
+              <td><span class="badge success">Đang hoạt động</span></td>
+              <td>05/09/2026 08:40</td>
+              <td>
+                <button
+                  class="button secondary"
+                  data-confirm="Tạm ngừng Trường MN Ánh Hoa|Yêu cầu nghiệp vụ tiếp theo sẽ bị chặn. Danh tính chung và các trường khác không bị ảnh hưởng."
+                >
+                  Tạm ngừng
+                </button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <b>Trường MN Hoa Sen</b><br /><span class="muted"
+                  >hoasen@passionedu.org</span
+                >
+              </td>
+              <td>sch_hoasen</td>
+              <td>
+                <span class="badge warning">Đang chờ chủ sở hữu liên kết</span>
+              </td>
+              <td><span class="badge success">Đang hoạt động</span></td>
+              <td>04/09/2026 16:10</td>
+              <td>
+                <button
+                  class="button secondary"
+                  data-confirm="Tạm ngừng Trường MN Hoa Sen|Yêu cầu nghiệp vụ tiếp theo sẽ bị chặn. Danh tính chung và các trường khác không bị ảnh hưởng."
+                >
+                  Tạm ngừng
+                </button>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <b>Trường MN Tuổi Thơ</b><br /><span class="muted"
+                  >tuoitho@passionedu.org</span
+                >
+              </td>
+              <td>sch_tuoitho</td>
+              <td><span class="badge success">Chủ sở hữu đã liên kết</span></td>
+              <td><span class="badge danger-badge">Đã tạm ngừng</span></td>
+              <td>03/09/2026 14:22</td>
+              <td>
+                <button
+                  class="button"
+                  data-confirm="Kích hoạt lại Trường MN Tuổi Thơ|Yêu cầu nghiệp vụ tiếp theo chỉ được phép sau khi máy chủ xác nhận trường đang hoạt động."
+                >
+                  Kích hoạt lại
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <section class="grid two" style="margin-top: 20px">
+        <article class="card">
+          <h2>Xem trước biểu mẫu khởi tạo</h2>
+          <div class="form-grid">
+            <div class="field">
+              <label>Tên trường</label><input value="Trường MN Bình Minh" />
+            </div>
+            <div class="field">
+              <label>Email chủ sở hữu đầu tiên</label
+              ><input value="owner@binhminh.edu.vn" />
+            </div>
+            <div class="field full">
+              <label>Mã trường</label
+              ><input value="binh-minh" aria-describedby="tenant-help" /><small
+                id="tenant-help"
+                class="muted"
+                >Được kiểm tra ở máy chủ trước khi khởi tạo.</small
+              >
+            </div>
+          </div>
+          <p class="muted">
+            Khi thất bại, không để lại trường, danh tính người dùng, liên kết
+            thành viên hoặc quyền cấp chưa hoàn chỉnh.
+          </p>
+          <button class="button" data-provision>Gửi yêu cầu khởi tạo</button>
+        </article>
+        <article class="card">
+          <h2>Trạng thái hết thời gian chờ</h2>
+          <div class="operation">
+            <b>OP-20260905-0007</b>
+            <p>
+              Đang kiểm tra kết quả khởi tạo với hệ thống. Không thử lại với dấu
+              nhận diện khác.
+            </p>
+          </div>
+          <p class="muted">
+            Nếu thất bại, biểu mẫu giữ giá trị đã nhập và hiển thị lỗi
+            trường/thao tác để gửi lại rõ ràng.
+          </p>
+          <button class="button secondary" data-operation>
+            Kiểm tra thao tác
+          </button>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
