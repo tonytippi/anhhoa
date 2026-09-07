@@ -13,12 +13,11 @@
     ['', 'leave', 'Xin nghỉ', root + 'admin-staff.html#leave'],
     ['', 'handover', 'Bàn giao', root + 'admin-staff.html#handover'],
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
-    ['', 'settings', 'Cấu hình trường', root + 'admin-staff.html#settings'],
     ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
     ['', 'runs', 'Đợt thu / Nộp trước', root + 'invoice-generation.html'],
     ['', 'invoice-review', 'Rà soát hóa đơn', root + 'invoice-detail-review.html'],
-    ['', 'settlement', 'Thu tiền / Công nợ', root + 'admin-staff.html#settlement'],
-    ['', 'report', 'Báo cáo', root + 'admin-staff.html#report']
+    ['', 'settlement', 'Thu tiền / Công nợ', root + 'invoice-detail-review.html'],
+    ['', 'report', 'Báo cáo', root + 'invoice-detail-review.html']
   ];
   var navigation = '';
   var isWorkspace = route === 'overview';
@@ -26,7 +25,7 @@
   links.forEach(function (link) {
     var current = link[1] === route;
     if (link[0]) navigation += '<p class="nav-group">' + link[0] + '</p>';
-    var href = isWorkspace && ['overview', 'attendance', 'leave', 'handover', 'settings', 'settlement', 'report'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
+    var href = isWorkspace && ['overview', 'attendance', 'leave', 'handover'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
     navigation += '<a class="side-link' + (current ? ' active' : '') + '" href="' + href + '"' + (current ? ' aria-current="page"' : '') + '>' + link[2] + '</a>';
   });
 
@@ -34,4 +33,17 @@
   host.insertAdjacentHTML('beforebegin', '<a class="skip" href="#main">Bỏ qua điều hướng</a>');
   host.className = 'shell';
   host.innerHTML = '<aside class="sidebar"><p class="brand"><b>P</b> PassionEdu</p><nav aria-label="Điều hướng quản trị và nhân sự">' + navigation + '</nav></aside><main id="main" class="workspace"><header class="topbar"><button class="context" type="button" data-school-context="clean">Ánh Hoa · Năm học 2026-2027 ▾</button><div class="avatar"><span class="muted">Hoa Nguyễn</span><i>HN</i></div></header>' + content + '</main>';
+
+  function updateNavigation() {
+    var activeRoute = window.location.hash.split('?')[0].slice(1) || route;
+    document.querySelectorAll('.side-link').forEach(function (link) {
+      var isCurrent = link.getAttribute('href').split('?')[0] === '#' + activeRoute;
+      link.classList.toggle('active', isCurrent);
+      if (isCurrent) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }
+
+  window.addEventListener('hashchange', updateNavigation);
+  updateNavigation();
 }());
