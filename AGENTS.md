@@ -1,33 +1,38 @@
 <!-- bmad:context -->
-<!-- Verified 2026-08-18 against 2cbf3a1. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
+<!-- Verified 2026-09-07 against efe83c6. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
-## Anh Hoa
+## PassionEdu
 
-Dashboard nội bộ quản lý học sinh, lớp và hóa đơn trường mầm non. Dự án dùng BMad Method để quản lý planning artifact và workflow; PRD là nguồn tham khảo chính cho yêu cầu/phạm vi. UX specification và architecture spine quy định lần lượt trải nghiệm và các invariant kỹ thuật. Code sẽ là pnpm/Turborepo với React/Vite PWA ở `apps/web` và NestJS/Prisma ở `apps/api`.
+Nền tảng vận hành đa trường cho mầm non, thay thế clean-break cho Ánh Hoa single-school; Ánh Hoa chỉ là tenant đầu tiên. Dự án dùng BMad để quản lý planning và implementation artifacts. Implementation target là pnpm/Turborepo với NestJS/Prisma/PostgreSQL API và ba React/Vite portal độc lập cho Admin/Staff, Parent và Ops.
 
 ## Policy
 
 - Không đưa secret vào repository; chỉ dùng `.env` cục bộ và giữ `.env.example` không có giá trị thật.
-- Không sửa các artifact đã `final` trong `_bmad-output/planning-artifacts/` để thay đổi yêu cầu; tạo/cập nhật artifact qua workflow phù hợp.
-- Khi bắt đầu scaffold, tuân theo `ARCHITECTURE-SPINE.md`; không thay đổi AD đã chốt nếu chưa cập nhật architecture spine.
+- Không sửa artifact `final` để đổi yêu cầu; cập nhật qua workflow/decision artifact phù hợp trước.
+- Bắt đầu implementation từ workspace clean-break theo `ARCHITECTURE-SPINE.md`; không tái sử dụng schema, API, session, lifecycle hoặc execution artifact Ánh Hoa.
+- `School` là tenant root; mọi query, mutation, unique constraint, audit và Operation phải scope theo School. Không tin `schoolId`, UUID, filter, header hay browser state làm bằng chứng authorization.
 
 ## Where things are
 
-- **Nguồn yêu cầu chính:** `_bmad-output/planning-artifacts/prds/prd-anhhoa-2026-08-18/prd.md`
-- UI behavior and visual system: `_bmad-output/planning-artifacts/ux-designs/ux-anhhoa-2026-08-18/`
-- Architecture invariants: `_bmad-output/planning-artifacts/architecture/architecture-anhhoa-2026-08-18/ARCHITECTURE-SPINE.md`
-- Khi tái sử dụng Google OAuth hoặc VietQR, chỉ tham khảo chọn lọc `../grapeseed`; không sao chép mô hình campus, giáo viên, phụ huynh, khóa học hoặc multi-role.
+- Canonical product contract: `_bmad-output/planning-artifacts/prds/prd-passionedu-2026-09-04/prd.md` và `addendum.md`
+- Architecture invariants: `_bmad-output/planning-artifacts/architecture/architecture-passionedu-2026-09-04/ARCHITECTURE-SPINE.md`
+- Build contract: `_bmad-output/specs/spec-passionedu/SPEC.md`
+- Backlog: `_bmad-output/planning-artifacts/epics-passionedu.md`
+- UX contracts: `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/`
+- Active implementation tracker: `_bmad-output/implementation-artifacts/sprint-status.yaml`; không resume spec/context Ánh Hoa từ Git history.
+- Tài liệu review/discovery có nhãn `Historical only` không phải build input hoặc readiness gate.
 
 ## Conventions that differ from defaults
 
-- Đặt quy tắc hóa đơn, snapshot, audit, QR và báo cáo trong `apps/api`; `apps/web` chỉ gọi REST API.
-- Lưu tiền VND nguyên bằng PostgreSQL `BIGINT`; không dùng số thực và không tin tổng tiền do client gửi.
-- Không xóa cứng Lớp, Học sinh hoặc Tài khoản nhận tiền; dùng trạng thái và giữ snapshot trên Hóa đơn.
-- Hóa đơn chỉ đi theo `DRAFT -> PENDING -> COMPLETED`; `COMPLETED` chỉ xem.
-- Bảo vệ mutation cookie-auth bằng origin validation, double-submit CSRF và idempotency UUID cho tạo hóa đơn hàng loạt, chuyển cả lớp và xác nhận thanh toán.
+- API là nguồn duy nhất cho authorization, policy, VND integer calculation, state transition, snapshot, audit và Operation; ba portal chỉ gọi REST.
+- Tiền VND dùng PostgreSQL `BIGINT` và JSON-safe integer; không dùng float hoặc client-calculated total.
+- Finance normal settlement là exact: không có `PARTIALLY_PAID`, partial, unallocated hoặc mixed-Student Receipt. Receipt/Prepayment target phải cùng Student, School và SchoolYear.
+- Cookie mutations cần origin validation, double-submit CSRF; mutation high-impact cần UUID `Idempotency-Key` và `GET /operations/:operationId` reconciliation trước retry.
+- Parent API chỉ trả minimum DTO; không service-worker cache Parent authenticated responses, payment instruction, media hoặc evidence URL.
 
 ## Known pitfalls
 
-- Chưa có command build/test đã xác minh. Sau khi scaffold, refresh `AGENTS.md` để ghi command thực tế và các caveat từ CI/test.
-- Sau timeout của mutation có idempotency, đối soát `GET /operations/:operationId` trước khi cho gửi lại; không coi timeout là thao tác thất bại.
+- `PlatformOperatorGrant` là ngoại lệ duy nhất cho School-scoped Operation: provisioning dùng PlatformOperator-scoped Operation trước khi School tồn tại.
+- Sau timeout của mutation idempotent, giữ Operation ID và đối soát trước retry; không coi timeout là thất bại.
+- `StudentPromotionalCoverage` chỉ issued sau source Invoice được settle; refund dùng snapshot calendar/service interval và không vượt paid source còn lại.
 <!-- /bmad:context -->
