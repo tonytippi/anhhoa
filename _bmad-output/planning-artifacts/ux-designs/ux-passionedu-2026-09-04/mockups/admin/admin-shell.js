@@ -15,7 +15,7 @@
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'admin/roster/roster.html'],
     ['', 'settings', 'Cấu hình trường', root + 'admin-staff.html#settings'],
     ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
-    ['', 'runs', 'Đợt thu', root + 'invoice-generation.html'],
+    ['', 'runs', 'Đợt thu / Nộp trước', root + 'invoice-generation.html'],
     ['', 'invoice-review', 'Rà soát hóa đơn', root + 'invoice-detail-review.html'],
     ['', 'settlement', 'Thu tiền / Công nợ', root + 'admin-staff.html#settlement'],
     ['', 'report', 'Báo cáo', root + 'admin-staff.html#report']

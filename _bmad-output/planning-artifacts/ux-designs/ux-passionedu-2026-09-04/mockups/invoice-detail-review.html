@@ -30,7 +30,7 @@
           </div>
           <div class="grid two">
             <article class="card"><h3>Override được kiểm toán</h3><p><b>Chưa có override giá hoặc số lượng.</b></p><p class="muted">Nếu được đề xuất, máy chủ lưu giá trị trước/sau, lý do, người thực hiện, thời điểm và quyền đã kiểm tra.</p><button class="button secondary" data-confirm="Đề xuất override dòng hóa đơn|Máy chủ kiểm tra quyền, trạng thái DRAFT và tính hợp lệ trước khi trả về hóa đơn.">Đề xuất override</button></article>
-            <article class="card"><h3>Kiểm tra nguồn phi tài chính</h3><p><b>TT-09/2026 · Biên bản ưu đãi ngoại tuyến</b></p><p class="muted">Đây là căn cứ xác thực nguồn cho workflow coverage bổ sung, không phải dòng điều chỉnh và không làm thay đổi tổng MH-202609-041.</p><button class="button secondary" data-confirm="Rà soát nguồn ưu đãi|Máy chủ kiểm tra nguồn bất biến, học sinh và workflow coverage riêng trước khi trả về kết quả.">Rà soát nguồn</button></article>
+            <article class="card"><h3>Kiểm tra thỏa thuận nộp trước</h3><p><b>TT-09/2026 · Biên bản thỏa thuận trực tiếp</b></p><p class="muted">Đây là căn cứ để School Admin chọn program và tháng bắt đầu trong source PREPAID riêng, không phải dòng điều chỉnh và không làm thay đổi tổng MH-202609-041.</p><button class="button secondary" data-confirm="Rà soát thỏa thuận nộp trước|Máy chủ kiểm tra nguồn bất biến, học sinh và điều kiện tạo source PREPAID trước khi trả về kết quả.">Rà soát thỏa thuận</button></article>
           </div>
         </section>
         <section>
@@ -40,6 +40,35 @@
             <article class="card"><h3>Tổng trước phát hành</h3><p class="metric">2.100.000 đ</p><p class="muted">Tổng VND nguyên do máy chủ xác nhận. Phát hành khóa dòng hóa đơn, quy tắc, lịch, tài khoản và nội dung chuyển khoản.</p><button class="button" data-confirm="Xác nhận phát hành hóa đơn MH-202609-041|Máy chủ tạo Operation OP-20260905-0918 để phát hành hóa đơn 2.100.000 đ. Nếu timeout, gọi GET /operations/OP-20260905-0918 để đối soát trước khi thử lại.">Phát hành hóa đơn</button></article>
           </div>
           <div class="notice warning"><b>Đối soát trước khi thử lại:</b> giữ <b>OP-20260905-0918</b> và gọi <b>GET /operations/OP-20260905-0918</b>. Không coi timeout là thất bại và không tạo yêu cầu phát hành thứ hai khi chưa có kết quả.</div>
+        </section>
+        <section>
+          <p class="eyebrow" id="prepaid-source">NGUỒN PREPAID · DRAFT → ISSUED → PAID · CHỈ ĐỌC</p>
+          <div class="notice warning"><b>Review trước phát hành:</b> source DRAFT CR-PP-202609-AN-01 đã được máy chủ generate từ preview. School Admin rà soát fact, tài khoản nhận tiền và xác nhận phát hành qua Operation; sau `ISSUED`, mọi program/fact/giá/giảm trừ bị khóa.</div>
+          <button class="button secondary" data-idempotent-action data-action-title="Phát hành source Invoice PREPAID" data-action-label="Gửi phát hành source" data-action-consequence="Máy chủ phát hành CR-PP-202609-AN-01, chụp Payment instruction và khóa program/fact. Coverage vẫn chưa được issue cho đến exact settlement.">Phát hành source DRAFT qua Operation</button>
+          <div class="route-head"><div><h2>MH-PP-2026-AN-001 · Source Invoice nộp trước của Bé An</h2><p class="muted">CR-PP-202609-AN-01 · AH-129 · Ánh Hoa · Năm học 2026-2027</p></div><span class="badge warning">ISSUED · Chờ tất toán chính xác</span></div>
+          <div class="notice info"><b>Issue Invoice không issue coverage:</b> source đã khóa program PP-6T-2026, fact nhiều kỳ, giá gốc, giảm trừ, khoảng dịch vụ và calendar snapshot. StudentPromotionalCoverage chỉ được máy chủ phát hành sau khi source chuyển <b>PAID</b>.</div>
+          <div class="table-wrap"><table><caption>Snapshot fact source PREPAID đã phát hành</caption><thead><tr><th>Program / receivable-kỳ</th><th>Service interval / calendar snapshot</th><th class="money">Giá gốc</th><th class="money">Giảm program</th><th class="money">Cần thu</th></tr></thead><tbody>
+            <tr><td><b>PP-6T-2026</b><br>Học phí 09/2026</td><td>05/09 - 30/09/2026 · CAL-AH-2026-09-R2 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td><b>PP-6T-2026</b><br>Học phí 10/2026</td><td>01/10 - 31/10/2026 · CAL-AH-2026-10-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td><b>PP-6T-2026</b><br>Học phí 11/2026</td><td>01/11 - 30/11/2026 · CAL-AH-2026-11-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td><b>PP-6T-2026</b><br>Học phí 12/2026</td><td>01/12 - 31/12/2026 · CAL-AH-2026-12-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td><b>PP-6T-2026</b><br>Học phí 01/2027</td><td>01/01 - 31/01/2027 · CAL-AH-2027-01-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td><b>PP-6T-2026</b><br>Học phí 02/2027</td><td>01/02 - 28/02/2027 · CAL-AH-2027-02-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+          </tbody></table></div>
+          <div class="grid two">
+            <article class="card"><h3>Settlement exact bắt buộc</h3><p>Receipt và Allocation chỉ cho <b>Bé An</b>, <b>Ánh Hoa</b>, <b>Năm học 2026-2027</b> với đúng outstanding <b>8.100.000 đ</b>.</p><p class="muted">Không có partial, excess, unallocated, mixed-Student hay Student Prepayment. Timeout phải đối soát Operation trước retry.</p></article>
+            <article class="card"><h3>Kết quả sau PAID do máy chủ trả về</h3><p><span class="badge neutral">Ví dụ outcome sau settlement</span></p><p class="muted">Receipt RCPT-202609-044 · Allocation ALLOC-202609-044 · 05/09/2026 10:32. Source `PAID`; máy chủ issue coverage provenance Invoice/Receipt cho từng fact. Monthly run sau đó chỉ skip fact đã issued.</p></article>
+          </div>
+          <button class="button" data-idempotent-action data-action-title="Xác nhận tất toán source PREPAID" data-action-label="Gửi settlement exact" data-action-consequence="Máy chủ kiểm tra toàn bộ context và đúng outstanding 8.100.000 đ, rồi tạo Receipt/Allocation, derive PAID và issue coverage. Partial, excess hoặc context sai bị từ chối toàn bộ.">Xác nhận settlement exact 8.100.000 đ</button>
+          <div class="table-wrap"><table><caption>Coverage issued sau exact settlement: provenance chỉ đọc theo từng fact</caption><thead><tr><th>Fact coverage</th><th>Invoice / Receipt / Allocation provenance</th><th>Trạng thái</th></tr></thead><tbody>
+            <tr><td>Học phí 09/2026 · SPC-2026-AN-09</td><td>MH-PP-2026-AN-001 · RCPT-202609-044 · ALLOC-202609-044</td><td><span class="badge success">ISSUED sau PAID</span></td></tr>
+            <tr><td>Học phí 10/2026 · SPC-2026-AN-10</td><td>MH-PP-2026-AN-001 · RCPT-202609-044 · ALLOC-202609-044</td><td><span class="badge success">ISSUED sau PAID</span></td></tr>
+            <tr><td>Học phí 11/2026 · SPC-2026-AN-11</td><td>MH-PP-2026-AN-001 · RCPT-202609-044 · ALLOC-202609-044</td><td><span class="badge success">ISSUED sau PAID</span></td></tr>
+            <tr><td>Học phí 12/2026 · SPC-2026-AN-12</td><td>MH-PP-2026-AN-001 · RCPT-202609-044 · ALLOC-202609-044</td><td><span class="badge success">ISSUED sau PAID</span></td></tr>
+            <tr><td>Học phí 01/2027 · SPC-2027-AN-01</td><td>MH-PP-2026-AN-001 · RCPT-202609-044 · ALLOC-202609-044</td><td><span class="badge success">ISSUED sau PAID</span></td></tr>
+            <tr><td>Học phí 02/2027 · SPC-2027-AN-02</td><td>MH-PP-2026-AN-001 · RCPT-202609-044 · ALLOC-202609-044</td><td><span class="badge success">ISSUED sau PAID</span></td></tr>
+          </tbody></table></div>
+          <div class="notice danger"><b>Correction hoặc hoàn tiền sau coverage:</b> coverage đã issued là snapshot bất biến. Thay đổi catalog, lớp hoặc dịch vụ không tự chuyển đổi; School Admin/Finance phải mở review correction/refund theo ngày vận hành còn lại, nguồn Invoice/Receipt và audit policy.</div>
         </section>
         <section>
           <p class="eyebrow">MẪU TRẠNG THÁI SAU PHÁT HÀNH · CHỈ ĐỌC</p>

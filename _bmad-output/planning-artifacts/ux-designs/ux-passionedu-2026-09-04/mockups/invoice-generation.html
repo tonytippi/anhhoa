@@ -42,7 +42,7 @@
               <caption>Ví dụ hóa đơn nháp dự kiến do máy chủ trả về</caption>
               <thead><tr><th>Học sinh</th><th>Lớp</th><th>Thành phần có thẩm quyền</th><th class="money">Nợ cũ</th><th class="money">Tổng dự kiến</th></tr></thead>
               <tbody>
-                <tr><td><b>AH-129 · Bé An</b></td><td>Mầm 3-4 tuổi</td><td>Học phí 1.500.000 đ; tiền ăn 600.000 đ. Coverage SPC-2026-AN-01 còn DRAFT ở workflow bổ sung nên học phí vẫn phải thu.</td><td class="money">0 đ</td><td class="money"><b>2.100.000 đ</b></td></tr>
+                <tr><td><b>AH-129 · Bé An</b></td><td>Mầm 3-4 tuổi</td><td>Học phí 1.500.000 đ; tiền ăn 600.000 đ. Source PREPAID đang DRAFT riêng nên chưa có coverage được phát hành; học phí vẫn phải thu.</td><td class="money">0 đ</td><td class="money"><b>2.100.000 đ</b></td></tr>
                 <tr><td><b>AH-128 · Bé Minh</b></td><td>Chồi 4-5 tuổi</td><td>Học phí 1.500.000 đ; tiền ăn 600.000 đ; nợ cũ đã được máy chủ cho phép chuyển</td><td class="money">250.000 đ</td><td class="money"><b>2.350.000 đ</b></td></tr>
                 <tr><td><b>AH-131 · Bé Lan</b></td><td>Mầm 3-4 tuổi</td><td><b>COVERED_BY_PROMOTIONAL_COVERAGE</b> · Học phí 09/2026 được bỏ qua vì coverage đã phát hành; tiền ăn 600.000 đ vẫn phải thu.</td><td class="money">0 đ</td><td class="money"><b>600.000 đ</b></td></tr>
               </tbody>
@@ -53,6 +53,26 @@
             <article class="card"><h3>Preview chuyển công nợ có thẩm quyền</h3><p><b>OBL-202608-MINH-MEAL · Tiền ăn 08/2026</b></p><p>Nguồn: Năm học <b>2025-2026</b> · đích: Năm học <b>2026-2027</b> · số tiền <b>250.000 đ</b>.</p><p class="muted">Máy chủ đã xác thực Bé Minh, Trường Ánh Hoa, số dư và chính sách chuyển công nợ trước khi đưa khoản này vào CR-202609-01; đây không phải phép gộp tự động.</p></article>
             <article class="card"><h3>Ví dụ coverage đã phát hành</h3><p><b>SPC-2026-LAN-01 · Bé Lan</b></p><p class="muted">Nguồn workflow bổ sung đã ISSUED và tất toán đầy đủ. Preview này chỉ bỏ qua học phí 09/2026 theo snapshot coverage, không bỏ qua tiền ăn.</p></article>
           </div>
+        </section>
+
+        <section>
+          <p class="eyebrow" id="prepaid">NGUỒN RIÊNG · PREPAID · SAU THỎA THUẬN TRỰC TIẾP</p>
+          <div class="route-head"><div><h2>Tạo nguồn nộp trước cho một học sinh</h2><p class="muted">Biến thể CollectionRun riêng, không thay thế wizard đợt thu tháng ở trên. Chỉ School Admin được chọn program đang hoạt động và tháng bắt đầu.</p></div><a class="button secondary" href="receivable-configuration.html">Xem catalog chương trình</a></div>
+          <ol class="steps" aria-label="Vòng đời nguồn nộp trước"><li class="current" aria-current="step">1. DRAFT · chọn Student/program/tháng</li><li>2. READY · preview máy chủ</li><li>3. GENERATED · source Invoice DRAFT</li><li>4. ISSUED → PAID → CLOSED</li></ol>
+          <div class="grid two">
+            <article class="card"><h3>Lựa chọn source DRAFT của School Admin</h3><p><b>Học sinh:</b> AH-129 · Bé An · Mầm 3-4 tuổi</p><p><b>Program đang chọn:</b> PP-6T-2026 · Nộp trước học phí 6 tháng</p><p><b>Tháng bắt đầu:</b> 09/2026 · <b>Năm học:</b> 2026-2027</p><p class="muted">Các trường chọn do máy chủ validate; không có ô nhập tay số tháng, mức giảm, eligibility hay tổng. Parent không có điểm vào chọn gói.</p><button class="button secondary" data-confirm="Yêu cầu preview nguồn PREPAID|Máy chủ kiểm tra program active, SchoolYear, các kỳ liên tiếp, receivable và overlap; lỗi trả về cạnh Student, program hoặc tháng bắt đầu để sửa rồi tải preview mới.">Tải preview nguồn</button></article>
+            <article class="card"><h3>Preview nguồn do máy chủ trả về</h3><p><span class="badge success">PREPAID · DRAFT</span> <b>CR-PP-202609-AN-01</b></p><p>Một Student, School Ánh Hoa, SchoolYear 2026-2027; calculation CALC-PP-202609-AN-R1 lúc 05/09/2026 10:12.</p><p class="metric">8.100.000 đ</p><p class="muted">Giá gốc 9.000.000 đ · giảm program 900.000 đ. Đây là preview có thẩm quyền, không phải tổng do trình duyệt tính.</p></article>
+          </div>
+          <div class="table-wrap"><table><caption>Fact cố định trong source Invoice PREPAID dự kiến</caption><thead><tr><th>Khoản thu / kỳ</th><th>Khoảng dịch vụ snapshot</th><th class="money">Giá gốc</th><th class="money">Giảm program</th><th class="money">Cần thu</th></tr></thead><tbody>
+            <tr><td>Học phí tháng 09/2026</td><td>05/09 - 30/09/2026 · CAL-AH-2026-09-R2</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td>Học phí tháng 10/2026</td><td>01/10 - 31/10/2026 · CAL-AH-2026-10-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td>Học phí tháng 11/2026</td><td>01/11 - 30/11/2026 · CAL-AH-2026-11-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td>Học phí tháng 12/2026</td><td>01/12 - 31/12/2026 · CAL-AH-2026-12-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td>Học phí tháng 01/2027</td><td>01/01 - 31/01/2027 · CAL-AH-2027-01-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+            <tr><td>Học phí tháng 02/2027</td><td>01/02 - 28/02/2027 · CAL-AH-2027-02-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
+          </tbody><tfoot><tr><th colspan="4">Tổng source Invoice máy chủ xác nhận</th><th class="money">8.100.000 đ</th></tr></tfoot></table></div>
+          <div class="notice danger"><b>Bị từ chối toàn bộ:</b> program inactive, receivable/SchoolYear không hợp lệ, kỳ overlap, context School sai hoặc client gửi total. Coverage chưa tồn tại khi source còn DRAFT hoặc ISSUED.</div>
+          <button class="button" data-idempotent-action data-action-title="Xác nhận tạo source Invoice PREPAID" data-action-label="Gửi tạo nguồn PREPAID" data-action-consequence="Máy chủ tạo Operation cho một Student, program PP-6T-2026 và tháng 09/2026; sau timeout phải GET /operations/:operationId trước khi thử lại.">Xác nhận tạo source Invoice PREPAID</button>
         </section>
 
         <section>

@@ -14,9 +14,9 @@ Các trang Admin/Nhân viên hiện chia sẻ `admin/admin-shell.js`: script `de
 | Liên kết Phụ huynh | `admin/roster/student-parent-links.html` | Bind atomic, PENDING/ACTIVE/REVOKED, không tự cấp login/role, revoke safe state và audit. |
 | Nhân sự và phân công | `admin/roster/staff-assignments.html` | Staff profile tối thiểu, login/role state tách biệt, class assignment effective-dated và lịch sử. |
 | Chuyển danh bộ | `admin/roster/roster-transition.html` | Preview server, mapping nguồn/đích, record excluded không force move, confirm idempotent và đối soát Operation. |
-| Cấu hình khoản thu | `receivable-configuration.html` | Danh mục nhóm/khoản thu, giá, rule, giảm giá, hiệu lực, trạng thái, precedence và dấu vết nguồn; quản lý `StudentPromotionalCoverage` nhiều kỳ theo Học sinh/Năm học, hóa đơn nguồn DRAFT và điều kiện chờ tất toán đủ. |
-| Tạo hóa đơn | `invoice-generation.html` | Wizard CollectionRun DRAFT → READY → GENERATED → CLOSED: cấu hình, phạm vi, preview máy chủ, phân nhóm lý do bỏ qua, xác nhận và đối soát timeout trước retry. |
-| Rà soát hóa đơn | `invoice-detail-review.html` | Hóa đơn DRAFT có dòng nghĩa vụ, override/điều chỉnh có kiểm toán, tài khoản nhận tiền và boundary phát hành; snapshot ISSUED khóa cùng chỉ dẫn handoff thu tiền tất toán chính xác. |
+| Cấu hình khoản thu | `receivable-configuration.html` | Danh mục nhóm/khoản thu, giá, rule, giảm giá, hiệu lực, trạng thái, precedence và catalog `PrepaidPaymentPromotionProgram`: receivable, kỳ hạn dương lịch cố định, giảm giá gốc, active/deactivate và audit. Coverage chỉ đọc với provenance nguồn. |
+| Tạo hóa đơn | `invoice-generation.html` | Wizard CollectionRun monthly DRAFT → READY → GENERATED → CLOSED và entry `PREPAID` riêng: School Admin chọn program active, Student và tháng bắt đầu; server trả fact nhiều kỳ, snapshot, skip/error và tổng có thẩm quyền. |
+| Rà soát hóa đơn | `invoice-detail-review.html` | Hóa đơn DRAFT có dòng nghĩa vụ, override/điều chỉnh có kiểm toán, tài khoản nhận tiền và boundary phát hành; source `PREPAID` ISSUED tách rõ exact settlement, `PAID` và coverage provenance. |
 | Phụ huynh | `parent.html` | Trang chủ phụ huynh; thẻ hôm nay; lịch sử điểm danh của trẻ; đơn xin nghỉ; thông tin thanh toán theo bản chụp; hộp thư và trạng thái an toàn khi thu hồi quyền. |
 | Vận hành nền tảng | `ops.html` | Danh sách trường; khởi tạo/chủ sở hữu ban đầu; tạm ngừng/kích hoạt lại; đối soát thao tác và trạng thái lỗi. |
 
@@ -28,7 +28,8 @@ Các trang Admin/Nhân viên hiện chia sẻ `admin/admin-shell.js`: script `de
 - Xung đột trường dữ liệu/chính sách, trạng thái quyền truy cập an toàn khi thu hồi và tối thiểu hóa dữ liệu phụ huynh.
 - Bằng chứng điểm danh bắt buộc, xung đột đơn nghỉ và không tự động tính phí đón muộn.
 - Thanh toán chính xác, khoản trả trước tường minh, ngữ cảnh điều chỉnh/hoàn tiền hai bước.
-- Coverage ưu đãi theo học sinh chỉ phát hành sau khi hóa đơn nguồn tất toán đủ; không là gói catalog hoặc lựa chọn của Phụ huynh.
+- School cấu hình program; chỉ School Admin chọn program active/tháng bắt đầu sau thỏa thuận trực tiếp. `PREPAID` source chứa fact nhiều kỳ và coverage chỉ phát hành sau exact Receipt/Allocation khiến source `PAID`; Parent không có lựa chọn gói, payment mutation hay detail coverage.
+- Partial, excess, unallocated, mixed-Student và cross-School/cross-SchoolYear settlement bị từ chối; không có Student Prepayment hay generic balance. Coverage issued giữ snapshot bất biến, thay đổi dịch vụ đi qua correction/refund review.
 
 ## Bản mẫu mốc hiện có
 
