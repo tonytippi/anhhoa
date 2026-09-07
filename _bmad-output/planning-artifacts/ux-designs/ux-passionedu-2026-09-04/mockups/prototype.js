@@ -44,7 +44,7 @@ function uuid() {
 
 function showOperation(title, operationId, key, node) {
   knownOperationId = operationId;
-  const content = `<div class="operation"><p><b>Mã thao tác:</b> <code>${operationId}</code></p><p><b>Khóa idempotency:</b> <code>${key}</code></p><p>Yêu cầu đã được gửi; kết quả có thể chưa chắc chắn. Đối soát bằng <code>GET /operations/${operationId}</code> trước khi thử lại. Nút gửi lại đã bị khóa trong mô phỏng này.</p></div>`;
+  const content = `<div class="operation"><p><b>Mã thao tác:</b> <code>${operationId}</code></p><p>Yêu cầu đã được gửi. Đang kiểm tra kết quả với hệ thống trước khi cho phép gửi lại.</p></div>`;
   if (node) {
     $('.dialog', node).innerHTML = `<h2 id="dialog-title">${title}</h2>${content}<div class="dialog-actions"><button class="button" data-close>Đã hiểu</button></div>`;
     $('[data-close]', node).addEventListener('click', node.closeDialog);
@@ -59,7 +59,7 @@ function showIdempotentConfirmation(button) {
   const consequence = button.dataset.actionConsequence;
   const action = button.dataset.actionLabel;
   const key = uuid();
-  const node = dialog(title, `<p>${consequence}</p><p><b>Khóa idempotency:</b> <code>${key}</code></p><p class="muted">Khóa này chỉ dùng cho lần gửi này.</p>`, `<button class="button" type="button" data-idempotent-submit>${action}</button>`);
+  const node = dialog(title, `<p>${consequence}</p>`, `<button class="button" type="button" data-idempotent-submit>${action}</button>`);
   $('[data-idempotent-submit]', node).addEventListener('click', event => {
     event.currentTarget.disabled = true;
     showOperation('Đã gửi thao tác', uuid(), key, node);
@@ -93,8 +93,8 @@ function bindMockActions() {
     if (!button) return;
 
     if (button.dataset.operation) {
-      const operationId = button.dataset.operation || 'OP-20260905-0812';
-      dialog('Đang đối soát kết quả', `<div class="operation"><b>Thao tác ${operationId}</b><p>Gọi GET /operations/${operationId} để máy chủ trả về kết quả đã ghi nhận. Không gửi lại thao tác cho đến khi có kết quả.</p></div>`, '<button class="button" data-close>Đã hiểu</button>');
+      const operationId = button.dataset.operation || 'thao-tac-gan-day';
+      dialog('Đang kiểm tra kết quả', `<div class="operation"><p>Hệ thống đang kiểm tra kết quả của thao tác này. Không gửi lại cho đến khi có kết quả.</p><details><summary>Thông tin đối soát</summary><p>Mã thao tác: <code>${operationId}</code></p></details></div>`, '<button class="button" data-close>Đã hiểu</button>');
       return;
     }
     if (button.dataset.schoolContext !== undefined) {
@@ -144,6 +144,17 @@ function bindMockActions() {
   $$('[data-mock-form] input, [data-mock-form] select, [data-mock-form] textarea]').forEach(field => field.addEventListener('input', () => {
     field.form.dataset.dirty = 'true';
   }));
+
+  $$('[data-static-filter]').forEach(form => {
+    const feedback = $('[data-filter-feedback]', form.parentElement);
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      feedback.textContent = 'Bản mẫu giữ nguyên 3 khoản thu; bộ lọc không tải lại trang.';
+    });
+    form.addEventListener('reset', () => {
+      window.setTimeout(() => { feedback.textContent = 'Đang hiển thị toàn bộ 3 khoản thu trong bản mẫu.'; });
+    });
+  });
 
   const summary = $('[data-focus-error-summary]');
   if (summary) summary.focus();

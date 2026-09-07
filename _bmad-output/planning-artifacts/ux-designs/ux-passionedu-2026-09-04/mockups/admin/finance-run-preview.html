@@ -1,2 +1,30 @@
-<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>PassionEdu - Preview đợt thu</title><style>body{margin:0;background:#f7f8f3;color:#18332d;font:15px Inter,Arial;max-width:1040px;padding:32px;margin:auto}.bar,.card{background:#fff;border:1px solid #d7e2dc;border-radius:12px;padding:18px;margin:16px 0}.steps{display:flex;gap:8px}.step{padding:8px 12px;border-radius:999px;background:#eef6f1}.active{background:#247a51;color:#fff}table{width:100%;border-collapse:collapse}td,th{padding:12px;text-align:left;border-bottom:1px solid #d7e2dc}.money{text-align:right;font-weight:700}button{background:#247a51;color:white;border:0;border-radius:12px;padding:12px 16px;font-weight:700}.skip{color:#80580f}</style></head><body><nav aria-label="Ngữ cảnh"><b>Ánh Hoa</b> / Đợt thu tháng 09-2026</nav><h1>Xem trước đợt thu</h1><ol class="steps" aria-label="Các bước đợt thu"><li class="step">1. Cấu hình</li><li class="step">2. Phạm vi</li><li class="step active" aria-current="step">3. Xem trước</li><li class="step">4. Tạo nháp</li></ol><section class="card" aria-labelledby="result"><h2 id="result">Kết quả do hệ thống tính</h2><p>124 học sinh đủ điều kiện · 3 bỏ qua · 1 nợ cũ được gộp</p><p><b>Tổng dự kiến: 260.450.000 đ</b> · Học phí 180.000.000 đ · Tiền ăn 78.200.000 đ · Nợ cũ 2.250.000 đ</p><p>Đã tính lúc 09:12 · Phiên bản quy tắc: 3</p><table><caption>Chi tiết preview, tổng do hệ thống tính</caption><tr><th>Học sinh</th><th>Lớp</th><th>Lý do / khoản thu</th><th class="money">Dự kiến</th></tr><tr><td>AH-128 · Bé Minh</td><td>Chồi 4-5 tuổi</td><td>Học phí, tiền ăn, nợ cũ</td><td class="money">2.350.000 đ</td></tr><tr><td>AH-129 · Bé An</td><td>Mầm 3-4 tuổi</td><td>Học phí, tiền ăn</td><td class="money">2.100.000 đ</td></tr><tr class="skip"><td>AH-130 · Bé Hà</td><td>Chồi 4-5 tuổi</td><td colspan="2">Bỏ qua: chưa ENROLLED</td></tr></table></section><p>Trước khi tạo, hệ thống sẽ yêu cầu xác nhận Ánh Hoa, tháng 09-2026, phạm vi và 124 hóa đơn nháp. Kết nối gián đoạn sẽ được đối soát bằng Operation.</p><button>Tạo 124 hóa đơn nháp</button></body></html>
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PassionEdu · Xem trước đợt thu</title>
+    <link rel="stylesheet" href="../prototype.css">
+    <script defer src="admin-shell.js"></script>
+    <script src="../prototype.js" defer></script>
+    <style>.table-wrap table { min-width: 680px; }</style>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="runs">
+      <section>
+        <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027 · THÁNG 09/2026</p>
+        <div class="route-head"><div><h1>Xem trước đợt thu</h1><p class="muted">Kết quả hệ thống trả về cho tháng 09/2026.</p></div><a class="button secondary" href="receivable-configuration.html">Khoản thu</a></div>
+        <ol class="steps"><li>1. Cấu hình</li><li>2. Phạm vi</li><li class="current" aria-current="step">3. Xem trước</li><li>4. Tạo hóa đơn</li></ol>
+      </section>
+      <section>
+        <div class="summary"><div class="grid three"><div><p class="muted">Học sinh đủ điều kiện</p><b class="metric">124</b></div><div><p class="muted">Học sinh bỏ qua</p><b class="metric amber">3</b></div><div><p class="muted">Tổng dự kiến</p><b class="metric">260.450.000 đ</b></div></div><p class="muted">Học phí 180.000.000 đ · Tiền ăn 78.200.000 đ · Nợ cũ 250.000 đ · Cập nhật lúc 09:12.</p></div>
+        <div class="table-wrap"><table><caption>Chi tiết xem trước</caption><thead><tr><th scope="col">Học sinh</th><th scope="col">Lớp</th><th scope="col">Khoản thu / lý do</th><th class="money" scope="col">Dự kiến</th></tr></thead><tbody><tr><td><b>Bé Minh</b></td><td>Chồi 4-5 tuổi</td><td>Học phí, tiền ăn, nợ cũ</td><td class="money">2.350.000 đ</td></tr><tr><td><b>Bé An</b></td><td>Mầm 3-4 tuổi</td><td>Học phí, tiền ăn</td><td class="money">2.100.000 đ</td></tr><tr><td><b>Bé Hà</b></td><td>Chồi 4-5 tuổi</td><td>Chưa ghi danh cho kỳ này</td><td class="money">Chưa tạo</td></tr><tr><td><b>Bé Huy</b></td><td>Mầm 3-4 tuổi</td><td>Thiếu khoản thu có hiệu lực</td><td class="money">Chưa tạo</td></tr><tr><td><b>Bé Mai</b></td><td>Chồi 4-5 tuổi</td><td>Thông tin cần kiểm tra lại</td><td class="money">Chưa tạo</td></tr></tbody></table></div>
+        <div class="notice info">Khoản nộp trước chỉ miễn đúng khoản thu và kỳ đã chốt sau khi thanh toán đủ.</div>
+        <div class="notice warning"><b>Nếu hết thời gian chờ:</b> đang kiểm tra kết quả với hệ thống. Không gửi lại trước khi có kết quả.</div>
+        <button class="button" type="button" data-idempotent-action data-action-title="Tạo 124 hóa đơn nháp" data-action-label="Gửi tạo hóa đơn" data-action-consequence="Hệ thống tạo hóa đơn nháp từ kết quả này. Nếu quá thời gian chờ, hãy kiểm tra kết quả trước khi gửi lại.">Tạo 124 hóa đơn nháp</button>
+        <p class="muted">Đợt thu chỉ đóng khi không còn hóa đơn nháp và mọi hóa đơn đã được xử lý.</p>
+        <details class="card"><summary>Thông tin đối soát</summary><p>Mã học sinh: AH-128, AH-129, AH-130 · Mã đợt thu: CR-202609-01 · Mã thao tác: OP-20260905-0913</p></details>
+      </section>
+    </div>
+  </body>
+</html>

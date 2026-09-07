@@ -1,49 +1,130 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>PassionEdu · Cấu hình khoản thu</title>
-    <link rel="stylesheet" href="../prototype.css" />
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PassionEdu · Khoản thu</title>
+    <link rel="stylesheet" href="../prototype.css">
     <script defer src="admin-shell.js"></script>
     <script src="../prototype.js" defer></script>
   </head>
   <body>
     <div data-admin-shell data-admin-route="receivables">
-        <section>
-          <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027</p>
-          <div class="route-head"><div><h1>Cấu hình khoản thu</h1><p class="muted">Danh mục, giá và quy tắc chỉ dùng khi máy chủ xác nhận cho kỳ mới; không tự tạo phí từ điểm danh hoặc bàn giao.</p></div><a class="button" href="invoice-generation.html">Tạo đợt thu tháng 09/2026</a></div>
-          <div class="notice info"><b>Nguồn dữ liệu và kiểm tra máy chủ:</b> Phiên bản cấu hình FIN-2026-09-03. Mọi phạm vi, ngày hiệu lực, thứ tự ưu tiên và trùng lặp được máy chủ xác nhận theo Trường Ánh Hoa.</div>
-        </section>
-        <section>
-          <div class="route-head"><div><h2>Danh mục và khoản thu</h2><p class="muted">Các khoản thu thuộc Trường Ánh Hoa; mã và trạng thái do máy chủ lưu vết.</p></div><button class="button secondary" data-confirm="Thêm khoản thu|Máy chủ kiểm tra nhóm danh mục, loại tính và ngày hiệu lực trước khi lưu.">Thêm khoản thu</button></div>
-          <div class="table-wrap"><table><caption>Danh mục khoản thu và nguồn cấu hình hiện hành</caption><thead><tr><th>Nhóm</th><th>Khoản thu</th><th>Loại tính</th><th>Nguồn / người cập nhật</th><th>Trạng thái</th></tr></thead><tbody>
-            <tr><td><b>Học tập</b><br><span class="muted">CAT-LEARN</span></td><td><b>Học phí tháng</b><br><span class="muted">RCV-TUITION</span></td><td>Giá cố định theo tháng</td><td>FIN-2026-09-03<br><span class="muted">Hoa Nguyễn · 03/09/2026 16:20</span></td><td><span class="badge success">Đang hoạt động</span></td></tr>
-            <tr><td><b>Bữa ăn</b><br><span class="muted">CAT-MEAL</span></td><td><b>Tiền ăn tháng</b><br><span class="muted">RCV-MEAL</span></td><td>Giá cố định theo tháng</td><td>FIN-2026-09-03<br><span class="muted">Minh Trần · 03/09/2026 16:25</span></td><td><span class="badge success">Đang hoạt động</span></td></tr>
-          </tbody></table></div>
-        </section>
-        <section>
-          <div class="route-head"><div><h2>Giá, quy tắc và giảm giá</h2><p class="muted">Thứ tự ưu tiên được máy chủ xác nhận: Học sinh, Lớp, rồi Trường. Một quy tắc cùng mức ưu tiên bị từ chối.</p></div><button class="button secondary" data-confirm="Tạo quy tắc giá|Máy chủ kiểm tra khoảng hiệu lực, mức ưu tiên và phạm vi trước khi tạo phiên bản.">Tạo quy tắc giá</button></div>
-          <div class="table-wrap"><table><caption>Quy tắc áp dụng cho tháng 09/2026; số tiền là VND nguyên do máy chủ trả về</caption><thead><tr><th>Khoản thu / quy tắc</th><th>Phạm vi và ưu tiên</th><th>Hiệu lực</th><th class="money">Giá snapshot khi lập hóa đơn</th><th>Giảm giá</th><th>Kết quả máy chủ</th></tr></thead><tbody>
-            <tr><td><b>Học phí tháng</b><br><span class="muted">RULE-TP-09-SCHOOL</span></td><td>Toàn Trường Ánh Hoa<br><b>Ưu tiên 3</b></td><td>01/09/2026 - 31/12/2026</td><td class="money">1.500.000 đ</td><td>Không có</td><td><span class="badge success">Đang áp dụng</span></td></tr>
-            <tr><td><b>Tiền ăn tháng</b><br><span class="muted">RULE-MEAL-MAM</span></td><td>Lớp Mầm 3-4 tuổi<br><b>Ưu tiên 2</b></td><td>01/09/2026 - 30/09/2026</td><td class="money">600.000 đ</td><td>Không có</td><td><span class="badge success">Đang áp dụng</span></td></tr>
-            <tr><td><b>Học phí tháng</b><br><span class="muted">RULE-TP-AN</span></td><td>AH-129 · Bé An<br><b>Ưu tiên 1</b></td><td>01/09/2026 - 30/11/2026</td><td class="money">1.500.000 đ</td><td>Không có</td><td><span class="badge success">Đang áp dụng</span></td></tr>
-          </tbody></table></div>
-        </section>
-        <section>
-          <p class="eyebrow">CHƯƠNG TRÌNH NỘP TRƯỚC · THỎA THUẬN TRỰC TIẾP</p>
-          <div class="route-head"><div><h2>Chương trình khuyến mại nộp trước</h2><p class="muted">Chỉ <b>School Admin</b> chọn chương trình đang hoạt động và tháng bắt đầu sau thỏa thuận trực tiếp. Chương trình không cộng dồn DiscountPolicy; coverage không được tạo tại đây.</p></div><button class="button secondary" data-idempotent-action data-action-title="Lưu chương trình nộp trước" data-action-label="Gửi lưu program" data-action-consequence="Máy chủ kiểm tra School, receivable, kỳ hạn cố định, mức giảm trên giá gốc và audit trước khi tạo hoặc cập nhật program.">Lưu program</button></div>
-          <p><a class="button" href="invoice-generation.html#prepaid">Tạo nguồn PREPAID</a></p>
-          <div class="table-wrap"><table><caption>Catalog PrepaidPaymentPromotionProgram của Trường Ánh Hoa</caption><thead><tr><th>Chương trình</th><th>Khoản thu áp dụng</th><th>Kỳ hạn cố định</th><th>Giảm trên giá gốc</th><th>Hiệu lực / audit</th><th>Trạng thái</th></tr></thead><tbody>
-            <tr><td><b>PP-6T-2026 · Nộp trước học phí 6 tháng</b></td><td>Học phí tháng<br><span class="muted">RCV-TUITION</span></td><td><b>6 tháng dương lịch liên tiếp</b></td><td>10% giá gốc mỗi fact; máy chủ chặn fact âm</td><td>01/09/2026 - 28/02/2027<br><span class="muted">Hoa Nguyễn · 05/09/2026 10:08</span></td><td><span class="badge success">Đang hoạt động</span></td></tr>
-            <tr><td><b>PP-3T-2026 · Nộp trước học phí 3 tháng</b></td><td>Học phí tháng<br><span class="muted">RCV-TUITION</span></td><td><b>3 tháng dương lịch liên tiếp</b></td><td>300.000 đ trên mỗi kỳ giá gốc</td><td>Đã dừng từ 01/09/2026<br><span class="muted">Minh Trần · 31/08/2026 17:02</span></td><td><span class="badge neutral">Ngừng áp dụng</span></td></tr>
-          </tbody></table></div>
-          <div class="notice warning"><b>Điều kiện tạo nguồn:</b> program ngừng áp dụng không thể được chọn cho source Invoice mới. Máy chủ kiểm tra School, SchoolYear, receivable, các kỳ liên tiếp, overlap và quyền School Admin; trình duyệt không nhập số tháng, mức giảm hoặc tổng tiền. Kết quả không hợp lệ trả lỗi cạnh program/tháng bắt đầu để sửa hoặc tải lại preview.</div>
-          <div class="grid two">
-            <article class="card"><h3>Coverage đã phát hành: chỉ đọc</h3><p><b>SPC-2026-LAN-01 · AH-131 · Bé Lan</b> · <span class="badge success">ISSUED</span></p><p>Snapshot PP-3T-2026 · học phí 09-11/2026 · giá gốc, giảm trừ, khoảng dịch vụ, lịch và timezone đã khóa.</p><p class="muted">Provenance: MH-PP-2026-LAN-001 đã PAID bằng Receipt RCPT-202609-031 và Allocation ALLOC-202609-031. Monthly run chỉ bỏ qua đúng fact đã coverage.</p></article>
-            <article class="card"><h3>Đổi dịch vụ hoặc hoàn tiền</h3><p>Catalog, lớp hoặc dịch vụ thay đổi không tự chuyển coverage đã phát hành.</p><p class="muted">School Admin/Finance mở correction hoặc refund review theo snapshot, ngày vận hành còn lại, nguồn Invoice/Receipt và audit policy. Không sửa lịch sử coverage.</p></article>
+      <section>
+        <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027</p>
+        <div class="route-head">
+          <div>
+            <h1>Khoản thu</h1>
+            <p class="muted">Quản lý khoản thu theo nhóm và đơn giá áp dụng.</p>
           </div>
-        </section>
+          <div>
+            <a class="button secondary" href="invoice-generation.html">Tạo đợt thu tháng 09/2026</a>
+            <button class="button" type="button" data-idempotent-action data-action-title="Thêm khoản thu" data-action-label="Gửi tạo khoản thu" data-action-consequence="Hệ thống kiểm tra thông tin trước khi tạo. Nếu quá thời gian chờ, hãy kiểm tra kết quả trước khi gửi lại.">Thêm khoản thu</button>
+          </div>
+        </div>
+        <div class="notice info">Dữ liệu cập nhật · Ánh Hoa · Năm học 2026-2027</div>
+      </section>
+
+      <section>
+        <div class="route-head">
+          <div><h2>Danh sách khoản thu</h2><p class="muted">3 khoản thu · 3 nhóm</p></div>
+          <span class="badge neutral">3 kết quả</span>
+        </div>
+        <form class="filters" data-static-filter aria-label="Tìm và lọc khoản thu">
+          <label class="filter">Tìm kiếm<input type="search" placeholder="Tìm tên khoản thu" aria-label="Tìm tên khoản thu"></label>
+          <label class="filter">Nhóm<select aria-label="Lọc theo nhóm"><option>Tất cả nhóm</option><option>Học tập</option><option>Bữa ăn</option><option>Dịch vụ bổ trợ</option></select></label>
+          <label class="filter">Trạng thái<select aria-label="Lọc theo trạng thái"><option>Tất cả trạng thái</option><option>Đang hoạt động</option><option>Ngừng áp dụng</option></select></label>
+          <label class="filter">Đơn vị<select aria-label="Lọc theo loại tính"><option>Tất cả đơn vị</option><option>Theo tháng</option></select></label>
+          <label class="filter">Sắp xếp<select aria-label="Sắp xếp danh sách"><option>Nhóm, tên khoản thu</option><option>Tên khoản thu A-Z</option><option>Mới cập nhật nhất</option></select></label>
+          <button class="button secondary" type="submit">Áp dụng bộ lọc</button>
+          <button class="button secondary" type="reset">Xóa bộ lọc</button>
+        </form>
+        <p class="muted" data-filter-feedback role="status" aria-live="polite">Đang hiển thị toàn bộ 3 khoản thu trong bản mẫu.</p>
+        <p class="muted">Sắp xếp: Nhóm, tên khoản thu · Giá áp dụng cho kỳ mới 09/2026.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Danh sách khoản thu</caption>
+            <thead><tr><th scope="col">Tên khoản thu</th><th scope="col">Đơn vị</th><th class="money" scope="col">Đơn giá</th><th scope="col">Quy tắc</th><th scope="col">Hiệu lực</th><th scope="col">Trạng thái</th><th scope="col">Cập nhật</th><th scope="col">Tùy chọn</th></tr></thead>
+            <tbody>
+              <tr><th colspan="8" scope="rowgroup">Học tập · 1 khoản thu</th></tr>
+              <tr>
+                <td><b>Học phí tháng</b></td>
+                <td>Theo tháng</td>
+                <td class="money"><b>1.500.000 đ</b></td>
+                <td>3 quy tắc</td>
+                <td>01/09/2026 - 31/12/2026</td>
+                <td><span class="badge success">Đang hoạt động</span></td>
+                <td>Hoa Nguyễn<br><span class="muted">03/09/2026 16:20</span></td>
+                <td><a class="button secondary" href="#rules-tuition">Xem chi tiết</a><br><button class="button secondary" type="button" data-idempotent-action data-action-title="Sửa Học phí tháng" data-action-label="Lưu thay đổi" data-action-consequence="Máy chủ kiểm tra dữ liệu trước khi lưu. Nếu quá thời gian chờ, kiểm tra mã thao tác trước khi gửi lại.">Sửa</button></td>
+              </tr>
+            </tbody>
+            <tbody>
+              <tr><th colspan="8" scope="rowgroup">Bữa ăn · 1 khoản thu</th></tr>
+              <tr>
+                <td><b>Tiền ăn tháng</b></td>
+                <td>Theo tháng</td>
+                <td class="money"><b>600.000 đ</b></td>
+                <td>1 quy tắc</td>
+                <td>01/09/2026 - 30/09/2026</td>
+                <td><span class="badge success">Đang hoạt động</span></td>
+                <td>Minh Trần<br><span class="muted">03/09/2026 16:25</span></td>
+                <td><a class="button secondary" href="#rules-meal">Xem chi tiết</a><br><button class="button secondary" type="button" data-idempotent-action data-action-title="Sửa Tiền ăn tháng" data-action-label="Lưu thay đổi" data-action-consequence="Máy chủ kiểm tra dữ liệu trước khi lưu. Nếu quá thời gian chờ, kiểm tra mã thao tác trước khi gửi lại.">Sửa</button></td>
+              </tr>
+            </tbody>
+            <tbody>
+              <tr><th colspan="8" scope="rowgroup">Dịch vụ bổ trợ · 1 khoản thu</th></tr>
+              <tr>
+                <td><b>Câu lạc bộ cuối tuần</b></td>
+                <td>Theo tháng</td>
+                <td class="money"><b>400.000 đ</b></td>
+                <td>1 quy tắc</td>
+                <td>01/01/2026 - 31/05/2026</td>
+                <td><span class="badge neutral">Ngừng áp dụng</span></td>
+                <td>Hoa Nguyễn<br><span class="muted">31/05/2026 17:30</span></td>
+                <td><a class="button secondary" href="#rules-club">Xem chi tiết</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <nav aria-label="Phân trang khoản thu"><p>Hiển thị 1-3 trên 3 · <button class="button secondary" type="button" disabled>Trước</button> <button class="button secondary" type="button" disabled>Sau</button></p></nav>
+        <details class="card">
+          <summary><b>Trạng thái khác</b></summary>
+          <p><b>Ví dụ đang tải:</b> Đang tải danh sách khoản thu.</p>
+          <p><b>Ví dụ không có dữ liệu:</b> Không tìm thấy khoản thu phù hợp.</p>
+          <p><b>Ví dụ lỗi tải dữ liệu:</b> Không thể tải danh sách. Thử lại.</p>
+          <p><b>Ví dụ không có quyền:</b> Bạn không có quyền xem khoản thu của trường này.</p>
+        </details>
+      </section>
+
+      <section>
+        <div class="route-head"><div><h2>Quy tắc tính phí</h2><p class="muted">Chi tiết theo từng khoản thu.</p></div><button class="button secondary" type="button" data-idempotent-action data-action-title="Thêm quy tắc" data-action-label="Lưu quy tắc" data-action-consequence="Máy chủ kiểm tra dữ liệu trước khi lưu. Nếu quá thời gian chờ, kiểm tra mã thao tác trước khi gửi lại.">Thêm quy tắc</button></div>
+        <details class="card" id="rules-tuition" open>
+          <summary><b>Học phí tháng · 3 quy tắc</b></summary>
+          <div class="table-wrap"><table><caption>Quy tắc học phí tháng</caption><thead><tr><th scope="col">Phạm vi</th><th scope="col">Ưu tiên</th><th scope="col">Hiệu lực</th><th class="money" scope="col">Đơn giá</th><th scope="col">Giảm giá</th><th scope="col">Cập nhật</th></tr></thead><tbody>
+            <tr><td>Bé An</td><td>1</td><td>01/09 - 30/11/2026</td><td class="money">1.500.000 đ</td><td>Không có</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
+            <tr><td>Lớp Mầm 3-4 tuổi</td><td>2</td><td>01/09 - 31/12/2026</td><td class="money">1.500.000 đ</td><td>Giảm 100.000 đ</td><td>Minh Trần · 03/09/2026</td></tr>
+            <tr><td>Toàn trường</td><td>3</td><td>01/09 - 31/12/2026</td><td class="money">1.500.000 đ</td><td>Không có</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
+          </tbody></table></div>
+          <p class="notice warning">Quy tắc mới chỉ áp dụng cho kỳ mới. Hóa đơn đã phát hành không thay đổi.</p>
+          <details><summary>Thông tin đối soát</summary><p>Mã học sinh: AH-129</p></details>
+        </details>
+        <details class="card" id="rules-meal"><summary><b>Tiền ăn tháng · 1 quy tắc</b></summary><p>Lớp Mầm 3-4 tuổi · Ưu tiên 2 · 01/09 - 30/09/2026 · <span class="money">600.000 đ</span></p></details>
+        <details class="card" id="rules-club"><summary><b>Câu lạc bộ cuối tuần · Quy tắc cũ</b></summary><p>Toàn trường · Ưu tiên 3 · Kết thúc 31/05/2026 · <span class="money">400.000 đ</span></p></details>
+      </section>
+
+      <section>
+        <p class="eyebrow">NỘP TRƯỚC</p>
+        <div class="route-head"><div><h2>Chương trình nộp trước</h2><p class="muted">Dành cho quản trị viên trường.</p></div><div><button class="button secondary" type="button" data-idempotent-action data-action-title="Lưu chương trình nộp trước" data-action-label="Lưu chương trình" data-action-consequence="Máy chủ kiểm tra thông tin trước khi lưu. Nếu quá thời gian chờ, kiểm tra mã thao tác trước khi gửi lại.">Lưu chương trình</button> <a class="button" href="invoice-generation.html#prepaid">Tạo nguồn nộp trước</a></div></div>
+        <div class="table-wrap"><table><caption>Chương trình nộp trước</caption><thead><tr><th>Chương trình</th><th>Khoản thu</th><th>Thời hạn</th><th>Ưu đãi</th><th>Hiệu lực</th><th>Trạng thái</th></tr></thead><tbody>
+          <tr><td><b>Nộp trước học phí 6 tháng</b></td><td>Học phí tháng</td><td>6 tháng</td><td>Giảm 10%</td><td>01/09/2026 - 28/02/2027</td><td><span class="badge success">Đang hoạt động</span></td></tr>
+          <tr><td><b>Nộp trước học phí 3 tháng</b></td><td>Học phí tháng</td><td>3 tháng</td><td>Giảm 300.000 đ/kỳ</td><td>Kết thúc 01/09/2026</td><td><span class="badge neutral">Ngừng áp dụng</span></td></tr>
+        </tbody></table></div>
+        <div class="notice warning">Chương trình ngừng áp dụng không dùng để tạo nguồn mới.</div>
+        <div class="grid two">
+          <article class="card"><h3>Đã áp dụng nộp trước</h3><p><b>Bé Lan · Học phí 09-11/2026</b> · <span class="badge success">Đã áp dụng</span></p><p class="muted">Áp dụng sau khi thanh toán đủ. Thông tin đã chốt, không sửa trực tiếp.</p></article>
+          <article class="card"><h3>Điều chỉnh, hoàn tiền</h3><p>Thay đổi dịch vụ không tự cập nhật khoản nộp trước.</p><p class="muted">Đối chiếu thông tin đã chốt và chứng từ thanh toán trước khi xử lý.</p></article>
+        </div>
+      </section>
     </div>
   </body>
 </html>

@@ -132,7 +132,7 @@ components:
 
 ## Brand & Style
 
-PassionEdu is calm and trustworthy around children, while remaining exact around attendance, permissions and money. Platform identity is neutral; selected School identity may appear as name, logo and restrained accent, never as a replacement for visible School context. Parent welcome and empty states may use gentle original kindergarten illustrations. Operational controls, finance tables and destructive actions stay sober and legible.
+PassionEdu is calm and trustworthy around children, while remaining exact around attendance, permissions and money. Platform identity is neutral; selected School identity may appear as name, logo and restrained accent, never as a replacement for visible School context. Parent welcome and empty states may use gentle original kindergarten illustrations. Operational controls, finance tables and destructive actions stay sober and legible. Management screens favor direct visual hierarchy, short Vietnamese labels and familiar data-table patterns over explanatory prose.
 
 ## Colors
 
@@ -171,6 +171,7 @@ Use {rounded.md} for inputs, buttons and operational cards; {rounded.lg} for Par
 - **Review stepper** — `{components.review-stepper}` renders numbered workflow stages with text current/completed/blocked state; inactive stage is not an affordance unless navigation is permitted.
 - **Settlement control** — `{components.settlement-control}` has immutable source facts above editable allocation/refund fields, server-returned available amount and explicit pending/approved/posted/refused states.
 - **Attendance control** — `{components.attendance-control}` presents text status, policy-required evidence state, disabled/permission state, conflict explanation and server-confirmed update time.
+- **Management list** — management surfaces default to `{components.data-table}` for records that need comparison, filtering or per-row actions. Use concise Vietnamese headers such as `Tên`, `Nhóm`, `Đơn giá`, `Trạng thái` and `Tùy chọn`; reserve cards for summaries, decisions and non-tabular content.
 
 Interactive controls use `{colors.focus-ring}` as a visible 3px focus ring on `{colors.surface}` and `{colors.canvas}`. Hover uses `{colors.hover-surface}` only with the same text label. Disabled controls use `{colors.disabled-surface}` and `{colors.disabled-ink}`, retain semantic disabled state, and do not become the only way to explain unavailable action. Status pairs are fixed: success `{colors.status-success-background}` / `{colors.status-success-foreground}`, warning `{colors.status-warning-background}` / `{colors.status-warning-foreground}`, danger `{colors.status-danger-background}` / `{colors.status-danger-foreground}`, info `{colors.status-info-background}` / `{colors.status-info-foreground}`. All normal text pairs, including `{colors.primary}` with `{colors.primary-foreground}`, meet 4.5:1; focus indicators meet 3:1 against adjacent surface.
 - **Illustration panel** — `{components.illustration-panel}` contains original, non-identifying child/school imagery only for Parent welcome, empty or signed-out surfaces.
@@ -185,3 +186,5 @@ Interactive controls use `{colors.focus-ring}` as a visible 3px focus ring on `{
 | Keep interactive foreground/background at WCAG AA text contrast | Use `{colors.primary}` as small text on white without checking contrast |
 | Format VND whole amounts with clear hierarchy | Make client-estimated totals look authoritative |
 | Keep Parent cards focused on one child/date action | Expose class lists, Staff identity or evidence media |
+| Use short Vietnamese labels and familiar actions on operational screens | Show English labels, internal identifiers or implementation terms by default |
+| Use tables for management lists with filters, status and row actions | Turn a record-management task into a long stack of explanatory cards |

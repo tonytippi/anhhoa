@@ -1,86 +1,48 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>PassionEdu · Tạo đợt thu</title>
-    <link rel="stylesheet" href="../prototype.css" />
+    <link rel="stylesheet" href="../prototype.css">
     <script defer src="admin-shell.js"></script>
     <script src="../prototype.js" defer></script>
   </head>
   <body>
     <div data-admin-shell data-admin-route="runs">
-        <section>
-          <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027 · THÁNG 09/2026</p>
-          <div class="route-head">
-            <div><h1>Đợt thu CR-202609-01</h1><p class="muted">Trạng thái <span class="badge success">READY</span> · Preview và tổng tiền là kết quả máy chủ xác nhận.</p></div>
-            <a class="button secondary" href="receivable-configuration.html">Quay lại cấu hình khoản thu</a>
-          </div>
-          <ol class="steps" aria-label="Bốn bước tạo đợt thu"><li>1. Cấu hình</li><li>2. Phạm vi</li><li class="current" aria-current="step">3. Xem trước máy chủ</li><li>4. Tạo hóa đơn nháp</li></ol>
-          <div class="notice info"><b>Vòng đời đợt thu:</b> <b>DRAFT → READY → GENERATED → CLOSED</b>. Máy chủ chỉ cho đóng khi mọi hóa đơn thuộc CR-202609-01 là <b>ISSUED</b>, <b>PAID</b> hoặc <b>VOIDED</b>; bất kỳ hóa đơn <b>DRAFT</b> nào cũng chặn đóng đợt thu.</div>
-        </section>
-
-        <section>
-          <div class="route-head"><div><h2>Phạm vi do máy chủ chốt</h2><p class="muted">Danh bộ, lớp đang hoạt động, quy tắc và coverage được kiểm tra tại thời điểm preview.</p></div><button class="button secondary" data-operation="OP-20260905-0912">Đối soát thao tác</button></div>
-          <div class="table-wrap">
-            <table>
-              <caption>Phạm vi và thành phần có thẩm quyền trong CR-202609-01</caption>
-              <thead><tr><th>Đối tượng</th><th>Điều kiện đã kiểm tra</th><th>Khoản thu được xét</th><th>Nợ cũ</th><th>Kết quả</th></tr></thead>
-              <tbody>
-                <tr><td>124 học sinh đang theo học</td><td>Ghi danh thuộc năm học; lớp hoạt động; có quy tắc hiệu lực</td><td>Học phí tháng, tiền ăn tháng</td><td>Được lấy từ sổ cái theo từng học sinh</td><td><span class="badge success">Đủ phạm vi</span></td></tr>
-                <tr><td>3 học sinh bị bỏ qua</td><td>Xem nhóm lý do trong preview</td><td>Không tạo dòng thay thế tại trình duyệt</td><td>Không tự gộp vào hóa đơn khác</td><td><span class="badge warning">Cần xử lý nguồn</span></td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <div class="route-head"><div><h2>Preview máy chủ</h2><p class="muted">Tính lúc <b>05/09/2026 09:12:44</b> · Phiên bản tính <b>CALC-CR-202609-01-R3</b> · lịch CAL-AH-2026-09-R2.</p></div><span class="badge success">READY</span></div>
-          <div class="summary"><div class="grid three"><div><p class="muted">Hóa đơn nháp dự kiến</p><b class="metric">124</b></div><div><p class="muted">Học sinh bị bỏ qua</p><b class="metric amber">3</b></div><div><p class="muted">Tổng dự kiến máy chủ trả về</p><b class="metric">260.450.000 đ</b></div></div><p class="muted">Mỗi số tiền và tổng dưới đây là dữ liệu preview có thẩm quyền; trình duyệt không tính hoặc tự thay đổi kết quả.</p></div>
-          <div class="table-wrap">
-            <table>
-              <caption>Ví dụ hóa đơn nháp dự kiến do máy chủ trả về</caption>
-              <thead><tr><th>Học sinh</th><th>Lớp</th><th>Thành phần có thẩm quyền</th><th class="money">Nợ cũ</th><th class="money">Tổng dự kiến</th></tr></thead>
-              <tbody>
-                <tr><td><b>AH-129 · Bé An</b></td><td>Mầm 3-4 tuổi</td><td>Học phí 1.500.000 đ; tiền ăn 600.000 đ. Source PREPAID đang DRAFT riêng nên chưa có coverage được phát hành; học phí vẫn phải thu.</td><td class="money">0 đ</td><td class="money"><b>2.100.000 đ</b></td></tr>
-                <tr><td><b>AH-128 · Bé Minh</b></td><td>Chồi 4-5 tuổi</td><td>Học phí 1.500.000 đ; tiền ăn 600.000 đ; nợ cũ đã được máy chủ cho phép chuyển</td><td class="money">250.000 đ</td><td class="money"><b>2.350.000 đ</b></td></tr>
-                <tr><td><b>AH-131 · Bé Lan</b></td><td>Mầm 3-4 tuổi</td><td><b>COVERED_BY_PROMOTIONAL_COVERAGE</b> · Học phí 09/2026 được bỏ qua vì coverage đã phát hành; tiền ăn 600.000 đ vẫn phải thu.</td><td class="money">0 đ</td><td class="money"><b>600.000 đ</b></td></tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="notice info"><b>Hai kết quả loại trừ nhau:</b> coverage đang chờ nguồn tất toán không loại trừ khoản thu trong đợt hiện tại. Chỉ snapshot coverage đã phát hành mới bỏ qua đúng khoản phải thu-kỳ được bao phủ; các khoản khác của cùng học sinh vẫn được lập hóa đơn.</div>
-          <div class="grid two">
-            <article class="card"><h3>Preview chuyển công nợ có thẩm quyền</h3><p><b>OBL-202608-MINH-MEAL · Tiền ăn 08/2026</b></p><p>Nguồn: Năm học <b>2025-2026</b> · đích: Năm học <b>2026-2027</b> · số tiền <b>250.000 đ</b>.</p><p class="muted">Máy chủ đã xác thực Bé Minh, Trường Ánh Hoa, số dư và chính sách chuyển công nợ trước khi đưa khoản này vào CR-202609-01; đây không phải phép gộp tự động.</p></article>
-            <article class="card"><h3>Ví dụ coverage đã phát hành</h3><p><b>SPC-2026-LAN-01 · Bé Lan</b></p><p class="muted">Nguồn workflow bổ sung đã ISSUED và tất toán đầy đủ. Preview này chỉ bỏ qua học phí 09/2026 theo snapshot coverage, không bỏ qua tiền ăn.</p></article>
-          </div>
-        </section>
-
-        <section>
-          <p class="eyebrow" id="prepaid">NGUỒN RIÊNG · PREPAID · SAU THỎA THUẬN TRỰC TIẾP</p>
-          <div class="route-head"><div><h2>Tạo nguồn nộp trước cho một học sinh</h2><p class="muted">Biến thể CollectionRun riêng, không thay thế wizard đợt thu tháng ở trên. Chỉ School Admin được chọn program đang hoạt động và tháng bắt đầu.</p></div><a class="button secondary" href="receivable-configuration.html">Xem catalog chương trình</a></div>
-          <ol class="steps" aria-label="Vòng đời nguồn nộp trước"><li class="current" aria-current="step">1. DRAFT · chọn Student/program/tháng</li><li>2. READY · preview máy chủ</li><li>3. GENERATED · source Invoice DRAFT</li><li>4. ISSUED → PAID → CLOSED</li></ol>
-          <div class="grid two">
-            <article class="card"><h3>Lựa chọn source DRAFT của School Admin</h3><p><b>Học sinh:</b> AH-129 · Bé An · Mầm 3-4 tuổi</p><p><b>Program đang chọn:</b> PP-6T-2026 · Nộp trước học phí 6 tháng</p><p><b>Tháng bắt đầu:</b> 09/2026 · <b>Năm học:</b> 2026-2027</p><p class="muted">Các trường chọn do máy chủ validate; không có ô nhập tay số tháng, mức giảm, eligibility hay tổng. Parent không có điểm vào chọn gói.</p><button class="button secondary" data-confirm="Yêu cầu preview nguồn PREPAID|Máy chủ kiểm tra program active, SchoolYear, các kỳ liên tiếp, receivable và overlap; lỗi trả về cạnh Student, program hoặc tháng bắt đầu để sửa rồi tải preview mới.">Tải preview nguồn</button></article>
-            <article class="card"><h3>Preview nguồn do máy chủ trả về</h3><p><span class="badge success">PREPAID · DRAFT</span> <b>CR-PP-202609-AN-01</b></p><p>Một Student, School Ánh Hoa, SchoolYear 2026-2027; calculation CALC-PP-202609-AN-R1 lúc 05/09/2026 10:12.</p><p class="metric">8.100.000 đ</p><p class="muted">Giá gốc 9.000.000 đ · giảm program 900.000 đ. Đây là preview có thẩm quyền, không phải tổng do trình duyệt tính.</p></article>
-          </div>
-          <div class="table-wrap"><table><caption>Fact cố định trong source Invoice PREPAID dự kiến</caption><thead><tr><th>Khoản thu / kỳ</th><th>Khoảng dịch vụ snapshot</th><th class="money">Giá gốc</th><th class="money">Giảm program</th><th class="money">Cần thu</th></tr></thead><tbody>
-            <tr><td>Học phí tháng 09/2026</td><td>05/09 - 30/09/2026 · CAL-AH-2026-09-R2</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
-            <tr><td>Học phí tháng 10/2026</td><td>01/10 - 31/10/2026 · CAL-AH-2026-10-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
-            <tr><td>Học phí tháng 11/2026</td><td>01/11 - 30/11/2026 · CAL-AH-2026-11-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
-            <tr><td>Học phí tháng 12/2026</td><td>01/12 - 31/12/2026 · CAL-AH-2026-12-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
-            <tr><td>Học phí tháng 01/2027</td><td>01/01 - 31/01/2027 · CAL-AH-2027-01-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
-            <tr><td>Học phí tháng 02/2027</td><td>01/02 - 28/02/2027 · CAL-AH-2027-02-R1 · Asia/Ho_Chi_Minh</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr>
-          </tbody><tfoot><tr><th colspan="4">Tổng source Invoice máy chủ xác nhận</th><th class="money">8.100.000 đ</th></tr></tfoot></table></div>
-          <div class="notice danger"><b>Bị từ chối toàn bộ:</b> program inactive, receivable/SchoolYear không hợp lệ, kỳ overlap, context School sai hoặc client gửi total. Coverage chưa tồn tại khi source còn DRAFT hoặc ISSUED.</div>
-          <button class="button" data-idempotent-action data-action-title="Xác nhận tạo source Invoice PREPAID" data-action-label="Gửi tạo nguồn PREPAID" data-action-consequence="Máy chủ tạo Operation cho một Student, program PP-6T-2026 và tháng 09/2026; sau timeout phải GET /operations/:operationId trước khi thử lại.">Xác nhận tạo source Invoice PREPAID</button>
-        </section>
-
-        <section>
-          <div class="route-head"><div><h2>Tạo hóa đơn nháp</h2><p class="muted">Hành động tạo Operation có Idempotency-Key do ứng dụng gửi.</p></div><span class="badge warning">Chờ xác nhận</span></div>
-          <div class="notice warning"><b>Nếu hết thời gian chờ:</b> giữ mã thao tác <b>OP-20260905-0913</b>, gọi <b>GET /operations/OP-20260905-0913</b> để đối soát trước khi thử lại. Timeout không đồng nghĩa thao tác thất bại.</div>
-          <button class="button" data-confirm="Xác nhận tạo 124 hóa đơn nháp|Máy chủ sẽ tạo Operation OP-20260905-0913 cho Ánh Hoa, năm học 2026-2027, tháng 09/2026 và 124 hóa đơn DRAFT. Sau timeout, gọi GET /operations/OP-20260905-0913 trước khi thử lại.">Xác nhận tạo hóa đơn nháp</button>
-          <p class="muted">Kết quả GENERATED liên kết từng hóa đơn DRAFT. Đóng CR-202609-01 tiếp tục bị chặn cho đến khi không còn hóa đơn DRAFT và mọi hóa đơn thuộc đợt ở trạng thái ISSUED, PAID hoặc VOIDED.</p>
-        </section>
+      <section>
+        <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027 · THÁNG 09/2026</p>
+        <div class="route-head"><div><h1>Đợt thu tháng 09/2026</h1><p class="muted">Sẵn sàng tạo hóa đơn nháp từ kết quả xem trước.</p></div><a class="button secondary" href="receivable-configuration.html">Khoản thu</a></div>
+        <ol class="steps"><li>1. Cấu hình</li><li>2. Phạm vi</li><li class="current" aria-current="step">3. Xem trước</li><li>4. Tạo hóa đơn</li></ol>
+        <div class="notice info">Kết quả xem trước do hệ thống xác nhận. Khi thay đổi khoản thu hoặc phạm vi, hãy xem trước lại.</div>
+      </section>
+      <section>
+        <div class="route-head"><div><h2>Phạm vi</h2><p class="muted">Học sinh đang theo học, lớp hoạt động và khoản thu có hiệu lực.</p></div><button class="button secondary" type="button" data-operation="run-september">Kiểm tra kết quả</button></div>
+        <div class="table-wrap"><table><caption>Phạm vi đợt thu</caption><thead><tr><th>Đối tượng</th><th>Khoản thu</th><th>Nợ cũ</th><th>Kết quả</th></tr></thead><tbody><tr><td>124 học sinh</td><td>Học phí tháng, tiền ăn tháng</td><td>Theo công nợ từng học sinh</td><td><span class="badge success">Đủ điều kiện</span></td></tr><tr><td>3 học sinh</td><td>Chưa tạo hóa đơn</td><td>Không tự gộp sang hóa đơn khác</td><td><span class="badge warning">Cần kiểm tra</span></td></tr></tbody></table></div>
+      </section>
+      <section>
+        <div class="route-head"><div><h2>Xem trước</h2><p class="muted">Cập nhật lúc 05/09/2026 09:12.</p></div><span class="badge success">Sẵn sàng</span></div>
+        <div class="summary"><div class="grid three"><div><p class="muted">Hóa đơn dự kiến</p><b class="metric">124</b></div><div><p class="muted">Học sinh bỏ qua</p><b class="metric amber">3</b></div><div><p class="muted">Tổng dự kiến</p><b class="metric">260.450.000 đ</b></div></div><p class="muted">Số tiền là kết quả hệ thống trả về.</p></div>
+        <div class="table-wrap"><table><caption>Hóa đơn dự kiến</caption><thead><tr><th>Học sinh</th><th>Lớp</th><th>Khoản thu / lý do</th><th class="money">Nợ cũ</th><th class="money">Tổng dự kiến</th></tr></thead><tbody><tr><td><b>Bé An</b></td><td>Mầm 3-4 tuổi</td><td>Học phí, tiền ăn</td><td class="money">0 đ</td><td class="money"><b>2.100.000 đ</b></td></tr><tr><td><b>Bé Minh</b></td><td>Chồi 4-5 tuổi</td><td>Học phí, tiền ăn, nợ cũ</td><td class="money">250.000 đ</td><td class="money"><b>2.350.000 đ</b></td></tr><tr><td><b>Bé Lan</b></td><td>Mầm 3-4 tuổi</td><td>Học phí đã được miễn theo khoản nộp trước đã thanh toán đủ; tiền ăn vẫn thu.</td><td class="money">0 đ</td><td class="money"><b>600.000 đ</b></td></tr><tr><td><b>Bé Hà</b></td><td>Chồi 4-5 tuổi</td><td>Chưa ghi danh cho kỳ này</td><td class="money">-</td><td class="money">Chưa tạo</td></tr><tr><td><b>Bé Huy</b></td><td>Mầm 3-4 tuổi</td><td>Thiếu khoản thu có hiệu lực</td><td class="money">-</td><td class="money">Chưa tạo</td></tr><tr><td><b>Bé Mai</b></td><td>Chồi 4-5 tuổi</td><td>Thông tin cần kiểm tra lại</td><td class="money">-</td><td class="money">Chưa tạo</td></tr></tbody></table></div>
+        <div class="notice info">Khoản nộp trước chỉ miễn đúng khoản thu và kỳ đã chốt sau khi thanh toán đủ. Các khoản khác vẫn được lập hóa đơn.</div>
+        <details class="card"><summary>Thông tin đối soát</summary><p>Mã đợt thu: CR-202609-01 · Phiên bản tính: CALC-CR-202609-01-R3 · Lịch: CAL-AH-2026-09-R2</p><p>Mã nghĩa vụ chuyển công nợ: OBL-202608-MINH-MEAL · Mã xác nhận khoản nộp trước: SPC-2026-LAN-01</p></details>
+      </section>
+      <section id="prepaid">
+        <p class="eyebrow">NỘP TRƯỚC</p>
+        <div class="route-head"><div><h2>Tạo nguồn nộp trước</h2><p class="muted">Dành cho quản trị viên trường sau khi đã thỏa thuận trực tiếp với phụ huynh.</p></div><a class="button secondary" href="receivable-configuration.html">Chương trình</a></div>
+        <ol class="steps"><li class="current" aria-current="step">1. Chọn thông tin</li><li>2. Xem trước</li><li>3. Tạo hóa đơn</li><li>4. Thanh toán đủ</li></ol>
+        <div class="grid two"><article class="card"><h3>Lựa chọn</h3><p><b>Học sinh:</b> Bé An · Mầm 3-4 tuổi</p><p><b>Chương trình:</b> Nộp trước học phí 6 tháng</p><p><b>Tháng bắt đầu:</b> 09/2026</p><p class="muted">Hệ thống kiểm tra chương trình đang hoạt động, kỳ áp dụng và phạm vi. Phụ huynh không có thao tác này.</p><button class="button secondary" type="button" data-confirm="Xem trước nguồn nộp trước|Hệ thống kiểm tra thông tin đã chọn rồi trả về kết quả để rà soát.">Xem trước</button></article><article class="card"><h3>Kết quả xem trước</h3><p><span class="badge warning">Nháp</span></p><p class="metric">8.100.000 đ</p><p class="muted">Giá gốc 9.000.000 đ · ưu đãi 900.000 đ. Đây là số tiền hệ thống xác nhận.</p></article></div>
+        <div class="table-wrap"><table><caption>Các kỳ trong hóa đơn nộp trước</caption><thead><tr><th>Khoản thu / kỳ</th><th>Khoảng dịch vụ đã chốt</th><th class="money">Giá gốc</th><th class="money">Ưu đãi</th><th class="money">Cần thu</th></tr></thead><tbody><tr><td>Học phí tháng 09/2026</td><td>05/09 - 30/09/2026</td><td class="money">1.500.000 đ</td><td class="money">150.000 đ</td><td class="money">1.350.000 đ</td></tr><tr><td>Học phí tháng 10/2026 - 02/2027</td><td>Các kỳ liên tiếp đã chốt</td><td class="money">7.500.000 đ</td><td class="money">750.000 đ</td><td class="money">6.750.000 đ</td></tr></tbody><tfoot><tr><th colspan="4">Tổng</th><th class="money">8.100.000 đ</th></tr></tfoot></table></div>
+        <div class="notice danger">Không thể tạo khi chương trình đã ngừng áp dụng, thông tin không đúng phạm vi hoặc các kỳ bị trùng. Quyền miễn thu chỉ có sau khi thanh toán đủ.</div>
+        <button class="button" type="button" data-idempotent-action data-action-title="Tạo hóa đơn nộp trước" data-action-label="Gửi tạo hóa đơn" data-action-consequence="Hệ thống đang tạo hóa đơn. Nếu quá thời gian chờ, hãy kiểm tra kết quả trước khi gửi lại.">Tạo hóa đơn nộp trước</button>
+        <details class="card"><summary>Thông tin đối soát</summary><p>Mã chương trình: PP-6T-2026 · Mã đợt thu: CR-PP-202609-AN-01 · Mã tính: CALC-PP-202609-AN-R1</p><p>Lịch các kỳ đã chốt: CAL-AH-2026-09-R2 đến CAL-AH-2027-02-R1</p></details>
+      </section>
+      <section>
+        <div class="route-head"><div><h2>Tạo hóa đơn nháp</h2><p class="muted">Kiểm tra lại phạm vi và tổng trước khi xác nhận.</p></div><span class="badge warning">Chờ xác nhận</span></div>
+        <div class="notice warning"><b>Nếu hết thời gian chờ:</b> đang kiểm tra kết quả với hệ thống. Không gửi lại trước khi có kết quả.</div>
+        <button class="button" type="button" data-idempotent-action data-action-title="Tạo 124 hóa đơn nháp" data-action-label="Gửi tạo hóa đơn" data-action-consequence="Hệ thống tạo hóa đơn nháp từ kết quả này. Nếu quá thời gian chờ, hãy kiểm tra kết quả trước khi gửi lại.">Tạo 124 hóa đơn nháp</button>
+        <p class="muted">Sau khi tạo, thông tin đợt thu không chỉnh sửa trực tiếp. Đợt thu chỉ đóng khi không còn hóa đơn nháp và mọi hóa đơn đã được xử lý.</p>
+      </section>
     </div>
   </body>
 </html>

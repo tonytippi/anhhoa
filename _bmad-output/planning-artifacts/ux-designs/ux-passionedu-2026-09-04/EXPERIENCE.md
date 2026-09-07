@@ -46,6 +46,8 @@ The desktop shell starts with a skip link, then `banner`, named `navigation`, co
 | Revoked access | "Bạn không còn quyền xem nội dung này" | "Không tìm thấy dữ liệu" |
 | Suspended School | "Trường này hiện đang tạm ngưng" | Global sign-out or ambiguous error |
 
+Operational and management copy is direct, short and Vietnamese-first. Prefer task nouns and familiar actions such as `Thêm`, `Sửa`, `Lọc`, `Tìm kiếm`, `Trạng thái` and `Tùy chọn`. Do not show English terms, internal codes, API names, lifecycle labels or implementation detail by default; place an essential technical fact in a short help message, a disclosure or a protected audit/detail view only when the task requires it.
+
 ## Component Patterns
 
 | Component | Use | Behavioral rules |
@@ -61,6 +63,7 @@ The desktop shell starts with a skip link, then `banner`, named `navigation`, co
 | Student promotional coverage | School Admin, Finance | Back-office review creates named Student/SchoolYear receivable-period facts after an offline agreement, then a source DRAFT Invoice. It shows service interval, snapshot price/discount, calendar version, reason, overlap/eligibility outcome and waiting-for-paid state; coverage only becomes issued after source Invoice settlement. Parent has no catalog, request or selection action. |
 | Ledger correction dialog | Finance | Names source amount and impact. Existing posting is never editable. Với policy `DIRECT`, School Admin hoặc Finance Manager được cấp quyền xác nhận và post ngay sau named confirmation. Với `SCHOOL_ADMIN_APPROVAL`, Finance Manager tạo request, requester không thấy approve action và School Admin khác người tạo mới approve/refuse. Cả hai nhánh dùng Operation reconciliation. |
 | Finance report | Finance | Requires School and report period context, displays ledger-derived as-of time and supports filter/empty/error states. Export is not offered. |
+| Management list | Admin/Staff, Ops, Finance | Default pattern for comparable records: concise Vietnamese column labels, search/filter/sort, explicit pagination, text status and labeled row actions. Technical identifiers and verbose policy explanations remain outside the default row surface. |
 | Attendance entry | Staff | Requires evidence before `PRESENT` when policy requires it. Calendar/leave conflicts show server result and do not let the user override locally. |
 | Handover entry | Authorized Staff | Records server-validated picked-up time for one Student. Missing capability shows no action; correction/error refreshes server state. It is explicitly labeled operational reference, never automatic fee calculation. |
 | Service and long leave | School Admin, Finance, Parent | Admin/Finance manage effective-dated service enrollment; Parent/Admin can start long leave, but only School Admin approves/rejects effective date. Parent sees request result, not finance internals. |
@@ -116,6 +119,7 @@ The desktop shell starts with a skip link, then `banner`, named `navigation`, co
 ## Interaction Primitives
 
 - Desktop tables support keyboard row navigation, sort/filter controls and explicit pagination; mobile uses cards or horizontal table scroll with identifying columns retained.
+- Management tasks with comparable records use a table first. Cards support summaries, confirmations, exceptions and non-tabular decisions; they do not replace a list merely to explain each record.
 - Dialogs trap focus, have one obvious dismiss path and never stack. Destructive, issue, settlement, reversal and discard actions require a named confirmation.
 - Date controls are keyboard reachable and announce selected day/calendar status. Status filters use text labels, not color-only chips.
 - Parent notification deep-links re-authorize child and School before rendering; if unavailable, show safe inbox context rather than stale detail.
