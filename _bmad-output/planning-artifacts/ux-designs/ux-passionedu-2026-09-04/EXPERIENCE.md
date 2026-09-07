@@ -31,7 +31,7 @@ Multi-surface web: Admin/Staff and Ops are desktop-first responsive PWAs; Parent
 | Child detail | Parent | Daily attendance history, leave requests, authorized obligations and snapshot instruction. |
 | Parent inbox | Parent | 30-day attendance events; deep-link to authorized child/date. |
 
-Admin/Staff navigation only shows capabilities the server grants. Parent child filters and content remain within the selected School; a child never persists visually after School switch or revoke. See `mockups/admin-operational-queue.html`, `mockups/finance-run-preview.html`, `mockups/parent-home.html`, and `mockups/parent-inbox.html`.
+Admin/Staff navigation only shows capabilities the server grants. Parent child filters and content remain within the selected School; a child never persists visually after School switch or revoke. See `mockups/admin/admin-operational-queue.html`, `mockups/admin/finance-run-preview.html`, `mockups/parent/parent-home.html`, and `mockups/parent/parent-inbox.html`.
 
 The desktop shell starts with a skip link, then `banner`, named `navigation`, contextual `main` and optional complementary queue/summary. The active navigation item uses `aria-current`; route change moves focus to the route `h1`. Bell, inbox item, sidebar link, stepper navigation and mock actions are buttons/links with names, never decorative text containers.
 

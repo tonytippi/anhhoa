@@ -41,10 +41,10 @@ context:
 
 ## Code Map
 
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/receivable-configuration.html` -- Trang cấu hình catalog/rule và coverage hiện tại; thay section tạo coverage trực tiếp bằng catalog `PrepaidPaymentPromotionProgram`, giữ provenance read-only.
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-generation.html` -- Wizard ordinary CollectionRun; thêm biến thể/entry `PREPAID` cho Student, program, start month, fixed facts và preview server-authoritative.
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-detail-review.html` -- DRAFT/ISSUED review; thể hiện source Invoice PREPAID, snapshot và coverage chỉ issue sau exact settlement.
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-staff.html` và `mockups/admin/admin-shell.js` -- Điều hướng/CTA Finance cần làm rõ entry chương trình trả trước và source pending settlement.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/receivable-configuration.html` -- Trang cấu hình catalog/rule và coverage hiện tại; thay section tạo coverage trực tiếp bằng catalog `PrepaidPaymentPromotionProgram`, giữ provenance read-only.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-generation.html` -- Wizard ordinary CollectionRun; thêm biến thể/entry `PREPAID` cho Student, program, start month, fixed facts và preview server-authoritative.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-detail-review.html` -- DRAFT/ISSUED review; thể hiện source Invoice PREPAID, snapshot và coverage chỉ issue sau exact settlement.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-staff.html` và `mockups/admin/admin-shell.js` -- Điều hướng/CTA Finance cần làm rõ entry chương trình trả trước và source pending settlement.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/MOCKUP-COVERAGE.md` -- Ma trận review cần mô tả contract program -> PREPAID -> exact-paid -> coverage.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.css` -- Tái dùng `route-head`, `notice`, `grid`, `table-wrap`, `badge`, `metric`; không tạo visual system mới.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.js` -- Tái dùng `data-idempotent-action` cho mock action tạo/chốt prepaid source và reconciliation; tránh action chỉ đổi state cục bộ.
@@ -86,18 +86,18 @@ Không thêm một portal hoặc visual language mới. Dùng cùng shell Financ
 **Catalog và quyền chọn**
 
 - Bắt đầu từ program để kiểm tra active/deactivate, kỳ hạn và giảm giá gốc.
-  [`receivable-configuration.html:34`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/receivable-configuration.html#L34)
+  [`receivable-configuration.html:34`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/receivable-configuration.html#L34)
 
 - Xác nhận điểm vào Finance dẫn reviewer tới source trả trước.
-  [`admin-staff.html:127`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-staff.html#L127)
+  [`admin-staff.html:127`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-staff.html#L127)
 
 **Source Invoice Và Coverage**
 
 - Kiểm tra `PREPAID` run có Student, program, tháng bắt đầu và sáu fact độc lập.
-  [`invoice-generation.html:58`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-generation.html#L58)
+  [`invoice-generation.html:58`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-generation.html#L58)
 
 - Kiểm tra boundary DRAFT, ISSUED, exact settlement và coverage sau PAID.
-  [`invoice-detail-review.html:45`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-detail-review.html#L45)
+  [`invoice-detail-review.html:45`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-detail-review.html#L45)
 
 **Review Contract**
 

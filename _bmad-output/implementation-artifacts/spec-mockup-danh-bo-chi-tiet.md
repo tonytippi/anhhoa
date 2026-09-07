@@ -43,7 +43,7 @@ context:
 ## Code Map
 
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-shell.js` -- Shared Admin/Nhân viên sidebar, Danh bộ đi tới entry point riêng.
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-staff.html` -- Workspace cần liên kết CTA Danh bộ sang mockup mới.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-staff.html` -- Workspace cần liên kết CTA Danh bộ sang mockup mới.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.css` -- Table, form, dialog, stepper và responsive primitives.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.js` -- Confirm/Operation reconciliation dialog chung; không tự đổi domain state.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/MOCKUP-COVERAGE.md` -- Ma trận review cần ghi nhận bộ Danh bộ standalone.
@@ -58,7 +58,7 @@ context:
 - [x] `mockups/admin/roster/student-parent-links.html` -- Tạo quản lý liên kết Parent pending/active/revoked -- review authorization boundary và audit.
 - [x] `mockups/admin/roster/staff-assignments.html` -- Tạo hồ sơ Staff và Class assignment effective-dated -- review tách record khỏi login/role.
 - [x] `mockups/admin/roster/roster-transition.html` -- Tạo wizard chuyển lớp/chuyển năm/close-year với server preview và Operation -- review historical preservation/concurrency path.
-- [x] `mockups/admin/admin-shell.js`, `mockups/admin-staff.html`, `mockups/MOCKUP-COVERAGE.md` -- Nối navigation/CTA và coverage -- đưa reviewer vào đúng luồng từ workspace.
+- [x] `mockups/admin/admin-shell.js`, `mockups/admin/admin-staff.html`, `mockups/MOCKUP-COVERAGE.md` -- Nối navigation/CTA và coverage -- đưa reviewer vào đúng luồng từ workspace.
 
 **Acceptance Criteria:**
 - Given reviewer mở Danh bộ từ sidebar hoặc workspace, when route load, then `roster.html` hiển thị cùng shared shell và đúng một Danh bộ active.
@@ -80,7 +80,7 @@ context:
 
 ## Suggested Review Order
 
-1. `mockups/admin-staff.html` để xác nhận CTA và sidebar vào Danh bộ.
+1. `mockups/admin/admin-staff.html` để xác nhận CTA và sidebar vào Danh bộ.
 2. `mockups/admin/roster/roster.html`, sau đó `school-year-classes.html` để kiểm tra boundary năm học/lớp.
 3. `student-enrollment.html`, `student-parent-links.html` và `staff-assignments.html` để kiểm tra các boundary record/access/history.
 4. `roster-transition.html` để kiểm tra preview, excluded records, close-year và đối soát Operation.

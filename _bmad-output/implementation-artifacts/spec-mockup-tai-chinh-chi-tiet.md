@@ -41,7 +41,7 @@ context:
 
 ## Code Map
 
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-staff.html` -- Shell Admin/Nhân viên và các điểm điều hướng tài chính cần liên kết trang mới.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-staff.html` -- Shell Admin/Nhân viên và các điểm điều hướng tài chính cần liên kết trang mới.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.css` -- Token, shell, table, stepper, dialog và responsive treatment dùng chung.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.js` -- Dialog xác nhận và đối soát thao tác có thể tái dùng, không tự đổi state finance.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/MOCKUP-COVERAGE.md` -- Ma trận màn hình được cập nhật để chỉ ra ba mockup tài chính chuyên biệt.
@@ -50,14 +50,14 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/receivable-configuration.html` -- Tạo mockup cấu hình danh mục, khoản thu, giảm giá, quy tắc tính, `StudentPromotionalCoverage` nhiều kỳ và trạng thái hiệu lực -- cho phép review trước các inputs tạo invoice.
-- [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-generation.html` -- Tạo mockup wizard đợt thu từ cấu hình đến preview và confirmation tạo nháp -- làm rõ server-authoritative calculation và idempotent reconciliation.
-- [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-detail-review.html` -- Tạo mockup rà soát `DRAFT` và snapshot `ISSUED` khóa -- review được issue boundary và handoff sang thu tiền.
-- [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-staff.html` -- Liên kết sidebar, tóm tắt tài chính và kết quả đợt thu đến mockup riêng -- cho phép đi qua flow từ workspace hiện tại.
+- [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/receivable-configuration.html` -- Tạo mockup cấu hình danh mục, khoản thu, giảm giá, quy tắc tính, `StudentPromotionalCoverage` nhiều kỳ và trạng thái hiệu lực -- cho phép review trước các inputs tạo invoice.
+- [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-generation.html` -- Tạo mockup wizard đợt thu từ cấu hình đến preview và confirmation tạo nháp -- làm rõ server-authoritative calculation và idempotent reconciliation.
+- [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-detail-review.html` -- Tạo mockup rà soát `DRAFT` và snapshot `ISSUED` khóa -- review được issue boundary và handoff sang thu tiền.
+- [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-staff.html` -- Liên kết sidebar, tóm tắt tài chính và kết quả đợt thu đến mockup riêng -- cho phép đi qua flow từ workspace hiện tại.
 - [x] `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/MOCKUP-COVERAGE.md` -- Bổ sung coverage và entry point cho các mockup tài chính -- giữ tài liệu review đúng phạm vi.
 
 **Acceptance Criteria:**
-- Given người review mở `admin-staff.html`, when chọn Khoản thu, Đợt thu hoặc một hóa đơn nháp, then trang tương ứng mở được với ngữ cảnh Trường hiển thị rõ.
+- Given người review mở `admin/admin-staff.html`, when chọn Khoản thu, Đợt thu hoặc một hóa đơn nháp, then trang tương ứng mở được với ngữ cảnh Trường hiển thị rõ.
 - Given người review mở cấu hình khoản thu, when xem rule/discount/catalog, then trạng thái active/inactive, phạm vi, precedence và giới hạn không tự động tính phí được hiển thị bằng tiếng Việt.
 - Given Finance Manager tạo ưu đãi theo nhiều kỳ cho một Học sinh, when chọn các cặp khoản thu-kỳ và khoảng dịch vụ, then mockup hiển thị snapshot giá/giảm giá, lý do, kiểm tra overlap/eligibility và trạng thái chờ nguồn Invoice/Receipt tất toán đủ trước khi coverage được phát hành.
 - Given đợt thu `READY`, when xem preview hoặc xác nhận tạo nháp, then tổng/số lượng/lý do skip có ngữ cảnh server và timeout dẫn tới đối soát thao tác trước retry.
@@ -75,7 +75,7 @@ Mỗi mockup mới dùng shell desktop của Admin/Nhân viên nhưng chỉ tậ
 - `node --check _bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.js` -- expected: JavaScript dùng chung vẫn hợp lệ.
 
 **Manual checks:**
-- Mở `admin-staff.html`, đi qua tất cả liên kết tài chính mới và quay lại workspace.
+- Mở `admin/admin-staff.html`, đi qua tất cả liên kết tài chính mới và quay lại workspace.
 - Xem các mockup ở desktop và viewport hẹp để xác nhận bảng finance vẫn đọc được.
 
 ## Suggested Review Order
@@ -83,19 +83,19 @@ Mỗi mockup mới dùng shell desktop của Admin/Nhân viên nhưng chỉ tậ
 **Ưu đãi và cấu hình**
 
 - Bắt đầu từ danh mục và coverage nhiều kỳ để kiểm tra nguồn dữ liệu tạo hóa đơn.
-  [`receivable-configuration.html:1`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/receivable-configuration.html#L1)
+  [`receivable-configuration.html:1`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/receivable-configuration.html#L1)
 
 **Đợt thu authoritative**
 
 - Kiểm tra wizard, preview, skip categories, nợ cũ và điều kiện đóng đợt thu.
-  [`invoice-generation.html:1`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-generation.html#L1)
+  [`invoice-generation.html:1`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-generation.html#L1)
 
 **Rà soát và phát hành**
 
 - Kiểm tra boundary nháp/phát hành, snapshot khóa và handoff exact settlement.
-  [`invoice-detail-review.html:1`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-detail-review.html#L1)
+  [`invoice-detail-review.html:1`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-detail-review.html#L1)
 
 **Điểm vào workspace**
 
 - Xác nhận các liên kết từ Admin/Nhân viên đi đúng vào ba mockup chuyên biệt.
-  [`admin-staff.html:25`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-staff.html#L25)
+  [`admin-staff.html:25`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-staff.html#L25)

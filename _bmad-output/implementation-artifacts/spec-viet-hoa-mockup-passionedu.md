@@ -27,13 +27,13 @@ route: 'one-shot'
 **Luồng nghiệp vụ**
 
 - Kiểm tra thuật ngữ, dữ liệu mẫu và các luồng Admin/Staff đã được Việt hóa.
-  [`admin-staff.html:3`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-staff.html#L3)
+  [`admin-staff.html:3`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-staff.html#L3)
 
 - Kiểm tra ngôn ngữ và giới hạn nội dung dành cho phụ huynh.
-  [`parent.html:3`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/parent.html#L3)
+  [`parent.html:3`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/parent/parent.html#L3)
 
 - Kiểm tra ngôn ngữ vận hành nền tảng và luồng khởi tạo trường.
-  [`ops.html:3`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/ops.html#L3)
+  [`ops.html:3`](../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/ops/ops.html#L3)
 
 **Tương tác hỗ trợ**
 

@@ -39,10 +39,10 @@ context:
 
 ## Code Map
 
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-staff.html` -- Trang workspace chính cần chuyển sang shell host.
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/receivable-configuration.html` -- Route Khoản thu dùng shell chung.
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-generation.html` -- Route Đợt thu dùng shell chung.
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/invoice-detail-review.html` -- Route Rà soát hóa đơn dùng shell chung.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/admin-staff.html` -- Trang workspace chính cần chuyển sang shell host.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/receivable-configuration.html` -- Route Khoản thu dùng shell chung.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-generation.html` -- Route Đợt thu dùng shell chung.
+- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/invoice-detail-review.html` -- Route Rà soát hóa đơn dùng shell chung.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin-shell.js` -- Script `defer` cổ điển mới sở hữu markup sidebar/header Admin/Nhân viên, tương thích VS Code Preview.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.js` -- Hành vi dialog dùng chung, phải vẫn bind sau khi shell render.
 
@@ -50,7 +50,7 @@ context:
 
 **Execution:**
 - [x] `mockups/admin-shell.js` -- Tạo renderer shell Admin/Nhân viên bằng script `defer` cổ điển dựa trên `data-admin-route` -- loại bỏ markup navigation/header lặp lại mà vẫn chạy trong VS Code Preview.
-- [x] `mockups/admin-staff.html`, `mockups/receivable-configuration.html`, `mockups/invoice-generation.html`, `mockups/invoice-detail-review.html` -- Dùng shell host và route declaration -- giữ main content/links riêng từng trang.
+- [x] `mockups/admin/admin-staff.html`, `mockups/admin/receivable-configuration.html`, `mockups/admin/invoice-generation.html`, `mockups/admin/invoice-detail-review.html` -- Dùng shell host và route declaration -- giữ main content/links riêng từng trang.
 - [x] `mockups/prototype.js` -- Bảo đảm bind dialog không bỏ sót control được shell render -- giữ accessibility behavior hiện có.
 - [x] `mockups/MOCKUP-COVERAGE.md` -- Ghi nhận shell Admin/Nhân viên dùng chung -- hỗ trợ reviewer hiểu cấu trúc mockup.
 
@@ -73,6 +73,6 @@ context:
 
 ## Suggested Review Order
 
-1. Mở `mockups/admin-staff.html` để xác nhận hash route nội bộ, shell và hộp thoại đổi ngữ cảnh.
-2. Mở `mockups/receivable-configuration.html`, `mockups/invoice-generation.html` và `mockups/invoice-detail-review.html` từ `review.html` để kiểm tra active link và destinations tài chính.
+1. Mở `mockups/admin/admin-staff.html` để xác nhận hash route nội bộ, shell và hộp thoại đổi ngữ cảnh.
+2. Mở `mockups/admin/receivable-configuration.html`, `mockups/admin/invoice-generation.html` và `mockups/admin/invoice-detail-review.html` từ `review.html` để kiểm tra active link và destinations tài chính.
 3. Mở trực tiếp từng tệp qua VS Code Preview hoặc `file://`, kiểm tra skip link, Escape, focus trap và focus return của hộp thoại.

@@ -6,13 +6,13 @@
 
   var route = host.getAttribute('data-admin-route');
   // URLs resolve from the current document, so roster pages need a different root.
-  var root = route === 'roster' ? '../../' : '';
+  var root = route === 'roster' ? '../' : '';
   var links = [
     ['VẬN HÀNH', 'overview', 'Tổng quan', root + 'admin-staff.html#overview'],
     ['', 'attendance', 'Điểm danh', root + 'admin-staff.html#attendance'],
     ['', 'leave', 'Xin nghỉ', root + 'admin-staff.html#leave'],
     ['', 'handover', 'Bàn giao', root + 'admin-staff.html#handover'],
-    ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'admin/roster/roster.html'],
+    ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
     ['', 'settings', 'Cấu hình trường', root + 'admin-staff.html#settings'],
     ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
     ['', 'runs', 'Đợt thu / Nộp trước', root + 'invoice-generation.html'],
