@@ -1,6 +1,6 @@
 ---
 title: "Đối chiếu discovery nguồn với PRD PassionEdu"
-status: discovery
+status: historical
 created: 2026-09-04
 sources:
   - ../../../../docs/kidsonline-feature-catalog.md
@@ -14,6 +14,8 @@ baseline:
 ---
 
 # Đối chiếu discovery nguồn với PRD PassionEdu
+
+> **Historical only:** Discovery này đánh giá PRD draft ngày 2026-09-04. Không dùng làm build input hoặc readiness gate; dùng `prd.md` và `addendum.md` final, cập nhật 2026-09-07.
 
 ## Mục đích và phương pháp
 

@@ -1,5 +1,7 @@
 # Review Adversarial: PRD PassionEdu
 
+> **Historical only:** Báo cáo này review PRD trước khi các finding được áp dụng. Không dùng làm build input hoặc readiness gate; dùng `prd.md` và `addendum.md` final, cập nhật 2026-09-07.
+
 ## Phạm vi và phương pháp
 
 - Tài liệu được review: `prd.md` và `addendum.md` trong cùng thư mục.

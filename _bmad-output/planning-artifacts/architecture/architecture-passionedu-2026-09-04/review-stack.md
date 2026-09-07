@@ -1,5 +1,7 @@
 # Báo cáo rà soát stack - PassionEdu
 
+> **Historical only:** Báo cáo này ghi nhận chênh lệch với codebase Anh Hoa trước clean-break. Không dùng làm build input; `ARCHITECTURE-SPINE.md` là contract target và implementation phải bắt đầu từ workspace clean-break.
+
 **Ngày rà soát:** 2026-09-04  
 **Tài liệu được rà soát:** `ARCHITECTURE-SPINE.md`  
 **Phạm vi:** Chỉ đánh giá các quyết định stack/kiến trúc được nêu tên trong spine ở mức `CRITICAL` hoặc `HIGH` khi chúng đã lỗi thời, không được hỗ trợ, hoặc mâu thuẫn với mã nguồn và manifest hiện hữu. Package manifest và lockfile là nguồn sự thật cho phiên bản. Không thực hiện duyệt web.

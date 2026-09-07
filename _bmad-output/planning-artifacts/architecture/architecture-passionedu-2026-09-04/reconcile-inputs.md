@@ -1,6 +1,6 @@
 ---
 title: "Đối chiếu đầu vào với Architecture Spine PassionEdu"
-status: review
+status: historical
 created: 2026-09-04
 baseline:
   - ARCHITECTURE-SPINE.md
@@ -11,6 +11,8 @@ sources:
 ---
 
 # Đối chiếu đầu vào với Architecture Spine PassionEdu
+
+> **Historical only:** Báo cáo này review bản draft ngày 2026-09-04. Không dùng làm build input hoặc readiness gate; dùng `ARCHITECTURE-SPINE.md` final, cập nhật 2026-09-07.
 
 ## Mục đích và phương pháp
 

@@ -1,5 +1,7 @@
 # Danh gia san sang lap ke hoach phat hanh - PassionEdu
 
+> **Historical only:** Phán quyết này áp dụng cho snapshot 2026-09-04. Không dùng làm readiness gate hiện tại; dùng `prd.md` và `addendum.md` final, cập nhật 2026-09-07.
+
 ## Phan quyet
 
 **AN TOAN DE FINALIZE PRD VA CHUYEN SANG RELEASE PLANNING, VOI PRODUCTION GATES DUOC HOAN DEN TRUOC ROLLOUT.** Khong con blocker muc **critical** hoac **high** trong PRD hien tai. Tai lieu da co contract du de Architecture, UX, Epics va QA lap ke hoach theo chuoi E1 -> E2 -> E3/E4 -> E5 -> E6 -> E7 ma khong can gia dinh them ve ranh gioi tenant, finance, Parent payment instruction, hay dependency phat hanh.

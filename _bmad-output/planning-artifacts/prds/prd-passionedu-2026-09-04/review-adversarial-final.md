@@ -1,5 +1,7 @@
 # Review adversarial cuối: PRD PassionEdu
 
+> **Historical only:** Phán quyết trong báo cáo này áp dụng cho snapshot 2026-09-04. Không dùng làm readiness gate hiện tại; dùng `prd.md` và `addendum.md` final, cập nhật 2026-09-07.
+
 ## Phạm vi
 
 - Tài liệu review: `prd.md` (bản cập nhật 2026-09-04); `addendum.md` được đọc để xác minh các contract mà PRD dẫn chiếu.

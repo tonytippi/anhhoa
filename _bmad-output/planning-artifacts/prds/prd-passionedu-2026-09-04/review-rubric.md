@@ -1,5 +1,7 @@
 # PRD Quality Review — PassionEdu: Nen tang van hanh da truong
 
+> **Historical only:** Báo cáo này review PRD trước khi các contract sau đó được đồng bộ. Không dùng làm build input hoặc readiness gate; dùng `prd.md` và `addendum.md` final, cập nhật 2026-09-07.
+
 ## Overall verdict
 
 **Chua san sang phe duyet build end-to-end (Fair).** PRD co thesis ro rang ve clean-break, multi-school isolation va finance ledger; pham vi, non-goals, hanh trinh va phan lon he qua kiem thu deu cu the, tao nen mot contract nghiep vu manh cho Architecture va Epic planning. Tuy nhien, release gating hien chu yeu la test fixture noi bo, NFR chua co nguong do duoc, va mot so quyet dinh policy/Parent payment can thiet cho cac release sau chua co owner, tieu chi chot va hanh vi fallback duoc dinh nghia du. Khong nen cam ket Release 4 hay lap ke hoach van hanh production cho toan initiative truoc khi giai quyet cac finding high ben duoi.

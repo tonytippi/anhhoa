@@ -1,5 +1,7 @@
 # Báo cáo review đối kháng: Architecture Spine PassionEdu
 
+> **Historical only:** Báo cáo này review bản draft ngày 2026-09-04. Không dùng làm build input hoặc readiness gate; dùng `ARCHITECTURE-SPINE.md` final, cập nhật 2026-09-07.
+
 **Tài liệu được review:** `ARCHITECTURE-SPINE.md` (draft, 2026-09-04)  
 **Phạm vi:** Tìm các điểm ghép nơi hai đơn vị triển khai độc lập có thể cùng tuân thủ mọi AD hiện hữu nhưng vẫn không tương thích. Chỉ liệt kê phát hiện mức **Critical** và **High**.
 
