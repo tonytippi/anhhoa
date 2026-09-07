@@ -20,11 +20,12 @@ companions: []
 
 ## Design Paradigm
 
-Vertical-slice modular monolith with isolated portal clients. NestJS domain modules own writes and expose narrow service/query contracts; controllers are HTTP adapters only. Admin/Staff, Parent and Ops are separate React/Vite applications that only consume REST.
+Vertical-slice modular monolith with isolated portal clients. NestJS domain modules own writes and expose narrow service/query contracts; controllers are HTTP adapters only. Admin, Teacher, Parent and Ops are separate React/Vite applications that only consume REST.
 
 ```mermaid
 flowchart LR
-  App[app.passionedu.org\nAdmin/Staff PWA] --> API
+  App[app.passionedu.org\nAdmin PWA] --> API
+  Teacher[teacher.passionedu.org\nTeacher PWA] --> API
   Parent[parent.passionedu.org\nParent PWA] --> API
   Ops[ops.passionedu.org\nOps PWA] --> API
   API[api.passionedu.org\nNestJS modular monolith] --> Domains[Vertical domain modules]
@@ -49,7 +50,7 @@ flowchart TD
 
 - **Binds:** all implementation units
 - **Prevents:** frontend access to server data, cross-audience router/session/cache coupling, and shared business logic in browsers
-- **Rule:** The pnpm/Turborepo workspace contains `apps/api`, `apps/web` for Admin/Staff, `apps/parent-web` for Parent, and `apps/ops-web` for Operations. Portal applications are separately built/deployed and may share only pure contracts, formatters and stateless UI primitives from `packages`; they never import another app or API internals.
+- **Rule:** The pnpm/Turborepo workspace contains `apps/api`, `apps/web` for Admin, `apps/teacher-web` for Teacher, `apps/parent-web` for Parent, and `apps/ops-web` for Operations. Portal applications are separately built/deployed and may share only pure contracts, formatters and stateless UI primitives from `packages`; they never import another app or API internals. Attendance, handover and daily-journal UI live only in `teacher-web`; an Admin actor must use this audience and meet its operational authorization to perform them.
 
 ### AD-2 - API ownership and modular dependency direction [ADOPTED]
 
@@ -67,9 +68,9 @@ flowchart TD
 
 - **Binds:** FR-1, FR-2, FR-6, FR-14, FR-15
 - **Prevents:** global Admin privilege, cross-portal cookies, subject/email takeover and stale Parent access
-- **Rule:** Google OAuth creates/binds global `UserIdentity`; Staff access requires active membership/role grants resolved per request. `parents` owns ParentProfile and exports the only atomic pending-email bind/reassign command used by `parent-auth`: normalized verified email lookup, unique Google subject and one-to-one identity binding, active StudentParent recheck immediately before session issue, and audited revoke before reassignment. Parent read models enforce retention server-side: operational/sensitive data expires 30 calendar days after enrollment `endedOn`; issued finance remains while unsettled, then uses versioned ParentAccessPolicy with a 12-month default. The fixed hosts are `app.passionedu.org`, `parent.passionedu.org`, `ops.passionedu.org` and `api.passionedu.org`; every audience has its own callback allowlist, host-only `Secure`/`httpOnly`/`SameSite=Lax` cookie, session audience and origin allowlist. A session cookie is accepted only by its audience. `parent-web` never service-worker caches authenticated Parent responses, payment instructions, media or evidence URLs; it clears memory/query state on logout, expiry, `401` or revoke.
+- **Rule:** Google OAuth creates/binds global `UserIdentity`; Teacher access requires active membership/role grants resolved per request. `parents` owns ParentProfile and exports the only atomic pending-email bind/reassign command used by `parent-auth`: normalized verified email lookup, unique Google subject and one-to-one identity binding, active StudentParent recheck immediately before session issue, and audited revoke before reassignment. Parent read models enforce retention server-side: operational/sensitive data expires 30 calendar days after enrollment `endedOn`; issued finance remains while unsettled, then uses versioned ParentAccessPolicy with a 12-month default. The fixed hosts are `app.passionedu.org`, `teacher.passionedu.org`, `parent.passionedu.org`, `ops.passionedu.org` and `api.passionedu.org`; every audience has its own callback allowlist, host-only `Secure`/`httpOnly`/`SameSite=Lax` cookie, session audience and origin allowlist. A session cookie is accepted only by its audience. `parent-web` never service-worker caches authenticated Parent responses, payment instructions, daily-journal media or evidence URLs; it clears memory/query state on logout, expiry, `401` or revoke.
 
-- **Clarification:** A StaffProfile becomes an operational actor only through an audited same-School binding to one active SchoolMembership/UserIdentity. Attendance/handover additionally require the route capability and an effective Class assignment for the requested Class and as-of date; revoke of the binding, membership, capability or assignment denies the next request.
+- **Clarification:** A StaffProfile becomes an operational actor only through an audited same-School binding to one active SchoolMembership/UserIdentity. Attendance, handover and daily-journal routes additionally require the `teacher` audience, route capability and an effective Class assignment for the requested Class and as-of date; revoke of the binding, membership, capability or assignment denies the next request.
 
 ### AD-5 - Operations control plane [ADOPTED]
 
@@ -135,7 +136,7 @@ flowchart TD
 
 - **Binds:** FR-12
 - **Prevents:** PRESENT without required evidence, Parent/media leaks and indefinite retention of child images
-- **Rule:** `attendance` enforces School `photoEvidenceMode` `REQUIRED | OPTIONAL` at the write boundary. Evidence is readable only to attendance-capable Staff or School Admin in the same School, never Parent DTOs or media URLs. Blob/preview is deleted two calendar months after confirmation while deletion metadata remains audited. Integration/E2E proves required-mode rejection, capability/tenant isolation and cleanup.
+- **Rule:** `attendance` enforces School `photoEvidenceMode` `REQUIRED | OPTIONAL` at the write boundary. Evidence is readable only to attendance-capable Teacher or School Admin in the same School, never Parent DTOs or media URLs. Blob/preview is deleted two calendar months after confirmation while deletion metadata remains audited. `attendance` separately owns `DailyJournal`, immutable `DailyJournalVersion` and `DailyJournalMedia`, all School/Class/Student/date scoped: one current journal per `(schoolId, studentId, journalDate)` and an update during that business day creates a new audited version. Journal media accepts only server-verified JPEG, PNG or WebP files no larger than 10 MB each, with no per-journal count limit; media upload/read re-authorizes tenant graph and actor/Parent context and never exposes a permanent blob URL. Parent may read only the current journal/media via its separate authorized projection within operational retention; journal media never reuses attendance evidence. Integration/E2E proves required-evidence rejection, journal media validation, capability/tenant isolation, Parent retention and cleanup.
 
 ### AD-15 - Parent attendance notification boundary [ADOPTED]
 
@@ -184,7 +185,8 @@ anhhoa/
     api/
       prisma/                 # target schema, migrations, resettable seed
       src/modules/            # vertical domains and narrow exports
-    web/                      # Admin/Staff PWA
+    web/                      # Admin PWA
+    teacher-web/              # Teacher PWA
     parent-web/               # Parent PWA
     ops-web/                  # Platform Operations PWA
   packages/
@@ -214,7 +216,8 @@ erDiagram
 ```mermaid
 flowchart LR
   Internet --> Proxy[TLS reverse proxy]
-  Proxy --> App[Admin/Staff static container]
+  Proxy --> App[Admin static container]
+  Proxy --> Teacher[Teacher static container]
   Proxy --> Parent[Parent static container]
   Proxy --> Ops[Ops static container]
   Proxy --> Api[API container]
@@ -230,7 +233,7 @@ flowchart LR
 | School settings, year, roster and Staff | `settings`, `roster`, `web` | AD-2, AD-3, AD-6, AD-8 |
 | Catalog, CollectionRun and Invoice issue | `finance`, `web` | AD-2, AD-3, AD-7, AD-8 |
 | Receipt, prepaid-payment coverage, debt and reports | `finance`, `web` | AD-2, AD-3, AD-7, AD-8, AD-11 |
-| Attendance, leave, service and handover | `attendance`, `roster`, `web` | AD-2, AD-3, AD-6, AD-8 |
+| Attendance, handover and daily journals | `attendance`, `roster`, `teacher-web` | AD-2, AD-3, AD-6, AD-8, AD-14 |
 | Parent authorization and finance read model | `parents`, `parent-auth`, `parent-portal`, `parent-web` | AD-1, AD-3, AD-4, AD-7, AD-11 |
 
 ## Deferred

@@ -29,8 +29,8 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - Platform Operator can provision va suspend `School` ma khong mac dinh thay du lieu nghiep vu cua truong.
 - School Admin can quan ly nam hoc, danh bo, Parent, Staff, role va cau hinh cua rieng truong minh.
 - Finance Manager can cau hinh khoan thu, xem preview, phat hanh nghia vu, ghi nhan thu tien, xu ly nộp truoc/cong no va bao cao dung so cai.
-- Class Teacher, Attendance Recorder va Handover Recorder can ghi nhan van hanh lop hoc trong pham vi capability duoc cap.
-- Parent can chon dung truong/con, xem nghia vu duoc uy quyen, gui don nghi va lay huong dan thanh toan ma khong xem du lieu noi bo hay cua tre khac.
+- Teacher can dung portal rieng de ghi nhan van hanh lop hoc, bao gom nhan tre, tra tre va nhan xet hang ngay theo tung Student trong Class duoc phan cong.
+- Parent can chon dung truong/con, xem nghia vu, nhan xet hang ngay va anh duoc uy quyen, gui don nghi va lay huong dan thanh toan ma khong xem du lieu noi bo hay cua tre khac.
 
 ### 2.2 Khong phai nguoi dung release dau
 
@@ -45,6 +45,7 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **UJ-3. Minh phat hanh dot thu.** Minh la Finance Manager, chon `CollectionRun`, xem ma tran preview do server tinh, tao `DRAFT`, ra soat/ghi ly do cho dieu chinh, chon tai khoan nhan tien va issue. Minh ghi receipt va phan bo tien; so tien con no duoc suy ra tu so cai, khong tu trang thai client.
 - **UJ-4. Mai kiem tra ngay hoc cua con.** Mai co con tai mot hoac nhieu `School`, chon dung school va xem trang thai attendance theo ngay cua con, sau do gui don nghi khi can. Notification attendance mo dung trang thai cua con; `NOT_RECORDED` duoc hien thi la truong chua ghi nhan, khong phai vang mat. Mai co the xem nghia vu/huong dan thanh toan da duoc cap quyen, nhung khong the gui receipt, xac nhan thanh toan hay thay doi du lieu truong.
 - **UJ-5. An ghi nhan ngay hoc.** An la nhan vien duoc cap capability, ghi diem danh va ban giao tre theo policy cua truong. Don nghi, lich truong va attendance conflict duoc server xu ly; Finance chi tham chieu du lieu nay khi ra soat dong `MANUAL` hoac dieu chinh tien an.
+- **UJ-6. An cap nhat nhan xet ngay hoc.** An dang nhap Teacher portal, chi chon lop dang duoc phan cong, ghi nhan xet va anh cho tung tre. Parent chi xem ban hien hanh cua dung con trong thoi han operational retention.
 
 ## 3. Thuat ngu
 
@@ -72,7 +73,7 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 
 ### 4.1 Nen tang da truong, identity va phan quyen
 
-**Mo ta:** PassionEdu tach Platform Operations, Admin/Staff va Parent thanh cac surface/session doc lap. Moi request nghiep vu chi duoc xu ly trong School context va sau khi server kiem tra quyen hien hanh. Realizes UJ-1, UJ-2, UJ-4.
+**Mo ta:** PassionEdu tach Platform Operations, Admin, Teacher va Parent thanh cac surface/session doc lap. Moi request nghiep vu chi duoc xu ly trong School context va sau khi server kiem tra quyen hien hanh. Realizes UJ-1, UJ-2, UJ-4, UJ-5, UJ-6.
 
 #### FR-1: Provision va vong doi School
 
@@ -134,7 +135,7 @@ School Admin quan ly mot SchoolYear active, Class thuoc SchoolYear, Student va S
 
 #### FR-6: Parent va Staff records
 
-School Admin quan ly lien ket Parent-Hoc sinh va Staff profile/assignment theo effective date. Parent Profile dung chung toan platform; Staff profile khong tu tao login hay quyen.
+School Admin quan ly lien ket Parent-Hoc sinh va Staff profile/assignment theo effective date. Parent Profile dung chung toan platform; Staff profile khong tu tao login hay quyen. School Admin muon lam cong viec giao vien phai dung Teacher portal va thoa cung binding, capability va Class assignment nhu moi Teacher.
 
 **He qua kiem thu:**
 - Parent co the co nhieu tre/School, nhung chi nhan data theo link active tai request.
@@ -214,11 +215,11 @@ He thong gop no mo trong cung SchoolYear vao Invoice moi bang `PRIOR_DEBT` truy 
 
 ### 4.5 Van hanh lop hoc
 
-**Mo ta:** Attendance, leave, service enrollment va handover tao du lieu van hanh co audit. Finance chi tham chieu, khong tu dong suy dien engine fee tu attendance/handover. Realizes UJ-5.
+**Mo ta:** Attendance, leave, service enrollment, handover va DailyJournal tao du lieu van hanh co audit. Teacher portal so huu UI thao tac lop; Finance chi tham chieu attendance/handover, khong tu dong suy dien engine fee. Realizes UJ-5, UJ-6.
 
 #### FR-12: Leave, attendance va service enrollment
 
-Parent chi co the gui leave request cho Student duoc uy quyen; nhan vien co capability ghi attendance; School Admin/Finance Manager quan ly approval/service enrollment theo policy.
+Parent chi co the gui leave request cho Student duoc uy quyen; Teacher co capability ghi attendance, handover va DailyJournal trong Class duoc phan cong; School Admin/Finance Manager quan ly approval/service enrollment theo policy.
 
 **He qua kiem thu:**
 - Calendar loai ngay nghi/le; `PRESENT` conflict voi leave request va loai ngay do khoi de xuat meal adjustment.
@@ -229,6 +230,8 @@ Parent chi co the gui leave request cho Student duoc uy quyen; nhan vien co capa
 - StudentServiceEnrollment co status, effective dates va audit; chi School Admin/Finance Manager tao/huy. Parent co the tao, sua/huy leave request khi PENDING; khong tu huy service.
 - Parent hoac School Admin co the tao long leave; chi School Admin duyet/tu choi va chon effective date khong truoc ngay request. Approval dung eligibility CollectionRun tuong lai; Invoice da issue dung adjustment/refund co source.
 - Meal adjustment la dong am co source tren Invoice DRAFT ke tiep; Saturday MANUAL phai kiem tra service coverage de khong charge trung.
+- Teacher tao mot DailyJournal hien hanh theo Student/ngay trong `Asia/Ho_Chi_Minh`; sua trong ngay tao version/audit bat bien. Anh journal chi nhan JPEG/PNG/WebP toi da 10 MB moi anh, khong gioi han so anh va khong dung chung attendance evidence.
+- Parent chi xem current DailyJournal va media cua Student co `StudentParent` active; API re-authorize tung Student/media request va ap dung 30 ngay operational retention sau `StudentEnrollment.endedOn`. Parent DTO khong co Staff identity, Class list, audit/version history, storage key hay attendance evidence.
 
 #### FR-13: Handover va late pickup reference
 
@@ -245,7 +248,7 @@ Nhan vien duoc cap capability ghi picked-up time; policy cutoff/grace/block la r
 
 #### FR-14: Parent authorization va retention
 
-Parent duoc cap session khi Google identity da xac minh va co link active; Parent co mot School vao thang home, nhieu School dung chooser.
+Parent duoc cap session khi Google identity da xac minh va co link active; Parent co mot School vao thang home, nhieu School dung chooser. Parent duoc doc attendance va DailyJournal rieng biet, khong co quyen mutation operational.
 
 **He qua kiem thu:**
 - Parent school A khong the expose tre, Invoice hay finance cua school B bang route/filter/UUID.
@@ -254,6 +257,7 @@ Parent duoc cap session khi Google identity da xac minh va co link active; Paren
 - Tu `StudentEnrollment.endedOn`, operational/sensitive data chi con xem 30 ngay lich. Invoice issued, Payment instruction, Receipt/refund con xem khi balance, Prepayment hoac refund chua settlement; sau settlement ParentAccessPolicy server-side mac dinh 12 thang va co version/audit.
 - Parent xem lich su attendance theo ngay cua Student duoc uy quyen trong retention operational data, voi `PRESENT`, `ABSENT`, `ON_LEAVE` hoac `NOT_RECORDED`. `NOT_RECORDED` luon duoc dien dat la truong chua ghi nhan, khong la ket luan vang mat.
 - Parent attendance DTO chi gom `studentId`, snapshot ten hien thi cua Student, ngay, trang thai va thoi diem cap nhat can thiet; khong lo truong ho so Student khac, Staff, ly do noi bo, evidence/media, danh sach lop hay attendance cua Student khac. Parent khong tao, sua hay xac nhan attendance.
+- Parent DailyJournal DTO rieng chi gom Student display-name snapshot, journal date, current text, updated time va media metadata toi thieu; media read khong tra permanent URL va re-authorize Parent/Student/retention tren moi request. Parent khong tao, sua hay xem version/audit journal.
 
 #### FR-15: Nghia vu va payment instruction read-only
 
@@ -272,7 +276,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 - Khong co bank synchronization, webhook, virtual account hay Parent self-confirmation payment.
 - Khong co tax calculation/VAT invoice; tax treatment chi la label/snapshot.
 - Khong co custom-role checkbox UI, Organization hierarchy, custom school domain, support impersonation/JIT, shared catalog live giua School.
-- Khong co chat, SMS/Zalo/email, album, meal/daily journal, medical/medication, transport, pickup authorization, HR/payroll hay import/export trong release dau.
+- Khong co chat, SMS/Zalo/email, album tu do, meal journal, medical/medication, transport, pickup authorization, HR/payroll hay import/export trong release dau. DailyJournal per Student/date voi text va anh la ngoai le da duoc dinh nghia o FR-12/FR-14.
 - Khong co automatic late-pickup fee, pricing engine tu attendance/handover, hay Parent mutation finance/service cancellation.
 
 ## 6. Pham vi release va trinh tu
@@ -295,7 +299,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 
 - API la nguon chan ly cho authorization, money, policy, snapshots, state transition va report; frontend/PWA chi goi REST.
 - Moi mutation cookie-auth co origin validation va double-submit CSRF; mutation high-impact dung idempotency UUID va operation reconciliation.
-- Topology release nay co dinh: Admin/Staff `app.passionedu.org`, Parent `parent.passionedu.org`, Platform Operations `ops.passionedu.org` va API `api.passionedu.org`. Moi portal dung OAuth callback, session audience, cookie host-only va allowlisted origin rieng; khong chia cookie `.passionedu.org` mac dinh va khong dung domain per-School.
+- Topology release nay co dinh: Admin `app.passionedu.org`, Teacher `teacher.passionedu.org`, Parent `parent.passionedu.org`, Platform Operations `ops.passionedu.org` va API `api.passionedu.org`. Moi portal dung OAuth callback, session audience, cookie host-only va allowlisted origin rieng; khong chia cookie `.passionedu.org` mac dinh va khong dung domain per-School.
 - Mo hinh du lieu tre em va Parent ap dung DTO toi thieu, server-side authorization, status/revoke thay hard delete, audit va retention policy.
 - Moi thay doi money, attendance, access, role, policy va settlement co actor, thoi diem, provenance va ly do khi yeu cau.
 - Cross-tenant isolation, authorization/revoke, concurrency/idempotency, ledger va Parent cross-school E2E la release-blocking verification.

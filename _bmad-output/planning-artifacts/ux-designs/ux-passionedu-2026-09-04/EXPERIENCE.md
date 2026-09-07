@@ -13,7 +13,7 @@ design: DESIGN.md
 
 ## Foundation
 
-Multi-surface web: Admin/Staff and Ops are desktop-first responsive PWAs; Parent is a mobile-first PWA. `DESIGN.md` owns visual identity; this document owns behavior. The three portals have separate sessions and never switch audience in one shell. Spines win on conflict with mockups.
+Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and Parent are mobile-first responsive PWAs. `DESIGN.md` owns visual identity; this document owns behavior. The four portals have separate sessions and never switch audience in one shell. Spines win on conflict with mockups.
 
 ## Information Architecture
 
@@ -21,14 +21,14 @@ Multi-surface web: Admin/Staff and Ops are desktop-first responsive PWAs; Parent
 | --- | --- | --- |
 | Ops School list and provision | Platform Operator | Create, suspend/reactivate School; bootstrap owner; never read School business data. |
 | School chooser / switcher | Admin/Staff, Parent with multiple active Schools | Select an authorized School before scoped work. A Parent with one active School enters its home directly; a Parent with no active StudentParent link is denied a Parent session. |
-| Tổng quan | Admin/Staff | Morning operational queue: attendance gaps, pending leave, class/date shortcuts; finance is secondary. |
+| Tổng quan | Admin | School management overview; no attendance, handover or daily-journal mutation destination. |
 | Danh bộ | School Admin | SchoolYear, Class, Student enrollment, Parent links, Staff assignments. |
 | Cấu hình trường | School Admin | Typed School, calendar, finance, attendance and Parent-access policy. |
 | Khoản thu / Đợt thu | Finance | Catalog, CollectionRun setup, preview, generate and issue review. |
 | Thu tiền / Công nợ / Báo cáo | Finance | Ledger posting, debt, prepayment, correction and school-scoped report. |
-| Điểm danh / Xin nghỉ / Bàn giao | Authorized Staff | Daily attendance, leave approval, service reference and handover. |
-| Parent home | Parent | Today cards for authorized children, unread inbox badge and outstanding obligations. |
-| Child detail | Parent | Daily attendance history, leave requests, authorized obligations and snapshot instruction. |
+| Teacher home / Class day | Teacher | Assigned-Class attendance, handover and daily-journal progress for the selected date. |
+| Parent home | Parent | Today cards for authorized children, current daily journals, unread inbox badge and outstanding obligations. |
+| Child detail | Parent | Daily attendance, current daily journals, leave requests, authorized obligations and snapshot instruction. |
 | Parent inbox | Parent | 30-day attendance events; deep-link to authorized child/date. |
 
 Admin/Staff navigation only shows capabilities the server grants. Parent child filters and content remain within the selected School; a child never persists visually after School switch or revoke. See `mockups/admin/admin-operational-queue.html`, `mockups/admin/finance-run-preview.html`, `mockups/parent/parent-home.html`, and `mockups/parent/parent-inbox.html`.
@@ -64,12 +64,14 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Ledger correction dialog | Finance | Names source amount and impact. Existing posting is never editable. Với policy `DIRECT`, School Admin hoặc Finance Manager được cấp quyền xác nhận và post ngay sau named confirmation. Với `SCHOOL_ADMIN_APPROVAL`, Finance Manager tạo request, requester không thấy approve action và School Admin khác người tạo mới approve/refuse. Cả hai nhánh dùng Operation reconciliation. |
 | Finance report | Finance | Requires School and report period context, displays ledger-derived as-of time and supports filter/empty/error states. Export is not offered. |
 | Management list | Admin/Staff, Ops, Finance | Default pattern for comparable records: concise Vietnamese column labels, search/filter/sort, explicit pagination, text status and labeled row actions. Technical identifiers and verbose policy explanations remain outside the default row surface. |
-| Attendance entry | Staff | Requires evidence before `PRESENT` when policy requires it. Calendar/leave conflicts show server result and do not let the user override locally. |
-| Handover entry | Authorized Staff | Records server-validated picked-up time for one Student. Missing capability shows no action; correction/error refreshes server state. It is explicitly labeled operational reference, never automatic fee calculation. |
+| Attendance entry | Teacher | Requires evidence before `PRESENT` when policy requires it. Calendar/leave conflicts show server result and do not let the user override locally. |
+| Handover entry | Teacher | Records server-validated picked-up time for one Student. Missing capability or effective Class assignment shows no action; correction/error refreshes server state. It is explicitly labeled operational reference, never automatic fee calculation. |
+| Daily journal editor | Teacher | One current journal per Student/date in an assigned Class. Same-day edits create audited versions. Multi-image upload accepts only JPEG/PNG/WebP up to 10 MB per file; UI does not set Parent-visible state until server confirms. |
+| Daily journal | Parent | Shows only the current authorized text and protected images of one child/date within retention. It never shows Teacher identity, journal versions/audit, Class facts or attendance evidence. |
 | Service and long leave | School Admin, Finance, Parent | Admin/Finance manage effective-dated service enrollment; Parent/Admin can start long leave, but only School Admin approves/rejects effective date. Parent sees request result, not finance internals. |
 | Adjustment and promotional refund review | Finance | Shows immutable source, target DRAFT Invoice or no/issued/voided target outcome, server-returned negative amount and refund path. Promotional withdrawal/transfer refund shows coverage fact/Invoice/Receipt, service interval, calendar version, operating days used/remaining, calculated amount and remaining paid-source limit; editable approved amount is non-negative, cannot exceed that limit and needs a reason when overridden. Finance cannot create a duplicate or automatic non-source-linked adjustment. |
 | Suspend/reactivate dialog | Platform Operator | Names School, current status and result of the next-request block. Requires confirmation, uses Operation reconciliation on timeout, and never offers business-data access after completion. |
-| Today card | Parent | One per authorized child. Opens child attendance history for today. Status text is always explicit; `NOT_RECORDED` is neutral. |
+| Today card | Parent | One per authorized child. Opens child attendance and daily journal for today. Status text is always explicit; `NOT_RECORDED` is neutral. |
 | Attendance history | Parent | Date-first list; each entry contains only allowed child snapshot, date, status and update time. No Staff, reason, media or class content. |
 | Leave request | Parent | Create from child detail; edit/cancel only `PENDING`. Result is pending/approved/rejected without deadline explanation. |
 | Parent inbox | Parent | Bell badge counts unread in-app events. Events retain 30 days, mark read on open, and deep-link to the authorized child/date. Revoked/ineligible event data disappears. |
@@ -124,6 +126,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 - Date controls are keyboard reachable and announce selected day/calendar status. Status filters use text labels, not color-only chips.
 - Parent notification deep-links re-authorize child and School before rendering; if unavailable, show safe inbox context rather than stale detail.
 - Parent has no attendance edit affordance. Finance totals/statuses always display API-returned values.
+- Parent journal media is requested only after child/date authorization, never preloaded or service-worker cached; a retention/revoke denial clears journal text, thumbnails and dialog before safe fallback.
 - All protected navigation re-evaluates School and child authorization after deep link, foreground return or inbox action. A denied destination removes previous child/date content before presenting the safe fallback.
 
 ## Accessibility Floor
@@ -133,7 +136,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 - Every status has text; `NOT_RECORDED` cannot use red/error iconography.
 - Touch targets are at least 44 by 44 CSS pixels in Parent PWA. Parent does not rely on hover.
 - Tables use captions, headers and keyboard-reachable row actions. Dialog focus returns to the launching control.
-- Evidence media is inaccessible in Parent DOM, route, cache or alternate text.
+- Attendance evidence is inaccessible in Parent DOM, route, cache or alternate text. Authorized DailyJournal media is separately protected and rendered only after Parent child/date re-authorization.
 
 ## Responsive & Platform
 
@@ -254,19 +257,27 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 4. **Climax:** While still `PENDING`, Mai can correct or cancel the request from the same detail.
 5. Failure: attendance is already confirmed `PRESENT`; the server returns the conflict and the UI preserves the submitted request state without implying a finance adjustment.
 
-### Flow 5 - Staff records attendance (An, authorized Staff, 08:05)
+### Flow 5 - Teacher records attendance (An, 08:05)
 
-1. An opens class/day attendance from the operational queue.
+1. An opens `teacher.passionedu.org`, then a class/day only after the server confirms his effective assignment.
 2. Each Student shows current server status and leave/calendar conflict.
 3. When School policy requires evidence, selecting `PRESENT` requires evidence before submit.
 4. An submits attendance through an idempotent action and waits for the server result rather than treating a local row update as final.
 5. **Climax:** The class list refreshes with explicit text statuses; authorized Parent events are created without exposing An or evidence.
 6. Failure: leave/PRESENT conflict or timeout returns server state or Operation reconciliation; An cannot force a fee or edit Parent-facing history.
 
-### Flow 6 - Staff records handover (An, authorized Staff, 16:35)
+### Flow 6 - Teacher records handover (An, 16:35)
 
 1. An opens the handover list for today and a selected Class in the visible School context.
 2. He selects an authorized Student and enters the picked-up time.
 3. The server validates capability and state, then confirms the recorded handover.
 4. **Climax:** The child row shows the recorded time as operational history; it does not display or calculate any late-pickup fee.
 5. Failure: An lacks handover capability or the record changed. The action is unavailable or refreshes with the server reason; An cannot infer or create a finance charge.
+
+### Flow 7 - Teacher publishes daily journal (An, 16:45)
+
+1. An remains in the assigned class/day on Teacher portal and opens a Student journal editor.
+2. He enters the daily note and adds any number of JPEG, PNG or WebP images no larger than 10 MB each.
+3. Server validates Class assignment, Student/date context and every upload before confirming the current journal version.
+4. **Climax:** The Parent child detail shows only the confirmed current note and protected images for that child/date.
+5. Failure: invalid media, revoked assignment, timeout or next-day edit attempt preserves safe input/error context; it does not expose an unconfirmed note or create a duplicate version.

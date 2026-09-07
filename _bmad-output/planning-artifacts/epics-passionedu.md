@@ -48,17 +48,17 @@ FR-10: Finance Manager ghi exact Receipt settlement, bao gom source Invoice cua 
 
 FR-11: He thong gop prior debt trong cung SchoolYear mot cach truy vet, settlement year-end va bao cao ledger theo gross, discount/refund, receipt, allocation, prepaid-payment coverage va outstanding.
 
-FR-12: Parent gui leave request cho Student duoc uy quyen; Staff co capability ghi attendance va handover; Admin/Finance quan ly service enrollment; Finance chi tao meal adjustment source-linked, khong tu dong tinh fee.
+FR-12: Parent gui leave request cho Student duoc uy quyen; Teacher co capability ghi attendance, handover va DailyJournal trong Class duoc phan cong; Admin/Finance quan ly service enrollment; Finance chi tao meal adjustment source-linked, khong tu dong tinh fee.
 
 FR-13: Authorized Staff ghi handover picked-up time theo policy lam operational reference co audit, khong tu dong tao late-pickup fee hoac pickup authorization.
 
-FR-14: Parent dung portal multi-School de xem dung Student duoc active link uy quyen, attendance history DTO toi thieu va in-app notification 30 ngay; revoke/session expiry xoa protected state va Parent khong mutate attendance.
+FR-14: Parent dung portal multi-School de xem dung Student duoc active link uy quyen, attendance history DTO toi thieu, DailyJournal/media duoc cap quyen va in-app notification 30 ngay; revoke/session expiry xoa protected state va Parent khong mutate operational data.
 
 FR-15: Parent xem read-only `ISSUED` Invoice obligation va Payment instruction snapshot khi con outstanding; Parent khong post Receipt, xac nhan payment, chon uu dai/refund hay sua finance, va khong co VietQR/copy/deep link trong release nay.
 
 ### NonFunctional Requirements
 
-NFR-1: API la nguon chan ly cho authorization, policy, money VND integer, snapshots, transitions, report va Parent DTO; ba portal React/Vite chi goi REST va session/audience cach ly.
+NFR-1: API la nguon chan ly cho authorization, policy, money VND integer, snapshots, transitions, report va Parent DTO; bon portal React/Vite chi goi REST va session/audience cach ly.
 
 NFR-2: Cookie-auth mutation dung origin validation va double-submit CSRF; workflow high-impact dung UUID Idempotency-Key va GET Operation reconciliation truoc retry sau timeout.
 
@@ -68,7 +68,7 @@ NFR-4: VND luu PostgreSQL BIGINT va REST safe JSON integer; issued obligation/in
 
 NFR-5: Tenant isolation, revoke, concurrency/idempotency ledger va Parent cross-School E2E la release-blocking proof; E1 isolation gate block cac release sau.
 
-NFR-6: P95 read API <= 500 ms; preview/report <= 3 s; generate 1,000 Student <= 60 s va co Operation progress trong fixture acceptance. WCAG 2.1 AA cho ca ba portal.
+NFR-6: P95 read API <= 500 ms; preview/report <= 3 s; generate 1,000 Student <= 60 s va co Operation progress trong fixture acceptance. WCAG 2.1 AA cho ca bon portal.
 
 NFR-7: Pilot dung mot VPS Docker Compose, source build, TLS proxy va PostgreSQL durable volume; secrets ngoai Git, migration deploy truoc API can no, khong destructive rollback. Production controls la gate Spine rieng.
 
@@ -171,7 +171,7 @@ School Admin thiet lap profile, calendar va typed policy theo effective date, au
 
 ### Epic 4: Vận hành lớp học có kiểm soát
 
-Nhan su co capability ghi attendance/handover; School Admin/Finance quan ly service va long leave; leave state, evidence, conflict va Finance adjustment source duoc bao toan ma khong tu dong tinh fee.
+Teacher co capability ghi attendance/handover/DailyJournal trong Class duoc phan cong; School Admin/Finance quan ly service va long leave; leave state, evidence, conflict va Finance adjustment source duoc bao toan ma khong tu dong tinh fee.
 
 **FRs covered:** FR-12 (domain operations), FR-13.
 
@@ -218,6 +218,11 @@ So that cac luong da truong co mot nen tang trien khai va kiem thu dung boundary
 **Then** co `apps/api`, `apps/web`, `apps/parent-web`, `apps/ops-web`, `packages/contracts`, `packages/ui` va `deploy/compose` theo Architecture Spine
 **And** portal khong import app khac hoac API internals; packages chi chua pure contract, formatter hoac stateless UI primitives.
 
+**Given** workspace target khoi dong
+**When** Teacher portal duoc build/deploy
+**Then** `apps/teacher-web` la PWA rieng tai `teacher.passionedu.org` va khong import `apps/web`, `apps/parent-web`, `apps/ops-web` hay API internals
+**And** Admin shell khong co attendance, handover hay DailyJournal mutation destination.
+
 **Given** API target khoi dong
 **When** schema/migration/seed duoc tao
 **Then** Prisma chi nam tai `apps/api/prisma` va seed/dev/test chi target multi-school model
@@ -240,6 +245,11 @@ So that session Admin/Staff, Parent va Ops khong the bi dung cheo.
 **When** callback thanh cong
 **Then** API tao hoac bind canonical `UserIdentity` va chi issue session cho audience khoi tao flow
 **And** callback URL va origin phai thuoc allowlist cua audience do.
+
+**Given** mot Google identity bat dau OAuth tu `teacher.passionedu.org`
+**When** callback thanh cong
+**Then** API chi issue teacher audience session voi cookie host-only cua Teacher
+**And** session `app`, `teacher`, `parent` va `ops` bi tu choi khi dung cheo audience.
 
 **Given** mot audience session duoc issue
 **When** browser gui session sang endpoint audience khac
@@ -550,6 +560,11 @@ So that lop hoc va Parent portal ap dung rule da duoc phe duyet thay vi JSON tu 
 **Then** server ap dung 30 ngay operational/sensitive retention va ParentAccessPolicy versioned voi default 12 thang sau settlement
 **And** client khong the keo dai retention qua query parameter, cache hoac stale route.
 
+**Given** School Admin cau hinh DailyJournalPolicy
+**When** tao version policy moi
+**Then** policy typed luu 30-ngay Parent journal/media retention sau `StudentEnrollment.endedOn`, MIME `JPEG | PNG | WEBP`, gioi han 10 MB moi anh va no-count-limit per journal, cung effective date va audit/reason
+**And** API server-enforce policy o journal/media write-read boundary; client khong the mo rong retention, MIME, kich thuoc hay tu tao permanent media URL.
+
 ### Story 3.4: Audit và verification cho policy isolation/versioning
 
 As a release owner,
@@ -600,15 +615,15 @@ So that trang thai nghi hoc va eligibility van hanh duoc quan ly nhat quan.
 **Then** API tra state va conflict facts can thiet theo capability
 **And** Parent-facing status/internal approval mechanics, notification projection va Parent edit/cancel khong thuoc story nay.
 
-### Story 4.2: Ghi attendance có conflict validation và evidence policy
+### Story 4.2: Teacher ghi attendance có conflict validation và evidence policy
 
-As an attendance-capable Staff member,
+As an attendance-capable Teacher,
 I want to ghi attendance theo Student/ngay voi evidence khi policy yeu cau,
 So that trang thai lop hoc dang tin cay ma leave/calendar conflict khong bi ghi de.
 
 **Acceptance Criteria:**
 
-**Given** Staff co attendance capability, selected School/Class/date hop le va Student `ENROLLED`
+**Given** Teacher dang dung teacher audience, co attendance capability, selected School/Class/date hop le va Student `ENROLLED`
 **When** Staff submit attendance status
 **Then** server chi cho phep StaffProfile da bind audited voi SchoolMembership/UserIdentity active, co capability va Class assignment effective tai as-of date ghi trang thai trong School context, audit actor/time/provenance va tra updated server state
 **And** client khong the dung Class, Student hoac date tu School khac de bypass capability.
@@ -646,15 +661,15 @@ So that anh tre em khong bi lo hay ton tai vo thoi han va Parent projection co n
 **Then** domain emit dung mot in-app notification source event co School/Student/date nhung khong chua evidence hoac internal facts
 **And** delivery/read projection chi co the duoc Parent portal xu ly sau khi recheck active `StudentParent` o Epic 7.
 
-### Story 4.4: Ghi handover như operational reference
+### Story 4.4: Teacher ghi handover như operational reference
 
-As a handover-capable Staff member,
+As a handover-capable Teacher,
 I want to ghi picked-up time cua mot Student theo ngay,
 So that lop co lich su ban giao ma khong tao mot khoan phi tu dong.
 
 **Acceptance Criteria:**
 
-**Given** Staff co handover capability, Student/Class/day thuoc selected School
+**Given** Teacher dang dung teacher audience, co handover capability, Student/Class/day thuoc selected School
 **When** Staff submit picked-up time
 **Then** server validate StaffProfile binding, membership, capability, Class assignment, state va handover policy as-of date va snapshot cutoff/grace/block reference cung audit vao confirmed operational record
 **And** missing capability, already-recorded state hoac validation error tra ly do server va UI refresh record.
@@ -1087,7 +1102,7 @@ So that duplicate posting, cross-tenant settlement hoac report sai khong vao pil
 
 ## Epic 7: Parent portal đa trường, read-first
 
-Parent dung PWA mobile-first de xem dung Student duoc uy quyen, attendance/inbox, gui leave request khi con `PENDING`, va xem obligation `ISSUED` cung Payment instruction snapshot. Parent khong co finance, prepaid-payment coverage, refund hay payment mutation.
+Parent dung PWA mobile-first de xem dung Student duoc uy quyen, attendance/DailyJournal/inbox, gui leave request khi con `PENDING`, va xem obligation `ISSUED` cung Payment instruction snapshot. Parent khong co finance, prepaid-payment coverage, refund hay operational mutation.
 
 ### Story 7.1: Khởi tạo Parent context đa trường an toàn
 
@@ -1117,10 +1132,10 @@ So that toi chi vao duoc portal context co du lieu con minh duoc uy quyen.
 **Then** app xoa protected memory/query state truoc khi render context khac
 **And** neu khong con active School nao thi chuyen ve safe signed-out/access-denied state; neu con nhieu School thi ve chooser.
 
-### Story 7.2: Parent xem Today và attendance history tối thiểu
+### Story 7.2: Parent xem Today, attendance và DailyJournal được ủy quyền
 
 As a Parent,
-I want to xem trang thai attendance hom nay va theo ngay cua tung con duoc uy quyen,
+I want to xem trang thai attendance va DailyJournal hom nay/theo ngay cua tung con duoc uy quyen,
 So that toi biet truong da ghi nhan gi ma khong thay du lieu noi bo hoac cua tre khac.
 
 **Acceptance Criteria:**
@@ -1130,15 +1145,20 @@ So that toi biet truong da ghi nhan gi ma khong thay du lieu noi bo hoac cua tre
 **Then** API list/detail join va filter active `StudentParent` cho dung tung `studentId`
 **And** DTO chi co `studentId`, Student display-name snapshot, date, `PRESENT`/`ABSENT`/`ON_LEAVE`/`NOT_RECORDED` va necessary updated time.
 
+**Given** ParentSchoolContext hop le, active StudentParent link va DailyJournal current version trong operational retention
+**When** Parent mo Today hoac child detail theo ngay
+**Then** API re-authorize tung requested/returned `studentId` va tra DTO journal rieng gom Student display-name snapshot, journal date, current text, updated time va protected media metadata toi thieu
+**And** media chi tai qua request duoc re-authorize, khong preload/cache, khong co permanent URL, Teacher identity, Class facts, audit/version history hay attendance evidence.
+
 **Given** attendance chua duoc ghi trong ngay van hanh
 **When** Parent xem Today card hoac date history
 **Then** UI hien "Truong chua ghi nhan" voi neutral state, khong goi do la vang mat
 **And** holiday/non-operating date co calendar label, khong suy dien missing attendance.
 
-**Given** Parent co truy cap attendance cua Student khac, Staff/internal reason, evidence/media hoac class data
+**Given** Parent co truy cap attendance/journal cua Student khac, Teacher/internal reason, attendance evidence, journal audit/media khong duoc cap quyen hoac class data
 **When** server hoac deep-link resolver xu ly request
 **Then** request bi tu choi hoac safe-fallback truoc khi protected content render
-**And** Parent khong co attendance edit/confirm affordance, endpoint hoac cached alternate data.
+**And** Parent khong co attendance/journal edit affordance, endpoint hoac cached alternate data.
 
 ### Story 7.3: Parent inbox attendance có re-authorization
 
@@ -1247,8 +1267,8 @@ So that Parent portal khong leak du lieu tre em hoac finance va van dung duoc tr
 
 **Given** fixture co Parent voi nhieu Student/School, active/revoked links, attendance events, Invoice `ISSUED`/`PAID`/`VOIDED`, prepaid-payment coverage va refunds
 **When** API/PostgreSQL integration va Parent E2E suites chay
-**Then** cross-School/cross-Student route, UUID, filter, deep-link, finance-field, evidence/media va Parent mutation attempt deu bi tu choi
-**And** recheck per returned/requested `studentId`, revoke, expiry, 30-day operational retention va finance retention deu pass.
+**Then** cross-School/cross-Student route, UUID, filter, deep-link, finance-field, attendance evidence, unauthorized journal media/audit va Parent mutation attempt deu bi tu choi
+**And** recheck per returned/requested `studentId`, revoke, expiry, 30-day operational retention cua attendance/journal va finance retention deu pass.
 
 **Given** Parent PWA load, navigate, receive `401`, go offline hoac render empty/error state
 **When** accessibility/mobile checks chay
@@ -1263,7 +1283,7 @@ So that Parent portal khong leak du lieu tre em hoac finance va van dung duoc tr
 ### Story 7.8: Pilot performance và accessibility release gate
 
 As a release owner,
-I want fixture-based performance va WCAG verification cho ca ba portal truoc pilot,
+I want fixture-based performance va WCAG verification cho ca bon portal truoc pilot,
 So that latency va kha nang su dung khong duoc suy doan tu happy path.
 
 **Acceptance Criteria:**
@@ -1273,7 +1293,7 @@ So that latency va kha nang su dung khong duoc suy doan tu happy path.
 **Then** P95 read API <= 500 ms, preview/report <= 3 s, va CollectionRun generate 1,000 Student <= 60 giay voi Operation progress observable
 **And** benchmark report luu fixture, environment, timing va failure outcome; client khong tu claim success khi server chua terminal.
 
-**Given** Admin/Staff, Ops va Parent portal routes/components trong release
+**Given** Admin, Teacher, Ops va Parent portal routes/components trong release
 **When** WCAG 2.1 AA automated va manual keyboard/screen-reader verification chay
 **Then** contrast, text status, heading/route focus, dialog focus, table semantics, responsive treatment va Parent 44x44 touch target deu pass theo UX contract
 **And** blocked finding la release gate; khong portal nao duoc mien tru chi vi khong phai Parent.

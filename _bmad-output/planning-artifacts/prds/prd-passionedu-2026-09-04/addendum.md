@@ -2,17 +2,18 @@
 
 ## Nguon va truy vet
 
-- Approved change proposals: `../../sprint-change-proposal-2026-08-31.md`, `../../sprint-change-proposal-2026-09-05.md`.
+- Approved change proposals: `../../sprint-change-proposal-2026-08-31.md`, `../../sprint-change-proposal-2026-09-05.md`, `../../sprint-change-proposal-2026-09-07.md`.
 - Discovery inputs: `../../../../docs/kidsonline-feature-catalog.md`, `../../../../docs/multi-school-tenancy-catalog.md`, `../../../../docs/receivables-clean-break-blueprint.md`, `../../../../docs/roster-and-people-catalog.md`, `../../../../docs/school-settings-catalog.md`.
 - Superseded references: `../prd-anhhoa-2026-08-18/prd.md`, `../prd-anhhoa-parent-pwa-2026-08-22/prd.md`.
 
 ## Dinh huong ky thuat da duoc proposal giu lai
 
-- Monorepo pnpm/Turborepo; React/Vite PWA cho Admin/Staff va Parent; NestJS, Prisma, PostgreSQL va REST.
-- Portal hosts: `app.passionedu.org`, `parent.passionedu.org`, `ops.passionedu.org`, `api.passionedu.org`; cookie host-only va session audience rieng.
+- Monorepo pnpm/Turborepo; React/Vite PWA doc lap cho Admin, Teacher, Parent va Ops; NestJS, Prisma, PostgreSQL va REST.
+- Portal hosts: `app.passionedu.org`, `teacher.passionedu.org`, `parent.passionedu.org`, `ops.passionedu.org`, `api.passionedu.org`; cookie host-only va session audience rieng.
 - Google OAuth la canonical identity. `SUPERADMIN_EMAIL` chi bootstrap Platform capability qua environment; khong commit gia tri that.
 - Tien VND dung PostgreSQL `BIGINT`; API tinh toan va snapshot; Prisma/schema/module cu la reference, khong la baseline production.
 - Route business dung `/schools/:schoolId/...`; Parent scope School duoc chon va validate qua StudentParent link active.
+- Teacher chi ghi attendance, handover va DailyJournal trong Class co StaffProfile binding, capability va Class assignment effective tai ngay thao tac. DailyJournal co text va anh JPEG/PNG/WebP toi da 10 MB moi anh, khong gioi han so anh; Parent chi doc journal/media cua Student duoc lien ket active trong 30 ngay sau `endedOn`.
 
 ## Invariant data model de Architecture Spine chot
 
@@ -33,5 +34,5 @@
 
 - Integration PostgreSQL: tenant isolation tren read/write/delete/report, revoke, unique scoped va idempotency cross-school.
 - Finance: preview/generate idempotent, snapshot, exact settlement, explicit Receipt excess Prepayment, reversal/refund, debt transfer va year-end settlement. Fixture tu choi partial, unallocated va mixed-Student Receipt; fixture Prepayment chi ap dung Invoice cung Student, School va SchoolYear.
-- E2E: chooser/switcher, pending owner bind Google, Parent multi-school, Parent revoke/cache clear, leave/attendance/handover permission states.
+- E2E: chooser/switcher, pending owner bind Google, Teacher audience/Class assignment, Parent multi-school, Parent revoke/cache clear, leave/attendance/handover/journal permission states.
 - Compatibility: OAuth callback/cookie/origin boundaries theo portal; Parent bank enhancement chi phat hanh sau device/browser test matrix.

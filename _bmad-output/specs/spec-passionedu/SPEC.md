@@ -23,7 +23,7 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
   - **intent:** Platform Operators can provision, suspend and bootstrap an independent School without gaining its business-data access.
   - **success:** Provisioning is atomic; suspension denies the next School business request; Platform access never grants implicit School access.
 - **CAP-2**
-  - **intent:** Admin, Staff and Parent users can access only data and actions authorized in their current School context.
+  - **intent:** Admin, Teacher and Parent users can access only data and actions authorized in their current School context.
   - **success:** Cross-School read/write/report access is denied; revoke takes effect on the next request without removing valid access in another School.
 - **CAP-3**
   - **intent:** Schools can manage effective-dated settings, SchoolYear, roster, Parent and Staff records while retaining operating history.
@@ -35,19 +35,19 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
   - **intent:** Finance users can issue snapshot obligations and maintain exact receipts, prepaid-payment coverage, reversals, refunds, debt and reports through a ledger.
   - **success:** A prepaid-payment source Invoice contains all covered future periods and settles exactly for one Student in one School and SchoolYear, without an excess balance. Reports reconcile gross, discount/refund, receipt, allocation, prepaid-payment coverage and outstanding; corrections use audited postings rather than history mutation. Withdrawal, transfer or eligible service cancellation refund previews prorate each coverage fact from its immutable paid snapshot and remaining School-calendar operating days, reject a non-positive operating-day denominator, and require audit when an approved amount overrides the calculated VND amount.
 - **CAP-6**
-  - **intent:** Authorized users can manage leave, attendance, services and handover under School policy, supplying Finance with references for controlled adjustments.
-  - **success:** Unauthorized writes are denied; holiday and confirmed-PRESENT leave conflicts are excluded from meal adjustments; REQUIRED evidence blocks PRESENT without evidence, remains Staff/Admin-only, and its blob is deleted after two calendar months; Finance creates only source-linked idempotent adjustments, never automatic charges.
+  - **intent:** Teachers can manage attendance, handover and daily journals only for effective assigned Classes; authorized users can manage leave and services under School policy, supplying Finance with controlled adjustment references.
+  - **success:** Unauthorized writes are denied; holiday and confirmed-PRESENT leave conflicts are excluded from meal adjustments; REQUIRED attendance evidence blocks PRESENT without evidence, remains Teacher/Admin-only, and its blob is deleted after two calendar months. A daily journal has audited same-day versions and authorized JPEG/PNG/WebP media at most 10 MB each; Finance creates only source-linked idempotent adjustments, never automatic charges.
 - **CAP-7**
-  - **intent:** Parents can use a multi-School portal to view authorized daily attendance, obligations and snapshot payment instructions for their children, and submit only permitted leave requests.
-  - **success:** Parent sees only their authorized Student's `PRESENT`, `ABSENT`, `ON_LEAVE` or clearly non-absent `NOT_RECORDED` status; Staff, internal reasons and evidence stay hidden; logout, expiry and revoke clear protected client state; Parents cannot mutate attendance or post/confirm finance activity.
+  - **intent:** Parents can use a multi-School portal to view authorized daily attendance, daily journals and media, obligations and snapshot payment instructions for their children, and submit only permitted leave requests.
+  - **success:** Parent sees only their authorized Student's `PRESENT`, `ABSENT`, `ON_LEAVE` or clearly non-absent `NOT_RECORDED` status and current journal within operational retention; Staff identity, internal reasons, attendance evidence and journal audit stay hidden; logout, expiry and revoke clear protected client state; Parents cannot mutate attendance, journal or finance activity.
 
 ## Constraints
 
 - `School` scopes every business record, policy, query, audit record and idempotent Operation; authorization is server-side on every request and does not trust browser-selected context, UUIDs, headers or filters.
-- API owns authorization, policy evaluation, VND integer calculation, state transitions, snapshots and reports; portal apps consume REST contracts only.
+- API owns authorization, policy evaluation, VND integer calculation, state transitions, snapshots, media access and reports; Admin, Teacher, Parent and Ops portal apps consume REST contracts only.
 - A School can configure multiple concurrent prepaid-payment promotion programs and explicitly activate or deactivate each. Each program fixes its number of consecutive calendar months, applies to calendar-month CollectionRuns, selects tuition and/or other Receivables, and reduces the original price by either a percentage or whole-VND amount. Issued obligations, prepaid-payment coverage and Payment instructions are immutable snapshots; finance postings are append-only.
 - A prepaid-payment program never stacks with DiscountPolicy. A School Admin, not a Parent, selects its program and start month after a direct agreement with the Parent; the API calculates eligibility and reduction, creates a dedicated `PREPAID` CollectionRun and one source Invoice for all covered future periods, requires exact settlement without excess, and owns coverage overlap validation, ordinary-run exclusion, proration, audit and ledger transition. Coverage retains its issued price, discount and service snapshots; catalog, class or service changes require authorized correction/refund review rather than automatic conversion. Parent has no package/refund/payment mutation. High-impact cookie mutations, including School provisioning, require origin validation, double-submit CSRF, idempotency and Operation reconciliation.
-- Parent authorization derives only from active StudentParent links, applies retention server-side, exposes minimum DTOs and never caches protected responses in the service worker.
+- Parent authorization derives only from active StudentParent links, applies retention server-side, exposes minimum DTOs and never caches protected responses or journal media in the service worker. Teacher authorization additionally requires active Staff binding, capability and effective Class assignment.
 - Tenant isolation, revoke, ledger concurrency/idempotency and Parent cross-School behavior are pilot release gates. The VPS pilot builds from source without a registry or backup; production recovery, performance, rate-limit and cloud decisions require a Spine update before public/operational rollout.
 
 ## Non-goals
@@ -55,7 +55,7 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
 - Compatibility layers, dual legacy schema/finance lifecycle, or production migration as part of this clean-break.
 - Bank synchronization, webhooks, virtual accounts or Parent payment confirmation.
 - VAT calculation, custom-role UI, Organization hierarchy, custom School domains, JIT support access or live shared catalogs.
-- Chat, SMS/Zalo/email, albums, daily journals, medical/medication, transport, pickup authorization, HR/payroll and import/export.
+- Chat, SMS/Zalo/email, free-form albums, meal journals, medical/medication, transport, pickup authorization, HR/payroll and import/export. Daily journals per Student/date are in scope.
 - Automatic pricing from attendance/handover/service enrollment, automatic late-pickup fees, or Parent finance/service-cancellation mutations.
 - An independent Student Prepayment balance, excess Receipt posting, or applying a generic balance to a future Invoice.
 

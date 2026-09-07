@@ -46,6 +46,9 @@ development_status:
   4-5-service-enrollment-va-long-leave-lam-nguon-finance-co-kiem-soat: backlog
   4-6-hang-doi-van-hanh-buoi-sang: backlog
   4-7-kiem-thu-release-gate-cho-van-hanh-lop: backlog
+  4-8-teacher-ghi-dailyjournal-co-version-va-media-duoc-kiem-soat: backlog
+  4-9-dailyjournal-media-lifecycle-va-parent-projection-an-toan: backlog
+  4-10-teacher-portal-queue-va-release-gate-van-hanh-lop: backlog
   epic-4-retrospective: optional
 
   epic-5: backlog
@@ -69,7 +72,7 @@ development_status:
 
   epic-7: backlog
   7-1-khoi-tao-parent-context-da-truong-an-toan: backlog
-  7-2-parent-xem-today-va-attendance-history-toi-thieu: backlog
+  7-2-parent-xem-today-attendance-va-dailyjournal-duoc-uy-quyen: backlog
   7-3-parent-inbox-attendance-co-re-authorization: backlog
   7-4-parent-tao-va-quan-ly-leave-request-duoc-phep: backlog
   7-5-parent-tu-cap-nhat-so-dien-thoai-co-audit: backlog
