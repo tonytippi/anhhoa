@@ -33,5 +33,5 @@
   var content = host.innerHTML;
   host.insertAdjacentHTML('beforebegin', '<a class="skip" href="#main">Bỏ qua điều hướng</a>');
   host.className = 'shell';
-  host.innerHTML = '<aside class="sidebar"><p class="brand"><b>P</b> PassionEdu</p><nav aria-label="Điều hướng quản trị và nhân sự">' + navigation + '</nav></aside><main id="main" class="workspace"><header class="topbar"><button class="context" data-confirm="Đổi trường|Bạn đang xem Ánh Hoa. Biểu mẫu đang soạn sẽ không được tự lưu.">Ánh Hoa · Năm học 2026-2027 ▾</button><div class="avatar"><span class="muted">Hoa Nguyễn</span><i>HN</i></div></header>' + content + '</main>';
+  host.innerHTML = '<aside class="sidebar"><p class="brand"><b>P</b> PassionEdu</p><nav aria-label="Điều hướng quản trị và nhân sự">' + navigation + '</nav></aside><main id="main" class="workspace"><header class="topbar"><button class="context" type="button" data-school-context="clean">Ánh Hoa · Năm học 2026-2027 ▾</button><div class="avatar"><span class="muted">Hoa Nguyễn</span><i>HN</i></div></header>' + content + '</main>';
 }());
