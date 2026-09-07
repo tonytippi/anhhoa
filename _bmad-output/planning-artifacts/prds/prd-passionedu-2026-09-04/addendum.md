@@ -2,7 +2,7 @@
 
 ## Nguon va truy vet
 
-- Approved change proposal: `../../sprint-change-proposal-2026-08-31.md`.
+- Approved change proposals: `../../sprint-change-proposal-2026-08-31.md`, `../../sprint-change-proposal-2026-09-05.md`.
 - Discovery inputs: `../../../../docs/kidsonline-feature-catalog.md`, `../../../../docs/multi-school-tenancy-catalog.md`, `../../../../docs/receivables-clean-break-blueprint.md`, `../../../../docs/roster-and-people-catalog.md`, `../../../../docs/school-settings-catalog.md`.
 - Superseded references: `../prd-anhhoa-2026-08-18/prd.md`, `../prd-anhhoa-parent-pwa-2026-08-22/prd.md`.
 
@@ -32,6 +32,6 @@
 ## Verification matrix toi thieu
 
 - Integration PostgreSQL: tenant isolation tren read/write/delete/report, revoke, unique scoped va idempotency cross-school.
-- Finance: preview/generate idempotent, snapshot, partial payment, allocation, prepayment, reversal/refund, debt transfer va year-end settlement.
+- Finance: preview/generate idempotent, snapshot, exact settlement, explicit Receipt excess Prepayment, reversal/refund, debt transfer va year-end settlement. Fixture tu choi partial, unallocated va mixed-Student Receipt; fixture Prepayment chi ap dung Invoice cung Student, School va SchoolYear.
 - E2E: chooser/switcher, pending owner bind Google, Parent multi-school, Parent revoke/cache clear, leave/attendance/handover permission states.
 - Compatibility: OAuth callback/cookie/origin boundaries theo portal; Parent bank enhancement chi phat hanh sau device/browser test matrix.

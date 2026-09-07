@@ -1,7 +1,7 @@
 ---
 name: PassionEdu
 status: final
-updated: 2026-09-05
+updated: 2026-09-07
 sources:
   - ../../../specs/spec-passionedu/SPEC.md
   - ../../prds/prd-passionedu-2026-09-04/prd.md
@@ -58,13 +58,13 @@ The desktop shell starts with a skip link, then `banner`, named `navigation`, co
 | CollectionRun wizard | Finance | Configure -> scope -> server preview -> generate. Preview is authoritative and shows server-returned period, School, scope, eligible/skip categories, amount composition, total VND and calculation time/version. Generate opens a final confirmation naming School, period, scope, count and server-returned total; timeout goes to Operation reconciliation. |
 | Receipt and allocation form | Finance | Starts from one selected Student and server-returned eligible issued Invoices. The exact total required for every selected Invoice is shown; partial, mixed-Student and unallocated posting are rejected. Receipt excess requires explicit Student Prepayment. |
 | Prepayment and debt transfer | Finance | Prepayment is a Finance-only explicit excess tied to one Student. Debt transfer names source and target obligation; it is confirmed as an auditable movement, not an editable balance. |
-| Student promotional coverage | School Admin, Finance | Back-office review creates named Student receivable-period coverage after an offline agreement. It shows snapshot price/discount, reason, overlap/eligibility outcome and resulting DRAFT/issued obligation; Parent has no catalog, request or selection action. |
-| Ledger correction dialog | Finance | Names source amount and impact. Existing posting is never editable. Two-step reversal hides approval from request creator and labels required approver. |
+| Student promotional coverage | School Admin, Finance | Back-office review creates named Student/SchoolYear receivable-period facts after an offline agreement, then a source DRAFT Invoice. It shows service interval, snapshot price/discount, calendar version, reason, overlap/eligibility outcome and waiting-for-paid state; coverage only becomes issued after source Invoice settlement. Parent has no catalog, request or selection action. |
+| Ledger correction dialog | Finance | Names source amount and impact. Existing posting is never editable. Với policy `DIRECT`, School Admin hoặc Finance Manager được cấp quyền xác nhận và post ngay sau named confirmation. Với `SCHOOL_ADMIN_APPROVAL`, Finance Manager tạo request, requester không thấy approve action và School Admin khác người tạo mới approve/refuse. Cả hai nhánh dùng Operation reconciliation. |
 | Finance report | Finance | Requires School and report period context, displays ledger-derived as-of time and supports filter/empty/error states. Export is not offered. |
 | Attendance entry | Staff | Requires evidence before `PRESENT` when policy requires it. Calendar/leave conflicts show server result and do not let the user override locally. |
 | Handover entry | Authorized Staff | Records server-validated picked-up time for one Student. Missing capability shows no action; correction/error refreshes server state. It is explicitly labeled operational reference, never automatic fee calculation. |
 | Service and long leave | School Admin, Finance, Parent | Admin/Finance manage effective-dated service enrollment; Parent/Admin can start long leave, but only School Admin approves/rejects effective date. Parent sees request result, not finance internals. |
-| Adjustment and promotional refund review | Finance | Shows immutable source, target DRAFT Invoice or no/issued/voided target outcome, server-returned negative amount and refund path. Promotional withdrawal/transfer refund shows coverage/Invoice/Receipt, operating days used/remaining, calculated amount, editable approved amount and required override reason. Finance cannot create a duplicate or automatic non-source-linked adjustment. |
+| Adjustment and promotional refund review | Finance | Shows immutable source, target DRAFT Invoice or no/issued/voided target outcome, server-returned negative amount and refund path. Promotional withdrawal/transfer refund shows coverage fact/Invoice/Receipt, service interval, calendar version, operating days used/remaining, calculated amount and remaining paid-source limit; editable approved amount is non-negative, cannot exceed that limit and needs a reason when overridden. Finance cannot create a duplicate or automatic non-source-linked adjustment. |
 | Suspend/reactivate dialog | Platform Operator | Names School, current status and result of the next-request block. Requires confirmation, uses Operation reconciliation on timeout, and never offers business-data access after completion. |
 | Today card | Parent | One per authorized child. Opens child attendance history for today. Status text is always explicit; `NOT_RECORDED` is neutral. |
 | Attendance history | Parent | Date-first list; each entry contains only allowed child snapshot, date, status and update time. No Staff, reason, media or class content. |
@@ -110,7 +110,8 @@ The desktop shell starts with a skip link, then `banner`, named `navigation`, co
 | Invoice `PAID` | Ledger-derived full settlement and as-of time | Read; permitted refund/reversal workflow | UI never lets client set payment status; normal partial payment does not exist. |
 | Invoice `VOIDED` | Void reason and prior immutable snapshot | Read audit trail | New allocation, prepayment application or Payment instruction is unavailable. |
 | No outstanding | Settlement summary | Read history | Parent Payment instruction action is hidden; no payment invitation remains. |
-| Reversal/refund pending | Source, reason, required approver and current request state | Requester views/cancels only if server permits; different School Admin approves in two-step policy | Promotional refund also shows calculated/approved amount and required override reason; request creator never sees approve action; refusal/approval refreshes ledger. |
+| Reversal/refund `DIRECT` | Source, reason, server-returned impact and current policy | Authorized School Admin/Finance Manager posts after named confirmation | Promotional refund shows calculated/approved amount and required override reason; Operation reconciliation refreshes ledger and source remains immutable. |
+| Reversal/refund pending | Source, reason, required approver and current request state | Requester views/cancels only if server permits; different School Admin approves in `SCHOOL_ADMIN_APPROVAL` policy | Promotional refund also shows calculated/approved amount and required override reason; request creator never sees approve action; refusal/approval refreshes ledger. |
 
 ## Interaction Primitives
 
@@ -205,7 +206,7 @@ The desktop shell starts with a skip link, then `banner`, named `navigation`, co
 4. A timeout occurs; the screen says it is checking the result and reconciles the saved Operation ID before enabling another submission.
 5. Minh reviews a draft, records a reason for an adjustment, selects an active BankAccount and issues it.
 6. **Climax:** The issued detail shows immutable obligation and Payment instruction snapshots with ledger-derived outstanding amount.
-7. Failure: a reversal requires School Admin approval; Minh can submit the request but cannot approve their own request.
+7. Failure: server-returned reversal mode controls the path. `DIRECT` posts only after named confirmation; `SCHOOL_ADMIN_APPROVAL` lets Minh submit a request but not approve it.
 
 ### Flow 2b - Ledger correction (Minh, Finance Manager)
 

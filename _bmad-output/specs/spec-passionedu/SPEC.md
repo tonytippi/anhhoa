@@ -1,5 +1,6 @@
 ---
 id: SPEC-passionedu
+updated: 2026-09-07
 companions:
   - ../../planning-artifacts/prds/prd-passionedu-2026-09-04/prd.md
   - ../../planning-artifacts/prds/prd-passionedu-2026-09-04/addendum.md
@@ -26,13 +27,13 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
   - **success:** Cross-School read/write/report access is denied; revoke takes effect on the next request without removing valid access in another School.
 - **CAP-3**
   - **intent:** Schools can manage effective-dated settings, SchoolYear, roster, Parent and Staff records while retaining operating history.
-  - **success:** Each School maintains one active SchoolYear; transitions preserve auditable enrollment and assignment history without destructive overwrite.
+  - **success:** Each School maintains one active SchoolYear; transitions preserve auditable enrollment and assignment history without destructive overwrite. A StaffProfile is an operational actor only through an audited active same-School identity/membership binding, route capability and effective Class assignment.
 - **CAP-4**
   - **intent:** Finance users can configure receivables and CollectionRuns, review authoritative previews and create draft obligations for eligible Students; School Admin or Finance Manager can apply negotiated Student promotional coverage for named receivable-period facts.
-  - **success:** A Student has at most one Invoice in a CollectionRun; generation reconciles through its Operation and never duplicates an Invoice after retry or timeout. An issued promotional coverage skips only its covered Student receivable-period facts, while other eligible charges remain billable.
+  - **success:** A Student has at most one Invoice in a CollectionRun; generation reconciles through its Operation and never duplicates an Invoice after retry or timeout. An issued promotional coverage has immutable per-period service intervals and paid source provenance, skips only its covered Student receivable-period facts, while other eligible charges remain billable.
 - **CAP-5**
   - **intent:** Finance users can issue snapshot obligations and maintain exact receipts, exceptional prepayments, reversals, refunds, debt and reports through a ledger.
-  - **success:** A Receipt settles one or more Invoices for one Student in one School only when it pays each Invoice in full; excess is explicit Student Prepayment. Reports reconcile gross, discount/refund, receipt, allocation, prepayment and outstanding; corrections use audited postings rather than history mutation. Withdrawal/transfer refund previews prorate unused promotional coverage from remaining School-calendar operating days and require audit when an approved amount overrides the calculated VND amount.
+  - **success:** A Receipt settles one or more Invoices for one Student in one School and SchoolYear only when it pays each Invoice in full; excess is explicit Student Prepayment. Reports reconcile gross, discount/refund, receipt, allocation, prepayment and outstanding; corrections use audited postings rather than history mutation. Withdrawal/transfer refund previews prorate each coverage fact from its immutable paid snapshot and remaining School-calendar operating days, reject a non-positive operating-day denominator, and require audit when an approved amount overrides the calculated VND amount.
 - **CAP-6**
   - **intent:** Authorized users can manage leave, attendance, services and handover under School policy, supplying Finance with references for controlled adjustments.
   - **success:** Unauthorized writes are denied; holiday and confirmed-PRESENT leave conflicts are excluded from meal adjustments; REQUIRED evidence blocks PRESENT without evidence, remains Staff/Admin-only, and its blob is deleted after two calendar months; Finance creates only source-linked idempotent adjustments, never automatic charges.
@@ -44,7 +45,7 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
 
 - `School` scopes every business record, policy, query, audit record and idempotent Operation; authorization is server-side on every request and does not trust browser-selected context, UUIDs, headers or filters.
 - API owns authorization, policy evaluation, VND integer calculation, state transitions, snapshots and reports; portal apps consume REST contracts only.
-- Issued obligations, Student promotional coverage and Payment instructions are immutable snapshots; finance postings are append-only. Normal partial or unallocated Receipt posting is rejected, Parent has no package/refund/payment mutation, and the API owns coverage overlap validation, run exclusion, proration, exact settlement, audit and ledger transition. High-impact cookie mutations require origin validation, double-submit CSRF, idempotency and Operation reconciliation.
+- Issued obligations, Student promotional coverage and Payment instructions are immutable snapshots; finance postings are append-only. Normal partial or unallocated Receipt posting is rejected; Prepayment application requires the same Student, School and SchoolYear as its target Invoice. Parent has no package/refund/payment mutation, and the API owns coverage overlap validation, run exclusion, proration, exact settlement, audit and ledger transition. High-impact cookie mutations, including School provisioning, require origin validation, double-submit CSRF, idempotency and Operation reconciliation.
 - Parent authorization derives only from active StudentParent links, applies retention server-side, exposes minimum DTOs and never caches protected responses in the service worker.
 - Tenant isolation, revoke, ledger concurrency/idempotency and Parent cross-School behavior are pilot release gates. The VPS pilot builds from source without a registry or backup; production recovery, performance, rate-limit and cloud decisions require a Spine update before public/operational rollout.
 

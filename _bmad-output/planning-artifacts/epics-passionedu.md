@@ -183,7 +183,7 @@ Finance cau hinh catalog/rule, tao CollectionRun, kiem tra preview do server tin
 
 **FRs covered:** FR-7, FR-8, FR-9.
 
-**Depends on:** Epic 1, Epic 2, Epic 3, Epic 4.
+**Depends on:** Epic 1, Epic 2, Epic 3, Epic 4. Epic 4 only delivers immutable adjustment eligibility sources; Epic 5 owns materialization onto Invoice DRAFT.
 
 ### Epic 6: Thu tiền, đối soát công nợ và báo cáo sổ cái
 
@@ -268,6 +268,11 @@ So that truong moi hoat dong doc lap ma toi khong nhan quyen van hanh cua truong
 **When** ho provision mot School voi owner email chuan hoa
 **Then** transaction atomically tao hoac tai su dung pending owner `UserIdentity`, pending `SchoolMembership` va `SCHOOL_ADMIN` grant
 **And** failure khong de lai partial identity, membership hoac grant; Platform grant khong tao School membership cho actor.
+
+**Given** provision request timeout hoac duoc gui lai
+**When** Platform Operator dung `Idempotency-Key` cung route/fingerprint
+**Then** server replay cung outcome va Ops reconcile Operation truoc retry
+**And** fingerprint khac bi conflict, khong tao School hay pending owner grant duplicate.
 
 **Given** pending owner dang nhap Google bang verified email khop
 **When** subject chua bind hoac khop binding hop le
@@ -605,7 +610,7 @@ So that trang thai lop hoc dang tin cay ma leave/calendar conflict khong bi ghi 
 
 **Given** Staff co attendance capability, selected School/Class/date hop le va Student `ENROLLED`
 **When** Staff submit attendance status
-**Then** server ghi trang thai trong School context, audit actor/time/provenance va tra updated server state
+**Then** server chi cho phep StaffProfile da bind audited voi SchoolMembership/UserIdentity active, co capability va Class assignment effective tai as-of date ghi trang thai trong School context, audit actor/time/provenance va tra updated server state
 **And** client khong the dung Class, Student hoac date tu School khac de bypass capability.
 
 **Given** selected date la holiday/non-operating hoac Student co leave request conflict
@@ -651,7 +656,7 @@ So that lop co lich su ban giao ma khong tao mot khoan phi tu dong.
 
 **Given** Staff co handover capability, Student/Class/day thuoc selected School
 **When** Staff submit picked-up time
-**Then** server validate state/capability, danh gia handover policy as-of date va snapshot cutoff/grace/block reference cung audit vao confirmed operational record
+**Then** server validate StaffProfile binding, membership, capability, Class assignment, state va handover policy as-of date va snapshot cutoff/grace/block reference cung audit vao confirmed operational record
 **And** missing capability, already-recorded state hoac validation error tra ly do server va UI refresh record.
 
 **Given** Finance hoac Staff xem handover record
@@ -678,9 +683,9 @@ So that CollectionRun eligibility va adjustment/refund tuong lai dua tren nguon 
 **And** approval/rejection bat buoc `Idempotency-Key`, persist actor-scoped `Operation`, replay identical outcome, reject changed fingerprint va reconcile truoc retry; Invoice da issue khong bi sua va Finance nhan source hop le cho adjustment/refund path.
 
 **Given** approved leave/long leave du dieu kien meal adjustment
-**When** Finance yeu cau materialize adjustment
-**Then** finance-only command tao negative line idempotent theo source/day/receivable tren Invoice DRAFT ke tiep
-**And** ket qua no-target, issued/voided target hoac retry duoc luu provenance; khong duplicate, khong rematerialize va khong tu tao charge.
+**When** Finance chuan bi tao/issue CollectionRun o Epic 5
+**Then** API tra immutable adjustment eligibility source theo School/Student/day/receivable voi provenance
+**And** Epic 4 khong tao hoac tim Invoice DRAFT; Epic 5 finance-only command moi materialize negative line idempotent va luu no-target, issued/voided target hoac retry outcome.
 
 ### Story 4.6: Hàng đợi vận hành buổi sáng
 
@@ -824,6 +829,11 @@ So that exception duoc giai thich/audit truoc khi obligation bi khoa.
 **Then** UI hien thi immutable source, target DRAFT Invoice hoac no-target/issued/voided result va negative amount tu server
 **And** khong the tao duplicate/non-source-linked automatic adjustment hoac bien attendance/handover thanh auto-pricing.
 
+**Given** Epic 4 tra immutable adjustment eligibility source
+**When** Finance materialize adjustment trong Invoice `DRAFT`
+**Then** finance-only command chon target, tao negative line idempotent theo source/day/receivable va luu provenance
+**And** no-target, issued/voided target hoac retry outcome duoc tra tu server; khong duplicate, rematerialize hay tu tao charge.
+
 **Given** Finance Manager them dong `MANUAL` cho ngay thu Bay
 **When** dong thu duoc validate trong Invoice `DRAFT`
 **Then** server kiem tra active `StudentServiceEnrollment` cua Student bao phu ngay do
@@ -831,8 +841,8 @@ So that exception duoc giai thich/audit truoc khi obligation bi khoa.
 
 **Given** School Admin hoac Finance Manager lap uu dai cho Student sau thoa thuan truc tiep
 **When** ho chon named receivable-period pairs, gia/discount va ly do
-**Then** server tao `StudentPromotionalCoverage` School/Student-scoped va tra overlap/eligibility result truoc khi tao DRAFT obligation
-**And** Parent khong co catalog, request hay selection action; issued coverage trung Student/Receivable/ky bi tu choi.
+**Then** server tao coverage fact School/Student-scoped voi Receivable, period, service interval, price/discount snapshot va ly do, tra overlap/eligibility result truoc khi tao DRAFT obligation
+**And** coverage chi issue sau khi Invoice nguon duoc settle day du, luu Invoice/Receipt paid provenance, reject non-positive eligible operating days; Parent khong co catalog, request hay selection action; issued coverage trung Student/Receivable/ky bi tu choi.
 
 **Given** Invoice khong con DRAFT hoac School context mismatch
 **When** user gui edit request
@@ -905,8 +915,8 @@ So that cau hinh va pham vi cua dot thu duoc khoa ro rang truoc khi chi con xem/
 
 **Given** CollectionRun `GENERATED` trong selected School va Finance Manager co capability hop le
 **When** Finance Manager xac nhan close voi `Idempotency-Key`
-**Then** server transition run sang `CLOSED`, persist actor/reason/audit va `Operation`, replay identical retry va reconcile truoc retry sau timeout
-**And** run o `DRAFT`, `READY`, da `CLOSED`, wrong School/capability hoac changed fingerprint bi tu choi.
+**Then** server chi transition run sang `CLOSED` khi moi Invoice trong run da `ISSUED`, `PAID` hoac `VOIDED`, persist actor/reason/audit va `Operation`, replay identical retry va reconcile truoc retry sau timeout
+**And** run o `DRAFT`, `READY`, da `CLOSED`, con Invoice `DRAFT`, wrong School/capability hoac changed fingerprint bi tu choi.
 
 **Given** CollectionRun da `CLOSED`
 **When** Finance hoac API co tao/sua rule, scope, Invoice hoac them Student trong run
@@ -954,9 +964,9 @@ So that ngoai le chuyen du khong tro thanh partial settlement hay generic credit
 **And** request bat buoc `Idempotency-Key` va persist `Operation`; neu excess khong duoc xac nhan thanh Prepayment, entire posting bi tu choi; khong co normal unallocated Receipt balance.
 
 **Given** Finance Manager ap dung Prepayment vao Invoice tuong lai
-**When** source Prepayment va target Invoice cung School/Student, target `ISSUED` con outstanding
+**When** source Prepayment va target Invoice cung School/Student/SchoolYear, target `ISSUED` con outstanding
 **Then** posting boundary khoa va chi cho application bang dung full outstanding target
-**And** request bat buoc `Idempotency-Key`, persist `Operation` va reconcile truoc retry; source/target over-application, cross-Student/cross-School use, partial target application, voided Invoice va client amount injection deu bi tu choi.
+**And** request bat buoc `Idempotency-Key`, persist `Operation` va reconcile truoc retry; source/target over-application, cross-Student/cross-School/cross-SchoolYear use, partial target application, voided Invoice va client amount injection deu bi tu choi.
 
 **Given** Finance mo Prepayment detail
 **When** settlement control render
@@ -973,12 +983,12 @@ So that sai sot va phan coverage chua su dung duoc xu ly nhat quan ma khong sua 
 
 **Given** Student withdrawal/transfer co issued, paid `StudentPromotionalCoverage` con ky bao phu
 **When** authorized actor yeu cau refund preview
-**Then** server dung coverage price/discount snapshot va applicable School calendar de tra coverage/Invoice/Receipt source, `eligibleOperatingDays`, `remainingOperatingDays` loai tru withdrawal effective date, va `calculatedAmount` VND
-**And** `calculatedAmount` bang `floor(snapshotCoverageAmount * remainingOperatingDays / eligibleOperatingDays)`; khong dung catalog/policy hien hanh hoac client calculation.
+**Then** server dung tung coverage fact co Receivable/period/service interval nam tron trong ky, paid snapshot amount va School calendar version/timezone da snapshot de tra coverage/Invoice/Receipt source, `eligibleOperatingDays`, `remainingOperatingDays` loai tru withdrawal effective date, va `calculatedAmount` VND
+**And** moi fact reject neu `eligibleOperatingDays <= 0`, `remainingOperatingDays` khong vuot eligible days, va tong `calculatedAmount` bang tong `floor(paidSnapshotAmount * remainingOperatingDays / eligibleOperatingDays)` nhung khong vuot paid source con lai sau refund/reversal; khong dung catalog/policy hien hanh hoac client calculation.
 
 **Given** School Admin hoac Finance Manager sua `approvedAmount` khac `calculatedAmount`
 **When** ho submit refund request
-**Then** server yeu cau override reason, luu calculated/approved amount, actor, coverage/Invoice/Receipt provenance va Idempotency Operation
+**Then** server yeu cau override reason, validate `approvedAmount` khong am va khong vuot paid source con lai cua tung fact, luu calculated/approved amount, actor, coverage/Invoice/Receipt provenance va Idempotency Operation
 **And** request van di qua `DIRECT` hoac `SCHOOL_ADMIN_APPROVAL`; requester khong self-approve trong two-step mode.
 
 **Given** Receipt, Allocation hoac Prepayment da post co sai sot, hoac refund co source hop le
@@ -1058,7 +1068,7 @@ So that duplicate posting, cross-tenant settlement hoac report sai khong vao pil
 **Given** issued promotional coverage va withdrawal/transfer fixture
 **When** suite chay coverage/refund scenarios
 **Then** overlap bi chan, monthly run chi skip covered receivable-period, operating-day calculation loai tru withdrawal date va floor VND dung
-**And** override reason, approval outcome va append-only coverage/Invoice/Receipt provenance deu duoc kiem tra.
+**And** paid-source gate, service interval/calendar snapshot, non-positive denominator, SchoolYear boundary, remaining refund limit, override cap/reason, approval outcome va append-only coverage/Invoice/Receipt provenance deu duoc kiem tra.
 
 **Given** Finance portal E2E chay settlement/correction/report flows
 **When** user gap concurrent state change, timeout, policy approval boundary, no-data hoac School switch

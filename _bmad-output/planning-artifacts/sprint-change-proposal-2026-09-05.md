@@ -4,6 +4,7 @@ status: final
 created: 2026-09-05
 mode: incremental
 trigger: "Finance confirmed normal Invoice payment is all-or-nothing; new-Student promotional multi-period offers are back-office negotiated and refundable on withdrawal."
+applied: 2026-09-07
 ---
 
 # Sprint Change Proposal - Exact settlement and Student promotional coverage
@@ -59,7 +60,7 @@ The approved target contract is:
 
 ### Proposal 1: PRD finance settlement and promotional coverage
 
-**Status:** Approved by Product, pending artifact application.
+**Status:** Applied to PRD, addendum, Architecture Spine, SPEC, UX Experience Spine and epic breakdown in the 2026-09-07 documentation synchronization.
 
 **Sections affected:** 3 Terms; 4.3 FR-7 through FR-9; 4.4 FR-10 through FR-11; 6 Release scope; 7 Quality/governance; 5 Non-goals.
 
@@ -79,7 +80,7 @@ The approved target contract is:
 
 ### Proposal 2: Architecture Spine finance invariant
 
-**Status:** Approved by Product, pending artifact application.
+**Status:** Applied to PRD, addendum, Architecture Spine, SPEC, UX Experience Spine and epic breakdown in the 2026-09-07 documentation synchronization.
 
 **Sections affected:** AD-7 Finance obligation and ledger model; AD-13 Attendance-to-finance adjustment contract; Capability to Architecture Map for finance; verification boundary where settlement fixtures are named.
 
@@ -105,7 +106,7 @@ The approved target contract is:
 
 ### Proposal 3: SPEC finance capabilities and constraints
 
-**Status:** Approved by Product, pending artifact application.
+**Status:** Applied to PRD, addendum, Architecture Spine, SPEC, UX Experience Spine and epic breakdown in the 2026-09-07 documentation synchronization.
 
 **Sections affected:** CAP-4, CAP-5 and Constraints.
 
@@ -125,7 +126,7 @@ The approved target contract is:
 
 ### Proposal 4: UX exact settlement and back-office promotional coverage
 
-**Status:** Approved by Product, pending artifact application.
+**Status:** Applied to PRD, addendum, Architecture Spine, SPEC, UX Experience Spine and epic breakdown in the 2026-09-07 documentation synchronization.
 
 **Sections affected:** `ux-passionedu-2026-09-04/EXPERIENCE.md` component patterns, state patterns, Finance lifecycle table, interaction primitives and Finance/Parent flows. `DESIGN.md` needs no token or visual-language change.
 
@@ -153,7 +154,7 @@ The approved target contract is:
 
 ### Proposal 5: Epic 5 and Epic 6 story revisions
 
-**Status:** Approved by Product, pending artifact application.
+**Status:** Applied to PRD, addendum, Architecture Spine, SPEC, UX Experience Spine and epic breakdown in the 2026-09-07 documentation synchronization.
 
 **Sections affected:** `epics-passionedu.md` Story 5.1 through 5.6 and Story 6.1 through 6.6; Epic 7 wording only where it names normal payment state.
 
@@ -191,10 +192,10 @@ The approved target contract is:
 
 **Scope classification:** Moderate.
 
-- Product/Architecture: Apply approved PRD, Spine and SPEC contract changes and revalidate preservation across finance rules.
-- UX: Apply approved `EXPERIENCE.md` changes and revalidate lifecycle/state/accessibility behavior.
-- Product Owner/Developer: Apply approved Epic 5/6/7 story revisions, rerun breakdown validation and update sprint status from the replacement epic artifact.
-- Developer: Implement only after final artifact updates; cover exact settlement, coverage, refund and all release gates in unit, PostgreSQL integration and portal E2E suites.
+- Product/Architecture: PRD, addendum, Spine and SPEC contract changes are applied; preserve their finance rules in downstream work.
+- UX: `EXPERIENCE.md` finance lifecycle/state behavior is applied; preserve it in portal implementation.
+- Product Owner/Developer: Epic 5/6/7 revisions are applied; rerun breakdown validation and update sprint status from the replacement epic artifact before implementation.
+- Developer: Implement only against the applied artifacts; cover exact settlement, coverage, refund and all release gates in unit, PostgreSQL integration and portal E2E suites.
 
 **Success criteria:** No normal partial settlement path, no Parent promotional/payment/refund mutation, no duplicate covered receivable-period Invoice, refunds reproduce their preview from snapshots/calendar and every exception has ledger/audit/Operation provenance.
 
@@ -210,5 +211,5 @@ The approved target contract is:
 - [x] Backlog/story impact assessed and proposal approved.
 - [x] Direct adjustment selected: no implementation exists, so rollback is not justified and MVP scope remains achievable.
 - [x] Handoff and success criteria defined.
-- [!] Final proposal approval required before modifying final PRD, Architecture Spine, SPEC and UX artifacts.
+- [x] Applied: final PRD, addendum, Architecture Spine, SPEC, UX and epic artifacts were synchronized on 2026-09-07.
 - [N/A] Existing implementation rollback: no replacement implementation has started.
