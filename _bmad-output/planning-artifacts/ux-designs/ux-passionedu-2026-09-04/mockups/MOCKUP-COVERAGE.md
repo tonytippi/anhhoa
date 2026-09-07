@@ -2,12 +2,18 @@
 
 Mở `review.html` trong trình duyệt để bắt đầu rà soát. Các bản mẫu là HTML tĩnh có hộp thoại mô phỏng; không gửi yêu cầu hay lưu dữ liệu. `DESIGN.md` và `EXPERIENCE.md` vẫn được ưu tiên nếu có xung đột.
 
-Các trang Admin/Nhân viên hiện chia sẻ `admin-shell.js`: script `defer` cổ điển dựng skip link, sidebar, ngữ cảnh Ánh Hoa · Năm học 2026-2027 và avatar từ `data-admin-route`. Script không dùng module, network hay API của extension, nên mở trực tiếp từ hệ thống tệp hoặc VS Code Preview đều hoạt động.
+Các trang Admin/Nhân viên hiện chia sẻ `admin/admin-shell.js`: script `defer` cổ điển dựng skip link, sidebar, ngữ cảnh Ánh Hoa · Năm học 2026-2027 và avatar từ `data-admin-route`. Script không dùng module, network hay API của extension, nên mở trực tiếp từ hệ thống tệp hoặc VS Code Preview đều hoạt động. Các trang trong `admin/roster/` dùng cố định `../../prototype.css`, `../admin-shell.js` và `../../prototype.js` để tương thích Preview.
 
 | Cổng thông tin | Tệp | Màn hình được mô phỏng |
 | --- | --- | --- |
 | Mục lục rà soát | `review.html` | Điểm bắt đầu và hướng dẫn rà soát toàn bộ quy trình. |
-| Quản trị và nhân sự | `admin-staff.html` | Hàng đợi vận hành; danh bộ và chuyển lớp; cấu hình có kiểu dữ liệu và phiên bản; điểm vào khoản thu, đợt thu, hóa đơn nháp; phiếu thu, phân bổ, công nợ, điều chỉnh/hoàn tiền; báo cáo; điểm danh; nghỉ học; bàn giao. |
+| Quản trị và nhân sự | `admin-staff.html` | Hàng đợi vận hành; điểm vào Danh bộ chi tiết, cấu hình có kiểu dữ liệu và phiên bản; điểm vào khoản thu, đợt thu, hóa đơn nháp; phiếu thu, phân bổ, công nợ, điều chỉnh/hoàn tiền; báo cáo; điểm danh; nghỉ học; bàn giao. |
+| Danh bộ | `admin/roster/roster.html` | Landing danh sách School-scoped, filter năm/lớp/lifecycle, mã Student bất biến, caption/pagination và điểm vào các luồng Danh bộ. |
+| Năm học và lớp | `admin/roster/school-year-classes.html` | Boundary một SchoolYear active, lớp thuộc năm học, effective date, lỗi server/focus state và dữ liệu active/proposed. |
+| Hồ sơ và ghi danh | `admin/roster/student-enrollment.html` | Student tách StudentEnrollment, AS-OF facts, interval `[effectiveFrom, endedOn)`, lifecycle và audit history. |
+| Liên kết Phụ huynh | `admin/roster/student-parent-links.html` | Bind atomic, PENDING/ACTIVE/REVOKED, không tự cấp login/role, revoke safe state và audit. |
+| Nhân sự và phân công | `admin/roster/staff-assignments.html` | Staff profile tối thiểu, login/role state tách biệt, class assignment effective-dated và lịch sử. |
+| Chuyển danh bộ | `admin/roster/roster-transition.html` | Preview server, mapping nguồn/đích, record excluded không force move, confirm idempotent và đối soát Operation. |
 | Cấu hình khoản thu | `receivable-configuration.html` | Danh mục nhóm/khoản thu, giá, rule, giảm giá, hiệu lực, trạng thái, precedence và dấu vết nguồn; quản lý `StudentPromotionalCoverage` nhiều kỳ theo Học sinh/Năm học, hóa đơn nguồn DRAFT và điều kiện chờ tất toán đủ. |
 | Tạo hóa đơn | `invoice-generation.html` | Wizard CollectionRun DRAFT → READY → GENERATED → CLOSED: cấu hình, phạm vi, preview máy chủ, phân nhóm lý do bỏ qua, xác nhận và đối soát timeout trước retry. |
 | Rà soát hóa đơn | `invoice-detail-review.html` | Hóa đơn DRAFT có dòng nghĩa vụ, override/điều chỉnh có kiểm toán, tài khoản nhận tiền và boundary phát hành; snapshot ISSUED khóa cùng chỉ dẫn handoff thu tiền tất toán chính xác. |

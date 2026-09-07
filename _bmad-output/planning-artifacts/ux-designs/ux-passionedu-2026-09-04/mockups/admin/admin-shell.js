@@ -5,18 +5,20 @@
   if (!host) return;
 
   var route = host.getAttribute('data-admin-route');
+  // URLs resolve from the current document, so roster pages need a different root.
+  var root = route === 'roster' ? '../../' : '';
   var links = [
-    ['VẬN HÀNH', 'overview', 'Tổng quan', 'admin-staff.html#overview'],
-    ['', 'attendance', 'Điểm danh', 'admin-staff.html#attendance'],
-    ['', 'leave', 'Xin nghỉ', 'admin-staff.html#leave'],
-    ['', 'handover', 'Bàn giao', 'admin-staff.html#handover'],
-    ['DANH BỘ', 'roster', 'Danh bộ', 'admin-staff.html#roster'],
-    ['', 'settings', 'Cấu hình trường', 'admin-staff.html#settings'],
-    ['TÀI CHÍNH', 'receivables', 'Khoản thu', 'receivable-configuration.html'],
-    ['', 'runs', 'Đợt thu', 'invoice-generation.html'],
-    ['', 'invoice-review', 'Rà soát hóa đơn', 'invoice-detail-review.html'],
-    ['', 'settlement', 'Thu tiền / Công nợ', 'admin-staff.html#settlement'],
-    ['', 'report', 'Báo cáo', 'admin-staff.html#report']
+    ['VẬN HÀNH', 'overview', 'Tổng quan', root + 'admin-staff.html#overview'],
+    ['', 'attendance', 'Điểm danh', root + 'admin-staff.html#attendance'],
+    ['', 'leave', 'Xin nghỉ', root + 'admin-staff.html#leave'],
+    ['', 'handover', 'Bàn giao', root + 'admin-staff.html#handover'],
+    ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'admin/roster/roster.html'],
+    ['', 'settings', 'Cấu hình trường', root + 'admin-staff.html#settings'],
+    ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
+    ['', 'runs', 'Đợt thu', root + 'invoice-generation.html'],
+    ['', 'invoice-review', 'Rà soát hóa đơn', root + 'invoice-detail-review.html'],
+    ['', 'settlement', 'Thu tiền / Công nợ', root + 'admin-staff.html#settlement'],
+    ['', 'report', 'Báo cáo', root + 'admin-staff.html#report']
   ];
   var navigation = '';
   var isWorkspace = route === 'overview';
@@ -24,7 +26,7 @@
   links.forEach(function (link) {
     var current = link[1] === route;
     if (link[0]) navigation += '<p class="nav-group">' + link[0] + '</p>';
-    var href = isWorkspace && ['overview', 'attendance', 'leave', 'handover', 'roster', 'settings', 'settlement', 'report'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
+    var href = isWorkspace && ['overview', 'attendance', 'leave', 'handover', 'settings', 'settlement', 'report'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
     navigation += '<a class="side-link' + (current ? ' active' : '') + '" href="' + href + '"' + (current ? ' aria-current="page"' : '') + '>' + link[2] + '</a>';
   });
 

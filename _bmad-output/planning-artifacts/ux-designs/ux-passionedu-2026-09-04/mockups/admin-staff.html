@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>PassionEdu Quản trị và nhân sự</title>
     <link rel="stylesheet" href="prototype.css" />
-    <script defer src="admin-shell.js"></script>
+    <script defer src="admin/admin-shell.js"></script>
     <script src="prototype.js" defer></script>
   </head>
   <body>
@@ -88,18 +88,12 @@
               </p>
             </div>
             <div>
-              <button
-                class="button secondary"
-                data-confirm="Chuyển lớp / chuyển năm|Mở trình hướng dẫn xem trước khi xác nhận chuyển danh bộ."
-              >
+              <a class="button secondary" href="admin/roster/roster-transition.html">
                 Chuyển danh bộ
-              </button>
-              <button
-                class="button"
-                data-confirm="Thêm học sinh|Mã học sinh sẽ do hệ thống sinh sau khi lưu ghi danh."
-              >
+              </a>
+              <a class="button" href="admin/roster/student-enrollment.html">
                 Thêm học sinh
-              </button>
+              </a>
             </div>
           </div>
           <div class="filters">
@@ -126,7 +120,7 @@
                   <td><b>AH-129 · Bé An</b></td>
                   <td>Mầm 3-4 tuổi</td>
                   <td>
-                    <span class="badge success">Đang theo học</span>
+                    <span class="badge success">ENROLLED · Đang theo học</span>
                   </td>
                   <td>Mai Trần · Đã liên kết</td>
                   <td>05/09/2026</td>
@@ -135,7 +129,7 @@
                   <td><b>AH-128 · Bé Minh</b></td>
                   <td>Chồi 4-5 tuổi</td>
                   <td>
-                    <span class="badge success">Đang theo học</span>
+                    <span class="badge success">ENROLLED · Đang theo học</span>
                   </td>
                   <td>Minh Anh · Đang chờ liên kết</td>
                   <td>05/09/2026</td>
@@ -144,9 +138,7 @@
                   <td><b>AH-130 · Bé Hà</b></td>
                   <td>Chồi 4-5 tuổi</td>
                   <td>
-                    <span class="badge neutral"
-                      >Chờ xếp lớp</span
-                    >
+                    <span class="badge neutral">WAITING_FOR_CLASS · Chờ xếp lớp</span>
                   </td>
                   <td>Chưa tạo liên kết</td>
                   <td>10/09/2026</td>
@@ -159,7 +151,7 @@
               <h2>Lịch sử ghi danh</h2>
               <p><b>Bé An</b> · Mầm 3-4 tuổi</p>
               <p class="muted">Bắt đầu 05/09/2026 · Người tạo: Hoa Nguyễn</p>
-              <button class="button secondary">Xem lịch sử</button>
+              <a class="button secondary" href="admin/roster/student-enrollment.html">Xem lịch sử</a>
             </article>
             <article class="card">
               <h2>Phụ huynh và nhân sự</h2>
@@ -167,7 +159,7 @@
                 Tạo liên kết phụ huynh đang chờ hoặc phân công nhân sự theo ngày
                 hiệu lực. Hồ sơ nhân sự không đồng nghĩa có quyền đăng nhập.
               </p>
-              <button class="button secondary">Quản lý liên kết</button>
+              <a class="button secondary" href="admin/roster/student-parent-links.html">Quản lý liên kết</a>
             </article>
           </div>
         </section>
