@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PassionEdu · Tạo đợt thu</title>
+    <link rel="stylesheet" href="prototype.css" />
+    <script src="prototype.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Bỏ qua điều hướng</a>
+    <div class="shell">
+      <aside class="sidebar">
+        <p class="brand"><b>P</b> PassionEdu</p>
+        <nav aria-label="Điều hướng quản trị và nhân sự">
+          <p class="nav-group">VẬN HÀNH</p>
+          <a class="side-link" href="admin-staff.html#overview">Tổng quan</a>
+          <a class="side-link" href="admin-staff.html#roster">Danh bộ</a>
+          <p class="nav-group">TÀI CHÍNH</p>
+          <a class="side-link" href="receivable-configuration.html">Khoản thu</a>
+          <a class="side-link active" aria-current="page" href="invoice-generation.html">Đợt thu</a>
+          <a class="side-link" href="admin-staff.html#settlement">Thu tiền / Công nợ</a>
+        </nav>
+      </aside>
+      <main id="main" class="workspace">
+        <header class="topbar">
+          <a class="context" href="admin-staff.html#runs">Ánh Hoa · Năm học 2026-2027</a>
+          <div class="avatar"><span class="muted">Hoa Nguyễn</span><i>HN</i></div>
+        </header>
+        <section>
+          <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027 · THÁNG 09/2026</p>
+          <div class="route-head">
+            <div><h1>Đợt thu CR-202609-01</h1><p class="muted">Trạng thái <span class="badge success">READY</span> · Preview và tổng tiền là kết quả máy chủ xác nhận.</p></div>
+            <a class="button secondary" href="receivable-configuration.html">Quay lại cấu hình khoản thu</a>
+          </div>
+          <ol class="steps" aria-label="Bốn bước tạo đợt thu"><li>1. Cấu hình</li><li>2. Phạm vi</li><li class="current" aria-current="step">3. Xem trước máy chủ</li><li>4. Tạo hóa đơn nháp</li></ol>
+          <div class="notice info"><b>Vòng đời đợt thu:</b> <b>DRAFT → READY → GENERATED → CLOSED</b>. Máy chủ chỉ cho đóng khi mọi hóa đơn thuộc CR-202609-01 là <b>ISSUED</b>, <b>PAID</b> hoặc <b>VOIDED</b>; bất kỳ hóa đơn <b>DRAFT</b> nào cũng chặn đóng đợt thu.</div>
+        </section>
+
+        <section>
+          <div class="route-head"><div><h2>Phạm vi do máy chủ chốt</h2><p class="muted">Danh bộ, lớp đang hoạt động, quy tắc và coverage được kiểm tra tại thời điểm preview.</p></div><button class="button secondary" data-operation="OP-20260905-0912">Đối soát thao tác</button></div>
+          <div class="table-wrap">
+            <table>
+              <caption>Phạm vi và thành phần có thẩm quyền trong CR-202609-01</caption>
+              <thead><tr><th>Đối tượng</th><th>Điều kiện đã kiểm tra</th><th>Khoản thu được xét</th><th>Nợ cũ</th><th>Kết quả</th></tr></thead>
+              <tbody>
+                <tr><td>124 học sinh đang theo học</td><td>Ghi danh thuộc năm học; lớp hoạt động; có quy tắc hiệu lực</td><td>Học phí tháng, tiền ăn tháng</td><td>Được lấy từ sổ cái theo từng học sinh</td><td><span class="badge success">Đủ phạm vi</span></td></tr>
+                <tr><td>3 học sinh bị bỏ qua</td><td>Xem nhóm lý do trong preview</td><td>Không tạo dòng thay thế tại trình duyệt</td><td>Không tự gộp vào hóa đơn khác</td><td><span class="badge warning">Cần xử lý nguồn</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <div class="route-head"><div><h2>Preview máy chủ</h2><p class="muted">Tính lúc <b>05/09/2026 09:12:44</b> · Phiên bản tính <b>CALC-CR-202609-01-R3</b> · lịch CAL-AH-2026-09-R2.</p></div><span class="badge success">READY</span></div>
+          <div class="summary"><div class="grid three"><div><p class="muted">Hóa đơn nháp dự kiến</p><b class="metric">124</b></div><div><p class="muted">Học sinh bị bỏ qua</p><b class="metric amber">3</b></div><div><p class="muted">Tổng dự kiến máy chủ trả về</p><b class="metric">260.450.000 đ</b></div></div><p class="muted">Mỗi số tiền và tổng dưới đây là dữ liệu preview có thẩm quyền; trình duyệt không tính hoặc tự thay đổi kết quả.</p></div>
+          <div class="table-wrap">
+            <table>
+              <caption>Ví dụ hóa đơn nháp dự kiến do máy chủ trả về</caption>
+              <thead><tr><th>Học sinh</th><th>Lớp</th><th>Thành phần có thẩm quyền</th><th class="money">Nợ cũ</th><th class="money">Tổng dự kiến</th></tr></thead>
+              <tbody>
+                <tr><td><b>AH-129 · Bé An</b></td><td>Mầm 3-4 tuổi</td><td>Học phí 1.500.000 đ; tiền ăn 600.000 đ. Coverage SPC-2026-AN-01 còn DRAFT ở workflow bổ sung nên học phí vẫn phải thu.</td><td class="money">0 đ</td><td class="money"><b>2.100.000 đ</b></td></tr>
+                <tr><td><b>AH-128 · Bé Minh</b></td><td>Chồi 4-5 tuổi</td><td>Học phí 1.500.000 đ; tiền ăn 600.000 đ; nợ cũ đã được máy chủ cho phép chuyển</td><td class="money">250.000 đ</td><td class="money"><b>2.350.000 đ</b></td></tr>
+                <tr><td><b>AH-131 · Bé Lan</b></td><td>Mầm 3-4 tuổi</td><td><b>COVERED_BY_PROMOTIONAL_COVERAGE</b> · Học phí 09/2026 được bỏ qua vì coverage đã phát hành; tiền ăn 600.000 đ vẫn phải thu.</td><td class="money">0 đ</td><td class="money"><b>600.000 đ</b></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="notice info"><b>Hai kết quả loại trừ nhau:</b> coverage đang chờ nguồn tất toán không loại trừ khoản thu trong đợt hiện tại. Chỉ snapshot coverage đã phát hành mới bỏ qua đúng khoản phải thu-kỳ được bao phủ; các khoản khác của cùng học sinh vẫn được lập hóa đơn.</div>
+          <div class="grid two">
+            <article class="card"><h3>Preview chuyển công nợ có thẩm quyền</h3><p><b>OBL-202608-MINH-MEAL · Tiền ăn 08/2026</b></p><p>Nguồn: Năm học <b>2025-2026</b> · đích: Năm học <b>2026-2027</b> · số tiền <b>250.000 đ</b>.</p><p class="muted">Máy chủ đã xác thực Bé Minh, Trường Ánh Hoa, số dư và chính sách chuyển công nợ trước khi đưa khoản này vào CR-202609-01; đây không phải phép gộp tự động.</p></article>
+            <article class="card"><h3>Ví dụ coverage đã phát hành</h3><p><b>SPC-2026-LAN-01 · Bé Lan</b></p><p class="muted">Nguồn workflow bổ sung đã ISSUED và tất toán đầy đủ. Preview này chỉ bỏ qua học phí 09/2026 theo snapshot coverage, không bỏ qua tiền ăn.</p></article>
+          </div>
+        </section>
+
+        <section>
+          <div class="route-head"><div><h2>Tạo hóa đơn nháp</h2><p class="muted">Hành động tạo Operation có Idempotency-Key do ứng dụng gửi.</p></div><span class="badge warning">Chờ xác nhận</span></div>
+          <div class="notice warning"><b>Nếu hết thời gian chờ:</b> giữ mã thao tác <b>OP-20260905-0913</b>, gọi <b>GET /operations/OP-20260905-0913</b> để đối soát trước khi thử lại. Timeout không đồng nghĩa thao tác thất bại.</div>
+          <button class="button" data-confirm="Xác nhận tạo 124 hóa đơn nháp|Máy chủ sẽ tạo Operation OP-20260905-0913 cho Ánh Hoa, năm học 2026-2027, tháng 09/2026 và 124 hóa đơn DRAFT. Sau timeout, gọi GET /operations/OP-20260905-0913 trước khi thử lại.">Xác nhận tạo hóa đơn nháp</button>
+          <p class="muted">Kết quả GENERATED liên kết từng hóa đơn DRAFT. Đóng CR-202609-01 tiếp tục bị chặn cho đến khi không còn hóa đơn DRAFT và mọi hóa đơn thuộc đợt ở trạng thái ISSUED, PAID hoặc VOIDED.</p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

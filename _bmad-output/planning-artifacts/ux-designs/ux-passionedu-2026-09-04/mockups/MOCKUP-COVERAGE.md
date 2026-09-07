@@ -5,7 +5,10 @@ Mở `review.html` trong trình duyệt để bắt đầu rà soát. Các bản
 | Cổng thông tin | Tệp | Màn hình được mô phỏng |
 | --- | --- | --- |
 | Mục lục rà soát | `review.html` | Điểm bắt đầu và hướng dẫn rà soát toàn bộ quy trình. |
-| Quản trị và nhân sự | `admin-staff.html` | Hàng đợi vận hành; danh bộ và chuyển lớp; cấu hình có kiểu dữ liệu và phiên bản; khoản thu; xem trước và tạo đợt thu; phiếu thu, phân bổ, công nợ, điều chỉnh/hoàn tiền; báo cáo; điểm danh; nghỉ học; bàn giao. |
+| Quản trị và nhân sự | `admin-staff.html` | Hàng đợi vận hành; danh bộ và chuyển lớp; cấu hình có kiểu dữ liệu và phiên bản; điểm vào khoản thu, đợt thu, hóa đơn nháp; phiếu thu, phân bổ, công nợ, điều chỉnh/hoàn tiền; báo cáo; điểm danh; nghỉ học; bàn giao. |
+| Cấu hình khoản thu | `receivable-configuration.html` | Danh mục nhóm/khoản thu, giá, rule, giảm giá, hiệu lực, trạng thái, precedence và dấu vết nguồn; quản lý `StudentPromotionalCoverage` nhiều kỳ theo Học sinh/Năm học, hóa đơn nguồn DRAFT và điều kiện chờ tất toán đủ. |
+| Tạo hóa đơn | `invoice-generation.html` | Wizard CollectionRun DRAFT → READY → GENERATED → CLOSED: cấu hình, phạm vi, preview máy chủ, phân nhóm lý do bỏ qua, xác nhận và đối soát timeout trước retry. |
+| Rà soát hóa đơn | `invoice-detail-review.html` | Hóa đơn DRAFT có dòng nghĩa vụ, override/điều chỉnh có kiểm toán, tài khoản nhận tiền và boundary phát hành; snapshot ISSUED khóa cùng chỉ dẫn handoff thu tiền tất toán chính xác. |
 | Phụ huynh | `parent.html` | Trang chủ phụ huynh; thẻ hôm nay; lịch sử điểm danh của trẻ; đơn xin nghỉ; thông tin thanh toán theo bản chụp; hộp thư và trạng thái an toàn khi thu hồi quyền. |
 | Vận hành nền tảng | `ops.html` | Danh sách trường; khởi tạo/chủ sở hữu ban đầu; tạm ngừng/kích hoạt lại; đối soát thao tác và trạng thái lỗi. |
 
@@ -17,6 +20,7 @@ Mở `review.html` trong trình duyệt để bắt đầu rà soát. Các bản
 - Xung đột trường dữ liệu/chính sách, trạng thái quyền truy cập an toàn khi thu hồi và tối thiểu hóa dữ liệu phụ huynh.
 - Bằng chứng điểm danh bắt buộc, xung đột đơn nghỉ và không tự động tính phí đón muộn.
 - Thanh toán chính xác, khoản trả trước tường minh, ngữ cảnh điều chỉnh/hoàn tiền hai bước.
+- Coverage ưu đãi theo học sinh chỉ phát hành sau khi hóa đơn nguồn tất toán đủ; không là gói catalog hoặc lựa chọn của Phụ huynh.
 
 ## Bản mẫu mốc hiện có
 

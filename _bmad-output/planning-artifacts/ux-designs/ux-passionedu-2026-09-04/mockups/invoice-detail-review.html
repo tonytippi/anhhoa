@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PassionEdu · Rà soát hóa đơn</title>
+    <link rel="stylesheet" href="prototype.css" />
+    <script src="prototype.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Bỏ qua điều hướng</a>
+    <div class="shell">
+      <aside class="sidebar"><p class="brand"><b>P</b> PassionEdu</p><nav aria-label="Điều hướng quản trị và nhân sự"><p class="nav-group">TÀI CHÍNH</p><a class="side-link" href="receivable-configuration.html">Khoản thu</a><a class="side-link" href="invoice-generation.html">Đợt thu</a><a class="side-link active" aria-current="page" href="invoice-detail-review.html">Rà soát hóa đơn</a><a class="side-link" href="admin-staff.html#settlement">Thu tiền / Công nợ</a></nav></aside>
+      <main id="main" class="workspace">
+        <header class="topbar"><a class="context" href="admin-staff.html#runs">Ánh Hoa · Năm học 2026-2027</a><div class="avatar"><span class="muted">Hoa Nguyễn</span><i>HN</i></div></header>
+        <section>
+          <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027 · THÁNG 09/2026</p>
+          <div class="route-head"><div><h1>Hóa đơn MH-202609-041 · Bé An</h1><p class="muted">Đợt thu <a href="invoice-generation.html">CR-202609-01</a> · AH-129 · Mầm 3-4 tuổi</p></div><span class="badge warning">DRAFT · Có thể rà soát</span></div>
+          <div class="notice info"><b>Ranh giới DRAFT:</b> chỉ người có quyền được đề xuất override có lý do. Máy chủ kiểm tra giá, số lượng và trạng thái rồi trả về dữ liệu mới; trình duyệt không thực hiện hay tự cập nhật trạng thái tài chính.</div>
+        </section>
+        <section>
+          <div class="route-head"><div><h2>Dòng nghĩa vụ và tổng có thẩm quyền</h2><p class="muted">Máy chủ tính lúc 05/09/2026 09:13:02 · Snapshot quy tắc FIN-2026-09-03.</p></div><button class="button secondary" data-operation="OP-20260905-0918">Đối soát thao tác</button></div>
+          <div class="table-wrap">
+            <table>
+              <caption>Các dòng hóa đơn DRAFT do máy chủ trả về</caption>
+              <thead><tr><th>Dòng</th><th>Căn cứ / kỳ dịch vụ</th><th>Số lượng</th><th class="money">Đơn giá snapshot</th><th class="money">Điều chỉnh</th><th class="money">Thành tiền</th></tr></thead>
+              <tbody>
+                <tr><td><b>Học phí tháng 09/2026</b><br><span class="muted">LINE-001</span></td><td>RULE-TP-AN · 05/09 - 30/09/2026</td><td>1 tháng</td><td class="money">1.500.000 đ</td><td class="money">0 đ</td><td class="money"><b>1.500.000 đ</b></td></tr>
+                <tr><td><b>Tiền ăn tháng 09/2026</b><br><span class="muted">LINE-002</span></td><td>RULE-MEAL-MAM · 05/09 - 30/09/2026</td><td>1 tháng</td><td class="money">600.000 đ</td><td class="money">0 đ</td><td class="money"><b>600.000 đ</b></td></tr>
+              </tbody>
+              <tfoot><tr><th colspan="5">Tổng hóa đơn DRAFT do máy chủ xác nhận</th><th class="money">2.100.000 đ</th></tr></tfoot>
+            </table>
+          </div>
+          <div class="grid two">
+            <article class="card"><h3>Override được kiểm toán</h3><p><b>Chưa có override giá hoặc số lượng.</b></p><p class="muted">Nếu được đề xuất, máy chủ lưu giá trị trước/sau, lý do, người thực hiện, thời điểm và quyền đã kiểm tra.</p><button class="button secondary" data-confirm="Đề xuất override dòng hóa đơn|Máy chủ kiểm tra quyền, trạng thái DRAFT và tính hợp lệ trước khi trả về hóa đơn.">Đề xuất override</button></article>
+            <article class="card"><h3>Kiểm tra nguồn phi tài chính</h3><p><b>TT-09/2026 · Biên bản ưu đãi ngoại tuyến</b></p><p class="muted">Đây là căn cứ xác thực nguồn cho workflow coverage bổ sung, không phải dòng điều chỉnh và không làm thay đổi tổng MH-202609-041.</p><button class="button secondary" data-confirm="Rà soát nguồn ưu đãi|Máy chủ kiểm tra nguồn bất biến, học sinh và workflow coverage riêng trước khi trả về kết quả.">Rà soát nguồn</button></article>
+          </div>
+        </section>
+        <section>
+          <div class="route-head"><div><h2>Phát hành hóa đơn</h2><p class="muted">Chọn tài khoản nhận tiền còn hiệu lực; thông tin này sẽ được chụp và khóa cùng hóa đơn ISSUED.</p></div><span class="badge warning">Cần xác nhận</span></div>
+          <div class="grid two">
+            <article class="card"><h3>Tài khoản nhận tiền đang chọn</h3><p><b>Ngân hàng TMCP Ngoại thương Việt Nam</b></p><p>Số tài khoản <b>1020 888 999</b> · Chủ tài khoản <b>TRƯỜNG MẦM NON ÁNH HOA</b></p><p class="muted">BANK-AH-01 · hiệu lực từ 01/09/2026 · máy chủ xác nhận đang hoạt động.</p></article>
+            <article class="card"><h3>Tổng trước phát hành</h3><p class="metric">2.100.000 đ</p><p class="muted">Tổng VND nguyên do máy chủ xác nhận. Phát hành khóa dòng hóa đơn, quy tắc, lịch, tài khoản và nội dung chuyển khoản.</p><button class="button" data-confirm="Xác nhận phát hành hóa đơn MH-202609-041|Máy chủ tạo Operation OP-20260905-0918 để phát hành hóa đơn 2.100.000 đ. Nếu timeout, gọi GET /operations/OP-20260905-0918 để đối soát trước khi thử lại.">Phát hành hóa đơn</button></article>
+          </div>
+          <div class="notice warning"><b>Đối soát trước khi thử lại:</b> giữ <b>OP-20260905-0918</b> và gọi <b>GET /operations/OP-20260905-0918</b>. Không coi timeout là thất bại và không tạo yêu cầu phát hành thứ hai khi chưa có kết quả.</div>
+        </section>
+        <section>
+          <p class="eyebrow">MẪU TRẠNG THÁI SAU PHÁT HÀNH · CHỈ ĐỌC</p>
+          <div class="route-head"><div><h2>Snapshot MH-202609-041 khi ISSUED</h2><p class="muted">Minh họa kết quả máy chủ trả về sau phát hành; không phải thay đổi trạng thái tại trình duyệt.</p></div><span class="badge success">ISSUED · Đã khóa</span></div>
+          <div class="notice info"><b>Snapshot nghĩa vụ đã khóa:</b> phát hành lúc 05/09/2026 09:18:11 · tổng hóa đơn <b>2.100.000 đ</b> · dư nợ hiện tại do sổ cái trả về riêng tại thời điểm tra cứu.</div>
+          <p class="muted">Thu tiền chỉ chọn hóa đơn đã phát hành của riêng Bé An và yêu cầu đúng toàn bộ số tiền. Không có trạng thái thanh toán một phần; chỉ sổ cái từ phiếu thu/phân bổ hợp lệ mới phản ánh tất toán đầy đủ.</p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

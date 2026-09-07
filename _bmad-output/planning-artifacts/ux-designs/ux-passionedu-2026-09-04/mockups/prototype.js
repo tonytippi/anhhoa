@@ -35,7 +35,8 @@ function dialog(title, content, actions = '', opener = document.activeElement) {
 
 function bindMockActions() {
   $$('[data-operation]').forEach(button => button.addEventListener('click', () => {
-    dialog('Đang đối soát kết quả', '<div class="operation"><b>Thao tác OP-20260905-0812</b><p>Hệ thống đang kiểm tra kết quả đã ghi nhận. Không gửi lại thao tác cho đến khi có kết quả.</p></div>', '<button class="button" data-close>Đã hiểu</button>');
+    const operationId = button.dataset.operation || 'OP-20260905-0812';
+    dialog('Đang đối soát kết quả', `<div class="operation"><b>Thao tác ${operationId}</b><p>Gọi GET /operations/${operationId} để máy chủ trả về kết quả đã ghi nhận. Không gửi lại thao tác cho đến khi có kết quả.</p></div>`, '<button class="button" data-close>Đã hiểu</button>');
   }));
   $$('[data-confirm]').forEach(button => button.addEventListener('click', () => {
     const [title, detail] = button.dataset.confirm.split('|');
