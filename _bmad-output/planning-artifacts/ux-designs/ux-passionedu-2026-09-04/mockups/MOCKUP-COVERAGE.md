@@ -7,7 +7,7 @@ Các trang Admin/Nhân viên hiện chia sẻ `admin/admin-shell.js`: script `de
 | Cổng thông tin | Tệp | Màn hình được mô phỏng |
 | --- | --- | --- |
 | Mục lục rà soát | `review.html` | Điểm bắt đầu và hướng dẫn rà soát toàn bộ quy trình. |
-| Quản trị và nhân sự | `admin-staff.html` | Hàng đợi vận hành; điểm vào Danh bộ chi tiết, cấu hình có kiểu dữ liệu và phiên bản; điểm vào khoản thu, đợt thu, hóa đơn nháp; phiếu thu, phân bổ, công nợ, điều chỉnh/hoàn tiền; báo cáo; điểm danh; nghỉ học; bàn giao. |
+| Quản trị và nhân sự | `admin-staff.html` | Dashboard điều phối vận hành gọn: hàng đợi điểm danh, đơn nghỉ, bàn giao và tín hiệu tài chính; liên kết tới các trang Danh bộ, cấu hình khoản thu, tạo hóa đơn và rà soát hóa đơn chi tiết, không giữ toàn bộ workflow trên một trang. |
 | Danh bộ | `admin/roster/roster.html` | Landing danh sách School-scoped, filter năm/lớp/lifecycle, mã Student bất biến, caption/pagination và điểm vào các luồng Danh bộ. |
 | Năm học và lớp | `admin/roster/school-year-classes.html` | Boundary một SchoolYear active, lớp thuộc năm học, effective date, lỗi server/focus state và dữ liệu active/proposed. |
 | Hồ sơ và ghi danh | `admin/roster/student-enrollment.html` | Student tách StudentEnrollment, AS-OF facts, interval `[effectiveFrom, endedOn)`, lifecycle và audit history. |
