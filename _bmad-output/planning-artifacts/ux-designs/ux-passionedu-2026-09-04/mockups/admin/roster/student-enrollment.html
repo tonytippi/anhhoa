@@ -1,3 +1,97 @@
-<!doctype html>
-<html lang="vi"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Hồ sơ và ghi danh · Ánh Hoa</title><link rel="stylesheet" href="../../prototype.css" /><script defer src="../admin-shell.js"></script><script defer src="../../prototype.js"></script></head>
-<body><div data-admin-shell data-admin-route="roster"><section><p><a href="roster.html">← Danh bộ</a> · <a href="student-parent-links.html">Liên kết phụ huynh</a></p><div class="route-head"><div><p class="eyebrow">HỌC SINH VÀ GHI DANH LÀ HAI HỒ SƠ RIÊNG</p><h1>Bé An · AH-129</h1><p class="muted">Mã học sinh do máy chủ sinh, bất biến và không tái sử dụng. Không xóa cứng hồ sơ có lịch sử.</p></div><a class="button secondary" href="roster-transition.html">Chuyển ghi danh</a></div><div class="grid two"><article class="card"><h2>Hồ sơ học sinh</h2><p><b>Họ tên:</b> Bé An</p><p><b>Ngày sinh:</b> 12/03/2023</p><p><b>Mã học sinh:</b> AH-129</p><p class="muted">Hồ sơ học sinh tồn tại độc lập, không đồng nghĩa đang được ghi danh vào lớp.</p></article><article class="card"><h2>Tại ngày 05/09/2026</h2><p><b>Năm học:</b> 2026-2027 · <b>Lớp:</b> Mầm 3-4 tuổi</p><p><span class="badge success">Đang theo học <code>ENROLLED</code></span></p><p class="muted">Điều kiện là kết quả máy chủ trả về, không tính tại trình duyệt.</p></article></div><div class="table-wrap"><table><caption>Một ghi danh duy nhất của AH-129 trong năm học 2026-2027</caption><thead><tr><th>Ghi danh</th><th>Khoảng hiệu lực</th><th>Lớp hiện tại</th><th>Trạng thái</th></tr></thead><tbody><tr><td>ENR-2026-0129</td><td>[01/08/2026, chưa kết thúc)</td><td>Mầm 3-4 tuổi từ 05/09/2026</td><td><span class="badge success">Đang theo học <code>ENROLLED</code></span></td></tr></tbody></table></div><div class="table-wrap"><table><caption>Nhật ký vòng đời của cùng ghi danh ENR-2026-0129</caption><thead><tr><th>Thời điểm</th><th>Thay đổi</th><th>Người thực hiện / lý do</th></tr></thead><tbody><tr><td>01/08/2026</td><td>Đã hẹn ngày nhập học <code>SCHEDULED_TO_START</code></td><td>Hoa Nguyễn · Chờ ngày nhập học</td></tr><tr><td>05/09/2026</td><td>Đang theo học <code>ENROLLED</code>; xếp Mầm 3-4 tuổi</td><td>Hoa Nguyễn · Máy chủ xác nhận lớp</td></tr></tbody></table></div><div class="notice info"><b>Lịch sử:</b> mỗi năm học chỉ có một StudentEnrollment cho một học sinh. Các thay đổi vòng đời và lớp được lưu trong nhật ký của ghi danh đó; lịch sử năm học trước nằm ở ghi danh của năm học trước.</div></section></div></body></html>
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Hồ sơ và ghi danh · Ánh Hoa</title>
+    <link rel="stylesheet" href="../../prototype.css">
+    <script defer src="../admin-shell.js"></script>
+    <script defer src="../../prototype.js"></script>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="roster">
+      <section>
+        <p><a href="roster.html">Danh bộ</a></p>
+        <div class="route-head">
+          <div>
+            <p class="eyebrow">DANH BỘ</p>
+            <h1 tabindex="-1">Hồ sơ Bé An · Trường Ánh Hoa</h1>
+            <p class="muted">
+              Năm học 2026-2027 · Hồ sơ học sinh và ghi danh được quản lý riêng.
+            </p>
+          </div>
+          <a class="button secondary" href="roster-transition.html"
+            >Chuyển ghi danh</a
+          >
+        </div>
+        <div class="grid two">
+          <article class="card">
+            <h2>Hồ sơ học sinh</h2>
+            <p><b>Họ tên:</b> Bé An</p>
+            <p><b>Ngày sinh:</b> 12/03/2023</p>
+            <p class="muted">
+              Hồ sơ không tự xác nhận việc đang học hoặc được xếp lớp.
+            </p>
+          </article>
+          <article class="card">
+            <h2>Tình trạng hiện tại</h2>
+            <p><b>Lớp:</b> Mầm 3-4 tuổi</p>
+            <p><span class="badge success">Đang học</span></p>
+            <p class="muted">Kết quả do hệ thống trả về tại ngày xem.</p>
+          </article>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>
+              Ghi danh của Bé An · Trường Ánh Hoa
+            </caption>
+            <thead>
+              <tr>
+                <th>Khoảng hiệu lực</th>
+                <th>Lớp</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Từ 01/08/2026, chưa có ngày kết thúc</td>
+                <td>Mầm 3-4 tuổi từ 05/09/2026</td>
+                <td><span class="badge success">Đang học</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>
+              Lịch sử ghi danh
+            </caption>
+            <thead>
+              <tr>
+                <th>Thời điểm</th>
+                <th>Thay đổi</th>
+                <th>Lý do</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>01/08/2026</td>
+                <td>Đã hẹn ngày nhập học</td>
+                <td>Chờ ngày nhập học</td>
+              </tr>
+              <tr>
+                <td>05/09/2026</td>
+                <td>Đang học, xếp Mầm 3-4 tuổi</td>
+                <td>Hệ thống xác nhận lớp</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <details>
+          <summary>Thông tin đối soát</summary>
+          <p>Mã học sinh bất biến được lưu trong nhật ký hệ thống.</p>
+        </details>
+      </section>
+    </div>
+  </body>
+</html>

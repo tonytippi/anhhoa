@@ -1,3 +1,102 @@
-<!doctype html>
-<html lang="vi"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Năm học và lớp · Ánh Hoa</title><link rel="stylesheet" href="../../prototype.css" /><script defer src="../admin-shell.js"></script><script defer src="../../prototype.js"></script></head>
-<body><div data-admin-shell data-admin-route="roster"><section><p><a href="roster.html">← Danh bộ</a></p><div class="route-head"><div><p class="eyebrow">NỀN TẢNG DANH BỘ</p><h1>Năm học và lớp</h1><p class="muted">Trường Ánh Hoa · mỗi lớp chỉ thuộc một năm học.</p></div><a class="button secondary" href="roster-transition.html">Mở chuyển năm</a></div><div class="notice warning"><b>Chỉ một năm học đang hoạt động:</b> 2026-2027 đang áp dụng. Không thể kích hoạt 2027-2028 khi máy chủ chưa đóng hoặc chuyển trạng thái năm học hiện tại.</div><div class="grid two"><article class="card"><h2>Năm học hiện tại</h2><p><span class="badge success">Đang hoạt động <code>ACTIVE</code></span> <b>2026-2027</b></p><p>Hiệu lực: 05/09/2026 đến 31/05/2027. Đây là ranh giới cho danh bộ và lớp.</p><p class="muted">Tạo bởi Hoa Nguyễn · 01/09/2026 08:40</p></article><article class="card"><h2>Năm học đề xuất kế tiếp</h2><p><span class="badge warning">Đề xuất <code>PROPOSED</code></span> 2027-2028</p><p>Hiệu lực đề xuất: 01/06/2027 đến 31/05/2028. Chưa hoạt động.</p></article></div><div class="grid two"><section class="card"><h2>Tạo lớp trong 2026-2027</h2><form data-mock-form><div class="notice danger" role="alert" tabindex="-1" data-error-summary data-focus-error-summary><b>Không thể lưu lớp.</b> Ngày hiệu lực bắt đầu phải nằm trong 05/09/2026-31/05/2027; tên lớp Mầm 3-4 tuổi đã tồn tại trong năm học này.</div><label for="class-name">Tên lớp</label><input id="class-name" value="Mầm 3-4 tuổi" aria-invalid="true" aria-describedby="class-name-error" required /><p id="class-name-error" class="muted">Máy chủ: lớp trùng trong năm học 2026-2027.</p><label for="effective-from">Hiệu lực từ</label><input id="effective-from" type="date" value="2026-06-01" aria-invalid="true" aria-describedby="effective-from-error" required /><p id="effective-from-error" class="muted">Máy chủ: ngày nằm ngoài ranh giới năm học đang hoạt động.</p><label for="effective-to">Kết thúc (không bắt buộc)</label><input id="effective-to" type="date" /><p><button class="button" type="submit">Gửi yêu cầu tạo lớp</button></p></form></section><section class="card"><h2>Lớp đã xác nhận</h2><div class="table-wrap"><table><caption>Các lớp thuộc năm học 2026-2027</caption><thead><tr><th>Lớp</th><th>Hiệu lực</th><th>Trạng thái</th></tr></thead><tbody><tr><td>Mầm 3-4 tuổi</td><td>05/09/2026 - 31/05/2027</td><td><span class="badge success">Đang hoạt động <code>ACTIVE</code></span></td></tr><tr><td>Chồi 4-5 tuổi</td><td>05/09/2026 - 31/05/2027</td><td><span class="badge success">Đang hoạt động <code>ACTIVE</code></span></td></tr><tr><td>Lá 5-6 tuổi</td><td>05/09/2026 - 31/05/2027</td><td><span class="badge success">Đang hoạt động <code>ACTIVE</code></span></td></tr></tbody></table></div></section></div></section></div></body></html>
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Năm học và lớp · Ánh Hoa</title>
+    <link rel="stylesheet" href="../../prototype.css">
+    <script defer src="../admin-shell.js"></script>
+    <script defer src="../../prototype.js"></script>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="roster">
+      <section>
+        <p><a href="roster.html">Danh bộ</a></p>
+        <div class="route-head">
+          <div>
+            <p class="eyebrow">DANH BỘ</p>
+            <h1 tabindex="-1">Năm học và lớp · Trường Ánh Hoa</h1>
+            <p class="muted">
+              Năm học 2026-2027 đang áp dụng. Mỗi lớp thuộc một năm học.
+            </p>
+          </div>
+        </div>
+        <div class="grid two">
+          <article class="card">
+            <h2>Năm học hiện tại</h2>
+            <p>
+              <span class="badge success">Đang hiệu lực</span> <b>2026-2027</b>
+            </p>
+            <p>05/09/2026 đến 31/05/2027</p>
+          </article>
+          <article class="card">
+            <h2>Năm học kế tiếp</h2>
+            <p><span class="badge warning">Chờ áp dụng</span> 2027-2028</p>
+            <p>01/06/2027 đến 31/05/2028</p>
+          </article>
+        </div>
+        <section class="card">
+          <h2>Thêm lớp cho năm học 2026-2027</h2>
+          <form data-mock-form data-error-form>
+            <div
+              class="notice danger"
+              role="alert"
+              tabindex="-1"
+              data-error-summary
+              hidden
+            >
+              <b>Không thể lưu lớp.</b>
+              <ul>
+                <li>
+                  <a href="#class-name">Tên lớp đã có trong năm học này.</a>
+                </li>
+                <li>
+                  <a href="#effective-from"
+                    >Ngày hiệu lực phải nằm trong năm học.</a
+                  >
+                </li>
+              </ul>
+            </div>
+            <label for="class-name">Tên lớp</label
+            ><input id="class-name" name="class-name" type="text" required><label
+              for="effective-from"
+              >Hiệu lực từ</label
+            ><input
+              id="effective-from"
+              name="effective-from"
+              type="date"
+              required
+            ><label for="effective-to">Kết thúc</label
+            ><input id="effective-to" name="effective-to" type="date"><button
+              class="button"
+              type="submit"
+            >
+              Lưu lớp
+            </button>
+          </form>
+        </section>
+        <div class="table-wrap">
+          <table>
+            <caption>
+              Lớp thuộc Trường Ánh Hoa · năm học 2026-2027
+            </caption>
+            <thead>
+              <tr>
+                <th>Lớp</th>
+                <th>Hiệu lực</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Mầm 3-4 tuổi</td>
+                <td>05/09/2026 đến 31/05/2027</td>
+                <td><span class="badge success">Đang hiệu lực</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

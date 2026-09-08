@@ -8,12 +8,12 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 | --- | --- | --- |
 | Mục lục rà soát | `review.html` | Điểm bắt đầu và hướng dẫn rà soát toàn bộ quy trình. |
 | Quản trị và nhân sự | `admin/admin-staff.html` | Workspace vận hành: Tổng quan ưu tiên việc và các hàng đợi điểm danh, đơn nghỉ, bàn giao theo bảng có ngữ cảnh Trường/ngày, bộ lọc, xác nhận có tên và đối soát thao tác. |
-| Danh bộ | `admin/roster/roster.html` | Landing danh sách School-scoped, filter năm/lớp/lifecycle, mã Student bất biến, caption/pagination và điểm vào các luồng Danh bộ. |
-| Năm học và lớp | `admin/roster/school-year-classes.html` | Boundary một SchoolYear active, lớp thuộc năm học, effective date, lỗi server/focus state và dữ liệu active/proposed. |
-| Hồ sơ và ghi danh | `admin/roster/student-enrollment.html` | Student tách StudentEnrollment, AS-OF facts, interval `[effectiveFrom, endedOn)`, lifecycle và audit history. |
-| Liên kết Phụ huynh | `admin/roster/student-parent-links.html` | Bind atomic, PENDING/ACTIVE/REVOKED, không tự cấp login/role, revoke safe state và audit. |
-| Nhân sự và phân công | `admin/roster/staff-assignments.html` | Staff profile tối thiểu, login/role state tách biệt, class assignment effective-dated và lịch sử. |
-| Chuyển danh bộ | `admin/roster/roster-transition.html` | Preview server, mapping nguồn/đích, record excluded không force move, confirm idempotent và đối soát Operation. |
+| Danh bộ | `admin/roster/roster.html` | Danh sách Trường Ánh Hoa với tìm kiếm, lọc, sắp xếp và trang trong URL; bảng, caption, empty state và mã chỉ trong thông tin đối soát. |
+| Năm học và lớp | `admin/roster/school-year-classes.html` | Một năm học đang hiệu lực, lớp thuộc năm học, ngày hiệu lực và lỗi máy chủ có summary được focus/liên kết. |
+| Hồ sơ và ghi danh | `admin/roster/student-enrollment.html` | Hồ sơ học sinh tách ghi danh, khoảng hiệu lực và lịch sử bằng nhãn nghiệp vụ ngắn. |
+| Liên kết Phụ huynh | `admin/roster/student-parent-links.html` | Hồ sơ/lời mời tách liên kết với học sinh; trạng thái quyền chỉ theo kết quả hệ thống và thu hồi có đối soát. |
+| Nhân sự và phân công | `admin/roster/staff-assignments.html` | Hồ sơ, quyền truy cập và phân công hiệu lực tách biệt; không ngụ ý đăng nhập hay năng lực thao tác. |
+| Chuyển danh bộ | `admin/roster/roster-transition.html` | Xem trước từ hệ thống, bản ghi không chuyển không có thao tác, xác nhận có tên và đối soát kết quả. |
 | Cấu hình khoản thu | `admin/receivable-configuration.html` | Catalog theo bảng, nhóm, tìm/lọc/sắp xếp, phân trang, đơn giá VND, hiệu lực, trạng thái và tùy chọn ngắn. Quy tắc, lịch sử và thông tin đối soát chỉ đọc nằm trong disclosure; chương trình nộp trước tách khỏi catalog và chỉ quản trị viên trường mới có điểm vào tạo nguồn. |
 | Tạo hóa đơn | `admin/invoice-generation.html` | Luồng tạo đợt thu theo bảng: xem trước, khoản thu, nợ cũ, lý do bỏ qua, tổng VND và tạo hóa đơn nháp. Luồng nộp trước riêng cho quản trị viên trường, nêu rõ chỉ có quyền miễn thu sau khi thanh toán đủ; mã đối soát chỉ nằm trong disclosure. |
 | Rà soát hóa đơn | `admin/invoice-detail-review.html` | Hóa đơn nháp có dòng tiền, điều chỉnh, tài khoản nhận tiền và phát hành; hóa đơn đã phát hành là chỉ đọc. Nộp trước nêu thanh toán đủ cho đúng một học sinh, thông tin đã chốt và rà soát khi hoàn tiền; mã đối soát chỉ nằm trong disclosure. |

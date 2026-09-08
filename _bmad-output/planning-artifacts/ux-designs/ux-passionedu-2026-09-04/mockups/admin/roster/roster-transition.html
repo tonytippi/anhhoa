@@ -1,3 +1,112 @@
-<!doctype html>
-<html lang="vi"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Chuyển danh bộ · Ánh Hoa</title><link rel="stylesheet" href="../../prototype.css" /><script defer src="../admin-shell.js"></script><script defer src="../../prototype.js"></script></head>
-<body><div data-admin-shell data-admin-route="roster"><section><p><a href="roster.html">← Danh bộ</a> · <a href="school-year-classes.html">Xem năm học / lớp</a></p><div class="route-head"><div><p class="eyebrow">XEM TRƯỚC, XÁC NHẬN, ĐỐI SOÁT</p><h1>Chuyển lớp / chuyển năm</h1><p class="muted">Ánh Hoa · 2026-2027. Ban đầu chỉ có kết quả xem trước, chưa tạo thao tác chuyển.</p></div><button class="button secondary" type="button" data-confirm="Tạo kết quả xem trước|Máy chủ sẽ phân loại học sinh chuyển được và không chuyển được theo lịch sử nguồn, ánh xạ đích và ngày hiệu lực.|Tạo kết quả xem trước">Tạo kết quả xem trước</button></div><ol class="steps" aria-label="Các bước chuyển danh bộ"><li class="current" aria-current="step">1. Kết quả xem trước</li><li>2. Xác nhận có khóa chống trùng</li><li>3. Đối soát thao tác</li></ol><div class="grid two"><article class="card"><h2>Nguồn và đích</h2><p><b>Nguồn:</b> 2026-2027 · Mầm 3-4 tuổi</p><p><b>Đích:</b> 2027-2028 · Chồi 4-5 tuổi (đề xuất)</p><p><b>Ngày hiệu lực:</b> 01/06/2027</p><p><b>Lý do:</b> Chuyển năm học</p><p class="muted">Lịch sử nguồn và ánh xạ đích được máy chủ chụp tại kết quả xem trước.</p></article><article class="card"><h2>Lưu ý kết thúc năm</h2><p>Khi kết thúc năm, phân công lớp được kết thúc đúng khoảng hiệu lực; ghi danh giữ trạng thái đang theo học nếu học sinh vẫn thuộc trường.</p><p><b>Đã tốt nghiệp <code>GRADUATED</code></b> chỉ dùng khi rời trường thực tế.</p></article></div><div class="table-wrap"><table><caption>Kết quả xem trước PRV-2027-0008 · máy chủ đã phân loại</caption><thead><tr><th>Học sinh / lịch sử nguồn</th><th>Ánh xạ đích</th><th>Kết quả</th><th>Lý do</th></tr></thead><tbody><tr><td>AH-129 · Bé An<br /><span class="muted">Đang theo học từ 05/09/2026</span></td><td>Chồi 4-5 tuổi</td><td><span class="badge success">Có thể chuyển <code>MOVABLE</code></span></td><td>Khoảng hiệu lực hợp lệ, có ánh xạ</td></tr><tr><td>AH-128 · Bé Minh<br /><span class="muted">Đang theo học từ 05/09/2026</span></td><td>Chồi 4-5 tuổi</td><td><span class="badge success">Có thể chuyển <code>MOVABLE</code></span></td><td>Khoảng hiệu lực hợp lệ, có ánh xạ</td></tr><tr><td>AH-130 · Bé Hà<br /><span class="muted">Chờ xếp lớp từ 10/09/2026</span></td><td>Không có</td><td><span class="badge warning">Không chuyển</span></td><td>Chưa có lớp nguồn; không có nút ép chuyển</td></tr></tbody></table></div><div class="notice warning"><b>Chưa gửi thao tác:</b> kết quả xem trước không tạo Operation. Chỉ nút xác nhận cuối cùng dưới đây mới hiển thị khóa idempotency và gửi yêu cầu mô phỏng.</div><p><button class="button" type="button" data-idempotent-action data-action-title="Xác nhận chuyển 2 học sinh" data-action-label="Xác nhận và gửi chuyển danh bộ" data-action-consequence="Bạn sắp gửi chuyển AH-129 và AH-128 theo kết quả xem trước PRV-2027-0008. AH-130 vẫn bị loại. Sau khi gửi, hãy đối soát Operation trước mọi lần thử lại.">Xác nhận chuyển 2 học sinh</button></p></section></div></body></html>
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Chuyển danh bộ · Ánh Hoa</title>
+    <link rel="stylesheet" href="../../prototype.css">
+    <script defer src="../admin-shell.js"></script>
+    <script defer src="../../prototype.js"></script>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="roster">
+      <section>
+        <p><a href="roster.html">Danh bộ</a></p>
+        <div class="route-head">
+          <div>
+            <p class="eyebrow">DANH BỘ</p>
+            <h1 tabindex="-1">Chuyển danh bộ · Trường Ánh Hoa</h1>
+            <p class="muted">
+              Xem trước, xác nhận và đối soát kết quả từ hệ thống.
+            </p>
+          </div>
+          <button
+            class="button secondary"
+            type="button"
+            data-confirm="Tạo kết quả xem trước|Hệ thống sẽ phân loại học sinh theo lịch sử nguồn, lớp đích và ngày hiệu lực.|Tạo kết quả xem trước"
+          >
+            Tạo kết quả xem trước
+          </button>
+        </div>
+        <ol class="steps">
+          <li class="current" aria-current="step">1. Xem trước</li>
+          <li>2. Xác nhận</li>
+          <li>3. Đối soát</li>
+        </ol>
+        <div class="grid two">
+          <article class="card">
+            <h2>Nguồn và đích</h2>
+            <p><b>Nguồn:</b> 2026-2027 · Mầm 3-4 tuổi</p>
+            <p><b>Đích:</b> 2027-2028 · Chồi 4-5 tuổi</p>
+            <p><b>Ngày hiệu lực:</b> 01/06/2027</p>
+          </article>
+          <article class="card">
+            <h2>Kết quả xem trước</h2>
+            <p>
+              Chỉ kết quả xem trước từ hệ thống mới quyết định học sinh nào được
+              chuyển.
+            </p>
+            <p class="muted">Lịch sử nguồn vẫn được giữ sau khi hoàn tất.</p>
+          </article>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>
+              Kết quả xem trước · Trường Ánh Hoa
+            </caption>
+            <thead>
+              <tr>
+                <th>Học sinh</th>
+                <th>Lớp đích</th>
+                <th>Kết quả</th>
+                <th>Lý do</th>
+                <th>Tùy chọn</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Bé An</td>
+                <td>Chồi 4-5 tuổi</td>
+                <td><span class="badge success">Có thể chuyển</span></td>
+                <td>Khoảng hiệu lực hợp lệ</td>
+                <td>Được đưa vào xác nhận</td>
+              </tr>
+              <tr>
+                <td>Bé Minh</td>
+                <td>Chưa có</td>
+                <td><span class="badge warning">Không chuyển</span></td>
+                <td>Chưa có lớp đích phù hợp</td>
+                <td>Không có thao tác</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <button
+          class="button"
+          type="button"
+          data-idempotent-action
+          data-action-title="Xác nhận chuyển danh bộ cho Trường Ánh Hoa"
+          data-action-label="Xác nhận chuyển danh bộ"
+          data-action-consequence="Hệ thống sẽ thực hiện đúng kết quả xem trước. Bé An được chuyển; Bé Minh không được chuyển. Không gửi lại cho đến khi đã đối soát kết quả."
+          data-operation-target="transition-result"
+          data-operation-result-title="Kết quả chuyển danh bộ cho Trường Ánh Hoa"
+          data-operation-result="Hệ thống đã chuyển Bé An sang lớp Chồi 4-5 tuổi từ 01/06/2027. Bé Minh không được chuyển vì chưa có lớp đích phù hợp."
+        >
+          Xác nhận chuyển danh bộ
+        </button>
+        <section id="transition-result" class="card" aria-live="polite" hidden></section>
+        <div class="table-wrap">
+          <table>
+            <caption>Lịch sử nguồn vẫn được giữ</caption>
+            <thead><tr><th>Học sinh</th><th>Lịch sử nguồn</th><th>Kết quả cuối cùng</th></tr></thead>
+            <tbody><tr><td>Bé An</td><td>Mầm 3-4 tuổi từ 05/09/2026</td><td>Chờ hệ thống trả kết quả</td></tr><tr><td>Bé Minh</td><td>Mầm 3-4 tuổi từ 05/09/2026</td><td>Không thay đổi khi chưa có lớp đích</td></tr></tbody>
+          </table>
+        </div>
+        <details>
+          <summary>Thông tin đối soát</summary>
+          <p>Mã thao tác và kết quả cuối cùng chỉ hiển thị trong đối soát.</p>
+        </details>
+      </section>
+    </div>
+  </body>
+</html>
