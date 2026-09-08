@@ -7,12 +7,13 @@ paradigm: vertical-slice modular monolith with isolated portal clients
 scope: "Superseding architecture for the PassionEdu multi-school platform"
 status: final
 created: 2026-09-04
-updated: 2026-09-07
-binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15]
+updated: 2026-09-08
+binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17]
 sources:
   - ../../prds/prd-passionedu-2026-09-04/prd.md
   - ../../prds/prd-passionedu-2026-09-04/addendum.md
   - ../../sprint-change-proposal-2026-08-31.md
+  - ../../payroll-module-roadmap-2026-09-08.md
 companions: []
 ---
 
@@ -54,19 +55,19 @@ flowchart TD
 
 ### AD-2 - API ownership and modular dependency direction [ADOPTED]
 
-- **Binds:** FR-1 through FR-15
+- **Binds:** FR-1 through FR-17
 - **Prevents:** duplicated policy/money rules, controller-to-controller coupling, and ambiguous aggregate ownership
-- **Rule:** `apps/api` solely owns Prisma, migrations, PostgreSQL, authorization, policy evaluation, money calculation, state transitions, snapshots, audit and Operations. Domain modules own their aggregate writes: `identity`, `schools`, `memberships`, `authorization`, `roster`, `settings`, `finance`, `attendance`, `parents`, `parent-auth`, `parent-portal`, and `operations`. Controllers call only their owning service; a service may use Prisma and narrowly exported service/query contracts, never another controller.
+- **Rule:** `apps/api` solely owns Prisma, migrations, PostgreSQL, authorization, policy evaluation, money calculation, state transitions, snapshots, audit and Operations. Domain modules own their aggregate writes: `identity`, `schools`, `memberships`, `authorization`, `school-features`, `roster`, `workforce`, `timekeeping`, `payroll`, `settings`, `finance`, `attendance`, `parents`, `parent-auth`, `parent-portal`, and `operations`. Controllers call only their owning service; a service may use Prisma and narrowly exported service/query contracts, never another controller.
 
 ### AD-3 - School-scoped authorization context [ADOPTED]
 
-- **Binds:** FR-1 through FR-15
+- **Binds:** FR-1 through FR-17
 - **Prevents:** cross-tenant access through UUIDs, filters, route parameters, headers or stale browser selection
 - **Rule:** `School` is the tenant root. Staff operational routes carry `/schools/:schoolId/` and resolve active `SchoolMembership` plus `SchoolRoleGrant`/capability per request. Parent routes carry `/api/parent/schools/:schoolId/`; one `ParentSchoolContext` resolver verifies parent audience, bound ParentProfile and active StudentParent in that School before any scoped query. Every business query, write, unique constraint, audit record and Operation scopes `schoolId`; updates/deletes match both record ID and school ID in one transaction. Client-provided school context is a selector, never authorization proof; no resolver may derive authorization from an unscoped resource UUID.
 
 ### AD-4 - Identity, audience and portal session isolation [ADOPTED]
 
-- **Binds:** FR-1, FR-2, FR-6, FR-14, FR-15
+- **Binds:** FR-1, FR-2, FR-6, FR-16, FR-17
 - **Prevents:** global Admin privilege, cross-portal cookies, subject/email takeover and stale Parent access
 - **Rule:** Google OAuth creates/binds global `UserIdentity`; Teacher access requires active membership/role grants resolved per request. `parents` owns ParentProfile and exports the only atomic pending-email bind/reassign command used by `parent-auth`: normalized verified email lookup, unique Google subject and one-to-one identity binding, active StudentParent recheck immediately before session issue, and audited revoke before reassignment. Parent read models enforce retention server-side: operational/sensitive data expires 30 calendar days after enrollment `endedOn`; issued finance remains while unsettled, then uses versioned ParentAccessPolicy with a 12-month default. The fixed hosts are `app.passionedu.org`, `teacher.passionedu.org`, `parent.passionedu.org`, `ops.passionedu.org` and `api.passionedu.org`; every audience has its own callback allowlist, host-only `Secure`/`httpOnly`/`SameSite=Lax` cookie, session audience and origin allowlist. A session cookie is accepted only by its audience. `parent-web` never service-worker caches authenticated Parent responses, payment instructions, daily-journal media or evidence URLs; it clears memory/query state on logout, expiry, `401` or revoke.
 
@@ -88,7 +89,7 @@ flowchart TD
 
 ### AD-7 - Finance obligation and ledger model [ADOPTED]
 
-- **Binds:** FR-7 through FR-11, FR-15
+- **Binds:** FR-7 through FR-11
 - **Prevents:** parallel finance lifecycles, mutable issued obligations, float errors, payment double-posting and live account data changing history
 - **Rule:** VND persists as PostgreSQL `BIGINT` and crosses REST only as safe JSON integers. Every CollectionRun, Invoice, DebtTransfer and settlement belongs to one SchoolYear; no debt auto-carries to a new SchoolYear. Finance owns CollectionRun lifecycle `DRAFT -> READY -> GENERATED -> CLOSED`: GENERATED locks rule/scope snapshots and only allows one new DRAFT Invoice for an eligible Student without one; CLOSED blocks create/edit. Preview and generate share the same server selection policy and categorized skips. An Invoice is unique by `(schoolId, studentId, collectionRunId)`; obligation content and Payment instruction are immutable after issue, while only server workflows may derive `PAID` settlement or transition to VOIDED before any allocation/prepayment application. `PARTIALLY_PAID` does not exist. Receipt, Allocation, Prepayment, Reversal, Refund and DebtTransfer are append-only finance records. One finance posting boundary serializes every settlement writer with a consistent lock order: a normal Receipt may settle one or more Invoices only for one Student in one School and only when every target is settled exactly to its outstanding amount; partial, unallocated and mixed-Student posting is rejected. Receipt excess posts only as explicit Student Prepayment. Existing limits reject source/Invoice over-application, cross-Student use and voided targets. `StudentPromotionalCoverage` is School/Student-scoped, created only by School Admin or Finance Manager, and snapshots named receivable-period coverage plus price/discount into its issued Invoice; database and owning command prevent issued overlap for the same Student, Receivable and period. CollectionRun excludes only a covered Student/Receivable/period with `COVERED_BY_PROMOTIONAL_COVERAGE`. Withdrawal/transfer refund preview uses the coverage snapshot and applicable School calendar: it calculates eligible/remaining operating days, excludes the withdrawal effective date, and floors `snapshotCoverageAmount * remainingOperatingDays / eligibleOperatingDays` in VND. Posted refund stores calculated/approved amount, override reason when different, coverage/Invoice/Receipt provenance and approval outcome without mutating source facts. DebtTransfer atomically reduces its source outstanding before exposing `PRIOR_DEBT`, preventing double collection. `DIRECT` permits School Admin/Finance Manager reversal with reason; `SCHOOL_ADMIN_APPROVAL` requires a Finance Manager request and a different School Admin approval, never self-approval. Paid/outstanding status is derived from validated ledger records, never set by clients. Finance source and Payment instruction data are snapshotted at issue; Parent receives a minimal read model only.
 
@@ -122,7 +123,7 @@ flowchart TD
 
 ### AD-12 - Tenant graph integrity [ADOPTED]
 
-- **Binds:** FR-3 through FR-15
+- **Binds:** FR-3 through FR-17
 - **Prevents:** tenant-owned records carrying a valid school ID while referencing a different School's aggregate
 - **Rule:** Tenant-owned relations use composite `(schoolId, id)` parent keys and foreign keys where supported. The owning command verifies the entire graph inside its transaction when a database composite FK cannot express it. Global exceptions are only UserIdentity, ParentProfile and PlatformOperatorGrant; their tenant path is explicit through SchoolMembership or StudentParent. Cross-School graph inserts and joins are negative integration tests.
 
@@ -140,7 +141,7 @@ flowchart TD
 
 ### AD-15 - Parent attendance notification boundary [ADOPTED]
 
-- **Binds:** FR-12, FR-14
+- **Binds:** FR-12, FR-16
 - **Prevents:** notification delivery after revoke, evidence leakage and duplicate Parent event delivery
 - **Rule:** `attendance` emits one idempotent in-app notification event after an attendance write; `parent-portal` projects it only for ParentProfiles with an active StudentParent link at read/delivery time. `parent-portal` owns the separate Parent attendance read model, scoped by ParentSchoolContext and operational-data retention; every list/detail read joins active StudentParent for each returned/requested `studentId`, so a link to one Student grants no same-School access to another. The DTO contains only `studentId`, Student display-name snapshot, date, `PRESENT`/`ABSENT`/`ON_LEAVE`/`NOT_RECORDED` and necessary updated time. `NOT_RECORDED` means not yet recorded, never absent. Neither the event nor read model contains other Student-profile fields, evidence media, Staff identity, internal reason or class-list data; both respect Parent retention/revoke authorization and do not introduce SMS, email, Zalo or chat delivery. Parent has no attendance mutation.
 
@@ -149,6 +150,18 @@ flowchart TD
 - **Binds:** transition from pilot to public/operational production
 - **Prevents:** treating the pilot VPS as production without an explicit operational design
 - **Rule:** Production availability, RPO/RTO, backup/audit retention, restore drills, monitoring, rate limits, performance budgets, registry, cloud migration and provider selection are intentionally undecided. They are not pilot acceptance criteria. Before any public or operational production rollout, create an Architecture Spine update that decides and verifies them.
+
+### AD-17 - Optional Payroll capability and domain ownership [ADOPTED]
+
+- **Binds:** FR-14, FR-15
+- **Prevents:** exposing an unfinished Payroll trial to every School, treating UI visibility as authorization, and contaminating Student receivables with staff payment rules
+- **Rule:** `school-features` owns a server-enforced School Payroll entitlement state `NOT_ENTITLED | PILOT_ENABLED | ENABLED | SUSPENDED | RETIRED`. Every workforce, timekeeping and payroll route/job resolves it before aggregate access; entitlement never grants a role/capability. Ops admits pilot/enabled Schools with audit. Suspension/retirement denies new business writes, retains authorized historical read/export and rejects transition while unresolved imports, approved unpaid runs, advance reservations or payouts require a workflow. `workforce` owns employment contracts, compensation terms and effective machine-code mappings; `timekeeping` owns file batches, append-only raw events/corrections, reviewed workdays and late-care assignments; `payroll` owns policy versions, periods/runs/entry snapshots, advances, payouts and correction runs. Payroll is accounts payable with its own lifecycle and never uses Student Invoice, Receipt, CollectionRun or exact-settlement rules.
+
+### AD-18 - Payroll snapshot, calculation and correction boundary [ADOPTED]
+
+- **Binds:** FR-14, FR-15
+- **Prevents:** live time/contract changes rewriting pay history, arbitrary formulas becoming executable business logic, and correction of a paid payroll by overwrite
+- **Rule:** Payroll consumes only narrow workforce/timekeeping snapshot queries, never another module's tables. API evaluates VND `BIGINT` through typed, code-owned, schema-validated effective policy versions; stored scripts, SQL, arbitrary expressions and browser-calculated authority are forbidden. Calculation creates a versioned run with source/policy/component provenance; School Admin approval locks it. An approved unpaid version reopens only by audited reason into a new draft version. A paid version never reopens: an independently approved correction run records a signed delta and references the source version. Import commit, calculate, approve, reopen, correction approval and payout confirmation are transactional, idempotent Operations with audit.
 
 ## Consistency Conventions
 
@@ -231,6 +244,8 @@ flowchart LR
 | Platform provision, suspend and owner bootstrap | `identity`, `schools`, `memberships`, `ops-web` | AD-2, AD-3, AD-4, AD-5, AD-8 |
 | School chooser, roles and scoped navigation | `authorization`, `web` | AD-1, AD-3, AD-4, AD-11 |
 | School settings, year, roster and Staff | `settings`, `roster`, `web` | AD-2, AD-3, AD-6, AD-8 |
+| Payroll opt-in, workforce terms and timekeeping | `school-features`, `workforce`, `timekeeping`, `web` | AD-2, AD-3, AD-6, AD-8, AD-17 |
+| Payroll calculation, approval, payout and correction | `payroll`, `workforce`, `timekeeping`, `web` | AD-2, AD-3, AD-8, AD-17, AD-18 |
 | Catalog, CollectionRun and Invoice issue | `finance`, `web` | AD-2, AD-3, AD-7, AD-8 |
 | Receipt, prepaid-payment coverage, debt and reports | `finance`, `web` | AD-2, AD-3, AD-7, AD-8, AD-11 |
 | Attendance, handover and daily journals | `attendance`, `roster`, `teacher-web` | AD-2, AD-3, AD-6, AD-8, AD-14 |
@@ -239,5 +254,6 @@ flowchart LR
 ## Deferred
 
 - VietQR, copy fields and bank deep links: separate Parent enhancement only after snapshot fallback, device/browser matrix and configuration governance are approved.
-- Support JIT/impersonation, Organization hierarchy, per-School domains, shared live catalogs, transport, medical, communications and import/onboarding: outside this initiative; require their own product/architecture decision.
+- Support JIT/impersonation, Organization hierarchy, per-School domains, shared live catalogs, transport, medical, communications and generic import/onboarding: outside this initiative; require their own product/architecture decision.
+- Direct timeclock vendor integration, multiple schedules/partial-day work, headcount bonus, tax/BHXH filing integration and certified legal-compliance claims: deferred Payroll extensions requiring a separate approved rule/compliance contract.
 - Container registry, reverse-proxy implementation, offsite backup, monitoring, cloud provider and production recovery posture: deferred until a production rollout is planned; they are not pilot prerequisites.

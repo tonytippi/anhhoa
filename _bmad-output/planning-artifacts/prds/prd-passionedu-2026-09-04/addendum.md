@@ -14,6 +14,7 @@
 - Tien VND dung PostgreSQL `BIGINT`; API tinh toan va snapshot; Prisma/schema/module cu la reference, khong la baseline production.
 - Route business dung `/schools/:schoolId/...`; Parent scope School duoc chon va validate qua StudentParent link active.
 - Teacher chi ghi attendance, handover va DailyJournal trong Class co StaffProfile binding, capability va Class assignment effective tai ngay thao tac. DailyJournal co text va anh JPEG/PNG/WebP toi da 10 MB moi anh, khong gioi han so anh; Parent chi doc journal/media cua Student duoc lien ket active trong 30 ngay sau `endedOn`.
+- Payroll la capability opt-in theo School, co feature entitlement server-side va chi rollout `PILOT_ENABLED`/`ENABLED`; code frontend/role khong tu thay the entitlement. Payroll dung Admin PWA, khong xuat hien o Teacher/Parent portal.
 
 ## Invariant data model de Architecture Spine chot
 
@@ -21,6 +22,8 @@
 - `UserIdentity`, `SchoolMembership`, `SchoolRoleGrant`; `ParentProfile` global; `StudentParent -> Student.schoolId` xac dinh Parent context.
 - Invoice unique theo `(schoolId, studentId, collectionRunId)`, immutable khi issue; receipt/allocation/prepayment la ledger append-only.
 - Operation/idempotency scope bao gom School va actor membership; audit luu actor identity, membership va School.
+- `workforce` so huu EmploymentContract, compensation term, independent insurance salary base va machine identifier effective-dated; `timekeeping` so huu file batch, raw IN/OUT event append-only, correction, reviewed StaffWorkdayRecord va late-care assignment; `payroll` so huu policy, period/run version, entry/component snapshot, advance, payout va correction run.
+- Payroll la accounts payable tach khoi receivables Student. VND `BIGINT`, policy typed/versioned do API code tinh va snapshot; khong luu arbitrary formula/script/SQL. Paid Payroll chi sua qua correction delta run, khong overwrite.
 
 ## Quy tac finance chi tiet
 
@@ -36,3 +39,4 @@
 - Finance: preview/generate idempotent, snapshot, exact settlement, explicit Receipt excess Prepayment, reversal/refund, debt transfer va year-end settlement. Fixture tu choi partial, unallocated va mixed-Student Receipt; fixture Prepayment chi ap dung Invoice cung Student, School va SchoolYear.
 - E2E: chooser/switcher, pending owner bind Google, Teacher audience/Class assignment, Parent multi-school, Parent revoke/cache clear, leave/attendance/handover/journal permission states.
 - Compatibility: OAuth callback/cookie/origin boundaries theo portal; Parent bank enhancement chi phat hanh sau device/browser test matrix.
+- Payroll: fixture Excel anonymized doi soat input/component/output, denial School non-entitled, effective machine-code mapping, import dedupe, approved source lock, concurrent calculate/approve/payout va correction provenance.

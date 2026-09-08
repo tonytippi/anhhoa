@@ -14,6 +14,7 @@ supersedes:
   - epics.md
   - epics-parent-pwa.md
 status: final
+updated: 2026-09-08
 ---
 
 # PassionEdu - Epic Breakdown
@@ -52,9 +53,13 @@ FR-12: Parent gui leave request cho Student duoc uy quyen; Teacher co capability
 
 FR-13: Authorized Staff ghi handover picked-up time theo policy lam operational reference co audit, khong tu dong tao late-pickup fee hoac pickup authorization.
 
-FR-14: Parent dung portal multi-School de xem dung Student duoc active link uy quyen, attendance history DTO toi thieu, DailyJournal/media duoc cap quyen va in-app notification 30 ngay; revoke/session expiry xoa protected state va Parent khong mutate operational data.
+FR-14: Platform Operations cap Payroll opt-in theo School; tai School enabled, Ke toan/School Admin quan ly employment terms, machine-code mapping, file-based timekeeping, reviewed workdays va late-care assignments co audit.
 
-FR-15: Parent xem read-only `ISSUED` Invoice obligation va Payment instruction snapshot khi con outstanding; Parent khong post Receipt, xac nhan payment, chon uu dai/refund hay sua finance, va khong co VietQR/copy/deep link trong release nay.
+FR-15: Ke toan tinh/reconcile Payroll versioned tu source snapshot/policy typed; School Admin duyet/reopen unpaid run va phe duyet correction sau payout. Payroll tach biet voi Student receivables, co payout/advance/thirteenth-month semantics rieng.
+
+FR-16: Parent dung portal multi-School de xem dung Student duoc active link uy quyen, attendance history DTO toi thieu, DailyJournal/media duoc cap quyen va in-app notification 30 ngay; revoke/session expiry xoa protected state va Parent khong mutate operational data.
+
+FR-17: Parent xem read-only `ISSUED` Invoice obligation va Payment instruction snapshot khi con outstanding; Parent khong post Receipt, xac nhan payment, chon uu dai/refund hay sua finance, va khong co VietQR/copy/deep link trong release nay.
 
 ### NonFunctional Requirements
 
@@ -78,6 +83,7 @@ NFR-8: Workspace pnpm/Turborepo dung Node 22, TypeScript, React/Vite, NestJS/Pri
 
 - Scaffold clean-break workspace `apps/api`, `apps/web`, `apps/parent-web`, `apps/ops-web`, `packages/contracts`, `packages/ui` va `deploy/compose`; reset seed/dev/test theo target schema, khong compatibility layer hay migration production.
 - API domain modules la `identity`, `schools`, `memberships`, `authorization`, `roster`, `settings`, `finance`, `attendance`, `parents`, `parent-auth`, `parent-portal`, `operations`; controller chi goi owning service va domain export contract hep.
+- Payroll modules la `school-features`, `workforce`, `timekeeping`, `payroll`; Payroll khong ghi/read truc tiep aggregate cua nhau ma dung narrow export, va khong tai su dung Student Invoice/Receipt/CollectionRun.
 - Staff route dung `/schools/:schoolId/`; Parent route dung `/api/parent/schools/:schoolId/`; mo resolver context va query/write scoped School trong cung transaction, relation dung composite tenant graph khi ho tro.
 - Google OAuth bind UserIdentity; audience callbacks, host-only Secure/httpOnly/SameSite=Lax cookie va origin allowlist rieng cho `app`, `parent`, `ops`, `api` hosts. `SUPERADMIN_EMAIL` chi bootstrap PlatformOperatorGrant.
 - School suspended bi chan o business request ke tiep; Platform grant khong suy ra School membership; Parent pending email binding atomic va active StudentParent recheck truoc session issue.
@@ -141,9 +147,13 @@ FR-12: Epic 4 - Leave/attendance/service domain, evidence va source-linked adjus
 
 FR-13: Epic 4 - Handover operational reference.
 
-FR-14: Epic 7 - Parent authorization, attendance read model va notification inbox.
+FR-14: Epic 8 - Payroll entitlement, workforce va policy foundation; Epic 9 - timekeeping va late-care facts.
 
-FR-15: Epic 7 - Read-only Parent obligation va Payment instruction snapshot.
+FR-15: Epic 10 - Regular Payroll/payout; Epic 11 - correction va thirteenth-month pay.
+
+FR-16: Epic 7 - Parent authorization, attendance read model va notification inbox.
+
+FR-17: Epic 7 - Read-only Parent obligation va Payment instruction snapshot.
 
 ## Epic List
 
@@ -197,9 +207,49 @@ Finance ghi Receipt/Allocation, settle exact prepaid-payment source Invoice, thu
 
 Parent dung portal mobile-first de chon School, xem attendance an toan, inbox, gui/quan ly leave request khi duoc phep va xem Invoice/Payment instruction snapshot; Parent khong the mutate attendance hoac settlement.
 
-**FRs covered:** FR-12 (Parent leave entry), FR-14, FR-15.
+**FRs covered:** FR-12 (Parent leave entry), FR-16, FR-17.
 
 **Depends on:** Epic 1, Epic 2, Epic 4, Epic 6.
+
+### Epic 8: Payroll entitlement, workforce và policy foundation
+
+Platform Operations chi cap Payroll theo School; School enabled co workforce terms effective-dated, typed Payroll policy va capability an toan truoc khi xu ly cham cong hay tien luong.
+
+**FRs covered:** FR-14.
+
+**Depends on:** Epic 1, Epic 2, Epic 3.
+
+### Epic 9: Chấm công nhân sự và ca trông muộn
+
+Ke toan/School Admin upload va ra soat file may cham cong, chot ngay cong va xac nhan ca trong muon lam source fact cho Payroll, khong suy dien khoan tra them tu handover hay presence.
+
+**FRs covered:** FR-14.
+
+**Depends on:** Epic 8.
+
+### Epic 10: Payroll thường kỳ, phê duyệt và payout
+
+Ke toan tinh/reconcile Payroll versioned theo contract, policy va reviewed facts; School Admin duyet/reopen unpaid run va xac nhan payout co doi soat.
+
+**FRs covered:** FR-15.
+
+**Depends on:** Epic 8, Epic 9.
+
+### Epic 11: Payroll correction và lương tháng 13
+
+Sai sot sau payout tao correction delta bat bien; luong thang 13 dung ky/run rieng va cung approval boundary.
+
+**FRs covered:** FR-15.
+
+**Depends on:** Epic 10.
+
+### Epic 12: Payroll extensions có hợp đồng riêng
+
+Mo rong Payroll chi sau khi policy/compliance contract tuong ung duoc duyet: bonus theo si so, nhieu ca/partial-day, direct timeclock integration va tax/BHXH filing.
+
+**FRs covered:** FR-14, FR-15.
+
+**Depends on:** Epic 11.
 
 ## Epic 1: Vận hành nền tảng đa trường và truy cập có kiểm soát
 
@@ -1297,3 +1347,199 @@ So that latency va kha nang su dung khong duoc suy doan tu happy path.
 **When** WCAG 2.1 AA automated va manual keyboard/screen-reader verification chay
 **Then** contrast, text status, heading/route focus, dialog focus, table semantics, responsive treatment va Parent 44x44 touch target deu pass theo UX contract
 **And** blocked finding la release gate; khong portal nao duoc mien tru chi vi khong phai Parent.
+
+## Epic 8: Payroll entitlement, workforce và policy foundation
+
+### Story 8.1: Payroll entitlement và pilot admission theo School
+
+As a Platform Operator,
+I want to admit, suspend va retire Payroll theo tung School,
+So that feature thu nghiem khong mo cho tenant chua san sang va khong mat lich su khi dung.
+
+**Acceptance Criteria:**
+
+**Given** School chua duoc Payroll entitlement
+**When** actor goi direct Payroll/workforce/timekeeping route, job hoac UUID cua resource
+**Then** server tu choi truoc aggregate access va navigation/discovery khong expose feature
+**And** entitlement khong tu cap role hay capability.
+
+**Given** Ops chuyen School qua `PILOT_ENABLED`, `ENABLED`, `SUSPENDED` hoac `RETIRED`
+**When** mutation duoc submit/retry
+**Then** state, actor, rollout version, reason va Operation audit duoc persist idempotent
+**And** suspend/retire bi chan, tra blocker ro rang neu con import, approved unpaid run, advance reservation hoac payout can resolve.
+
+**Given** School `SUSPENDED` hoac `RETIRED`
+**When** actor authorized doc lich su Payroll
+**Then** approved/paid record va audit duoc giu read-only theo policy
+**And** khong co job hay mutation moi lam thay doi Payroll data.
+
+### Story 8.2: EmploymentContract và compensation terms effective-dated
+
+As an authorized School operator,
+I want to quan ly dieu khoan lao dong theo thoi gian hieu luc,
+So that luong thu viec, luong co ban, muc dong bao hiem va phu cap duoc snapshot dung ky.
+
+**Acceptance Criteria:**
+
+**Given** School co Payroll enabled va actor co `WORKFORCE_MANAGE`
+**When** actor tao/sua EmploymentContract hoac CompensationTerm
+**Then** server validate School scope, `[effectiveFrom, effectiveTo)`, khong overlap term cung loai va luu reason/audit
+**And** base salary, probation salary/rate, insurance salary base va fixed allowance la cac gia tri doc lap.
+
+**Given** term da duoc Payroll calculated snapshot tham chieu
+**When** actor can sua gia tri qua khu
+**Then** server tu choi overwrite va chi cho phep them term revised effective-dated
+**And** cross-School Staff/contract reference bi tu choi trong transaction.
+
+### Story 8.3: Typed PayrollPolicyVersion và capability governance
+
+As a School Admin,
+I want to quan ly version policy luong co schema ro rang,
+So that API tinh nhat quan ma khong cho phep cong thuc tuy y.
+
+**Acceptance Criteria:**
+
+**Given** Payroll enabled School
+**When** School Admin tao effective PayrollPolicyVersion
+**Then** server chi nhan typed schema cho attendance bonus, late-care rate, insurance rate/cap, PIT bracket/reduction va thirteenth-month policy
+**And** JavaScript, SQL, Excel formula va arbitrary expression bi tu choi.
+
+**Given** policy da duoc Payroll snapshot
+**When** policy moi duoc effective
+**Then** policy cu giu immutable provenance va policy moi khong rewrite calculation history
+**And** policy/capability mutation co audit, reason va tenant-isolation integration proof.
+
+## Epic 9: Chấm công nhân sự và ca trông muộn
+
+### Story 9.1: Mapping mã máy và import preview/commit
+
+As an Accountant,
+I want to upload va preview file CSV/XLSX may cham cong,
+So that toi resolve duoc ma may, loi dong va duplicate truoc khi raw event duoc dung.
+
+**Acceptance Criteria:**
+
+**Given** Payroll enabled School va actor co `TIMEKEEPING_IMPORT`
+**When** upload file chua machine code, source name, timestamp va IN/OUT
+**Then** server tao batch `UPLOADED -> PREVIEWED`, tra row-level parse/mapping errors va khong tao usable event truoc commit
+**And** source name chi la evidence; mapping effective-dated machine code chi active voi mot Staff trong School/source tai mot thoi diem.
+
+**Given** preview valid hoac da resolve row error
+**When** actor commit idempotent batch
+**Then** raw event append-only co batch/source provenance va dedupe duoc enforce
+**And** committed batch khong silently delete; draft batch co the discard/replace co audit.
+
+### Story 9.2: Review ngày công và correction thủ công
+
+As an Accountant,
+I want to review ket qua ngay cong tu raw event va correction,
+So that Payroll dung source fact da kiem tra thay vi suy dien lai tu may.
+
+**Acceptance Criteria:**
+
+**Given** common School work schedule policy va raw event hop le
+**When** server materialize workday
+**Then** ket qua la `PRESENT`, `LATE`, `EARLY_LEAVE`, `PAID_LEAVE`, `UNPAID_LEAVE`, `ABSENT_UNEXCUSED` hoac `MANUAL`, giu policy/source facts
+**And** MVP chi materialize full workday, khong half-day/hourly.
+
+**Given** thieu/sai raw event
+**When** Accountant/Admin them StaffTimeCorrection hoac review outcome
+**Then** correction co reason/actor/audit va khong update raw event goc
+**And** approved Payroll source lock duoc enforce; correction muon phai di qua reopen/correction Payroll flow.
+
+### Story 9.3: Xác nhận ca trông muộn
+
+As an Accountant or School Admin,
+I want to xac nhan Staff theo ngay/ca trong muon,
+So that phu cap trông muộn co source ro rang de tinh luong.
+
+**Acceptance Criteria:**
+
+**Given** Payroll enabled School va late-care shift definition hop le
+**When** actor tao/xac nhan LateCareShiftAssignment
+**Then** server validate Staff/School/date/shift, luu confirmation/audit va expose source fact cho Payroll snapshot
+**And** handover record, IN/OUT presence hoac checkout muon khong tu dong tao payable assignment.
+
+## Epic 10: Payroll thường kỳ, phê duyệt và payout
+
+### Story 10.1: Calculate Payroll versioned từ snapshot
+
+As an Accountant,
+I want to calculate regular Payroll tu contract, reviewed workday va policy snapshot,
+So that tung component co the giai thich va doi soat voi Excel.
+
+**Acceptance Criteria:**
+
+**Given** Payroll enabled School, period va source facts hop le
+**When** Accountant calculate bang `Idempotency-Key`
+**Then** server transactionally tao PayrollRunVersion va mot entry per eligible Staff, snapshot input/policy/calculator version/component VND
+**And** tinh base/probation salary, paid/unpaid leave, attendance bonus, fixed/late-care allowance, insurance, PIT, advance va manual adjustment theo typed policy.
+
+**Given** source/policy thay doi truoc approval
+**When** Accountant recalculate
+**Then** version draft moi thay the current draft ma khong overwrite version da co audit
+**And** browser khong set total, component hay net payable authority.
+
+### Story 10.2: Reconcile, approve và reopen unpaid Payroll
+
+As an Accountant and School Admin,
+I want to reconcile va phe duyet Payroll theo separation of duties,
+So that bang luong chi khoa sau khi nguoi co tham quyen ra soat.
+
+**Acceptance Criteria:**
+
+**Given** PayrollRunVersion calculated
+**When** Accountant them override/adjustment
+**Then** component co reason/reference/audit va hien ro trong approval review
+**And** School Admin co `PAYROLL_APPROVE` la actor duy nhat co the approve current version.
+
+**Given** approved version chua payout
+**When** School Admin reopen co reason
+**Then** approved version van immutable/audited, advance reservation duoc release va current draft version moi duoc tao
+**And** approval/reopen timeout phai reconcile Operation truoc retry.
+
+### Story 10.3: Payroll payout và đối soát báo cáo
+
+As an authorized School operator,
+I want to confirm payout va xem report component/source,
+So that tien da chi va expected Excel result co the doi soat.
+
+**Acceptance Criteria:**
+
+**Given** approved Payroll entry
+**When** actor co `PAYROLL_PAYOUT_CONFIRM` record payout
+**Then** server luu paid amount/date/method/reference/note idempotent va atomically giam reserved SalaryAdvance balance
+**And** paid version khong the reopen hoac mutate.
+
+**Given** Payroll fixture anonymized
+**When** report/reconciliation suite chay
+**Then** tung component/source/policy snapshot va total reconcile voi expected Excel output
+**And** duplicate calculate/approve/payout bi tu choi/replay dung Operation outcome.
+
+## Epic 11: Payroll correction và lương tháng 13
+
+### Story 11.1: Correction run cho Payroll đã chi
+
+As an Accountant and School Admin,
+I want to post correction delta cho Payroll da chi,
+So that sai sot duoc sua ngay ma khong rewrite lich su.
+
+**Acceptance Criteria:**
+
+**Given** Payroll version da `PAID`
+**When** Accountant tao correction voi source version, delta duong/am va reason
+**Then** server tao correction run rieng, snapshot provenance va khong sua Payroll goc
+**And** School Admin approval va payout cua correction dung transaction/idempotency/audit nhu Payroll thuong.
+
+### Story 11.2: Kỳ lương tháng 13 riêng
+
+As an Accountant,
+I want to create `THIRTEENTH` Payroll period/run rieng,
+So that luong thang 13 khong lam sai lifecycle payroll thang 12.
+
+**Acceptance Criteria:**
+
+**Given** typed thirteenth-month policy effective
+**When** Accountant calculate period `THIRTEENTH`
+**Then** server dung fixed hoac eligible-month proportional rule duoc policy cho phep va snapshot input
+**And** approval/payout/correction workflow giong Payroll regular nhung khong duplicate hay mutate regular monthly period.

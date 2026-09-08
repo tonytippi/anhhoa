@@ -2,7 +2,7 @@
 title: "PRD Initiative - PassionEdu: Nen tang van hanh da truong"
 status: final
 created: 2026-09-04
-updated: 2026-09-07
+updated: 2026-09-08
 supersedes:
   - prds/prd-anhhoa-2026-08-18/prd.md
   - prds/prd-anhhoa-parent-pwa-2026-08-22/prd.md
@@ -68,6 +68,10 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **StudentPromotionalCoverage** - Uu dai theo tung Student do School Admin hoac Finance Manager lap sau thoa thuan truc tiep; bao phu cac cap Receivable-ky cu the va duoc snapshot vao Invoice phat hanh.
 - **Payment instruction** - Ban chup tai khoan nhan va noi dung chuyen khoan cua Invoice da issue.
 - **Operation** - Ban ghi doi soat cua mutation idempotent, scoped theo School va actor membership.
+- **Payroll entitlement** - Trang thai capability Payroll opt-in cua School; chi server co quyen cho phep dung Payroll, khong phai menu frontend hay role grant.
+- **EmploymentContract** - Dieu khoan lao dong effective-dated cua Staff, bao gom luong co ban, luong thu viec, muc dong bao hiem doc lap va phu cap co dinh.
+- **StaffWorkdayRecord** - Ket qua ngay cong da ra soat tu event may cham cong va correction thu cong; la nguon tinh Payroll, khong phai raw event.
+- **PayrollRun** - Bang luong versioned cua mot ky; version da duyet/da chi la snapshot bat bien, sai sot sau chi dung correction run rieng.
 
 ## 4. Tinh nang va yeu cau chuc nang
 
@@ -242,11 +246,38 @@ Nhan vien duoc cap capability ghi picked-up time; policy cutoff/grace/block la r
 - Handover khong thay the pickup authorization, la domain deferred rieng.
 - Reference snapshot va audit giu du thong tin de Finance giai thich dong thu thu cong.
 
-### 4.6 Parent multi-school portal
+### 4.6 Payroll opt-in, nhan su va cham cong
+
+**Mo ta:** Payroll la capability tuy chon cua tung School, tach biet voi so thu Student. Tai School duoc phep, Ke toan quan ly dieu khoan lao dong, nhap/ra soat cham cong va lap bang luong; School Admin duyet, reopen va phe duyet correction.
+
+#### FR-14: Payroll entitlement, workforce va timekeeping
+
+Platform Operations chi cap Payroll cho School duoc chon thu nghiem/phan phoi; tai School da cap, Ke toan/School Admin quan ly EmploymentContract, ma may cham cong, file import va ket qua ngay cong da ra soat.
+
+**He qua kiem thu:**
+- Entitlement server-side theo School co lifecycle `NOT_ENTITLED`, `PILOT_ENABLED`, `ENABLED`, `SUSPENDED`, `RETIRED`; route, job, UUID hay cache client khong the vuot gate. Entitlement khong tu cap role/capability.
+- `SUSPENDED` chan import, calculate, approval, correction va payout moi nhung giu read-only lich su da duyet/da chi cho actor duoc cap quyen. `RETIRED` khong xoa data va re-enable can onboarding/audit explicit. Disable bi chan khi con payroll obligation, import dang xu ly hoac advance reservation chua resolve.
+- EmploymentContract/compensation terms effective-dated snapshot luong co ban, luong thu viec, muc dong BHXH doc lap va phu cap co dinh; khong overwrite term da duoc payroll snapshot.
+- File CSV/XLSX dung machine employee code va ten nguon de doi soat. Code duoc map effective-dated voi dung mot Staff tai mot thoi diem/source/School; ten chi la evidence. Raw `IN`/`OUT` event da commit append-only; correction thu cong co ly do/audit, khong sua event goc.
+- Payroll chi dung `StaffWorkdayRecord` da review, quy doi theo common School work schedule MVP va ca trong muon do Ke toan/School Admin xac nhan. Handover hay check-out muon khong tu dong tao khoan tra them.
+
+#### FR-15: Payroll calculate, approval, payout va correction
+
+Ke toan lap/reconcile bang luong versioned cho ky thuong hoac ky luong thang 13; School Admin duyet, reopen khi chua chi va phe duyet correction sau chi.
+
+**He qua kiem thu:**
+- API tinh VND integer tu typed, versioned policy co effective date va snapshot input/component: luong co ban/thu viec, nghi co/khong phep, thuong chuyen can, phu cap co dinh/trong muon, BHXH/BHYT/BHTN, TNCN, tam ung va dieu chinh co ly do. Khong cho user luu arbitrary Excel formula, script, SQL hay bieu thuc tu do.
+- `insuranceSalaryBase` doc lap voi luong thuc nhan. Tax/BHXH policy co rate/bracket/reduction schema-validated; Ke toan duoc doi soat va override co ly do, nhung he thong khong tu nop ho so hay tu nhan certified legal compliance.
+- Payroll run co draft/calculated version, approved snapshot va payout state. School Admin reopen approved unpaid run voi ly do de tao draft version moi; approved version cu van audit. Payroll da co payout khong reopen.
+- Sai sot sau payout tao correction run rieng co source version, delta duong/am, audit va workflow Ke toan -> School Admin; payroll goc giu `PAID`.
+- SalaryAdvance reserve khi payroll duyet, release khi unpaid run reopen va giam `remainingAmount` atomically khi payout. Luong thang 13 la ky/run rieng, khong nhung vao payroll thang 12.
+- Bonus theo si so la extension point typed rule; chua duoc phat hanh cho den khi co policy School-approved ve cach dem, phan bo giao vien, transfer va thay doi phan cong giua ky.
+
+### 4.7 Parent multi-school portal
 
 **Mo ta:** Parent dung portal/PWA tach biet, chon School tu StudentParent link active, xem nghia vu va huong dan thanh toan read-only; Parent data khong cache trong service worker. Realizes UJ-4.
 
-#### FR-14: Parent authorization va retention
+#### FR-16: Parent authorization va retention
 
 Parent duoc cap session khi Google identity da xac minh va co link active; Parent co mot School vao thang home, nhieu School dung chooser. Parent duoc doc attendance va DailyJournal rieng biet, khong co quyen mutation operational.
 
@@ -259,7 +290,7 @@ Parent duoc cap session khi Google identity da xac minh va co link active; Paren
 - Parent attendance DTO chi gom `studentId`, snapshot ten hien thi cua Student, ngay, trang thai va thoi diem cap nhat can thiet; khong lo truong ho so Student khac, Staff, ly do noi bo, evidence/media, danh sach lop hay attendance cua Student khac. Parent khong tao, sua hay xac nhan attendance.
 - Parent DailyJournal DTO rieng chi gom Student display-name snapshot, journal date, current text, updated time va media metadata toi thieu; media read khong tra permanent URL va re-authorize Parent/Student/retention tren moi request. Parent khong tao, sua hay xem version/audit journal.
 
-#### FR-15: Nghia vu va payment instruction read-only
+#### FR-17: Nghia vu va payment instruction read-only
 
 Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction snapshot khi du dieu kien. VietQR, copy fields va deep link la enhancement chi duoc phat hanh sau khi UX/Architecture chot contract, fallback va device/browser governance.
 
@@ -276,7 +307,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 - Khong co bank synchronization, webhook, virtual account hay Parent self-confirmation payment.
 - Khong co tax calculation/VAT invoice; tax treatment chi la label/snapshot.
 - Khong co custom-role checkbox UI, Organization hierarchy, custom school domain, support impersonation/JIT, shared catalog live giua School.
-- Khong co chat, SMS/Zalo/email, album tu do, meal journal, medical/medication, transport, pickup authorization, HR/payroll hay import/export trong release dau. DailyJournal per Student/date voi text va anh la ngoai le da duoc dinh nghia o FR-12/FR-14.
+- Khong co chat, SMS/Zalo/email, album tu do, meal journal, medical/medication, transport, pickup authorization hay import/onboarding tong quat trong release dau. Payroll chi la capability opt-in theo FR-14/FR-15; DailyJournal per Student/date voi text va anh la ngoai le da duoc dinh nghia o FR-12/FR-16.
 - Khong co automatic late-pickup fee, pricing engine tu attendance/handover, hay Parent mutation finance/service cancellation.
 
 ## 6. Pham vi release va trinh tu
@@ -287,6 +318,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 2. School profile/calendar, SchoolYear, roster, Parent links, Staff profile/assignment va typed policies.
 3. Finance catalog, discount, CollectionRun, Invoice obligation, ledger, debt, Prepayment, settlement va reports.
 4. Attendance, leave, service registration, handover, meal-adjustment input va Parent multi-school finance portal.
+5. Payroll opt-in: workforce terms, file-based timekeeping, payroll calculation/approval/payout/correction va thirteenth-month pay.
 
 ### 6.2 Thu tu phat hanh rang buoc
 
@@ -294,6 +326,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 - Release 2: E2 school foundation/roster sau E1 tenant-isolation gate; E3 finance configuration chi sau E1 va E2.
 - Release 3: E4 attendance/leave/service/handover sau E2; E5 collection runs/invoices chi sau E2, E3 va E4; E6 ledger/report sau E5.
 - Release 4: E7 Parent multi-school finance portal sau E1, E2 va E6.
+- Release 5: Payroll E8 sau E1, E2, E3 va Payroll entitlement gate; E9 timekeeping sau E8; E10 regular payroll sau E8/E9; E11 correction/thirteenth-month sau E10. Payroll chi rollout tai School `PILOT_ENABLED` hoac `ENABLED`.
 
 ## 7. Yeu cau chat luong, bao mat va governance
 
@@ -304,25 +337,28 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 - Moi thay doi money, attendance, access, role, policy va settlement co actor, thoi diem, provenance va ly do khi yeu cau.
 - Cross-tenant isolation, authorization/revoke, concurrency/idempotency, ledger va Parent cross-school E2E la release-blocking verification.
 - Idempotency Operation la bat buoc cho generate run, chuyen lop/chuyen nam/close-year batch, issue, receipt/allocation, prepayment, reversal/refund va approval. Sau timeout, client doi soat `GET /operations/:operationId` truoc retry.
+- Payroll high-impact mutation gom import commit, calculate, approve, reopen, correction approval va payout confirmation; deu dung transaction, idempotency UUID, Operation reconciliation va audit reason.
 - [ASSUMPTION] P95 read API <= 500 ms va preview/report <= 3 s voi fixture acceptance; generate 1,000 Student <= 60 s va co progress Operation. Accessibility cho hai portal dat WCAG 2.1 AA; revoke/suspend co hieu luc request ke tiep va audit retention/backup/recovery SLA se duoc Architecture chot truoc production.
 
 ## 8. Thanh cong va counter-metrics
 
 **Primary**
-- **SM-1:** 100% bo cross-tenant authorization test bat buoc pass truoc moi release. Validates FR-2, FR-3, FR-14.
+- **SM-1:** 100% bo cross-tenant authorization test bat buoc pass truoc moi release. Validates FR-2, FR-3, FR-16.
 - **SM-2:** 100% CollectionRun generate co the reconciliation bang operation va khong tao Invoice trung trong integration test. Validates FR-8.
 - **SM-3:** 100% finance report fixture doi chieu dung gross, discount/refund, receipt, allocation, Prepayment va outstanding. Validates FR-10, FR-11.
 
 **Secondary**
 - **SM-4:** School Admin hoan tat setup SchoolYear, Class va StudentEnrollment cua fixture trong mot luong co audit. Validates FR-4 den FR-6.
-- **SM-5:** Parent chi xem dung school/Student duoc uy quyen, attendance status va finance read model sau chooser, revoke va session expiry test. Validates FR-14, FR-15.
+- **SM-5:** Parent chi xem dung school/Student duoc uy quyen, attendance status va finance read model sau chooser, revoke va session expiry test. Validates FR-16, FR-17.
 - **SM-6:** Trong pilot 30 ngay, >= 90% School setup fixture duoc School Admin hoan tat khong can can thiep ky thuat; 100% exception co audit. [ASSUMPTION] Validates FR-4 den FR-6.
 - **SM-7:** Trong pilot 30 ngay, >= 95% Invoice issued co the reconcile ve ledger; 0 incident tenant leak hoac finance posting trung duoc xac nhan. [ASSUMPTION] Validates FR-3, FR-8 den FR-11.
+- **SM-8:** 100% fixture Payroll anonymized co the reconcile tung component voi input snapshot/Excel expected output; khong co payout/correction duplicate trong integration suite. Validates FR-14, FR-15.
 
 **Counter-metrics**
 - **SM-C1:** Khong danh doi tenant isolation de giam so man hinh/chuyen School. Counterbalances SM-4, SM-5.
 - **SM-C2:** Khong toi uu auto-fee hay auto-settlement khi chua co policy da duyet. Counterbalances SM-2, SM-3.
 - **SM-C3:** Bat ky cross-tenant access attempt thanh cong hoac duplicate ledger post la release/incident escalation, khong duoc trade-off de tang throughput. Counterbalances SM-1 den SM-3.
+- **SM-C4:** Khong mo Payroll cho School chua duoc entitlement hoac bo qua correction/audit de giu thao tac nhu Excel. Counterbalances SM-8.
 
 ## 9. Rui ro va giam thieu
 

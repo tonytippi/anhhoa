@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-07
+last_updated: 2026-09-08
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -80,4 +80,30 @@ development_status:
   7-7-parent-pwa-accessibility-retention-va-cross-school-release-gate: backlog
   7-8-pilot-performance-va-accessibility-release-gate: backlog
   epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-payroll-entitlement-va-pilot-admission-theo-school: backlog
+  8-2-employmentcontract-va-compensation-terms-effective-dated: backlog
+  8-3-typed-payrollpolicyversion-va-capability-governance: backlog
+  epic-8-retrospective: optional
+
+  epic-9: backlog
+  9-1-mapping-ma-may-va-import-preview-commit: backlog
+  9-2-review-ngay-cong-va-correction-thu-cong: backlog
+  9-3-xac-nhan-ca-trong-muon: backlog
+  epic-9-retrospective: optional
+
+  epic-10: backlog
+  10-1-calculate-payroll-versioned-tu-snapshot: backlog
+  10-2-reconcile-approve-va-reopen-unpaid-payroll: backlog
+  10-3-payroll-payout-va-doi-soat-bao-cao: backlog
+  epic-10-retrospective: optional
+
+  epic-11: backlog
+  11-1-correction-run-cho-payroll-da-chi: backlog
+  11-2-ky-luong-thang-13-rieng: backlog
+  epic-11-retrospective: optional
+
+  epic-12: backlog
+  epic-12-retrospective: optional
 action_items: []

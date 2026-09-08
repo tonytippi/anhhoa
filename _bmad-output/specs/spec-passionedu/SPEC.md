@@ -1,10 +1,11 @@
 ---
 id: SPEC-passionedu
-updated: 2026-09-07
+updated: 2026-09-08
 companions:
   - ../../planning-artifacts/prds/prd-passionedu-2026-09-04/prd.md
   - ../../planning-artifacts/prds/prd-passionedu-2026-09-04/addendum.md
   - ../../planning-artifacts/architecture/architecture-passionedu-2026-09-04/ARCHITECTURE-SPINE.md
+  - ../../planning-artifacts/payroll-module-roadmap-2026-09-08.md
 sources:
   - ../../planning-artifacts/sprint-change-proposal-2026-08-31.md
 ---
@@ -40,6 +41,12 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
 - **CAP-7**
   - **intent:** Parents can use a multi-School portal to view authorized daily attendance, daily journals and media, obligations and snapshot payment instructions for their children, and submit only permitted leave requests.
   - **success:** Parent sees only their authorized Student's `PRESENT`, `ABSENT`, `ON_LEAVE` or clearly non-absent `NOT_RECORDED` status and current journal within operational retention; Staff identity, internal reasons, attendance evidence and journal audit stay hidden; logout, expiry and revoke clear protected client state; Parents cannot mutate attendance, journal or finance activity.
+- **CAP-8**
+  - **intent:** A School admitted to the optional Payroll capability can maintain effective-dated employment terms and turn uploaded timeclock facts into reviewed staff workday and late-care records.
+  - **success:** Machine codes resolve to at most one effective Staff in the School; committed source events and corrections are audited; reviewed workday facts are tenant-isolated and ready to snapshot for payroll.
+- **CAP-9**
+  - **intent:** An Accountant can calculate and reconcile versioned staff payroll, while a School Admin approves, reopens unpaid work and approves post-payment corrections.
+  - **success:** Each payment component is explained by immutable source/policy snapshots; approved/paid history is never overwritten; correction deltas, payout and Excel reconciliation are auditable and retry-safe.
 
 ## Constraints
 
@@ -48,6 +55,8 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
 - A School can configure multiple concurrent prepaid-payment promotion programs and explicitly activate or deactivate each. Each program fixes its number of consecutive calendar months, applies to calendar-month CollectionRuns, selects tuition and/or other Receivables, and reduces the original price by either a percentage or whole-VND amount. Issued obligations, prepaid-payment coverage and Payment instructions are immutable snapshots; finance postings are append-only.
 - A prepaid-payment program never stacks with DiscountPolicy. A School Admin, not a Parent, selects its program and start month after a direct agreement with the Parent; the API calculates eligibility and reduction, creates a dedicated `PREPAID` CollectionRun and one source Invoice for all covered future periods, requires exact settlement without excess, and owns coverage overlap validation, ordinary-run exclusion, proration, audit and ledger transition. Coverage retains its issued price, discount and service snapshots; catalog, class or service changes require authorized correction/refund review rather than automatic conversion. Parent has no package/refund/payment mutation. High-impact cookie mutations, including School provisioning, require origin validation, double-submit CSRF, idempotency and Operation reconciliation.
 - Parent authorization derives only from active StudentParent links, applies retention server-side, exposes minimum DTOs and never caches protected responses or journal media in the service worker. Teacher authorization additionally requires active Staff binding, capability and effective Class assignment.
+- Payroll is server-enforced as a per-School opt-in entitlement `NOT_ENTITLED | PILOT_ENABLED | ENABLED | SUSPENDED | RETIRED`; it does not grant roles and gates Payroll/workforce/timekeeping routes and jobs. Suspension/retirement preserves historical data and cannot bypass unresolved payroll work.
+- Payroll is independent from Student receivables: it uses its own periods, versions, payouts and corrections; API calculates VND `BIGINT` through typed, code-owned, effective-dated policy schemas and snapshots source facts. User-authored formulas/scripts are forbidden.
 - Tenant isolation, revoke, ledger concurrency/idempotency and Parent cross-School behavior are pilot release gates. The VPS pilot builds from source without a registry or backup; production recovery, performance, rate-limit and cloud decisions require a Spine update before public/operational rollout.
 
 ## Non-goals
@@ -55,7 +64,7 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
 - Compatibility layers, dual legacy schema/finance lifecycle, or production migration as part of this clean-break.
 - Bank synchronization, webhooks, virtual accounts or Parent payment confirmation.
 - VAT calculation, custom-role UI, Organization hierarchy, custom School domains, JIT support access or live shared catalogs.
-- Chat, SMS/Zalo/email, free-form albums, meal journals, medical/medication, transport, pickup authorization, HR/payroll and import/export. Daily journals per Student/date are in scope.
+- Chat, SMS/Zalo/email, free-form albums, meal journals, medical/medication, transport, pickup authorization, generic import/export, direct timeclock/vendor integration, tax/BHXH filing integration or certified legal-compliance claims. Daily journals per Student/date and the scoped Payroll file import are in scope.
 - Automatic pricing from attendance/handover/service enrollment, automatic late-pickup fees, or Parent finance/service-cancellation mutations.
 - An independent Student Prepayment balance, excess Receipt posting, or applying a generic balance to a future Invoice.
 
@@ -63,6 +72,7 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
 
 - Every release passes the mandatory cross-tenant authorization suite; CollectionRun generation and finance report fixtures reconcile without duplicate posting.
 - In a 30-day pilot, at least 90% of School setup fixtures complete without technical intervention, at least 95% of issued Invoices reconcile to the ledger, and no confirmed tenant leak or duplicate finance posting occurs.
+- Every anonymized Payroll fixture reconciles each calculated component against approved Excel input/output; the integration suite proves no duplicate Payroll calculation, approval, payout or correction after retry.
 
 ## Assumptions
 
