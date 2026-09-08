@@ -45,9 +45,32 @@ function reconcileOperation(opener = document.activeElement) {
       return;
     }
     const row = operation.rowId && document.getElementById(operation.rowId);
-    if (row) row.dataset.status = operation.outcome;
+    if (row) {
+      row.dataset.status = operation.outcome;
+      if (operation.lifecycle === 'deactivate') {
+        const status = $('[data-bank-account-status]', row);
+        const action = $('[data-bank-account-action]', row);
+        if (status) status.innerHTML = '<span class="badge neutral">Ngừng dùng</span>';
+        if (action) action.innerHTML = '<button class="button secondary" type="button" disabled>Đã ngừng dùng</button>';
+      }
+      if (operation.lifecycle === 'policy-version') {
+        const proposed = $('[data-policy-proposed]', row);
+        if (proposed) proposed.textContent = `${operation.value} từ ${operation.effectiveDate}`;
+      }
+    }
     if (operation.target) renderOperationResult(operation);
-    renderQueue(window.location.hash || '#overview');
+    if (operation.conflict) {
+      const form = document.getElementById(operation.formId);
+      const proposed = row && $('[data-policy-proposed]', row);
+      if (proposed) proposed.textContent = `Xung đột: ${operation.value} từ ${operation.effectiveDate}; phiên bản đang áp dụng vẫn giữ nguyên.`;
+      if (form) focusErrorSummary(form);
+      knownOperation = null;
+      node.remove();
+      return;
+    }
+    if (operation.refresh === 'settings') renderSettings();
+    else if (operation.refresh === 'roster') renderRoster();
+    else renderQueue(window.location.hash || '#overview');
     knownOperation = null;
     $('.dialog', node).innerHTML = `<h2 id="dialog-title">Đã đối soát kết quả</h2><p>${operation.result}</p><div class="dialog-actions"><button class="button" data-close>Đã hiểu</button></div>`;
     $('[data-close]', node).addEventListener('click', node.closeDialog);
@@ -63,7 +86,13 @@ function showOperation(title, button, node) {
     result: button.dataset.operationResult || 'Hệ thống đã xác nhận kết quả và làm mới danh sách.',
     resultTitle: button.dataset.operationResultTitle || 'Kết quả từ hệ thống',
     target: button.dataset.operationTarget,
-    terminal: button.dataset.operationTerminal !== 'false'
+    terminal: button.dataset.operationTerminal !== 'false',
+    lifecycle: button.dataset.operationLifecycle,
+    refresh: button.dataset.operationRefresh || 'queue',
+    value: button.dataset.operationValue,
+    effectiveDate: button.dataset.operationEffectiveDate,
+    conflict: button.dataset.operationConflict === 'true',
+    formId: button.dataset.operationForm
   };
   $('.dialog', node).innerHTML = `<h2 id="dialog-title">${title}</h2><div class="operation"><p>Yêu cầu đã được gửi. Đang kiểm tra kết quả với hệ thống trước khi cho phép gửi lại.</p></div><div class="dialog-actions"><button class="button" type="button" data-reconcile>Đối soát kết quả</button></div>`;
   $('[data-reconcile]', node).addEventListener('click', () => { node.remove(); reconcileOperation(); });
@@ -74,7 +103,7 @@ function showIdempotentConfirmation(button) {
   if (knownOperation) { reconcileOperation(button); return; }
   const node = dialog(button.dataset.actionTitle, `<p>${button.dataset.actionConsequence}</p>`, `<button class="button" type="button" data-idempotent-submit>${button.dataset.actionLabel}</button>`, button);
   $('[data-idempotent-submit]', node).addEventListener('click', event => {
-    event.stopPropagation();
+    event.stopPropagation?.();
     event.currentTarget.disabled = true;
     showOperation('Đã gửi thao tác', button, node);
   }, { once: true });
@@ -157,9 +186,50 @@ function renderRoster() {
   });
 }
 
+function settingsState(route = window.location.search) {
+  const params = new URLSearchParams(route.replace(/^\?/, ''));
+  return {
+    q: (params.get('q') || '').trim().toLocaleLowerCase('vi'),
+    status: params.get('status') || 'all',
+    sort: params.get('sort') || 'bank',
+    page: Math.max(1, Number(params.get('page')) || 1)
+  };
+}
+
+function renderSettings() {
+  const section = $('#school-settings[data-route]');
+  if (!section) return;
+  const state = settingsState();
+  const form = $('[data-bank-account-filter]', section);
+  Object.entries({ q: state.q, status: state.status, sort: state.sort }).forEach(([name, value]) => {
+    if (form.elements[name]) form.elements[name].value = value;
+  });
+  const body = $('[data-bank-account-rows]', section);
+  const rows = $$('tr', body).sort((left, right) => {
+    const key = state.sort === 'effective' ? 'effective' : 'bank';
+    return left.dataset[key].localeCompare(right.dataset[key], 'vi');
+  });
+  rows.forEach(row => body.append(row));
+  const matching = rows.filter(row => (state.status === 'all' || row.dataset.status === state.status)
+    && (!state.q || row.dataset.search.includes(state.q)));
+  const pageSize = 2;
+  const pageCount = Math.max(1, Math.ceil(matching.length / pageSize));
+  const page = Math.min(state.page, pageCount);
+  const displayed = matching.slice((page - 1) * pageSize, page * pageSize);
+  rows.forEach(row => { row.hidden = !displayed.includes(row); });
+  $('[data-bank-account-empty]', section).hidden = matching.length !== 0;
+  $('[data-bank-account-caption]', section).textContent = `Tài khoản nhận tiền · Trường Ánh Hoa · Trang ${page} / ${pageCount} · ${matching.length} tài khoản`;
+  $$('[data-bank-account-page]', section).forEach(button => {
+    const current = Number(button.dataset.bankAccountPage) === page;
+    button.hidden = Number(button.dataset.bankAccountPage) > pageCount;
+    button.setAttribute('aria-current', current ? 'page' : 'false');
+  });
+}
+
 function focusErrorSummary(form) {
   const summary = $('[data-error-summary]', form);
   if (!summary) return;
+  $$('[data-field-error]', form).forEach(error => { error.hidden = false; });
   summary.hidden = false;
   summary.focus();
 }
@@ -199,15 +269,21 @@ function focusRoute() {
   const route = window.location.hash || '#overview';
   renderQueue(route);
   renderRoster();
+  renderSettings();
   const state = queueState(route);
   const heading = $(`#${state.name}[data-route] h1`);
   heading?.focus();
 }
 
 function bindMockActions() {
-  if (document.documentElement.dataset.mockActionsBound) return;
-  document.documentElement.dataset.mockActionsBound = 'true';
+  const bindingRoot = document.documentElement || document.body || document;
+  if (bindingRoot.dataset?.mockActionsBound) return;
+  if (bindingRoot.dataset) bindingRoot.dataset.mockActionsBound = 'true';
   window.addEventListener('hashchange', focusRoute);
+  window.addEventListener('popstate', () => {
+    if ($('#roster[data-route]')) renderRoster();
+    else if ($('#school-settings[data-route]')) renderSettings();
+  });
   document.addEventListener('click', event => {
     const button = event.target.closest('[data-operation], [data-confirm], [data-evidence], [data-provision], [data-idempotent-action], [data-school-context]');
     if (!button) return;
@@ -230,8 +306,15 @@ function bindMockActions() {
     if (form.hasAttribute('data-roster-filter')) {
       const params = new URLSearchParams(new FormData(form));
       params.set('page', '1');
-      window.history.replaceState(null, '', `?${params.toString()}`);
+      window.history.pushState(null, '', `?${params.toString()}`);
       renderRoster();
+      return;
+    }
+    if (form.hasAttribute('data-bank-account-filter')) {
+      const params = new URLSearchParams(new FormData(form));
+      params.set('page', '1');
+      window.history.pushState(null, '', `?${params.toString()}`);
+      renderSettings();
       return;
     }
     const route = form.dataset.queueFilter;
@@ -241,15 +324,59 @@ function bindMockActions() {
   $$('[data-roster-page]').forEach(button => button.addEventListener('click', () => {
     const params = new URLSearchParams(window.location.search);
     params.set('page', button.dataset.rosterPage);
-    window.history.replaceState(null, '', `?${params.toString()}`);
+    window.history.pushState(null, '', `?${params.toString()}`);
     renderRoster();
+  }));
+  $$('[data-bank-account-page]').forEach(button => button.addEventListener('click', () => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('page', button.dataset.bankAccountPage);
+    window.history.pushState(null, '', `?${params.toString()}`);
+    renderSettings();
   }));
   $$('[data-mock-form]').forEach(form => {
     form.addEventListener('input', () => { form.dataset.dirty = 'true'; });
-    form.addEventListener('submit', event => { event.preventDefault(); focusErrorSummary(form); });
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      if (!form.hasAttribute('data-policy-proposal')) {
+        focusErrorSummary(form);
+        return;
+      }
+      const date = $('#effective-date', form);
+      const summary = $('[data-error-summary]', form);
+      if (summary) summary.hidden = true;
+      $$('[data-field-error]', form).forEach(error => { error.hidden = true; });
+      const policy = form.elements.policy.value;
+      const value = form.elements['proposed-value'].value;
+      const button = document.createElement('button');
+      button.dataset.actionTitle = `Xác nhận đề xuất ${policy}`;
+      button.dataset.actionLabel = 'Xác nhận gửi đề xuất';
+      button.dataset.actionConsequence = `Trường Ánh Hoa sẽ gửi ${policy}: ${value}, hiệu lực từ ${date.value.split('-').reverse().join('/')}. Hệ thống sẽ đối soát kết quả trước khi cho phép gửi lại.`;
+      const fixture = form.elements.policy.options[form.elements.policy.selectedIndex].dataset.conflictFixture;
+      button.dataset.operationLifecycle = fixture ? 'policy-conflict' : 'policy-version';
+      button.dataset.operationRow = `policy-${form.elements.policy.selectedIndex}`;
+      button.dataset.operationValue = value;
+      button.dataset.operationEffectiveDate = date.value.split('-').reverse().join('/');
+      button.dataset.operationTarget = 'policy-version-result';
+      button.dataset.operationResultTitle = 'Phiên bản chính sách từ hệ thống';
+      button.dataset.operationResult = `Hệ thống đã ghi nhận phiên bản dự kiến cho ${policy}; phiên bản đang áp dụng và lịch sử vẫn được giữ.`;
+      button.dataset.operationRefresh = 'settings';
+      button.dataset.operationForm = form.id;
+      if (fixture) {
+        button.dataset.operationConflict = 'true';
+        button.dataset.operationResultTitle = 'Xung đột phiên bản từ hệ thống';
+        button.dataset.operationResult = `Hệ thống không thể ghi nhận ${policy} vì đã có phiên bản hiệu lực chồng lấn.`;
+      }
+      showIdempotentConfirmation(button);
+    });
   });
+  $$('[data-error-summary] a[href^="#"]').forEach(link => link.addEventListener('click', event => {
+    const input = $(link.getAttribute('href'));
+    if (!input) return;
+    event.preventDefault();
+    input.focus();
+  }));
   focusRoute();
 }
 
-if (typeof window !== 'undefined') window.__rosterMock = { rosterState, matchesRosterRow, renderRoster, focusErrorSummary };
+if (typeof window !== 'undefined') window.__rosterMock = { rosterState, matchesRosterRow, renderRoster, settingsState, renderSettings, focusErrorSummary };
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', bindMockActions);

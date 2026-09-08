@@ -8,6 +8,7 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 | --- | --- | --- |
 | Mục lục rà soát | `review.html` | Điểm bắt đầu và hướng dẫn rà soát toàn bộ quy trình. |
 | Quản trị và nhân sự | `admin/admin-staff.html` | Workspace vận hành: Tổng quan ưu tiên việc và các hàng đợi điểm danh, đơn nghỉ, bàn giao theo bảng có ngữ cảnh Trường/ngày, bộ lọc, xác nhận có tên và đối soát thao tác. |
+| Cấu hình trường | `admin/school-settings.html` | Hồ sơ Trường Ánh Hoa, lịch, chính sách tài chính/điểm danh/bàn giao/quyền xem Phụ huynh theo hiệu lực và lịch sử; tài khoản nhận tiền có tìm, lọc, sắp xếp, trang URL-backed, ngừng dùng không xóa và đối soát thao tác. |
 | Danh bộ | `admin/roster/roster.html` | Danh sách Trường Ánh Hoa với tìm kiếm, lọc, sắp xếp và trang trong URL; bảng, caption, empty state và mã chỉ trong thông tin đối soát. |
 | Năm học và lớp | `admin/roster/school-year-classes.html` | Một năm học đang hiệu lực, lớp thuộc năm học, ngày hiệu lực và lỗi máy chủ có summary được focus/liên kết. |
 | Hồ sơ và ghi danh | `admin/roster/student-enrollment.html` | Hồ sơ học sinh tách ghi danh, khoảng hiệu lực và lịch sử bằng nhãn nghiệp vụ ngắn. |
@@ -32,6 +33,7 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 - DailyJournal là current version theo Student/date; phụ huynh chỉ xem nội dung/ảnh được server xác nhận, không xem attendance evidence, danh tính Teacher hay audit/version history.
 - Thanh toán chính xác, khoản trả trước tường minh, ngữ cảnh điều chỉnh/hoàn tiền hai bước.
 - School cấu hình program; chỉ School Admin chọn program active/tháng bắt đầu sau thỏa thuận trực tiếp. `PREPAID` source chứa fact nhiều kỳ và coverage chỉ phát hành sau exact Receipt/Allocation khiến source `PAID`; Parent không có lựa chọn gói, payment mutation hay detail coverage.
+- Cấu hình trường luôn nêu ngữ cảnh Trường, giá trị đang áp dụng/dự kiến, ngày hiệu lực, lý do khi cần và thông tin đối soát; xung đột giữ giá trị để sửa, không thay bản chụp quá khứ. Tài khoản ngừng dùng chỉ đọc trong lịch sử và không có thao tác xóa hoặc dùng cho hóa đơn mới.
 - Partial, excess, unallocated, mixed-Student và cross-School/cross-SchoolYear settlement bị từ chối; không có Student Prepayment hay generic balance. Coverage issued giữ snapshot bất biến, thay đổi dịch vụ đi qua correction/refund review.
 
 ## Bản mẫu mốc hiện có

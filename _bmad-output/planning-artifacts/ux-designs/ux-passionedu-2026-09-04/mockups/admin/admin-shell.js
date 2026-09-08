@@ -13,6 +13,7 @@
     ['', 'leave', 'Xin nghỉ', root + 'admin-staff.html#leave'],
     ['', 'handover', 'Bàn giao', root + 'admin-staff.html#handover'],
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
+    ['CẤU HÌNH', 'settings', 'Cấu hình trường', root + 'school-settings.html'],
     ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
     ['', 'runs', 'Đợt thu / Nộp trước', root + 'invoice-generation.html'],
     ['', 'invoice-review', 'Rà soát hóa đơn', root + 'invoice-detail-review.html'],

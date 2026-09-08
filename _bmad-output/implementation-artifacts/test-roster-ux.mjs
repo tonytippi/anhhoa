@@ -37,6 +37,13 @@ roster.history.replaceState(null, '', '?q=khong-co&page=1');
 roster.__rosterMock.renderRoster();
 assert.equal(roster.document.querySelector('[data-roster-empty]').hidden, false);
 assert.deepEqual(visibleRows(roster), []);
+roster.history.replaceState(null, '', '?class=mam&sort=name&page=2');
+roster.dispatchEvent(new roster.PopStateEvent('popstate'));
+assert.equal(roster.document.querySelector('[name="class"]').value, 'mam');
+assert.equal(roster.document.querySelector('[name="sort"]').value, 'name');
+assert.equal(roster.document.querySelector('[data-roster-page="2"]').getAttribute('aria-current'), 'page');
+assert.match(roster.document.querySelector('[data-roster-caption]').textContent, /Trang 2 \/ 2/);
+assert.deepEqual(visibleRows(roster), ['Bé Dung']);
 
 const classes = await load('school-year-classes.html');
 const form = classes.document.querySelector('[data-mock-form]');
