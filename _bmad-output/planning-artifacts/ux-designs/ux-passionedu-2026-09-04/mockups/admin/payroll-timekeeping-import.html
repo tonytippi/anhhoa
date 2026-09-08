@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PassionEdu · Chấm công nhân sự</title>
+    <link rel="stylesheet" href="../prototype.css">
+    <script defer src="admin-shell.js"></script>
+    <script defer src="../prototype.js"></script>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="timekeeping">
+      <section>
+        <p class="eyebrow">LƯƠNG & NHÂN SỰ · ÁNH HOA · THÁNG 09/2026</p>
+        <div class="route-head"><div><h1>Chấm công nhân sự</h1><p class="muted">Upload file máy chấm công, đối soát và chốt ngày công trước khi tính lương.</p></div><a class="button secondary" href="payroll-overview.html">Hợp đồng & chính sách</a></div>
+        <ol class="steps"><li>1. Upload file</li><li class="current" aria-current="step">2. Đối soát</li><li>3. Rà soát ngày công</li><li>4. Tính lương</li></ol>
+      </section>
+      <section>
+        <div class="grid two"><article class="card"><h2>File chấm công tháng 09</h2><p><b>may-cham-cong-09-2026.xlsx</b></p><p class="muted">Upload lúc 09:05 · 842 dòng · Nguồn: Máy chấm công cổng chính.</p><span class="badge warning">Cần đối soát 2 dòng</span><p><a class="card-action" href="#preview">Mở bản xem trước</a></p></article><article class="card"><h2>Thêm file mới</h2><label for="time-file">File CSV hoặc XLSX</label><input id="time-file" type="file" accept=".csv,.xlsx"><p class="muted">File chỉ được dùng sau khi preview và commit. Bạn có thể bỏ file nháp, không sửa event đã commit.</p><button class="button secondary" type="button" data-confirm="Upload file chấm công|Hệ thống sẽ tạo bản nháp để kiểm tra mã máy, thời gian và dòng lỗi.|Upload bản nháp">Upload file</button></article></div>
+      </section>
+      <section id="mapping">
+        <div class="route-head"><div><h2>Đối soát mã máy</h2><p class="muted">Tên từ file chỉ giúp đối chiếu. Mỗi mã máy chỉ được gán cho một nhân sự trong cùng thời điểm.</p></div><span class="badge warning">2 cần xử lý</span></div>
+        <div class="table-wrap"><table><caption>Mã máy chưa xác nhận</caption><thead><tr><th scope="col">Mã máy</th><th scope="col">Tên trong file</th><th scope="col">Gợi ý nhân sự</th><th scope="col">Kết quả</th><th scope="col">Tùy chọn</th></tr></thead><tbody><tr><td><b>042</b></td><td>Mai Hoa</td><td>Lê Mai Hoa</td><td><span class="badge warning">Chưa gán</span></td><td><button class="button" type="button" data-confirm="Gán mã máy 042|Mã 042 sẽ được gán cho Lê Mai Hoa từ 01/09/2026. Tên file chỉ là thông tin đối soát.|Xác nhận gán">Xác nhận gán</button></td></tr><tr><td><b>071</b></td><td>Ngoc Anh</td><td>Không tìm thấy</td><td><span class="badge danger">Cần xử lý</span></td><td><button class="button secondary" type="button" data-confirm="Giữ lại để xử lý|Dòng chưa map sẽ không được dùng để tính ngày công cho đến khi Kế toán xử lý.|Đã hiểu">Xem chi tiết</button></td></tr></tbody></table></div>
+      </section>
+      <section id="preview">
+        <div class="route-head"><div><h2>Bản xem trước ngày công</h2><p class="muted">Kết quả theo lịch làm việc chung của Trường Ánh Hoa.</p></div><a class="button" href="payroll-run-review.html">Tiếp tục tính lương</a></div>
+        <div class="summary"><div class="grid three"><div><p class="muted">Đã đủ ngày công</p><b class="metric">16</b></div><div><p class="muted">Cần xác nhận</p><b class="metric amber">3</b></div><div><p class="muted">Ca trông muộn</p><b class="metric">12</b></div></div><p class="muted">Bạn cần hoàn tất các ngày công cần xác nhận trước khi hệ thống cho tính lương.</p></div>
+        <div class="table-wrap"><table><caption>Ngày công cần rà soát</caption><thead><tr><th scope="col">Nhân sự</th><th scope="col">Ngày</th><th scope="col">Kết quả từ hệ thống</th><th scope="col">Nguồn / lý do</th><th scope="col">Tùy chọn</th></tr></thead><tbody><tr><td><b>Nguyễn Thu An</b></td><td>12/09/2026</td><td><span class="badge warning">Đi trễ</span></td><td>IN 07:16 · vượt ngưỡng 10 phút</td><td><button class="button secondary" type="button" data-confirm="Xác nhận ngày công|Ngày 12/09 được giữ trạng thái Đi trễ và vẫn tính một ngày công. Quyết định sẽ được lưu audit.|Xác nhận">Xác nhận</button></td></tr><tr><td><b>Trần Minh Hương</b></td><td>18/09/2026</td><td><span class="badge warning">Thiếu OUT</span></td><td>Chỉ có IN 06:58</td><td><button class="button secondary" type="button" data-confirm="Thêm correction thủ công|Correction không sửa event máy gốc và bắt buộc có lý do trong hệ thống thật.|Thêm correction">Thêm correction</button></td></tr><tr><td><b>Lê Mai Hoa</b></td><td>20/09/2026</td><td><span class="badge info">Ca trông muộn</span></td><td>17:00 - 18:00 · Admin xác nhận</td><td><button class="button secondary" type="button" data-confirm="Xác nhận ca trông muộn|Ca đã xác nhận sẽ là source cho phụ cấp trông muộn, không suy ra tự động từ giờ checkout.|Xác nhận">Xem ca</button></td></tr></tbody></table></div>
+      </section>
+    </div>
+  </body>
+</html>

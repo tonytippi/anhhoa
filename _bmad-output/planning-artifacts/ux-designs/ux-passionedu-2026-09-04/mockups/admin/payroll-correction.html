@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PassionEdu · Điều chỉnh lương đã chi</title>
+    <link rel="stylesheet" href="../prototype.css">
+    <script defer src="admin-shell.js"></script>
+    <script defer src="../prototype.js"></script>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="payroll">
+      <section>
+        <p class="eyebrow">BẢNG LƯƠNG · ÁNH HOA · CORRECTION</p>
+        <div class="route-head"><div><h1>Điều chỉnh lương đã chi</h1><p class="muted">Tạo chênh lệch riêng cho bảng lương tháng 08/2026. Bảng lương gốc không bị sửa.</p></div><span class="badge danger">Cần phê duyệt</span></div>
+        <div class="notice warning"><b>Lưu ý:</b> Payroll tháng 08 đã chi ngày 05/09/2026 nên không thể reopen. Mọi sai sót được xử lý bằng correction run có delta riêng.</div>
+      </section>
+      <section>
+        <div class="grid two"><article class="card"><h2>Nguồn cần điều chỉnh</h2><p><b>Nguyễn Thu An · Bảng lương 08/2026</b></p><p>Thực nhận đã chi: <b>7.820.000 đ</b></p><p class="muted">Payout: Chuyển khoản · 05/09/2026 · REF-0926-AN</p><a class="card-action" href="payroll-run-review.html#an-detail">Xem snapshot bảng lương</a></article><article class="card"><h2>Chênh lệch dự kiến</h2><p class="metric">+ 80.000 đ</p><p>Phụ cấp trông muộn bị thiếu: 1 ca đã xác nhận.</p><p class="muted">Khoản này sẽ là payout bổ sung sau khi School Admin phê duyệt.</p></article></div>
+      </section>
+      <section>
+        <div class="route-head"><div><h2>Tạo correction run</h2><p class="muted">Nêu rõ nguồn, lý do và tác động. Delta âm thể hiện khoản cần thu hồi/khấu trừ theo quy trình trường.</p></div><span class="badge warning">Bản nháp</span></div>
+        <form class="card" data-mock-form><div class="grid two"><label>Nhân sự<select><option>Nguyễn Thu An</option></select></label><label>Loại điều chỉnh<select><option>Phụ cấp trông muộn thiếu</option><option>Điều chỉnh tạm ứng</option><option>Khấu trừ khác</option></select></label><label>Số tiền chênh lệch<input value="80.000" inputmode="numeric"></label><label>Hình thức sau duyệt<select><option>Chi bổ sung</option><option>Khấu trừ kỳ tiếp theo</option></select></label></div><label for="correction-reason">Lý do</label><textarea id="correction-reason" rows="3">Ca trông muộn ngày 28/08/2026 đã được xác nhận sau khi payout tháng 08 hoàn tất.</textarea><p class="muted">Nguồn gốc, người tạo và lý do sẽ được lưu audit. Không thể thay đổi bảng lương tháng 08 đã chi.</p><button class="button" type="button" data-idempotent-action data-action-title="Gửi correction run để phê duyệt" data-action-label="Gửi School Admin" data-action-consequence="Hệ thống tạo correction +80.000 đ tham chiếu bảng lương 08/2026. School Admin phải phê duyệt trước khi chi bổ sung.">Gửi School Admin phê duyệt</button></form>
+      </section>
+      <section>
+        <h2>Luồng xử lý</h2>
+        <ol class="steps"><li class="current" aria-current="step">1. Kế toán tạo correction</li><li>2. School Admin phê duyệt</li><li>3. Xác nhận chi bổ sung</li><li>4. Đối soát hoàn tất</li></ol>
+        <details class="card"><summary>Thông tin đối soát</summary><p>Payroll nguồn: PR-202608-01 · Version: 2 · Payout: PP-20260905-AN · Policy snapshot: PAY-2026-08-01</p></details>
+      </section>
+    </div>
+  </body>
+</html>

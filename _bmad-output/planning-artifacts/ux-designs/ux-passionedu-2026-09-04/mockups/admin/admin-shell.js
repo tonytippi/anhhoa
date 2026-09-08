@@ -17,7 +17,10 @@
     ['', 'runs', 'Đợt thu / Nộp trước', root + 'invoice-generation.html'],
     ['', 'invoice-review', 'Rà soát hóa đơn', root + 'invoice-detail-review.html'],
     ['', 'settlement', 'Thu tiền / Công nợ', root + 'invoice-detail-review.html'],
-    ['', 'report', 'Báo cáo', root + 'invoice-detail-review.html']
+    ['', 'report', 'Báo cáo', root + 'invoice-detail-review.html'],
+    ['LƯƠNG & NHÂN SỰ', 'timekeeping', 'Chấm công', root + 'payroll-timekeeping-import.html'],
+    ['', 'payroll', 'Bảng lương', root + 'payroll-run-review.html'],
+    ['', 'workforce', 'Hợp đồng & chính sách', root + 'payroll-overview.html']
   ];
   var navigation = '';
   var isWorkspace = route === 'overview';

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PassionEdu · Thiết lập lương và nhân sự</title>
+    <link rel="stylesheet" href="../prototype.css">
+    <script defer src="admin-shell.js"></script>
+    <script defer src="../prototype.js"></script>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="workforce">
+      <section>
+        <p class="eyebrow">LƯƠNG & NHÂN SỰ · ÁNH HOA · THỬ NGHIỆM</p>
+        <div class="route-head"><div><h1>Thiết lập lương và nhân sự</h1><p class="muted">Payroll đang được bật thử nghiệm cho Trường Ánh Hoa.</p></div><span class="badge info">Đang thử nghiệm</span></div>
+        <div class="notice info"><b>Phạm vi thử nghiệm:</b> Kế toán chuẩn bị và đối soát. School Admin phê duyệt cuối cùng. Payroll chỉ dùng trong Trường Ánh Hoa, không thay đổi khoản thu của học sinh.</div>
+      </section>
+      <section>
+        <div class="grid three"><article class="card"><p class="muted">Hợp đồng đang hiệu lực</p><p class="metric">18</p><a class="card-action" href="#contracts">Rà soát hợp đồng</a></article><article class="card"><p class="muted">Mã máy cần đối soát</p><p class="metric amber">2</p><a class="card-action" href="payroll-timekeeping-import.html#mapping">Mở chấm công</a></article><article class="card"><p class="muted">Chính sách lương áp dụng</p><p><b>Từ 01/09/2026</b></p><a class="card-action" href="#policy">Xem chính sách</a></article></div>
+      </section>
+      <section id="contracts">
+        <div class="route-head"><div><h2>Hợp đồng và điều khoản lương</h2><p class="muted">Giá trị có hiệu lực được chốt vào bảng lương; không sửa đè lịch sử.</p></div><button class="button" type="button" data-confirm="Thêm hợp đồng|Điều khoản mới chỉ được áp dụng từ ngày hiệu lực. Không thay đổi bảng lương đã tính.|Thêm điều khoản">Thêm hợp đồng</button></div>
+        <div class="table-wrap"><table><caption>Nhân sự có hợp đồng lương</caption><thead><tr><th scope="col">Nhân sự</th><th scope="col">Loại hợp đồng</th><th class="money" scope="col">Lương cơ bản</th><th class="money" scope="col">Mức đóng BHXH</th><th scope="col">Hiệu lực</th><th scope="col">Tùy chọn</th></tr></thead><tbody><tr><td><b>Nguyễn Thu An</b><br><span class="muted">Mã máy: 018</span></td><td>Chính thức</td><td class="money">8.500.000 đ</td><td class="money">6.200.000 đ</td><td>Từ 01/09/2026</td><td><button class="button secondary" type="button" data-confirm="Xem điều khoản|Lương cơ bản, mức đóng bảo hiểm và phụ cấp được quản lý độc lập theo ngày hiệu lực.|Đóng">Xem điều khoản</button></td></tr><tr><td><b>Trần Minh Hương</b><br><span class="muted">Mã máy: 031</span></td><td>Thử việc</td><td class="money">6.000.000 đ</td><td class="money">Không áp dụng</td><td>01/09 - 30/11/2026</td><td><button class="button secondary" type="button" data-confirm="Xem điều khoản|Kỳ lương sẽ dùng mức thử việc trong thời gian hiệu lực này.|Đóng">Xem điều khoản</button></td></tr><tr><td><b>Lê Mai Hoa</b><br><span class="muted">Chưa gán mã máy</span></td><td>Chính thức</td><td class="money">9.200.000 đ</td><td class="money">7.000.000 đ</td><td>Từ 01/08/2026</td><td><a class="button secondary" href="payroll-timekeeping-import.html#mapping">Gán mã máy</a></td></tr></tbody></table></div>
+      </section>
+      <section id="policy">
+        <div class="route-head"><div><h2>Chính sách lương đang áp dụng</h2><p class="muted">Phiên bản từ 01/09/2026 · Người tạo: Hoa Nguyễn.</p></div><span class="badge success">Đang áp dụng</span></div>
+        <div class="grid two"><article class="card"><h3>Ngày công và chuyên cần</h3><p>Ca chung: 07:00 - 17:00 · Đi trễ từ 10 phút.</p><p>Thưởng chuyên cần: <b>500.000 đ</b> khi không có ngày nghỉ không phép và không quá 2 lần đi trễ.</p><p class="muted">Kết quả dùng ngày công đã được Kế toán rà soát.</p></article><article class="card"><h3>Khoản tính theo policy</h3><p>BHXH, BHYT, BHTN và thuế TNCN được tính theo rate/bracket có phiên bản.</p><p>Ca trông muộn: <b>80.000 đ/ca</b> đã xác nhận.</p><p class="muted">Không dùng công thức Excel hoặc script tự do trong hệ thống.</p></article></div>
+        <div class="notice warning"><b>Chưa phát hành:</b> thưởng theo sĩ số lớp. Cần chốt quy tắc đếm và phân bổ trước khi bật.</div>
+      </section>
+    </div>
+  </body>
+</html>

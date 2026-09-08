@@ -1,7 +1,7 @@
 ---
 name: PassionEdu
 status: final
-updated: 2026-09-07
+updated: 2026-09-08
 sources:
   - ../../../specs/spec-passionedu/SPEC.md
   - ../../prds/prd-passionedu-2026-09-04/prd.md
@@ -26,12 +26,13 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | Cấu hình trường | School Admin | Typed School, calendar, finance, attendance and Parent-access policy. |
 | Khoản thu / Đợt thu | Finance | Catalog, CollectionRun setup, preview, generate and issue review. |
 | Thu tiền / Công nợ / Báo cáo | Finance | Ledger posting, debt, prepayment, correction and school-scoped report. |
+| Lương & Nhân sự | Payroll-enabled School Admin, Accountant | Employment terms, common payroll policy, machine-code mapping, file timekeeping review, payroll reconciliation, approval/payout and correction. Hidden when the server does not grant Payroll entitlement and capability. |
 | Teacher home / Class day | Teacher | Assigned-Class attendance, handover and daily-journal progress for the selected date. |
 | Parent home | Parent | Today cards for authorized children, current daily journals, unread inbox badge and outstanding obligations. |
 | Child detail | Parent | Daily attendance, current daily journals, leave requests, authorized obligations and snapshot instruction. |
 | Parent inbox | Parent | 30-day attendance events; deep-link to authorized child/date. |
 
-Admin/Staff navigation only shows capabilities the server grants. Parent child filters and content remain within the selected School; a child never persists visually after School switch or revoke. See `mockups/admin/admin-operational-queue.html`, `mockups/admin/finance-run-preview.html`, `mockups/parent/parent-home.html`, and `mockups/parent/parent-inbox.html`.
+Admin/Staff navigation only shows capabilities the server grants. Parent child filters and content remain within the selected School; a child never persists visually after School switch or revoke. See `mockups/admin/admin-operational-queue.html`, `mockups/admin/finance-run-preview.html`, `mockups/admin/payroll-overview.html`, `mockups/admin/payroll-timekeeping-import.html`, `mockups/admin/payroll-run-review.html`, `mockups/admin/payroll-correction.html`, `mockups/parent/parent-home.html`, and `mockups/parent/parent-inbox.html`.
 
 The desktop shell starts with a skip link, then `banner`, named `navigation`, contextual `main` and optional complementary queue/summary. The active navigation item uses `aria-current`; route change moves focus to the route `h1`. Bell, inbox item, sidebar link, stepper navigation and mock actions are buttons/links with names, never decorative text containers.
 
@@ -63,6 +64,12 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Student promotional coverage | School Admin, Finance | Back-office review creates named Student/SchoolYear receivable-period facts after an offline agreement, then a source DRAFT Invoice. It shows service interval, snapshot price/discount, calendar version, reason, overlap/eligibility outcome and waiting-for-paid state; coverage only becomes issued after source Invoice settlement. Parent has no catalog, request or selection action. |
 | Ledger correction dialog | Finance | Names source amount and impact. Existing posting is never editable. Với policy `DIRECT`, School Admin hoặc Finance Manager được cấp quyền xác nhận và post ngay sau named confirmation. Với `SCHOOL_ADMIN_APPROVAL`, Finance Manager tạo request, requester không thấy approve action và School Admin khác người tạo mới approve/refuse. Cả hai nhánh dùng Operation reconciliation. |
 | Finance report | Finance | Requires School and report period context, displays ledger-derived as-of time and supports filter/empty/error states. Export is not offered. |
+| Payroll entitlement state | Platform Ops, School Admin, Accountant | Payroll navigation and all Payroll destinations remain absent for `NOT_ENTITLED`; `PILOT_ENABLED` carries a restrained "Đang thử nghiệm" label. `SUSPENDED`/`RETIRED` deny new work with an explanation and retain only permitted historical read/export. A visible control never substitutes for server entitlement/capability checks. |
+| Employment terms | School Admin, authorized Accountant | Management table separates base/probation salary, insurance contribution base and fixed allowances. Every change has effective date; a value referenced by a calculated Payroll version is visible as history, not inline-editable. |
+| Timekeeping import and review | Accountant, School Admin | Upload -> preview -> resolve machine-code mapping/row errors -> commit -> review workdays/late-care -> calculate. Source name is a comparison aid only. Committed raw events do not expose an edit affordance; manual correction asks for a reason and leads to a reviewed workday outcome. |
+| Payroll reconciliation | Accountant | A server-returned version shows one row per Staff with earnings, deductions, net payable and a text reconciliation status. Component detail always names source/policy snapshot. Adjustment needs reason and remains visibly separate before approval. |
+| Payroll approval and payout | School Admin, authorized payout actor | Accountant sends a calculated version; only School Admin sees approval/reopen. Approval states what locks. An unpaid approved version may show reopen with required reason; a paid version replaces reopen with read-only source and "Tạo correction". Payout confirmation names Staff/count, total, method and reference. |
+| Payroll correction | Accountant, School Admin | Starts from a paid source version and presents signed delta, source facts, reason and later payout/recoup path. It never displays edit controls on the original paid Payroll; approval/payout repeat the normal Operation reconciliation pattern. |
 | Management list | Admin/Staff, Ops, Finance | Default pattern for comparable records: concise Vietnamese column labels, search/filter/sort, explicit pagination, text status and labeled row actions. Technical identifiers and verbose policy explanations remain outside the default row surface. |
 | Attendance entry | Teacher | Requires evidence before `PRESENT` when policy requires it. Calendar/leave conflicts show server result and do not let the user override locally. |
 | Handover entry | Teacher | Records server-validated picked-up time for one Student. Missing capability or effective Class assignment shows no action; correction/error refreshes server state. It is explicitly labeled operational reference, never automatic fee calculation. |
@@ -100,6 +107,14 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Parent inbox empty | Bell opens "Chưa có thông báo điểm danh trong 30 ngày gần đây." |
 | Policy conflict | Form keeps active and proposed effective-dated values visible, focuses server validation, and does not claim policy changed until confirmed. |
 | Adjustment unavailable | Finance sees source reason and target state such as no eligible DRAFT Invoice, issued or voided; no manual fallback is implied. |
+| Payroll not enabled | Do not render Payroll navigation or an empty data screen. Direct/deep link explains "Trường này chưa được bật tính lương" and offers a safe School context action; no record detail is revealed. |
+| Payroll pilot | A restrained text badge "Đang thử nghiệm" appears near the route heading. It does not imply reduced authorization, audit or correction requirements. |
+| Timekeeping review required | Batch summary names unresolved machine codes and row errors; calculate is unavailable until server reports review completion. Source display name mismatch is shown as comparison context, never as a selectable identity. |
+| Payroll calculation conflict | Keep the returned version/source time visible. Recalculate creates a new draft version; no row total changes optimistically in the browser. |
+| Payroll awaiting approval | Accountant sees read-only submitted summary and reconciliation result. School Admin sees approve/refuse actions with affected Staff count and VND total. |
+| Payroll approved unpaid | Components/source facts are locked. School Admin alone sees reopen, which requires a reason and returns a new draft version; advance reservation is described in the confirmation. |
+| Payroll paid | Original version is read-only. Payout date/method/reference and any correction links are visible; reopen is absent. |
+| Payroll correction | The original paid version remains visible as source. Correction shows signed delta, reason, approval/payout state and no affordance to alter the original. |
 | Suspend/reactivate timeout | Ops shows reconciliation and disables duplicate action; School list refreshes from server before another action. |
 
 ### Finance Lifecycle States
