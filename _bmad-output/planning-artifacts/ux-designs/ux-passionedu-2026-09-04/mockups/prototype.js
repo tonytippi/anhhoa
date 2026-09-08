@@ -44,6 +44,11 @@ function reconcileOperation(opener = document.activeElement) {
       $('[data-reconcile]', node).focus();
       return;
     }
+    if (operation.lifecycle === 'journal-save' && operation.journalOutcome !== 'success') {
+      operation.sourceButton.disabled = false;
+      operation.sourceButton.textContent = 'Sửa và gửi lại';
+      operation.sourceButton.dataset.actionLabel = 'Sửa và gửi lại';
+    }
     const row = operation.rowId && document.getElementById(operation.rowId);
     if (row) {
       row.dataset.status = operation.outcome;
@@ -64,6 +69,25 @@ function reconcileOperation(opener = document.activeElement) {
         if (status) status.innerHTML = '<span class="badge success">Có mặt</span>';
         if (update) update.textContent = 'AH-130 · Đã nhận trẻ theo xác nhận hệ thống';
         if (action) action.innerHTML = '<button class="button secondary" type="button" disabled>Đã ghi nhận</button>';
+      }
+      if (operation.lifecycle === 'journal-save' && operation.journalOutcome === 'success' && !operation.conflict) {
+        const status = $('[data-journal-status-label]', row);
+        const update = $('[data-journal-update]', row);
+        const action = $('[data-journal-action]', row);
+        row.dataset.journalStatus = 'current';
+        if (status) status.innerHTML = '<span class="badge success">Đã có nhận xét</span>';
+        if (update) update.textContent = `${row.dataset.journalCode.toUpperCase()} · Hệ thống xác nhận lúc ${operation.confirmedAt}`;
+        if (action) {
+          action.textContent = 'Xem/Sửa nhận xét';
+          action.setAttribute('href', operation.journalHref);
+        }
+        const classDayAction = $(`[data-class-day-journal-action="${row.id}"]`);
+        if (classDayAction) {
+          classDayAction.textContent = 'Xem/Sửa nhận xét';
+          classDayAction.setAttribute('href', operation.journalHref);
+          classDayAction.closest('[data-class-day-journal-status]')?.setAttribute('data-class-day-journal-status', 'current');
+        }
+        renderTeacherJournals();
       }
     }
     if (operation.target) renderOperationResult(operation);
@@ -100,7 +124,11 @@ function showOperation(title, button, node) {
     value: button.dataset.operationValue,
     effectiveDate: button.dataset.operationEffectiveDate,
     conflict: button.dataset.operationConflict === 'true',
-    formId: button.dataset.operationForm
+    formId: button.dataset.operationForm,
+    journalHref: button.dataset.operationJournalHref,
+    confirmedAt: button.dataset.operationConfirmedAt,
+    journalOutcome: button.dataset.operationJournalOutcome,
+    sourceButton: button
   };
   $('.dialog', node).innerHTML = `<h2 id="dialog-title">${title}</h2><div class="operation"><p>Yêu cầu đã được gửi. Đang kiểm tra kết quả với hệ thống trước khi cho phép gửi lại.</p></div><div class="dialog-actions"><button class="button" type="button" data-reconcile>Đối soát kết quả</button></div>`;
   $('[data-reconcile]', node).addEventListener('click', () => { node.remove(); reconcileOperation(); });
@@ -273,6 +301,26 @@ function renderQueue(route) {
   $('[data-queue-empty]', section).hidden = visible.length !== 0;
 }
 
+function renderTeacherJournals() {
+  const section = $('[data-journal-list]');
+  if (!section) return;
+  const search = ($('[data-journal-search]', section)?.value || '').trim().toLocaleLowerCase('vi');
+  const filter = $('[data-journal-filter]', section)?.value || 'all';
+  const rows = $$('[data-journal-rows] [data-journal-status]', section);
+  const visible = rows.filter(row => {
+    const matchesSearch = !search || row.dataset.journalName.includes(search) || row.dataset.journalCode.includes(search);
+    const matchesFilter = filter === 'all' || row.dataset.journalStatus === filter;
+    row.hidden = !(matchesSearch && matchesFilter);
+    return !row.hidden;
+  });
+  const confirmed = rows.filter(row => row.dataset.journalStatus === 'current').length;
+  $('[data-journal-caption]', section).textContent = `Mầm 3-4 tuổi · 05/09/2026 · Tất cả ${rows.length} trẻ · ${confirmed}/${rows.length} đã có nhận xét`;
+  $('[data-journal-count]', section).textContent = `Hiển thị ${visible.length} trẻ · ${confirmed} đã có nhận xét`;
+  const progress = $('[data-teacher-class-context] .teacher-progress article:last-child b');
+  if (progress) progress.textContent = `${confirmed}/${rows.length}`;
+  $('[data-journal-empty]', section).hidden = visible.length !== 0;
+}
+
 function focusRoute() {
   const revokedState = $('#teacher-access-revoked');
   if (revokedState) {
@@ -288,6 +336,7 @@ function focusRoute() {
   renderQueue(route);
   renderRoster();
   renderSettings();
+  renderTeacherJournals();
   const heading = $(`#${state.name}[data-route] h1`);
   heading?.focus();
 }
@@ -368,6 +417,14 @@ function bindMockActions() {
     window.history.pushState(null, '', `?${params.toString()}`);
     renderSettings();
   }));
+  $$('[data-journal-search], [data-journal-filter]').forEach(control => control.addEventListener(control.matches('select') ? 'change' : 'input', renderTeacherJournals));
+  $$('[data-journal-reset]').forEach(button => button.addEventListener('click', () => {
+    const section = button.closest('[data-journal-list]');
+    $('[data-journal-search]', section).value = '';
+    $('[data-journal-filter]', section).value = 'all';
+    renderTeacherJournals();
+    $('[data-journal-search]', section).focus();
+  }));
   $$('[data-mock-form]').forEach(form => {
     form.addEventListener('input', () => { form.dataset.dirty = 'true'; });
     form.addEventListener('submit', event => {
@@ -414,5 +471,5 @@ function bindMockActions() {
   focusRoute();
 }
 
-if (typeof window !== 'undefined') window.__rosterMock = { rosterState, matchesRosterRow, renderRoster, settingsState, renderSettings, focusErrorSummary };
+if (typeof window !== 'undefined') window.__rosterMock = { rosterState, matchesRosterRow, renderRoster, settingsState, renderSettings, focusErrorSummary, renderTeacherJournals };
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', bindMockActions);
