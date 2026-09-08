@@ -22,6 +22,28 @@ assert.equal([...roster.document.querySelectorAll('.side-link')].find(link => li
 const window = load(html, 'https://mock.test/admin/school-settings.html?status=active&sort=bank&page=1');
 const activeDialog = () => window.document.querySelector('.dialog-backdrop:last-child');
 const visibleRows = () => [...window.document.querySelectorAll('[data-bank-account-rows] tr')].filter(row => !row.hidden);
+const attendancePolicy = [...window.document.querySelectorAll('#policy-proposal-form [name="policy"] option')].find(option => option.textContent === 'Điểm danh');
+
+assert.ok(attendancePolicy);
+assert.match(window.document.querySelector('#policy-2').textContent, /Bằng chứng ảnh/);
+assert.match(window.document.querySelector('#policy-2 [data-policy-proposed]').textContent, /tùy chọn/);
+assert.equal(window.document.querySelectorAll('[data-queue-filter], [data-queue-rows], [data-evidence]').length, 0);
+assert.equal([...window.document.querySelectorAll('button')].some(button => /điểm danh/i.test(button.dataset.actionTitle || '')), false);
+
+const policyForm = window.document.querySelector('#policy-proposal-form');
+policyForm.elements.policy.selectedIndex = [...policyForm.elements.policy.options].indexOf(attendancePolicy);
+policyForm.elements['proposed-value'].value = 'Bằng chứng ảnh bắt buộc khi ghi nhận có mặt';
+policyForm.elements['effective-date'].value = '2026-10-02';
+policyForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+assert.match(activeDialog().textContent, /Xác nhận đề xuất Điểm danh/);
+activeDialog().querySelector('[data-idempotent-submit]').click();
+activeDialog().querySelector('[data-reconcile]').click();
+activeDialog().querySelector('[data-return-operation-outcome]').click();
+assert.match(window.document.querySelector('#policy-version-result').textContent, /Hệ thống đã ghi nhận/);
+assert.match(window.document.querySelector('#policy-2 [data-policy-proposed]').textContent, /02\/10\/2026/);
+activeDialog().querySelector('[data-close]').click();
+policyForm.elements.policy.selectedIndex = 0;
+
 assert.equal(visibleRows().length, 2);
 window.document.querySelector('[name="q"]').value = 'đại tín';
 window.document.querySelector('[data-bank-account-filter]').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));

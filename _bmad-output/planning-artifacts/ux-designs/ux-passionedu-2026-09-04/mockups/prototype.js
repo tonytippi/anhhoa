@@ -57,6 +57,14 @@ function reconcileOperation(opener = document.activeElement) {
         const proposed = $('[data-policy-proposed]', row);
         if (proposed) proposed.textContent = `${operation.value} từ ${operation.effectiveDate}`;
       }
+      if (operation.lifecycle === 'attendance-present') {
+        const status = $('[data-attendance-status]', row);
+        const update = $('[data-attendance-update]', row);
+        const action = $('[data-attendance-action]', row);
+        if (status) status.innerHTML = '<span class="badge success">Có mặt</span>';
+        if (update) update.textContent = 'AH-130 · Đã nhận trẻ theo xác nhận hệ thống';
+        if (action) action.innerHTML = '<button class="button secondary" type="button" disabled>Đã ghi nhận</button>';
+      }
     }
     if (operation.target) renderOperationResult(operation);
     if (operation.conflict) {
@@ -266,13 +274,39 @@ function renderQueue(route) {
 }
 
 function focusRoute() {
+  const revokedState = $('#teacher-access-revoked');
+  if (revokedState) {
+    $('h1', revokedState)?.focus();
+    return;
+  }
   const route = window.location.hash || '#overview';
+  const state = queueState(route);
+  if ($('[data-admin-shell]') && !['overview', 'leave', 'handover'].includes(state.name)) {
+    window.location.hash = '#overview';
+    return;
+  }
   renderQueue(route);
   renderRoster();
   renderSettings();
-  const state = queueState(route);
   const heading = $(`#${state.name}[data-route] h1`);
   heading?.focus();
+}
+
+function showTeacherAccessRevoked() {
+  const main = $('.teacher-main');
+  if (!main || $('#teacher-access-revoked')) return;
+  $$('.dialog-backdrop').forEach(dialog => dialog.remove());
+  knownOperation = null;
+  main.replaceChildren();
+  const safeState = document.createElement('section');
+  safeState.className = 'notice warning';
+  safeState.id = 'teacher-access-revoked';
+  safeState.setAttribute('role', 'status');
+  safeState.innerHTML = '<h1 tabindex="-1">Bạn không còn quyền xem nội dung này</h1><p>Nội dung và thao tác đã được xóa vì binding, capability hoặc phân công lớp không còn hiệu lực.</p>';
+  main.append(safeState);
+  $$('.teacher-tabs').forEach(navigation => navigation.replaceChildren());
+  $$('[data-school-context]').forEach(button => button.remove());
+  $('h1', safeState)?.focus();
 }
 
 function bindMockActions() {
@@ -280,6 +314,7 @@ function bindMockActions() {
   if (bindingRoot.dataset?.mockActionsBound) return;
   if (bindingRoot.dataset) bindingRoot.dataset.mockActionsBound = 'true';
   window.addEventListener('hashchange', focusRoute);
+  window.addEventListener('teacher-access-revoked', showTeacherAccessRevoked);
   window.addEventListener('popstate', () => {
     if ($('#roster[data-route]')) renderRoster();
     else if ($('#school-settings[data-route]')) renderSettings();
@@ -337,6 +372,7 @@ function bindMockActions() {
     form.addEventListener('input', () => { form.dataset.dirty = 'true'; });
     form.addEventListener('submit', event => {
       event.preventDefault();
+      if (form.classList.contains('journal-editor')) return;
       if (!form.hasAttribute('data-policy-proposal')) {
         focusErrorSummary(form);
         return;

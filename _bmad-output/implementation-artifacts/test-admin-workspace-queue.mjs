@@ -28,13 +28,12 @@ function row(id, className, date, status) {
 function harness() {
   const windowListeners = {};
   const documentListeners = {};
-  const routes = ['overview', 'attendance', 'leave', 'handover'];
+  const routes = ['overview', 'leave', 'handover'];
   const sections = Object.fromEntries(routes.map(name => [name, element({ 'data-route': '' })]));
   const headings = Object.fromEntries(routes.map(name => [name, element({ tabindex: '-1' })]));
   const contexts = Object.fromEntries(routes.slice(1).map(name => [name, element()]));
   const empty = Object.fromEntries(routes.slice(1).map(name => [name, element()]));
   const rows = {
-    attendance: [row('attendance-khoa', 'mam-3-4', '2026-09-05', 'missing'), row('attendance-minh', 'mam-3-4', '2026-09-05', 'leave'), row('attendance-lan', 'la-5-6', '2026-09-05', 'complete')],
     leave: [row('leave-thu', 'mam-3-4', '2026-09-06', 'pending'), row('leave-an', 'choi-4-5', '2026-09-05', 'approved')],
     handover: [row('handover-huy', 'mam-3-4', '2026-09-05', 'missing'), row('handover-mai', 'mam-3-4', '2026-09-05', 'complete')]
   };
@@ -72,6 +71,8 @@ function harness() {
 }
 
 assert.match(workspace, /#leave\?date=2026-09-06&amp;status=pending/);
+assert.doesNotMatch(workspace, /attendance|Điểm danh/i);
+assert.doesNotMatch(shellSource, /attendance|Điểm danh/i);
 const app = harness();
 const dialogMock = `function dialog(title, content, actions = '', opener) {
   const node = { buttons: {}, closeDialog() { opener?.focus(); }, remove() {}, querySelector(selector) { return selector === '.dialog' ? this.panel : this.buttons[selector.slice(1, -1)] || null; }, querySelectorAll() { return []; } };
@@ -92,11 +93,8 @@ function navigate(hash) {
 }
 
 navigate('#attendance?class=choi-4-5&date=2026-09-05&status=missing');
-assert.equal(app.rows.attendance.every(value => value.hidden), true);
-assert.equal(app.empty.attendance.hidden, false);
-assert.equal(app.contexts.attendance.textContent, 'Trường Ánh Hoa · 05/09/2026 · Chồi 4-5 tuổi');
-assert.equal(app.headings.attendance.focused, true);
-assert.equal(app.sideLinks[1].getAttribute('aria-current'), 'page');
+assert.equal(app.context.window.location.hash, '#overview');
+assert.equal(app.sideLinks[0].getAttribute('aria-current'), 'page');
 
 navigate('#leave?class=mam-3-4&date=2026-09-06&status=pending');
 assert.equal(app.rows.leave[0].hidden, false);

@@ -9,7 +9,6 @@
   var root = route === 'roster' ? '../' : '';
   var links = [
     ['VẬN HÀNH', 'overview', 'Tổng quan', root + 'admin-staff.html#overview'],
-    ['', 'attendance', 'Điểm danh', root + 'admin-staff.html#attendance'],
     ['', 'leave', 'Xin nghỉ', root + 'admin-staff.html#leave'],
     ['', 'handover', 'Bàn giao', root + 'admin-staff.html#handover'],
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
@@ -26,7 +25,7 @@
   links.forEach(function (link) {
     var current = link[1] === route;
     if (link[0]) navigation += '<p class="nav-group">' + link[0] + '</p>';
-    var href = isWorkspace && ['overview', 'attendance', 'leave', 'handover'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
+    var href = isWorkspace && ['overview', 'leave', 'handover'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
     navigation += '<a class="side-link' + (current ? ' active' : '') + '" href="' + href + '"' + (current ? ' aria-current="page"' : '') + '>' + link[2] + '</a>';
   });
 
@@ -37,6 +36,10 @@
 
   function updateNavigation() {
     var activeRoute = window.location.hash.split('?')[0].slice(1) || route;
+    if (isWorkspace && ['overview', 'leave', 'handover'].indexOf(activeRoute) === -1) {
+      window.location.hash = '#overview';
+      return;
+    }
     document.querySelectorAll('.side-link').forEach(function (link) {
       var isCurrent = link.getAttribute('href').split('?')[0] === '#' + activeRoute;
       link.classList.toggle('active', isCurrent);

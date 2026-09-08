@@ -20,33 +20,11 @@
           <button class="button secondary" type="button">Chọn ngày: 05/09/2026</button>
         </div>
         <div class="toolbar"><h2>Việc cần xử lý</h2><span class="muted">Cập nhật từ hệ thống lúc 07:18</span></div>
-        <div class="grid three queue-summary">
-          <article class="card"><p class="metric">2</p><h2>Lớp chưa hoàn tất điểm danh</h2><p class="muted">Theo ngày 05/09/2026.</p><a class="card-action" href="#attendance?date=2026-09-05&amp;status=missing">Xem lớp cần xử lý</a></article>
+        <div class="grid two queue-summary">
           <article class="card"><p class="metric amber">5</p><h2>Đơn nghỉ đang chờ duyệt</h2><p class="muted">Theo ngày nghỉ và trạng thái chờ duyệt.</p><a class="card-action" href="#leave?date=2026-09-06&amp;status=pending">Xem đơn cần duyệt</a></article>
           <article class="card"><p class="metric blue">1</p><h2>Học sinh chưa bàn giao</h2><p class="muted">Theo lớp và ngày 05/09/2026.</p><a class="card-action" href="#handover?date=2026-09-05&amp;status=missing">Xem bàn giao</a></article>
         </div>
         <article class="card"><h2>Cấu hình trường</h2><p class="muted">Rà soát hồ sơ Trường, lịch, chính sách và tài khoản nhận tiền theo hiệu lực.</p><a class="card-action" href="school-settings.html">Mở cấu hình trường</a></article>
-        <div class="table-wrap">
-          <table>
-            <caption>Tiến độ điểm danh theo lớp, Trường Ánh Hoa ngày 05/09/2026</caption>
-            <thead><tr><th>Lớp</th><th>Trạng thái</th><th>Còn thiếu</th><th scope="col">Tùy chọn</th></tr></thead>
-            <tbody>
-              <tr><td><b>Mầm 3-4 tuổi</b></td><td><span class="badge warning">Chưa hoàn tất</span></td><td>8 học sinh</td><td><a href="#attendance?class=mam-3-4&amp;date=2026-09-05&amp;status=missing">Mở điểm danh</a></td></tr>
-              <tr><td><b>Chồi 4-5 tuổi</b></td><td><span class="badge warning">Chưa hoàn tất</span></td><td>3 học sinh</td><td><a href="#attendance?class=choi-4-5&amp;date=2026-09-05&amp;status=missing">Mở điểm danh</a></td></tr>
-              <tr><td><b>Lá 5-6 tuổi</b></td><td><span class="badge success">Đã hoàn tất</span></td><td>0 học sinh</td><td><a href="#attendance?class=la-5-6&amp;date=2026-09-05&amp;status=all">Xem ghi nhận</a></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="attendance" data-route tabindex="-1">
-        <div class="route-head"><div><p class="muted" data-queue-context>Trường Ánh Hoa · 05/09/2026 · Tất cả lớp</p><h1 tabindex="-1">Điểm danh</h1><p class="muted">Các trạng thái và khả dụng do hệ thống xác nhận.</p></div><a class="button secondary" href="#overview">Về tổng quan</a></div>
-        <form class="toolbar filters" aria-label="Lọc điểm danh" data-queue-filter="attendance"><label>Lớp <select name="class"><option value="all">Tất cả lớp</option><option value="mam-3-4">Mầm 3-4 tuổi</option><option value="choi-4-5">Chồi 4-5 tuổi</option><option value="la-5-6">Lá 5-6 tuổi</option></select></label><label>Ngày <input name="date" type="date" value="2026-09-05"></label><label>Trạng thái <select name="status"><option value="missing">Chưa ghi nhận</option><option value="all">Tất cả trạng thái</option></select></label><button class="button secondary" type="submit">Áp dụng</button></form>
-        <div class="table-wrap"><table><caption>Học sinh theo bộ lọc đang chọn</caption><thead><tr><th>Học sinh</th><th>Trạng thái</th><th>Lý do</th><th>Cập nhật</th><th>Tùy chọn</th></tr></thead><tbody data-queue-rows>
-          <tr id="attendance-khoa" data-class="mam-3-4" data-date="2026-09-05" data-status="missing"><td><b>Bé Khoa</b></td><td><span class="badge neutral">Chưa ghi nhận</span></td><td>Chưa có ghi nhận trong ngày</td><td>Chưa có</td><td><button class="button" type="button" data-evidence data-idempotent-action data-operation-row="attendance-khoa" data-action-title="Ghi nhận điểm danh cho Bé Khoa" data-action-label="Gửi ghi nhận" data-action-consequence="Hệ thống sẽ kiểm tra bằng chứng và trạng thái hiện tại trước khi lưu.">Ghi nhận</button></td></tr>
-          <tr data-class="mam-3-4" data-date="2026-09-05" data-status="leave"><td><b>Bé Minh</b></td><td><span class="badge info">Đã duyệt nghỉ</span></td><td>Đơn nghỉ đã được duyệt</td><td>07:05</td><td><button class="button secondary" type="button" disabled>Không thể ghi nhận</button></td></tr>
-          <tr data-class="la-5-6" data-date="2026-09-05" data-status="complete"><td><b>Bé Lan</b></td><td><span class="badge success">Đã ghi nhận có mặt</span></td><td>Không có</td><td>07:12</td><td><button class="button secondary" type="button" data-operation="thao-tac-diem-danh-da-biet">Kiểm tra kết quả</button></td></tr>
-        </tbody></table></div><p class="muted" data-queue-empty hidden>Không có học sinh phù hợp với bộ lọc này. Trường chưa ghi nhận dữ liệu điểm danh cho phạm vi đang chọn.</p>
       </section>
 
       <section id="leave" data-route tabindex="-1">
