@@ -17,7 +17,7 @@
       </section>
       <section>
         <div class="summary"><div class="grid three"><div><p class="muted">Nhân sự đủ điều kiện</p><b class="metric">18</b></div><div><p class="muted">Cần đối soát</p><b class="metric amber">2</b></div><div><p class="muted">Thực nhận dự kiến</p><b class="metric">142.680.000 đ</b></div></div><p class="muted">Lương và phụ cấp 164.900.000 đ · Khấu trừ 22.220.000 đ · Chính sách từ 01/09/2026.</p></div>
-        <div class="notice info">Tổng và từng thành phần do hệ thống tính. Kế toán có thể thêm điều chỉnh có lý do trước khi School Admin phê duyệt.</div>
+        <div class="notice info">Tổng và từng thành phần do hệ thống tính. Kế toán là Finance Manager có capability prepare/reconcile; School Admin khác identity người gửi mới được phê duyệt hoặc từ chối.</div>
         <div class="table-wrap"><table><caption>Nhân sự trong bảng lương tháng 09/2026</caption><thead><tr><th scope="col">Nhân sự</th><th class="money" scope="col">Thu nhập</th><th class="money" scope="col">Khấu trừ</th><th class="money" scope="col">Thực nhận</th><th scope="col">Trạng thái</th><th scope="col">Tùy chọn</th></tr></thead><tbody><tr><td><b>Nguyễn Thu An</b><br><span class="muted">22 công · 1 ca trông muộn</span></td><td class="money">9.080.000 đ</td><td class="money">1.122.000 đ</td><td class="money"><b>7.958.000 đ</b></td><td><span class="badge success">Đã đối soát</span></td><td><a class="button secondary" href="#an-detail">Xem thành phần</a></td></tr><tr><td><b>Trần Minh Hương</b><br><span class="muted">22 công · Thử việc</span></td><td class="money">6.500.000 đ</td><td class="money">0 đ</td><td class="money"><b>6.500.000 đ</b></td><td><span class="badge warning">Cần rà soát</span></td><td><a class="button secondary" href="#huong-detail">Xem thành phần</a></td></tr><tr><td><b>Lê Mai Hoa</b><br><span class="muted">21 công · 2 ca trông muộn</span></td><td class="money">10.010.000 đ</td><td class="money">1.286.000 đ</td><td class="money"><b>8.724.000 đ</b></td><td><span class="badge success">Đã đối soát</span></td><td><a class="button secondary" href="#hoa-detail">Xem thành phần</a></td></tr></tbody></table></div>
       </section>
       <section id="an-detail">
@@ -28,7 +28,7 @@
       <section>
         <div class="route-head"><div><h2>Gửi School Admin phê duyệt</h2><p class="muted">Sau phê duyệt, nguồn và thành phần của bản tính này được khóa. Nếu chưa chi, School Admin có thể reopen có lý do.</p></div><span class="badge warning">Chờ xác nhận</span></div>
         <button class="button" type="button" data-idempotent-action data-action-title="Gửi bảng lương để phê duyệt" data-action-label="Gửi School Admin" data-action-consequence="Hệ thống gửi bảng lương tháng 09/2026 gồm 18 nhân sự và thực nhận 142.680.000 đ. Không gửi lại nếu đang chờ kết quả.">Gửi School Admin phê duyệt</button>
-        <p class="muted">Kế toán không tự phê duyệt bảng lương. Sau timeout, cần đối soát kết quả trước khi thử lại.</p>
+        <p class="muted">Server từ chối cùng identity tự phê duyệt, kể cả khi có nhiều grant. Sau timeout, cần đối soát kết quả trước khi thử lại. Sau duyệt, Finance Manager có quyền xác nhận chi mới thấy thao tác payout.</p>
       </section>
     </div>
   </body>

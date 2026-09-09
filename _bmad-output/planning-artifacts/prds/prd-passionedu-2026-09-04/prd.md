@@ -64,14 +64,15 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **CollectionRun** - Dot thu cua SchoolYear de preview va tao nghia vu cho hoc sinh.
 - **Invoice** - Nghia vu thu theo mot Student va mot CollectionRun; noi dung khoa sau khi issue.
 - **Receipt** - Khoan thu da ghi nhan; phan bo vao Invoice qua so cai append-only.
-- **Prepayment** - Khoan nop truoc gan co dinh mot Student, chi ap dung cho nghia vu tuong lai cua Student do.
-- **StudentPromotionalCoverage** - Uu dai theo tung Student do School Admin hoac Finance Manager lap sau thoa thuan truc tiep; bao phu cac cap Receivable-ky cu the va duoc snapshot vao Invoice phat hanh.
+- **PrepaidPaymentPromotionProgram** - Chuong trinh nop truoc active/inactive do School cau hinh, co so thang lien tiep, Receivable ap dung va muc giam phan tram hoac VND co dinh.
+- **StudentPromotionalCoverage** - Bao phu theo tung Student/Receivable/ky chi do server phat hanh sau khi source Invoice cua `PREPAID` CollectionRun da duoc settle exact; luu snapshot va paid-source provenance bat bien.
 - **Payment instruction** - Ban chup tai khoan nhan va noi dung chuyen khoan cua Invoice da issue.
 - **Operation** - Ban ghi doi soat cua mutation idempotent, scoped theo School va actor membership.
 - **Payroll entitlement** - Trang thai capability Payroll opt-in cua School; chi server co quyen cho phep dung Payroll, khong phai menu frontend hay role grant.
 - **EmploymentContract** - Dieu khoan lao dong effective-dated cua Staff, bao gom luong co ban, luong thu viec, muc dong bao hiem doc lap va phu cap co dinh.
 - **StaffWorkdayRecord** - Ket qua ngay cong da ra soat tu event may cham cong va correction thu cong; la nguon tinh Payroll, khong phai raw event.
 - **PayrollRun** - Bang luong versioned cua mot ky; version da duyet/da chi la snapshot bat bien, sai sot sau chi dung correction run rieng.
+- **Ke toan (Accountant)** - Persona hien thi cua actor co active same-School `FINANCE_MANAGER` grant, Payroll entitlement va capability chuyen biet; khong phai preset role `ACCOUNTANT` moi.
 
 ## 4. Tinh nang va yeu cau chuc nang
 
@@ -123,7 +124,7 @@ School Admin quan ly profile, calendar, finance policy, Parent access policy va 
 - Policy anh huong tien, access, attendance hoac du lieu tre em co effective date, audit actor/gia tri cu-moi va ly do khi yeu cau.
 - Client khong tu tinh lich nghi, quyen, cong no hay policy fee.
 - Cau hinh tu do key-value/JSON blob khong duoc dung thay domain schema.
-- FinancePolicy bao gom due date, tax treatment label, Prepayment/debt trong SchoolYear, reversal mode va BankAccount cua School. BankAccount co lifecycle active/inactive; Invoice da issue giu snapshot account, chu tai khoan va Payment instruction nen thay doi/inactive account khong sua lich su.
+- FinancePolicy bao gom due date, tax treatment label, debt trong SchoolYear, reversal mode va BankAccount cua School. BankAccount co lifecycle active/inactive; Invoice da issue giu snapshot account, chu tai khoan va Payment instruction nen thay doi/inactive account khong sua lich su.
 
 #### FR-5: SchoolYear, Class va StudentEnrollment
 
@@ -164,7 +165,7 @@ Finance Manager hoac School Admin quan ly ReceivableGroup, Receivable, DiscountP
 - Thay doi danh muc/policy khong sua Invoice snapshot trong qua khu.
 - ChargeRule chi co quantity `FIXED` hoac `MANUAL`; Finance Manager/SCHOOL_ADMIN nhap/override quantity, gia hoac adjustment trong Invoice `DRAFT` co ghi chu/audit. Khong co auto-pricing tu attendance, handover hay service enrollment. Gia la gia mac dinh cua Receivable hoac override duoc audit trong Invoice `DRAFT`.
 - DiscountPolicy la phan tram hoac so tien, co effective period, School/Class/Student scope va Receivable scope; discount khong lam dong am hay tao credit vo danh.
-- Uu dai Student khong la catalog/goi dinh ky va Parent khong tu chon. School Admin hoac Finance Manager lap `StudentPromotionalCoverage` cho mot SchoolYear va tao Invoice DRAFT nguon chi gom cac coverage fact da chon. Moi fact co Receivable, period key, service interval `[serviceFrom, serviceTo)` nam tron trong ky thu, gia/discount snapshot va ly do. Coverage chi co hieu luc sau khi Invoice nguon da issue va duoc settle day du; luu Invoice/Receipt source, paid snapshot amount va calendar version/timezone dung de tinh ngay van hanh. Coverage issued khong duoc overlap cung Student/SchoolYear/Receivable/ky; coverage khong co operating day eligible bi tu choi.
+- School cau hinh nhieu `PrepaidPaymentPromotionProgram` concurrent, moi program active/inactive ro rang, co so thang lich lien tiep co dinh, Receivable hoc phi va/hoac khoan khac, va muc giam phan tram hoac VND nguyen tren gia goc; khong stack voi `DiscountPolicy`. Sau thoa thuan truc tiep voi Parent, chi School Admin chon program active va thang bat dau. API tinh eligibility/muc giam, tao dedicated `PREPAID` CollectionRun va mot source Invoice DRAFT gom toan bo future receivable-period facts. Source Invoice phai settle exact; chi sau `PAID` server moi issue `StudentPromotionalCoverage` voi Invoice/Receipt provenance. Khong actor nao tao coverage truc tiep. Moi fact luu Receivable, period key, service interval `[serviceFrom, serviceTo)` nam tron ky, gia/discount, calendar version/timezone va paid-source snapshot bat bien. Coverage issued khong overlap cung Student/SchoolYear/Receivable/ky; fact khong co operating day eligible bi tu choi.
 
 #### FR-8: CollectionRun preview va generate
 
@@ -192,19 +193,18 @@ Finance Manager ra soat Invoice `DRAFT`, override gia/quantity hoac them adjustm
 
 ### 4.4 So cai thu tien, cong no va bao cao
 
-**Mo ta:** Receipt, allocation, Prepayment, reversal/refund va debt duoc ghi append-only de settlement va report phan anh dong tien thuc. Realizes UJ-3.
+**Mo ta:** Receipt, allocation, reversal/refund va debt duoc ghi append-only de settlement va report phan anh dong tien thuc. Realizes UJ-3.
 
-#### FR-10: Receipt exact settlement, allocation va Prepayment ngoai le
+#### FR-10: Receipt exact settlement va allocation
 
-Finance Manager ghi Receipt, settle day du Invoice va ap dung Prepayment ngoai le cua dung Student theo policy.
+Finance Manager ghi Receipt de settle exact Invoice cua mot Student; khong tao balance nop truoc doc lap.
 
 **He qua kiem thu:**
 - Sai sot duoc xu ly bang void/reversal co ly do, audit va idempotency; khong sua tien goc da post.
-- Prepayment khong la credit balance dung chung hay chuyen nhuong giua Student.
 - Reversal tuan theo mode direct hoac phe duyet hai buoc cua School.
-- `DIRECT` cho School Admin/Finance Manager post reversal co ly do; `SCHOOL_ADMIN_APPROVAL` buoc Finance Manager tao request va School Admin khac actor phe duyet. Invoice chi VOIDED khi chua co allocation/prepayment; receipt thua bi tu choi tru khi tao Prepayment ro rang.
-- Refund la ledger workflow append-only cho Prepayment hoac nghia vu da co source (vi du long leave/huy service): School Admin/Finance Manager tao refund request co amount, source, ly do va idempotency; post/refusal tuan theo reversal mode cua School, audit actor va Operation reconciliation. Refund khong sua Receipt, Allocation hay Prepayment goc.
-- Normal settlement chi nhan mot Receipt settle mot hoac nhieu Invoice cung School, SchoolYear va Student khi moi Invoice duoc settle dung toan bo outstanding trong posting do; partial, unallocated va mixed-Student Receipt bi tu choi. Receipt du chi tao `Prepayment` explicit cho Student do, khong tao generic credit.
+- `DIRECT` cho School Admin/Finance Manager post reversal co ly do; `SCHOOL_ADMIN_APPROVAL` buoc Finance Manager tao request va School Admin khac identity phe duyet. Invoice chi `VOIDED` khi chua co allocation; receipt partial, du, unallocated hoac mixed-Student deu bi tu choi.
+- Refund la ledger workflow append-only cho nghia vu da co source (vi du coverage da thanh toan, long leave/huy service): School Admin/Finance Manager tao refund request co amount, source, ly do va idempotency; post/refusal tuan theo reversal mode cua School, audit actor va Operation reconciliation. Refund khong sua Receipt hay Allocation goc.
+- Moi Receipt chi settle mot hoac nhieu Invoice cung School, SchoolYear va Student khi moi Invoice duoc settle dung toan bo outstanding trong posting do; partial, excess, unallocated va mixed-Student Receipt bi tu choi toan bo. Khong tao `StudentPrepayment`, generic credit/balance hay ap dung so du cho Invoice tuong lai.
 - Khi Student nghi/chuyen truong trong `StudentPromotionalCoverage` da thanh toan, server preview refund theo tung coverage fact tu service interval, paid snapshot amount va School calendar version/timezone da snapshot; loai tru withdrawal effective date va floor VND. `eligibleOperatingDays` phai duong, `remainingOperatingDays` khong vuot eligible days, va tong `calculatedAmount`/`approvedAmount` cua fact khong vuot paid snapshot amount tru di refund/reversal da post. `approvedAmount` phai khong am va override khac calculated amount bat buoc ly do. Refund append-only luu calculated/approved amount, coverage fact, Invoice/Receipt provenance va approval-mode outcome.
 
 #### FR-11: Prior debt, settlement va report
@@ -214,7 +214,7 @@ He thong gop no mo trong cung SchoolYear vao Invoice moi bang `PRIOR_DEBT` truy 
 **He qua kiem thu:**
 - Debt transfer atomic loai gia tri da chuyen khoi outstanding nguon, tranh thu/den hai lan.
 - Khong auto-carryover sang SchoolYear moi; write-off, adjustment hay thu tien co audit.
-- Report tach gross, discount/refund, net billed, receipt, allocation, Prepayment va outstanding theo School, run, period, group, class va status.
+- Report tach gross, discount/refund, net billed, receipt, allocation, prepaid-payment coverage va outstanding theo School, run, period, group, class va status.
 - Report giu provenance cua StudentPromotionalCoverage/refund khi ap dung va khong co nhom trang thai partial payment.
 
 ### 4.5 Van hanh lop hoc
@@ -250,12 +250,15 @@ Nhan vien duoc cap capability ghi picked-up time; policy cutoff/grace/block la r
 
 **Mo ta:** Payroll la capability tuy chon cua tung School, tach biet voi so thu Student. Tai School duoc phep, Ke toan quan ly dieu khoan lao dong, nhap/ra soat cham cong va lap bang luong; School Admin duyet, reopen va phe duyet correction.
 
+`Ke toan` la persona cua active same-School `FINANCE_MANAGER`, khong phai preset role moi. Moi route/job/action can Payroll entitlement va capability chuyen biet; entitlement khong tu cap role/capability va UI khong thay server authorization.
+
 #### FR-14: Payroll entitlement, workforce va timekeeping
 
 Platform Operations chi cap Payroll cho School duoc chon thu nghiem/phan phoi; tai School da cap, Ke toan/School Admin quan ly EmploymentContract, ma may cham cong, file import va ket qua ngay cong da ra soat.
 
 **He qua kiem thu:**
 - Entitlement server-side theo School co lifecycle `NOT_ENTITLED`, `PILOT_ENABLED`, `ENABLED`, `SUSPENDED`, `RETIRED`; route, job, UUID hay cache client khong the vuot gate. Entitlement khong tu cap role/capability.
+- Actor thieu entitlement hoac capability bi tu choi truoc aggregate lookup; deep link, menu, job va API discovery khong lo Payroll record. `FINANCE_MANAGER` can capability prepare/reconcile/timekeeping tuong ung, con `SCHOOL_ADMIN` chi co action duyet/reopen khi duoc cap capability rieng.
 - `SUSPENDED` chan import, calculate, approval, correction va payout moi nhung giu read-only lich su da duyet/da chi cho actor duoc cap quyen. `RETIRED` khong xoa data va re-enable can onboarding/audit explicit. Disable bi chan khi con payroll obligation, import dang xu ly hoac advance reservation chua resolve.
 - EmploymentContract/compensation terms effective-dated snapshot luong co ban, luong thu viec, muc dong BHXH doc lap va phu cap co dinh; khong overwrite term da duoc payroll snapshot.
 - File CSV/XLSX dung machine employee code va ten nguon de doi soat. Code duoc map effective-dated voi dung mot Staff tai mot thoi diem/source/School; ten chi la evidence. Raw `IN`/`OUT` event da commit append-only; correction thu cong co ly do/audit, khong sua event goc.
@@ -269,7 +272,8 @@ Ke toan lap/reconcile bang luong versioned cho ky thuong hoac ky luong thang 13;
 - API tinh VND integer tu typed, versioned policy co effective date va snapshot input/component: luong co ban/thu viec, nghi co/khong phep, thuong chuyen can, phu cap co dinh/trong muon, BHXH/BHYT/BHTN, TNCN, tam ung va dieu chinh co ly do. Khong cho user luu arbitrary Excel formula, script, SQL hay bieu thuc tu do.
 - `insuranceSalaryBase` doc lap voi luong thuc nhan. Tax/BHXH policy co rate/bracket/reduction schema-validated; Ke toan duoc doi soat va override co ly do, nhung he thong khong tu nop ho so hay tu nhan certified legal compliance.
 - Payroll run co draft/calculated version, approved snapshot va payout state. School Admin reopen approved unpaid run voi ly do de tao draft version moi; approved version cu van audit. Payroll da co payout khong reopen.
-- Sai sot sau payout tao correction run rieng co source version, delta duong/am, audit va workflow Ke toan -> School Admin; payroll goc giu `PAID`.
+- `FINANCE_MANAGER` co `PAYROLL_PREPARE`/`PAYROLL_RECONCILE` prepare, materially edit/reconcile va submit. Chi `SCHOOL_ADMIN` co `PAYROLL_APPROVE` va UserIdentity khac moi preparer/material editor cung submitter moi review/approve/refuse; server so sanh identity thuc, nen nhieu grant khong cho self-approve. `SCHOOL_ADMIN` co `PAYROLL_REOPEN` reopen run approved chua payout. Sau approve, chi `FINANCE_MANAGER` co `PAYROLL_PAYOUT_CONFIRM` xac nhan payout; School Admin khong ke thua action nay.
+- Sai sot sau payout tao correction run rieng co source version, delta duong/am, audit va workflow Finance Manager prepare/submit -> School Admin khac identity approve/refuse -> Finance Manager xac nhan payout; payroll goc giu `PAID`.
 - SalaryAdvance reserve khi payroll duyet, release khi unpaid run reopen va giam `remainingAmount` atomically khi payout. Luong thang 13 la ky/run rieng, khong nhung vao payroll thang 12.
 - Bonus theo si so la extension point typed rule; chua duoc phat hanh cho den khi co policy School-approved ve cach dem, phan bo giao vien, transfer va thay doi phan cong giua ky.
 
@@ -285,7 +289,7 @@ Parent duoc cap session khi Google identity da xac minh va co link active; Paren
 - Parent school A khong the expose tre, Invoice hay finance cua school B bang route/filter/UUID.
 - Moi Parent attendance list/detail query phai join/filter theo `StudentParent` active cua chinh `studentId` duoc tra ve hoac duoc yeu cau; lien ket voi mot Student khong cap quyen xem attendance cua Student khac trong cung School.
 - Revoke, `401`, expiry va logout xoa client state truoc protected view; response Parent khong duoc service worker cache.
-- Tu `StudentEnrollment.endedOn`, operational/sensitive data chi con xem 30 ngay lich. Invoice issued, Payment instruction, Receipt/refund con xem khi balance, Prepayment hoac refund chua settlement; sau settlement ParentAccessPolicy server-side mac dinh 12 thang va co version/audit.
+- Tu `StudentEnrollment.endedOn`, operational/sensitive data chi con xem 30 ngay lich. Invoice issued, Payment instruction va Receipt/refund con xem khi Invoice exact settlement, prepaid-payment coverage refund hoac ledger correction chua hoan tat; sau khi cac nghia vu nay settlement day du, ParentAccessPolicy server-side mac dinh 12 thang va co version/audit.
 - Parent xem lich su attendance theo ngay cua Student duoc uy quyen trong retention operational data, voi `PRESENT`, `ABSENT`, `ON_LEAVE` hoac `NOT_RECORDED`. `NOT_RECORDED` luon duoc dien dat la truong chua ghi nhan, khong la ket luan vang mat.
 - Parent attendance DTO chi gom `studentId`, snapshot ten hien thi cua Student, ngay, trang thai va thoi diem cap nhat can thiet; khong lo truong ho so Student khac, Staff, ly do noi bo, evidence/media, danh sach lop hay attendance cua Student khac. Parent khong tao, sua hay xac nhan attendance.
 - Parent DailyJournal DTO rieng chi gom Student display-name snapshot, journal date, current text, updated time va media metadata toi thieu; media read khong tra permanent URL va re-authorize Parent/Student/retention tren moi request. Parent khong tao, sua hay xem version/audit journal.
@@ -316,7 +320,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 
 1. Platform multi-school, identity, authorization, chooser/switcher va narrow Operations provisioning.
 2. School profile/calendar, SchoolYear, roster, Parent links, Staff profile/assignment va typed policies.
-3. Finance catalog, discount, CollectionRun, Invoice obligation, ledger, debt, Prepayment, settlement va reports.
+3. Finance catalog, discount, prepaid-payment promotion program, CollectionRun, Invoice obligation, ledger, debt, exact settlement va reports.
 4. Attendance, leave, service registration, handover, meal-adjustment input va Parent multi-school finance portal.
 5. Payroll opt-in: workforce terms, file-based timekeeping, payroll calculation/approval/payout/correction va thirteenth-month pay.
 
@@ -336,8 +340,8 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 - Mo hinh du lieu tre em va Parent ap dung DTO toi thieu, server-side authorization, status/revoke thay hard delete, audit va retention policy.
 - Moi thay doi money, attendance, access, role, policy va settlement co actor, thoi diem, provenance va ly do khi yeu cau.
 - Cross-tenant isolation, authorization/revoke, concurrency/idempotency, ledger va Parent cross-school E2E la release-blocking verification.
-- Idempotency Operation la bat buoc cho generate run, chuyen lop/chuyen nam/close-year batch, issue, receipt/allocation, prepayment, reversal/refund va approval. Sau timeout, client doi soat `GET /operations/:operationId` truoc retry.
-- Payroll high-impact mutation gom import commit, calculate, approve, reopen, correction approval va payout confirmation; deu dung transaction, idempotency UUID, Operation reconciliation va audit reason.
+- Idempotency Operation la bat buoc cho generate run, chuyen lop/chuyen nam/close-year batch, issue, receipt/allocation, prepaid-promotion selection, reversal/refund va approval. Sau timeout, client doi soat `GET /operations/:operationId` truoc retry.
+- Payroll high-impact mutation gom import commit, calculate, submit, approve/refuse, reopen, correction submit/approval/refusal va payout confirmation; deu dung transaction, idempotency UUID, Operation reconciliation va audit reason.
 - [ASSUMPTION] P95 read API <= 500 ms va preview/report <= 3 s voi fixture acceptance; generate 1,000 Student <= 60 s va co progress Operation. Accessibility cho hai portal dat WCAG 2.1 AA; revoke/suspend co hieu luc request ke tiep va audit retention/backup/recovery SLA se duoc Architecture chot truoc production.
 
 ## 8. Thanh cong va counter-metrics
@@ -345,7 +349,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding va Payment instruction sn
 **Primary**
 - **SM-1:** 100% bo cross-tenant authorization test bat buoc pass truoc moi release. Validates FR-2, FR-3, FR-16.
 - **SM-2:** 100% CollectionRun generate co the reconciliation bang operation va khong tao Invoice trung trong integration test. Validates FR-8.
-- **SM-3:** 100% finance report fixture doi chieu dung gross, discount/refund, receipt, allocation, Prepayment va outstanding. Validates FR-10, FR-11.
+- **SM-3:** 100% finance report fixture doi chieu dung gross, discount/refund, receipt, allocation, prepaid-payment coverage va outstanding. Validates FR-10, FR-11.
 
 **Secondary**
 - **SM-4:** School Admin hoan tat setup SchoolYear, Class va StudentEnrollment cua fixture trong mot luong co audit. Validates FR-4 den FR-6.

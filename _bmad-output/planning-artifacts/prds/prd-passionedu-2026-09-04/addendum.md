@@ -36,7 +36,8 @@
 ## Verification matrix toi thieu
 
 - Integration PostgreSQL: tenant isolation tren read/write/delete/report, revoke, unique scoped va idempotency cross-school.
-- Finance: preview/generate idempotent, snapshot, exact settlement, explicit Receipt excess Prepayment, reversal/refund, debt transfer va year-end settlement. Fixture tu choi partial, unallocated va mixed-Student Receipt; fixture Prepayment chi ap dung Invoice cung Student, School va SchoolYear.
+- Finance: preview/generate idempotent, snapshot, `PrepaidPaymentPromotionProgram -> PREPAID CollectionRun -> exact-paid source Invoice -> StudentPromotionalCoverage`, reversal/refund, debt transfer va year-end settlement. Fixture tu choi partial, excess, unallocated va mixed-Student Receipt; khong co `StudentPrepayment` hoac generic balance. Coverage chi issue sau source Invoice `PAID`, cung Student, School va SchoolYear, va giu immutable fact/provenance snapshot.
+- Payroll: `Ke toan`/`Accountant` la persona cua active same-School `FINANCE_MANAGER`, khong phai preset role. Entitlement khong cap role/capability; route/job/action can capability rieng. Finance Manager prepare/reconcile/submit, School Admin khac UserIdentity approve/refuse va reopen unpaid approved run, Finance Manager co `PAYROLL_PAYOUT_CONFIRM` xac nhan payout sau approve.
 - E2E: chooser/switcher, pending owner bind Google, Teacher audience/Class assignment, Parent multi-school, Parent revoke/cache clear, leave/attendance/handover/journal permission states.
 - Compatibility: OAuth callback/cookie/origin boundaries theo portal; Parent bank enhancement chi phat hanh sau device/browser test matrix.
 - Payroll: fixture Excel anonymized doi soat input/component/output, denial School non-entitled, effective machine-code mapping, import dedupe, approved source lock, concurrent calculate/approve/payout va correction provenance.

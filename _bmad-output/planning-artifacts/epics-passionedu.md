@@ -53,9 +53,9 @@ FR-12: Parent gui leave request cho Student duoc uy quyen; Teacher co capability
 
 FR-13: Authorized Staff ghi handover picked-up time theo policy lam operational reference co audit, khong tu dong tao late-pickup fee hoac pickup authorization.
 
-FR-14: Platform Operations cap Payroll opt-in theo School; tai School enabled, Ke toan/School Admin quan ly employment terms, machine-code mapping, file-based timekeeping, reviewed workdays va late-care assignments co audit.
+FR-14: Platform Operations cap Payroll opt-in theo School; tai School enabled, `FINANCE_MANAGER` persona Ke toan va School Admin chi quan ly employment terms, machine-code mapping, file-based timekeeping, reviewed workdays va late-care assignments khi co capability rieng.
 
-FR-15: Ke toan tinh/reconcile Payroll versioned tu source snapshot/policy typed; School Admin duyet/reopen unpaid run va phe duyet correction sau payout. Payroll tach biet voi Student receivables, co payout/advance/thirteenth-month semantics rieng.
+FR-15: Finance Manager persona Ke toan prepare/materially edit/reconcile/submit Payroll versioned tu source snapshot/policy typed; School Admin co identity khong tham gia cac action do approve/refuse va reopen unpaid run; Finance Manager co capability rieng xac nhan payout. Payroll tach biet voi Student receivables, co payout/advance/thirteenth-month semantics rieng.
 
 FR-16: Parent dung portal multi-School de xem dung Student duoc active link uy quyen, attendance history DTO toi thieu, DailyJournal/media duoc cap quyen va in-app notification 30 ngay; revoke/session expiry xoa protected state va Parent khong mutate operational data.
 
@@ -221,7 +221,7 @@ Platform Operations chi cap Payroll theo School; School enabled co workforce ter
 
 ### Epic 9: Chấm công nhân sự và ca trông muộn
 
-Ke toan/School Admin upload va ra soat file may cham cong, chot ngay cong va xac nhan ca trong muon lam source fact cho Payroll, khong suy dien khoan tra them tu handover hay presence.
+Finance Manager persona Ke toan/School Admin co capability upload va ra soat file may cham cong, chot ngay cong va xac nhan ca trong muon lam source fact cho Payroll, khong suy dien khoan tra them tu handover hay presence.
 
 **FRs covered:** FR-14.
 
@@ -229,7 +229,7 @@ Ke toan/School Admin upload va ra soat file may cham cong, chot ngay cong va xac
 
 ### Epic 10: Payroll thường kỳ, phê duyệt và payout
 
-Ke toan tinh/reconcile Payroll versioned theo contract, policy va reviewed facts; School Admin duyet/reopen unpaid run va xac nhan payout co doi soat.
+Finance Manager persona Ke toan tinh/materially edit/reconcile/submit Payroll versioned theo contract, policy va reviewed facts; School Admin co identity khong tham gia cac action do approve/refuse/reopen unpaid run; Finance Manager xac nhan payout co doi soat.
 
 **FRs covered:** FR-15.
 
@@ -1413,7 +1413,7 @@ So that API tinh nhat quan ma khong cho phep cong thuc tuy y.
 
 ### Story 9.1: Mapping mã máy và import preview/commit
 
-As an Accountant,
+As a Finance Manager acting as Accountant,
 I want to upload va preview file CSV/XLSX may cham cong,
 So that toi resolve duoc ma may, loi dong va duplicate truoc khi raw event duoc dung.
 
@@ -1431,7 +1431,7 @@ So that toi resolve duoc ma may, loi dong va duplicate truoc khi raw event duoc 
 
 ### Story 9.2: Review ngày công và correction thủ công
 
-As an Accountant,
+As a Finance Manager acting as Accountant,
 I want to review ket qua ngay cong tu raw event va correction,
 So that Payroll dung source fact da kiem tra thay vi suy dien lai tu may.
 
@@ -1442,20 +1442,20 @@ So that Payroll dung source fact da kiem tra thay vi suy dien lai tu may.
 **Then** ket qua la `PRESENT`, `LATE`, `EARLY_LEAVE`, `PAID_LEAVE`, `UNPAID_LEAVE`, `ABSENT_UNEXCUSED` hoac `MANUAL`, giu policy/source facts
 **And** MVP chi materialize full workday, khong half-day/hourly.
 
-**Given** thieu/sai raw event
-**When** Accountant/Admin them StaffTimeCorrection hoac review outcome
+**Given** thieu/sai raw event va Finance Manager Accountant hoac School Admin co `TIMEKEEPING_REVIEW`
+**When** actor them StaffTimeCorrection hoac review outcome
 **Then** correction co reason/actor/audit va khong update raw event goc
 **And** approved Payroll source lock duoc enforce; correction muon phai di qua reopen/correction Payroll flow.
 
 ### Story 9.3: Xác nhận ca trông muộn
 
-As an Accountant or School Admin,
+As either a Finance Manager acting as Accountant or a School Admin,
 I want to xac nhan Staff theo ngay/ca trong muon,
 So that phu cap trông muộn co source ro rang de tinh luong.
 
 **Acceptance Criteria:**
 
-**Given** Payroll enabled School va late-care shift definition hop le
+**Given** Payroll enabled School, late-care shift definition hop le va mot Finance Manager Accountant hoac School Admin co `LATE_CARE_MANAGE`
 **When** actor tao/xac nhan LateCareShiftAssignment
 **Then** server validate Staff/School/date/shift, luu confirmation/audit va expose source fact cho Payroll snapshot
 **And** handover record, IN/OUT presence hoac checkout muon khong tu dong tao payable assignment.
@@ -1464,52 +1464,57 @@ So that phu cap trông muộn co source ro rang de tinh luong.
 
 ### Story 10.1: Calculate Payroll versioned từ snapshot
 
-As an Accountant,
+As a Finance Manager acting as Accountant,
 I want to calculate regular Payroll tu contract, reviewed workday va policy snapshot,
 So that tung component co the giai thich va doi soat voi Excel.
 
 **Acceptance Criteria:**
 
 **Given** Payroll enabled School, period va source facts hop le
-**When** Accountant calculate bang `Idempotency-Key`
+**When** Finance Manager co `PAYROLL_PREPARE` calculate bang `Idempotency-Key`
 **Then** server transactionally tao PayrollRunVersion va mot entry per eligible Staff, snapshot input/policy/calculator version/component VND
 **And** tinh base/probation salary, paid/unpaid leave, attendance bonus, fixed/late-care allowance, insurance, PIT, advance va manual adjustment theo typed policy.
 
 **Given** source/policy thay doi truoc approval
-**When** Accountant recalculate
+**When** Finance Manager co `PAYROLL_PREPARE` recalculate
 **Then** version draft moi thay the current draft ma khong overwrite version da co audit
 **And** browser khong set total, component hay net payable authority.
 
 ### Story 10.2: Reconcile, approve và reopen unpaid Payroll
 
-As an Accountant and School Admin,
+As a Finance Manager acting as Accountant and a separate School Admin,
 I want to reconcile va phe duyet Payroll theo separation of duties,
 So that bang luong chi khoa sau khi nguoi co tham quyen ra soat.
 
 **Acceptance Criteria:**
 
-**Given** PayrollRunVersion calculated
-**When** Accountant them override/adjustment
+**Given** PayrollRunVersion calculated va Finance Manager co `PAYROLL_RECONCILE`
+**When** actor them override/adjustment co ly do de reconcile
 **Then** component co reason/reference/audit va hien ro trong approval review
-**And** School Admin co `PAYROLL_APPROVE` la actor duy nhat co the approve current version.
+**And** submit current version chi duoc phep khi cung actor co `PAYROLL_PREPARE`; submit la idempotent Operation va chuyen version sang `SUBMITTED`.
+
+**Given** PayrollRunVersion `SUBMITTED`
+**When** School Admin co `PAYROLL_APPROVE` review de approve hoac refuse
+**Then** UserIdentity approver phai khac moi preparer/material editor va submitter; server tu choi cung identity ke ca khi actor co nhieu grant
+**And** submit/approve/refuse timeout phai reconcile Operation truoc retry; refusal giu submitted version bat bien va mo revision path co audit.
 
 **Given** approved version chua payout
-**When** School Admin reopen co reason
+**When** School Admin co `PAYROLL_REOPEN` reopen co reason
 **Then** approved version van immutable/audited, advance reservation duoc release va current draft version moi duoc tao
-**And** approval/reopen timeout phai reconcile Operation truoc retry.
+**And** reopen timeout phai reconcile Operation truoc retry.
 
 ### Story 10.3: Payroll payout và đối soát báo cáo
 
-As an authorized School operator,
+As a Finance Manager acting as Accountant,
 I want to confirm payout va xem report component/source,
 So that tien da chi va expected Excel result co the doi soat.
 
 **Acceptance Criteria:**
 
 **Given** approved Payroll entry
-**When** actor co `PAYROLL_PAYOUT_CONFIRM` record payout
+**When** Finance Manager co `PAYROLL_PAYOUT_CONFIRM` record payout sau approval
 **Then** server luu paid amount/date/method/reference/note idempotent va atomically giam reserved SalaryAdvance balance
-**And** paid version khong the reopen hoac mutate.
+**And** School Admin khong duoc xac nhan payout; paid version khong the reopen hoac mutate.
 
 **Given** Payroll fixture anonymized
 **When** report/reconciliation suite chay
@@ -1520,26 +1525,26 @@ So that tien da chi va expected Excel result co the doi soat.
 
 ### Story 11.1: Correction run cho Payroll đã chi
 
-As an Accountant and School Admin,
+As a Finance Manager acting as Accountant and a separate School Admin,
 I want to post correction delta cho Payroll da chi,
 So that sai sot duoc sua ngay ma khong rewrite lich su.
 
 **Acceptance Criteria:**
 
 **Given** Payroll version da `PAID`
-**When** Accountant tao correction voi source version, delta duong/am va reason
+**When** Finance Manager co `PAYROLL_PREPARE` tao va submit correction voi source version, delta duong/am va reason
 **Then** server tao correction run rieng, snapshot provenance va khong sua Payroll goc
-**And** School Admin approval va payout cua correction dung transaction/idempotency/audit nhu Payroll thuong.
+**And** School Admin co `PAYROLL_APPROVE` va identity khac moi preparer/material editor cung submitter approve/refuse; sau approve Finance Manager co `PAYROLL_PAYOUT_CONFIRM` xac nhan payout, dung transaction/idempotency/audit nhu Payroll thuong.
 
 ### Story 11.2: Kỳ lương tháng 13 riêng
 
-As an Accountant,
+As a Finance Manager acting as Accountant,
 I want to create `THIRTEENTH` Payroll period/run rieng,
 So that luong thang 13 khong lam sai lifecycle payroll thang 12.
 
 **Acceptance Criteria:**
 
 **Given** typed thirteenth-month policy effective
-**When** Accountant calculate period `THIRTEENTH`
+**When** Finance Manager co `PAYROLL_PREPARE` calculate period `THIRTEENTH`
 **Then** server dung fixed hoac eligible-month proportional rule duoc policy cho phep va snapshot input
 **And** approval/payout/correction workflow giong Payroll regular nhung khong duplicate hay mutate regular monthly period.

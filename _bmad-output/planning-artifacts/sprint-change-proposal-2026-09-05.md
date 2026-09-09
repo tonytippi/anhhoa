@@ -7,6 +7,8 @@ trigger: "Finance confirmed normal Invoice payment is all-or-nothing; new-Studen
 applied: 2026-09-07
 ---
 
+> **Historical only — superseded 2026-09-08.** Quyết định Receipt excess/Student Prepayment trong tài liệu này không phải build input. Contract hiện hành là `PrepaidPaymentPromotionProgram -> PREPAID CollectionRun -> exact-paid source Invoice -> StudentPromotionalCoverage`; partial, excess, unallocated và mixed-Student Receipt đều bị từ chối.
+
 # Sprint Change Proposal - Exact settlement and Student promotional coverage
 
 ## 1. Issue Summary

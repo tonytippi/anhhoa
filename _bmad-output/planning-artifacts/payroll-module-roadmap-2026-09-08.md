@@ -19,15 +19,15 @@ Define the proposed bounded contexts, ownership contracts, immutable payroll dat
 
 | Concern | Decision |
 | --- | --- |
-| Payroll actor | Accountant prepares/reconciles; School Admin gives final approval, reopens an approved unpaid run, and approves post-payment corrections. |
+| Payroll actor | “Accountant” is the user-facing persona of an active same-School `FINANCE_MANAGER`, not a preset role. Finance Manager prepares/materially edits/reconciles/submits; a School Admin identity that performed none of those actions approves/refuses and may reopen an approved unpaid run; Finance Manager confirms payout after approval. |
 | Tenant | Every payroll, workforce and timekeeping record, relation, audit and Operation is School-scoped. |
 | Availability | Payroll is an opt-in School capability. A server-side School feature entitlement and enablement state gates every payroll, workforce and timekeeping route, job and navigation destination; hiding a menu is never the gate. |
-| Time source | Accountant/Admin uploads a machine-export file. Direct device integration is deferred. |
+| Time source | Finance Manager Accountant/School Admin with the required timekeeping capability uploads a machine-export file. Direct device integration is deferred. |
 | Identifier | Source rows contain machine employee code and display name. A School-managed effective-dated mapping resolves the code to one Staff at a time; name is evidence only and never an authorization or identity key. |
 | Raw events | Imported IN/OUT events are append-only. Manual attendance changes are separate audited corrections, never overwrites. |
 | Work schedule | One common School work schedule in the MVP. Half-day and hourly work units are deferred. |
 | Workday result | Payroll consumes reviewed daily work records, not raw clock events. |
-| Late care | Accountant/Admin creates or confirms dated late-care shift assignments. Handover/clock presence may be shown for reconciliation but never automatically establishes a payable assignment. |
+| Late care | Finance Manager Accountant/School Admin with the required capability creates or confirms dated late-care shift assignments. Handover/clock presence may be shown for reconciliation but never automatically establishes a payable assignment. |
 | Contract values | Base salary and insurance contribution salary base are independent effective-dated values. |
 | Earnings | Base salary, probation salary, fixed allowances, attendance bonus, late-care allowance, manual adjustments and thirteenth-month pay. |
 | Deductions | Unpaid leave, salary advance, social/health/unemployment insurance, personal income tax, other manual deductions. |
@@ -152,7 +152,7 @@ stateDiagram-v2
 - File parsers are source-specific adapters behind a common import command. MVP supports explicitly documented CSV/XLSX templates, rather than attempting to infer any vendor spreadsheet.
 - Preview requires explicit mapping review. A source display name mismatch is visible, but a valid effective machine-code mapping is required before commit.
 - Imported rows that cannot be parsed, are ambiguous, or resolve to an inactive/mismatched Staff do not become usable time events.
-- Accountant/Admin can create manual corrections and review daily outcomes before payroll calculation.
+- Finance Manager Accountant or School Admin with the dedicated capability can create manual corrections and review daily outcomes before payroll calculation.
 - Draft batches may be discarded or replaced. Committed batches and corrections are retained; once referenced by an approved run they are locked for that run's historical calculation. A later correction leads to an explicit reopen or correction run.
 
 ## Payroll Calculation And Correction Workflow
@@ -162,18 +162,21 @@ stateDiagram-v2
   [*] --> DRAFT
   DRAFT --> CALCULATED: idempotent calculate
   CALCULATED --> DRAFT: reconcile inputs / recalculate
-  CALCULATED --> APPROVED: School Admin approval
+  CALCULATED --> SUBMITTED: Finance Manager submits
+  SUBMITTED --> APPROVED: different-identity School Admin approves
+  SUBMITTED --> REFUSED: different-identity School Admin refuses
+  REFUSED --> DRAFT: Finance Manager revises
   APPROVED --> DRAFT: audited reopen before payout
-  APPROVED --> PAID: payout recorded
+  APPROVED --> PAID: Finance Manager confirms payout
   PAID --> [*]
 ```
 
-- The Accountant creates a period/run, selects the valid policy/cutoff and calculates from a single transactional source snapshot.
+- A `FINANCE_MANAGER` acting as Accountant with `PAYROLL_PREPARE`/`PAYROLL_RECONCILE` creates a period/run, selects the valid policy/cutoff, calculates from a single transactional source snapshot and submits it.
 - Calculation creates a new `PayrollRunVersion`; it never overwrites a prior calculated version. A current draft version may be discarded/recalculated while source data remains flexible.
-- School Admin alone approves the current calculated version. Approval locks the version, its contracts, workday/late-care/advance facts and policy snapshot for historical use.
-- An approved but unpaid run may be reopened only by School Admin with a reason. Reopen makes a new draft version; it does not edit the approved version.
-- Once any payout is recorded, its version cannot reopen. An immediate error is handled by a separately versioned correction run that records positive or negative deltas, references the paid source version and follows Accountant -> School Admin approval again. The original run remains `PAID`.
-- High-impact mutations include import commit, calculate, approve, reopen, correction approval and payout confirmation. They require UUID `Idempotency-Key`, transaction, audit and `GET /operations/:operationId` reconciliation.
+- A `SCHOOL_ADMIN` with `PAYROLL_APPROVE` alone approves/refuses the current `SUBMITTED` version, and its resolved UserIdentity must differ from every preparer/material editor and the submitter. The server compares identity rather than role label or grant, so an actor with multiple grants cannot self-approve. Approval locks the version, its contracts, workday/late-care/advance facts and policy snapshot for historical use; refusal returns it through a new auditable revision path rather than mutating the submitted version.
+- An approved but unpaid run may be reopened only by School Admin with `PAYROLL_REOPEN` and a reason. Reopen makes a new draft version; it does not edit the approved version.
+- After approval, only a `FINANCE_MANAGER` with `PAYROLL_PAYOUT_CONFIRM` records payout; School Admin does not inherit this action. Once any payout is recorded, its version cannot reopen. An immediate error is handled by a separately versioned correction run that records positive or negative deltas, references the paid source version and follows Finance Manager submit -> different-identity School Admin approve/refuse -> Finance Manager payout confirmation again. The original run remains `PAID`.
+- High-impact mutations include import commit, calculate, submit, approve/refuse, reopen, correction submit/approval/refusal and payout confirmation. They require UUID `Idempotency-Key`, transaction, audit and `GET /operations/:operationId` reconciliation.
 
 ## Typed Policy Extension Strategy
 
@@ -204,15 +207,15 @@ PayrollPolicyVersion
 | Fixed allowance | Effective contract term snapshot. |
 | Late-care allowance | Confirmed assignment count/duration multiplied by configured typed rate. |
 | Insurance | Independent insurance salary base with configured policy rates/caps. |
-| PIT | Versioned configured brackets/reductions; Accountant compares the result with the existing Excel process and may add an audited adjustment. |
+| PIT | Versioned configured brackets/reductions; Finance Manager Accountant compares the result with the existing Excel process and may add an audited adjustment. |
 | Salary advance | Reserve `remainingAmount` in its selected period on approval, release it if that unpaid payroll reopens, then decrease the balance atomically on payout. |
-| Other adjustment/deduction | Accountant entry with mandatory reason and evidence/reference when applicable; School Admin sees it in approval review. |
+| Other adjustment/deduction | Finance Manager Accountant entry with mandatory reason and evidence/reference when applicable; School Admin sees it in approval review. |
 | Thirteenth-month pay | Separate `THIRTEENTH` period/run, using typed fixed or eligible-month proportional policy. |
 
 ## Authorization And Audit
 
 - Add dedicated capabilities. Suggested MVP: `WORKFORCE_MANAGE`, `TIMEKEEPING_IMPORT`, `TIMEKEEPING_REVIEW`, `LATE_CARE_MANAGE`, `PAYROLL_PREPARE`, `PAYROLL_RECONCILE`, `PAYROLL_APPROVE`, `PAYROLL_REOPEN`, `PAYROLL_PAYOUT_CONFIRM`, `PAYROLL_REPORT_READ`.
-- Map `PAYROLL_PREPARE`/`PAYROLL_RECONCILE` to Finance Manager/Accountant access and approval/reopen to School Admin. Capability resolution remains server-side per request; frontend navigation is only a projection.
+- “Accountant”/“Kế toán” is a persona label resolved from an active same-School `FINANCE_MANAGER` grant; do not add an `ACCOUNTANT` preset role. Map `PAYROLL_PREPARE`/`PAYROLL_RECONCILE` and `PAYROLL_PAYOUT_CONFIRM` to Finance Manager, and `PAYROLL_APPROVE`/`PAYROLL_REOPEN` to School Admin. Every action requires Payroll entitlement plus its capability, resolved server-side before aggregate lookup; frontend navigation is only a projection. Approval/refusal additionally requires an identity different from every preparer/material editor and the submitter.
 - Every mutation stores School, actor identity/membership, route/provenance, timestamp and mandatory reason for correction, override, reopen, discard after review and payout reversal/void.
 - Payroll API routes are Staff operational routes under `/schools/:schoolId/`; they use the existing origin validation, double-submit CSRF, tenant resolver and Operation contract.
 - Payroll DTOs never appear in Parent or Teacher portals. `app` is the only MVP audience.
@@ -277,8 +280,8 @@ The payroll work starts only after the target clean-break foundation has deliver
 
 - Add regular payroll periods, versioned runs and component snapshots.
 - Implement base/probation salary, paid/unpaid leave, attendance bonus, fixed allowance, late-care, insurance, PIT, other deductions and salary advances.
-- Add Accountant calculation/reconciliation/override flows and School Admin approval/reopen flows.
-- Add payout confirmation and reports/exports that reconcile each component to the source snapshot.
+- Add Finance Manager Accountant calculation/reconciliation/override/submit flows and different-identity School Admin approval/refusal/reopen flows.
+- Add Finance Manager-only payout confirmation (`PAYROLL_PAYOUT_CONFIRM`) and reports/exports that reconcile each component to the source snapshot.
 - Implement cross-tenant, idempotency, concurrency and Excel-fixture verification gates.
 
 **Exit criteria:** an accountant can reproduce approved baseline fixtures, explain every component/source, and safely reconcile a timeout without duplicate calculation, approval or payout.
@@ -310,7 +313,7 @@ The payroll work starts only after the target clean-break foundation has deliver
 | --- | --- | --- |
 | E8 Workforce and payroll policy foundation | E1, E2, E3 | Employment contracts, compensation/insurance bases, fixed allowances, typed payroll policy and capabilities. |
 | E9 Staff timekeeping and late-care facts | E8 | Machine-code mapping, XLSX/CSV preview/commit, raw events, corrections, common schedule, workday records and late-care assignments. |
-| E10 Regular payroll and payout | E8, E9 | Period/run/version lifecycle, salary components, advances, Accountant reconciliation, School Admin approval/reopen, payout and reports. |
+| E10 Regular payroll and payout | E8, E9 | Period/run/version lifecycle, salary components, advances, Finance Manager Accountant reconciliation/submit/payout confirmation, different-identity School Admin approval/refusal/reopen, and reports. |
 | E11 Payroll corrections and thirteenth-month pay | E10 | Paid-period correction delta, thirteenth-month run and close/reconciliation controls. |
 | E12 Payroll extensions | E11 | Headcount rule, advanced schedules/integration/compliance features only after separate approved contracts. |
 
