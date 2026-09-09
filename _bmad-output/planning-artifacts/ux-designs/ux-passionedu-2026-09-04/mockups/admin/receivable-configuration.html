@@ -15,7 +15,7 @@
         <div class="route-head">
           <div>
             <h1>Khoản thu</h1>
-            <p class="muted">Quản lý khoản thu theo nhóm và đơn giá áp dụng.</p>
+            <p class="muted">Danh mục và các vùng cấu hình tài chính cho kỳ mới.</p>
           </div>
           <div>
             <a class="button secondary" href="invoice-generation.html">Tạo đợt thu tháng 09/2026</a>
@@ -27,7 +27,7 @@
 
       <section>
         <div class="route-head">
-          <div><h2>Danh sách khoản thu</h2><p class="muted">3 khoản thu · 3 nhóm</p></div>
+          <div><h2>Khoản thu</h2><p class="muted">Danh mục 3 khoản thu · 3 nhóm</p></div>
           <span class="badge neutral">3 kết quả</span>
         </div>
         <form class="filters" data-static-filter aria-label="Tìm và lọc khoản thu">
@@ -97,19 +97,37 @@
       </section>
 
       <section>
-        <div class="route-head"><div><h2>Quy tắc tính phí</h2><p class="muted">Chi tiết theo từng khoản thu.</p></div><button class="button secondary" type="button" data-idempotent-action data-action-title="Thêm quy tắc" data-action-label="Lưu quy tắc" data-action-consequence="Máy chủ kiểm tra dữ liệu trước khi lưu. Nếu quá thời gian chờ, kiểm tra mã thao tác trước khi gửi lại.">Thêm quy tắc</button></div>
+        <div class="route-head"><div><h2>Phạm vi áp dụng</h2><p class="muted">Quy tắc theo từng khoản thu, do hệ thống áp dụng cho kỳ mới.</p></div><button class="button secondary" type="button" data-idempotent-action data-action-title="Thêm quy tắc" data-action-label="Lưu quy tắc" data-action-consequence="Máy chủ kiểm tra dữ liệu trước khi lưu. Nếu quá thời gian chờ, kiểm tra mã thao tác trước khi gửi lại.">Thêm quy tắc</button></div>
         <details class="card" id="rules-tuition" open>
           <summary><b>Học phí tháng · 3 quy tắc</b></summary>
-          <div class="table-wrap"><table><caption>Quy tắc học phí tháng</caption><thead><tr><th scope="col">Phạm vi</th><th scope="col">Ưu tiên</th><th scope="col">Hiệu lực</th><th class="money" scope="col">Đơn giá</th><th scope="col">Giảm giá</th><th scope="col">Cập nhật</th></tr></thead><tbody>
-            <tr><td>Bé An</td><td>1</td><td>01/09 - 30/11/2026</td><td class="money">1.500.000 đ</td><td>Không có</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
-            <tr><td>Lớp Mầm 3-4 tuổi</td><td>2</td><td>01/09 - 31/12/2026</td><td class="money">1.500.000 đ</td><td>Giảm 100.000 đ</td><td>Minh Trần · 03/09/2026</td></tr>
-            <tr><td>Toàn trường</td><td>3</td><td>01/09 - 31/12/2026</td><td class="money">1.500.000 đ</td><td>Không có</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
+          <div class="table-wrap"><table><caption>Quy tắc học phí tháng</caption><thead><tr><th scope="col">Phạm vi</th><th scope="col">Thứ tự áp dụng</th><th scope="col">Hiệu lực</th><th class="money" scope="col">Đơn giá</th><th scope="col">Giảm giá</th><th scope="col">Cập nhật</th></tr></thead><tbody>
+            <tr><td>Học sinh · Bé An</td><td>Học sinh</td><td>01/09 - 30/11/2026</td><td class="money">1.500.000 đ</td><td>Không có</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
+            <tr><td>Lớp · Mầm 3-4 tuổi</td><td>Lớp</td><td>01/09 - 31/12/2026</td><td class="money">1.500.000 đ</td><td>Giảm 100.000 đ</td><td>Minh Trần · 03/09/2026</td></tr>
+            <tr><td>Toàn trường</td><td>Trường</td><td>01/09 - 31/12/2026</td><td class="money">1.500.000 đ</td><td>Không có</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
           </tbody></table></div>
-          <p class="notice warning">Quy tắc mới chỉ áp dụng cho kỳ mới. Hóa đơn đã phát hành không thay đổi.</p>
+          <p class="notice warning">Thứ tự áp dụng: Học sinh &gt; Lớp &gt; Trường. Hệ thống từ chối quy tắc xung đột cùng phạm vi; hóa đơn đã phát hành không thay đổi.</p>
           <details><summary>Thông tin đối soát</summary><p>Mã học sinh: AH-129</p></details>
         </details>
         <details class="card" id="rules-meal"><summary><b>Tiền ăn tháng · 1 quy tắc</b></summary><p>Lớp Mầm 3-4 tuổi · Ưu tiên 2 · 01/09 - 30/09/2026 · <span class="money">600.000 đ</span></p></details>
         <details class="card" id="rules-club"><summary><b>Câu lạc bộ cuối tuần · Quy tắc cũ</b></summary><p>Toàn trường · Ưu tiên 3 · Kết thúc 31/05/2026 · <span class="money">400.000 đ</span></p></details>
+      </section>
+
+      <section id="late-pickup">
+        <p class="eyebrow">CHÍNH SÁCH VẬN HÀNH</p>
+        <div class="route-head"><div><h2>Phí đón muộn</h2><p class="muted">Bảng block do hệ thống dùng với thời điểm trả trẻ đã xác nhận.</p></div><a class="button secondary" href="late-pickup-statistics.html">Xem thống kê đón muộn</a></div>
+        <div class="table-wrap"><table><caption>Block phí đón muộn đang hiệu lực</caption><thead><tr><th scope="col">Bắt đầu</th><th scope="col">Kết thúc</th><th class="money" scope="col">Giá / block</th><th scope="col">Hiệu lực</th><th scope="col">Cập nhật</th></tr></thead><tbody>
+          <tr><td>17:38</td><td>18:00</td><td class="money">20.000 đ</td><td>01/09/2026 - 31/12/2026</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
+          <tr><td>18:05</td><td>18:30</td><td class="money">40.000 đ</td><td>01/09/2026 - 31/12/2026</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
+          <tr><td>18:30</td><td>19:00</td><td class="money">200.000 đ</td><td>01/09/2026 - 31/12/2026</td><td>Hoa Nguyễn · 03/09/2026</td></tr>
+        </tbody></table></div>
+        <p class="notice info">Một block được đạt khi thời điểm trả trẻ bằng hoặc sau giờ bắt đầu của block; giờ kết thúc không kích hoạt block kế. Hệ thống cộng giá các block đã đạt, snapshot policy/block/thời điểm trả trẻ khi materialize khoản phí. Trình duyệt không tự tính, làm tròn hoặc sửa hóa đơn đã phát hành.</p>
+        <details class="card"><summary><b>Nguồn và ranh giới</b></summary><p>Thời điểm trả trẻ đã xác nhận là source fact của hệ thống. Khoảng trống không sinh block mới; sau materialization, sửa thời điểm trả trẻ không tự điều chỉnh hoặc hoàn tiền.</p></details>
+      </section>
+
+      <section id="late-payment">
+        <p class="eyebrow">THEO DÕI CÔNG NỢ</p>
+        <div class="route-head"><div><h2>Phí nộp tiền muộn</h2><p class="muted">Chưa cấu hình cho release này.</p></div></div>
+        <div class="notice warning">Chưa có chính sách phí nộp tiền muộn. Hạn thu và công nợ tiếp tục theo chính sách tài chính và bản chụp của đợt thu hiện có.</div>
       </section>
 
       <section>

@@ -15,7 +15,8 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 | Liên kết Phụ huynh | `admin/roster/student-parent-links.html` | Hồ sơ/lời mời tách liên kết với học sinh; trạng thái quyền chỉ theo kết quả hệ thống và thu hồi có đối soát. |
 | Nhân sự và phân công | `admin/roster/staff-assignments.html` | Hồ sơ, quyền truy cập và phân công hiệu lực tách biệt; không ngụ ý đăng nhập hay năng lực thao tác. |
 | Chuyển danh bộ | `admin/roster/roster-transition.html` | Xem trước từ hệ thống, bản ghi không chuyển không có thao tác, xác nhận có tên và đối soát kết quả. |
-| Cấu hình khoản thu | `admin/receivable-configuration.html` | Catalog theo bảng, nhóm, tìm/lọc/sắp xếp, phân trang, đơn giá VND, hiệu lực, trạng thái và tùy chọn ngắn. Quy tắc, lịch sử và thông tin đối soát chỉ đọc nằm trong disclosure; chương trình nộp trước tách khỏi catalog và chỉ quản trị viên trường mới có điểm vào tạo nguồn. |
+| Cấu hình khoản thu | `admin/receivable-configuration.html` | Bốn vùng: Khoản thu catalog, Phạm vi áp dụng, Phí đón muộn và Phí nộp tiền muộn. Catalog giữ bảng, nhóm, tìm/lọc/sắp xếp, phân trang, đơn giá VND, hiệu lực và trạng thái; nộp trước là vùng riêng, chỉ School Admin có điểm vào tạo nguồn. Phí đón muộn chỉ hiển thị policy/block do hệ thống tính từ thời điểm trả trẻ; phí nộp tiền muộn minh bạch là deferred. |
+| Thống kê đón muộn | `admin/late-pickup-statistics.html` | Finance lọc đợt thu hoặc khoảng ngày, tìm học sinh và xem ma trận học sinh-ngày fixture từ hệ thống: giờ trả trẻ, block/VND materialized, tổng block và tổng phí. Export chỉ là bản mẫu; trình duyệt không tính lại. |
 | Tạo hóa đơn | `admin/invoice-generation.html` | Luồng tạo đợt thu theo bảng: xem trước, khoản thu, nợ cũ, lý do bỏ qua, tổng VND và tạo hóa đơn nháp. Luồng nộp trước riêng cho quản trị viên trường, nêu rõ chỉ có quyền miễn thu sau khi thanh toán đủ; mã đối soát chỉ nằm trong disclosure. |
 | Rà soát hóa đơn | `admin/invoice-detail-review.html` | Hóa đơn nháp có dòng tiền, điều chỉnh, tài khoản nhận tiền và phát hành; hóa đơn đã phát hành là chỉ đọc. Nộp trước nêu thanh toán đủ cho đúng một học sinh, thông tin đã chốt và rà soát khi hoàn tiền; mã đối soát chỉ nằm trong disclosure. |
 | Thiết lập Payroll | `admin/payroll-overview.html` | Payroll entitlement không tự cấp quyền; Kế toán là persona Finance Manager, School Admin khác người gửi phê duyệt và Finance Manager xác nhận chi. |
@@ -32,7 +33,7 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 - Đối soát thao tác sau khi hết thời gian chờ; không gửi lại yêu cầu khi chưa xác định kết quả.
 - Xem trước do máy chủ quyết định, khóa vòng đời, kết quả bỏ qua và số tiền tài chính.
 - Xung đột trường dữ liệu/chính sách, trạng thái quyền truy cập an toàn khi thu hồi và tối thiểu hóa dữ liệu phụ huynh.
-- Bằng chứng điểm danh bắt buộc, xung đột đơn nghỉ và không tự động tính phí đón muộn.
+- Phí đón muộn dùng policy typed/versioned, thời điểm trả trẻ đã xác nhận và materialization/snapshot do hệ thống; không có browser calculation. Phí nộp tiền muộn vẫn deferred, không giả định rate hay CTA.
 - Teacher là cổng duy nhất ghi nhận điểm danh theo School/Class/date có binding, capability và assignment hiệu lực; Admin chỉ cấu hình policy điểm danh typed/versioned tại Cấu hình trường, không có danh sách, route hay mutation điểm danh.
 - DailyJournal là current version theo Student/date; phụ huynh chỉ xem nội dung/ảnh được server xác nhận, không xem attendance evidence, danh tính Teacher hay audit/version history.
 - Danh sách nhận xét Teacher chỉ đổi từ `Chưa có nhận xét` sang `Đã có nhận xét` sau kết quả terminal; khi đang đối soát, list giữ nguyên và không cho gửi lại.

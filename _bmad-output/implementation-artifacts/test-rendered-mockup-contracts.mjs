@@ -3,10 +3,11 @@ import { readFile, readdir } from 'node:fs/promises';
 
 const mockups = new URL('../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/', import.meta.url);
 const read = path => readFile(new URL(path, mockups), 'utf8');
-const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation] = await Promise.all([
+const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, latePickup] = await Promise.all([
   read('prototype.css'), read('admin/admin-shell.js'), read('prototype.js'), read('parent/parent.html'),
   read('admin/payroll-timekeeping-import.html'), read('admin/payroll-run-review.html'),
-  read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html')
+  read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'),
+  read('admin/receivable-configuration.html'), read('admin/late-pickup-statistics.html')
 ]);
 
 // Admin mobile: viewport containment, scroll-owned tables, accessible sheet and focus return.
@@ -64,4 +65,26 @@ assert.match(prototype, /delete issueButton\.dataset\.idempotentAction/);
 assert.match(generation, /badge success">Sẵn sàng/);
 assert.match(generation, /Tạo 124 hóa đơn nháp/);
 
-console.log('Rendered mockup contract checks passed (8 matrix scenarios).');
+// Receivable configuration keeps catalog and prepaid separate from server-owned late-pickup policy.
+for (const heading of ['Khoản thu', 'Phạm vi áp dụng', 'Phí đón muộn', 'Phí nộp tiền muộn']) assert.match(receivables, new RegExp(`<h2>${heading}</h2>`));
+assert.match(receivables, /Học sinh &gt; Lớp &gt; Trường/);
+assert.match(receivables, /Hệ thống từ chối quy tắc xung đột cùng phạm vi/);
+assert.match(receivables, /17:38/);
+assert.match(receivables, /bằng hoặc sau giờ bắt đầu của block; giờ kết thúc không kích hoạt block kế/);
+assert.match(receivables, /Trình duyệt không tự tính, làm tròn hoặc sửa hóa đơn đã phát hành/);
+assert.match(receivables, /Chưa có chính sách phí nộp tiền muộn/);
+assert.match(receivables, /<h2>Chương trình nộp trước<\/h2>/);
+assert.match(receivables, /href="late-pickup-statistics.html"/);
+assert.match(latePickup, /<h1>Thống kê đón muộn<\/h1>/);
+assert.match(latePickup, /Ma trận học sinh - ngày/);
+assert.match(latePickup, /18:00<\/b><br><span class="muted">1 block<\/span><br><span class="money">20\.000 đ/);
+assert.match(latePickup, /18:04<\/b><br><span class="muted">1 block<\/span><br><span class="money">20\.000 đ/);
+assert.match(latePickup, /18:35/);
+assert.match(latePickup, /260\.000 đ/);
+assert.match(latePickup, /<b>280\.000 đ<\/b>/);
+assert.match(latePickup, /Bản mẫu không tự tính phí/);
+for (const day of ['05/09', '06/09', '07/09', '08/09', '09/09']) assert.match(latePickup, new RegExp(`<th scope="col">${day}</th>`));
+assert.match(latePickup, /Xuất dữ liệu chưa được mô phỏng trong release này/);
+assert.match(prototype, /form\.hasAttribute\('data-static-filter'\)/);
+
+console.log('Rendered mockup contract checks passed (late-pickup configuration included).');

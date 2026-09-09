@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PassionEdu · Thống kê đón muộn</title>
+    <link rel="stylesheet" href="../prototype.css">
+    <script defer src="admin-shell.js"></script>
+    <script src="../prototype.js" defer></script>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="receivables">
+      <section>
+        <p class="eyebrow">TÀI CHÍNH · ÁNH HOA · NĂM HỌC 2026-2027</p>
+        <div class="route-head">
+          <div><h1>Thống kê đón muộn</h1><p class="muted">Đối chiếu thời điểm trả trẻ và khoản phí đã được hệ thống ghi nhận.</p></div>
+          <a class="button secondary" href="receivable-configuration.html#late-pickup">Quay lại Phí đón muộn</a>
+        </div>
+        <div class="notice info">Dữ liệu do hệ thống trả về lúc 09:15, 10/09/2026. Bản mẫu không tự tính phí.</div>
+      </section>
+      <section>
+        <form class="filters" data-static-filter aria-label="Lọc thống kê đón muộn">
+          <label class="filter">Đợt thu<select name="collection-run" aria-label="Chọn đợt thu"><option>Tất cả đợt thu</option><option>Đợt thu tháng 09/2026</option></select></label>
+          <label class="filter">Từ ngày<input name="from-date" type="date" value="2026-09-01"></label>
+          <label class="filter">Đến ngày<input name="to-date" type="date" value="2026-09-09"></label>
+          <label class="filter">Tìm học sinh<input name="student-query" type="search" placeholder="Tên hoặc mã học sinh"></label>
+          <button class="button secondary" type="submit">Áp dụng bộ lọc</button>
+          <button class="button secondary" type="button" disabled aria-describedby="export-mock-notice">Xuất bản mẫu</button>
+        </form>
+        <p class="muted" id="export-mock-notice">Xuất dữ liệu chưa được mô phỏng trong release này.</p>
+        <p class="muted" data-filter-feedback role="status" aria-live="polite">Đang hiển thị 3 học sinh trong fixture do hệ thống trả về. Đợt thu và khoảng ngày phải được máy chủ đối chiếu trước khi trả kết quả.</p>
+      </section>
+      <section>
+        <div class="route-head"><div><h2>Ma trận học sinh - ngày</h2><p class="muted">Ô có phát sinh hiển thị giờ trả trẻ, số block và VND đã materialize.</p></div><span class="badge neutral">3 học sinh</span></div>
+        <div class="table-wrap"><table><caption>Thống kê đón muộn từ 01/09 đến 09/09/2026</caption><thead><tr><th scope="col">Học sinh</th><th scope="col">Lớp / khối</th><th scope="col">01/09</th><th scope="col">02/09</th><th scope="col">03/09</th><th scope="col">04/09</th><th scope="col">05/09</th><th scope="col">06/09</th><th scope="col">07/09</th><th scope="col">08/09</th><th scope="col">09/09</th><th scope="col">Tổng block</th><th class="money" scope="col">Tổng phí</th></tr></thead><tbody>
+          <tr><th scope="row">Bé An<br><span class="muted">AH-129</span></th><td>Mầm 3-4 tuổi · Mầm</td><td><b>18:35</b><br><span class="muted">3 block</span><br><span class="money">260.000 đ</span></td><td aria-label="Không phát sinh"></td><td><b>18:00</b><br><span class="muted">1 block</span><br><span class="money">20.000 đ</span></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td>4</td><td class="money"><b>280.000 đ</b></td></tr>
+          <tr><th scope="row">Bé Lan<br><span class="muted">AH-143</span></th><td>Chồi 4-5 tuổi · Chồi</td><td aria-label="Không phát sinh"></td><td><b>18:04</b><br><span class="muted">1 block</span><br><span class="money">20.000 đ</span></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td>1</td><td class="money"><b>20.000 đ</b></td></tr>
+          <tr><th scope="row">Bé Minh<br><span class="muted">AH-151</span></th><td>Lá 5-6 tuổi · Lá</td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td aria-label="Không phát sinh"></td><td>0</td><td class="money"><b>0 đ</b></td></tr>
+        </tbody></table></div>
+        <nav aria-label="Phân trang thống kê đón muộn"><p>Hiển thị 1-3 trên 3 · <button class="button secondary" type="button" disabled>Trước</button> <button class="button secondary" type="button" disabled>Sau</button></p></nav>
+        <details class="card"><summary><b>Trạng thái khác</b></summary><p><b>Đang tải:</b> Đang tải thống kê đón muộn.</p><p><b>Không có dữ liệu:</b> Không có dữ liệu đón muộn trong khoảng đã chọn.</p><p><b>Lỗi tải dữ liệu:</b> Không thể tải thống kê. Thử lại.</p><p><b>Không có quyền:</b> Bạn không có quyền xem thống kê của trường này.</p></details>
+      </section>
+    </div>
+  </body>
+</html>

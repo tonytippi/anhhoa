@@ -455,6 +455,11 @@ function bindMockActions() {
       renderSettings();
       return;
     }
+    if (form.hasAttribute('data-static-filter')) {
+      const feedback = $('[data-filter-feedback]', form.parentElement);
+      if (feedback) feedback.textContent = 'Bộ lọc đã được gửi để hệ thống trả fixture phù hợp; bản mẫu không thay đổi dữ liệu cục bộ.';
+      return;
+    }
     const route = form.dataset.queueFilter;
     const params = new URLSearchParams(new FormData(form));
     window.location.hash = `${route}?${params.toString()}`;
