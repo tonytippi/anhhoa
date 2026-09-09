@@ -146,7 +146,7 @@ function showIdempotentConfirmation(button) {
 }
 
 function showSchoolContextGuard(button) {
-  const hasDirtyDraft = $$('[data-mock-form]').some(form => form.dataset.dirty === 'true');
+  const hasDirtyDraft = $$('[data-mock-form], [data-mock-receipt], #bank-account').some(control => control.dataset.dirty === 'true');
   if (knownOperation) { reconcileOperation(button); return; }
   const detail = hasDirtyDraft
     ? '<p>Biểu mẫu chưa gửi có thay đổi. Chỉ nội dung chưa gửi mới có thể bỏ.</p>'
@@ -157,7 +157,27 @@ function showSchoolContextGuard(button) {
       form.reset();
       delete form.dataset.dirty;
     });
-    $('.dialog', node).innerHTML = '<h2 id="dialog-title">Sẵn sàng đổi trường</h2><p>Nội dung chưa gửi đã được bỏ trong mô phỏng. Chưa điều hướng hoặc thay đổi dữ liệu miền.</p><div class="dialog-actions"><button class="button" data-close>Đã hiểu</button></div>';
+    $$('[data-mock-receipt]').forEach(form => form.reset());
+    const oldBankAccount = $('#bank-account');
+    if (oldBankAccount) { oldBankAccount.value = ''; delete oldBankAccount.dataset.dirty; }
+    const parentShell = $('.mobile-shell');
+    const adminWorkspace = $('.workspace');
+    if (parentShell) {
+      $$(':scope > :not(header)', parentShell).forEach(section => section.remove());
+      const safe = document.createElement('main');
+      safe.id = 'home'; safe.dataset.parentRoute = '';
+      safe.innerHTML = '<section class="empty"><h1 tabindex="-1">Mầm non Bình Minh</h1><p>Chưa có nội dung học sinh trong ngữ cảnh trường này.</p></section>';
+      parentShell.append(safe);
+    }
+    if (adminWorkspace) {
+      $$(':scope > :not(header)', adminWorkspace).forEach(section => section.remove());
+      const safe = document.createElement('section');
+      safe.className = 'empty'; safe.innerHTML = '<h1 tabindex="-1">Mầm non Bình Minh · Năm học 2026-2027</h1><p>Ngữ cảnh cũ đã được xóa. Chọn một nghiệp vụ để tải dữ liệu được cấp quyền của trường mới.</p>';
+      adminWorkspace.append(safe);
+    }
+    $$('[data-school-context]').forEach(context => { context.textContent = 'Mầm non Bình Minh · Năm học 2026-2027 ▾'; });
+    window.location.hash = parentShell ? '#home' : '#overview';
+    $('.dialog', node).innerHTML = '<h2 id="dialog-title">Đã đổi trường</h2><p>Đã bỏ nội dung chưa gửi, xóa ngữ cảnh cũ và tải Mầm non Bình Minh · Năm học 2026-2027.</p><div class="dialog-actions"><button class="button" data-close>Đã hiểu</button></div>';
     $('[data-close]', node).addEventListener('click', node.closeDialog);
     $('[data-close]', node).focus();
   });
@@ -329,9 +349,39 @@ function focusRoute() {
   }
   const route = window.location.hash || '#overview';
   const state = queueState(route);
-  if ($('[data-admin-shell]') && !['overview', 'leave', 'handover'].includes(state.name)) {
+  const invoiceRoutes = $$('[data-invoice-state]');
+  if (invoiceRoutes.length) {
+    const invoiceState = ['draft', 'receipt', 'issued'].includes(state.name) ? state.name : 'draft';
+    invoiceRoutes.forEach(section => { section.hidden = section.dataset.invoiceState !== invoiceState; });
+    const activeInvoice = invoiceRoutes.find(section => !section.hidden);
+    const heading = $('h1', activeInvoice) || $('h2', activeInvoice);
+    heading?.setAttribute('tabindex', '-1');
+    heading?.focus();
+    return;
+  }
+  if ($('[data-admin-shell][data-admin-route="overview"]') && !['overview', 'leave', 'handover'].includes(state.name)) {
     window.location.hash = '#overview';
     return;
+  }
+  const localRoute = document.getElementById(state.name);
+  if (localRoute && localRoute.matches('[data-parent-route], [data-invoice-state], .route-state')) {
+    const routeGroup = localRoute.matches('[data-parent-route]') ? '[data-parent-route]' : localRoute.matches('[data-invoice-state]') ? '[data-invoice-state]' : '.route-state';
+    $$(routeGroup).forEach(section => { section.hidden = section !== localRoute; });
+    const heading = $('h1', localRoute) || $('h2', localRoute);
+    heading?.setAttribute('tabindex', '-1');
+    heading?.focus();
+    $$('.bottom-nav a').forEach(link => link.classList.toggle('active', link.getAttribute('href') === `#${state.name}`));
+    return;
+  }
+  if ($('[data-parent-route]')) {
+    window.location.hash = '#home';
+    return;
+  }
+  const payrollDetails = $$('.payroll-detail');
+  if (payrollDetails.length) {
+    payrollDetails.forEach(section => { section.hidden = section.id !== state.name; });
+    const selected = payrollDetails.find(section => !section.hidden);
+    if (selected) { $('h2', selected)?.focus(); return; }
   }
   renderQueue(route);
   renderRoster();
@@ -383,7 +433,11 @@ function bindMockActions() {
       submit.addEventListener('click', () => showOperation('Đã gửi ghi nhận điểm danh', button, node));
       return;
     }
-    if (button.hasAttribute('data-idempotent-action')) { showIdempotentConfirmation(button); return; }
+    if (button.hasAttribute('data-idempotent-action')) {
+      const receipt = button.closest('[data-mock-receipt]');
+      if (receipt && !receipt.reportValidity()) return;
+      showIdempotentConfirmation(button); return;
+    }
   });
   $$('.filters').forEach(form => form.addEventListener('submit', event => {
     event.preventDefault();
@@ -418,6 +472,36 @@ function bindMockActions() {
     renderSettings();
   }));
   $$('[data-journal-search], [data-journal-filter]').forEach(control => control.addEventListener(control.matches('select') ? 'change' : 'input', renderTeacherJournals));
+  const bankAccount = $('#bank-account');
+  const issueButton = $('[aria-describedby="bank-account-required"]');
+  if (bankAccount && issueButton) bankAccount.addEventListener('change', () => {
+    issueButton.disabled = !bankAccount.value;
+    if (!bankAccount.value) {
+      delete issueButton.dataset.idempotentAction; delete issueButton.dataset.actionTitle; delete issueButton.dataset.actionLabel; delete issueButton.dataset.actionConsequence;
+      return;
+    }
+    issueButton.dataset.idempotentAction = '';
+    issueButton.dataset.actionTitle = 'Phát hành hóa đơn';
+    issueButton.dataset.actionLabel = 'Gửi phát hành';
+    issueButton.dataset.actionConsequence = 'Hệ thống phát hành hóa đơn 2.100.000 đ với tài khoản đang chọn. Nếu quá thời gian chờ, hãy kiểm tra kết quả trước khi gửi lại.';
+  });
+  $$('[data-fixture-complete]').forEach(button => button.addEventListener('click', () => {
+    const target = $(button.dataset.fixtureComplete);
+    if (target) {
+      target.disabled = false; target.removeAttribute('aria-describedby');
+      if (button.dataset.fixtureComplete.includes('calculate-blocked')) target.addEventListener('click', () => { window.location.href = 'payroll-run-review.html'; }, { once: true });
+      else {
+        target.dataset.idempotentAction = ''; target.dataset.actionTitle = 'Gửi bảng lương để phê duyệt'; target.dataset.actionLabel = 'Gửi School Admin'; target.dataset.actionConsequence = 'Hệ thống gửi bảng lương tháng 09/2026 sau khi tất cả đối soát hoàn tất.';
+      }
+    }
+    button.disabled = true;
+    const count = $(button.dataset.fixtureCount);
+    if (count) count.textContent = 'Đã xử lý hết; thao tác tiếp theo đã mở.';
+  }));
+  $$('[data-mock-receipt] :is(input,select), #bank-account').forEach(control => control.addEventListener('input', () => {
+    const owner = control.closest('[data-mock-receipt]') || control;
+    owner.dataset.dirty = 'true';
+  }));
   $$('[data-journal-reset]').forEach(button => button.addEventListener('click', () => {
     const section = button.closest('[data-journal-list]');
     $('[data-journal-search]', section).value = '';

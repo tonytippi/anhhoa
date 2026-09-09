@@ -12,14 +12,14 @@
       <header class="parent-top">
         <button
           class="context"
-          data-confirm="Đổi trường|Nội dung của Ánh Hoa sẽ được xóa trước khi tải trường khác."
+          data-school-context="clean"
         >
           Ánh Hoa ▾</button
         ><a class="icon-button" href="#inbox" aria-label="2 thông báo chưa đọc"
           >Thông báo <sup>2</sup></a
         >
       </header>
-      <main id="home">
+      <main id="home" data-parent-route>
         <section class="parent-hero">
           <p class="eyebrow">THỨ BẢY, 05 THÁNG 09</p>
           <h1>Chào Mai</h1>
@@ -30,12 +30,12 @@
             <h2 id="today">Hôm nay</h2>
             <span class="muted">Ánh Hoa</span>
           </div>
-          <a class="parent-card-button today-card" href="#child"
+          <a class="parent-card-button today-card" href="#child-an"
             ><strong>Bé An</strong
             ><span class="muted">Hôm nay · cập nhật 08:12</span>
             <p><span class="badge success">Đã ghi nhận có mặt</span></p>
             <span class="muted">Xem lịch sử và xin nghỉ →</span></a
-          ><a class="parent-card-button today-card" href="#child"
+          ><a class="parent-card-button today-card" href="#child-minh"
             ><strong>Bé Minh</strong><span class="muted">Hôm nay</span>
             <p><span class="badge neutral">Trường chưa ghi nhận</span></p>
             <span class="muted">Xem lịch sử và xin nghỉ →</span></a
@@ -55,7 +55,7 @@
         </section>
       </main>
 
-      <section id="child">
+      <section id="child-an" data-parent-route hidden>
         <div class="parent-section-head">
           <a href="#home">‹ Trang chủ</a><span class="muted">Ánh Hoa</span>
         </div>
@@ -118,7 +118,15 @@
         </div>
       </section>
 
-      <section id="payment">
+      <section id="child-minh" data-parent-route hidden>
+        <div class="parent-section-head"><a href="#home">‹ Trang chủ</a><span class="muted">Ánh Hoa</span></div>
+        <h1>Bé Minh</h1>
+        <p class="muted">Lịch sử điểm danh theo ngày</p>
+        <div class="card"><div class="history-row"><div><b>Hôm nay, 05/09</b><br><span class="muted">Ngày học bình thường</span></div><span class="badge neutral">Trường chưa ghi nhận</span></div><div class="history-row"><div><b>Thứ sáu, 04/09</b><br><span class="muted">Cập nhật 09:00</span></div><span class="badge success">Đã ghi nhận có mặt</span></div></div>
+        <div class="parent-section-head"><h2>Đơn xin nghỉ</h2><button class="button" data-confirm="Tạo đơn xin nghỉ|Bạn chỉ có thể gửi đơn cho Bé Minh và ngày hợp lệ.">Tạo đơn</button></div>
+      </section>
+
+      <section id="payment" data-parent-route hidden>
         <div class="parent-section-head">
           <a href="#home">‹ Trang chủ</a><span class="muted">Bé An</span>
         </div>
@@ -175,18 +183,18 @@
         </article>
       </section>
 
-      <section id="inbox">
+      <section id="inbox" data-parent-route hidden>
         <div class="parent-section-head">
           <a href="#home">‹ Trang chủ</a><span class="muted">Ánh Hoa</span>
         </div>
         <h1>Thông báo</h1>
         <p class="muted">Sự kiện điểm danh trong 30 ngày gần đây</p>
-        <a class="parent-card-button" href="#child"
+        <a class="parent-card-button" href="#child-an"
           ><p><span class="badge success">Mới</span> · Bé An</p>
           <strong>Đã ghi nhận có mặt</strong>
           <p class="muted">Hôm nay · 08:12</p>
           <span class="muted">Xem ngày 05 tháng 09 →</span></a
-        ><a class="parent-card-button" href="#child"
+        ><a class="parent-card-button" href="#child-minh"
           ><p>Bé Minh</p>
           <strong>Trường chưa ghi nhận</strong>
           <p class="muted">Hôm qua · 09:00</p>
@@ -203,7 +211,7 @@
       </section>
       <nav class="bottom-nav" aria-label="Điều hướng phụ huynh">
         <a class="active" href="#home">Hôm nay</a
-        ><a href="#obligation">Khoản cần thanh toán</a><a href="#inbox">Thông báo</a>
+        ><a href="#payment">Khoản cần thanh toán</a><a href="#inbox">Thông báo</a>
       </nav>
     </div>
   </body>
