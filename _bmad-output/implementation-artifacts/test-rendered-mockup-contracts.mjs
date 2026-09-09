@@ -65,15 +65,24 @@ assert.match(prototype, /delete issueButton\.dataset\.idempotentAction/);
 assert.match(generation, /badge success">Sẵn sàng/);
 assert.match(generation, /Tạo 124 hóa đơn nháp/);
 
-// Receivable configuration keeps catalog and prepaid separate from server-owned late-pickup policy.
-for (const heading of ['Khoản thu', 'Phạm vi áp dụng', 'Phí đón muộn', 'Phí nộp tiền muộn']) assert.match(receivables, new RegExp(`<h2>${heading}</h2>`));
+// Receivable configuration uses four hash-addressable tabs without client-owned finance rules.
+for (const id of ['receivables', 'charge-scopes', 'discount-policies', 'late-pickup']) assert.match(receivables, new RegExp(`class="route-state" id="${id}"`));
+for (const hash of ['#receivables', '#charge-scopes', '#discount-policies', '#late-pickup']) assert.match(receivables, new RegExp(`href="${hash}"`));
+for (const heading of ['Danh sách khoản thu', 'Phạm vi khoản thu', 'Khoản giảm trừ', 'Phí đón muộn']) assert.match(receivables, new RegExp(`<h2>${heading}</h2>`));
+assert.match(css, /\.tabs a\.active\{color:var\(--green\);border-bottom:3px solid var\(--green\)\}/);
+assert.match(prototype, /const receivableTabs = \$\$\('\[data-receivable-tabs\] a'\)/);
+assert.match(prototype, /const selected = receivableStates\.find/);
+assert.match(prototype, /section\.hidden = section !== selected/);
 assert.match(receivables, /Học sinh &gt; Lớp &gt; Trường/);
 assert.match(receivables, /Hệ thống từ chối quy tắc xung đột cùng phạm vi/);
+assert.match(receivables, /Rule thắng và bị che khuất/);
+assert.match(receivables, /DiscountPolicy/);
+assert.match(receivables, /không tạo credit hoặc dòng âm/);
 assert.match(receivables, /17:38/);
-assert.match(receivables, /bằng hoặc sau giờ bắt đầu của block; giờ kết thúc không kích hoạt block kế/);
-assert.match(receivables, /Trình duyệt không tự tính, làm tròn hoặc sửa hóa đơn đã phát hành/);
-assert.match(receivables, /Chưa có chính sách phí nộp tiền muộn/);
-assert.match(receivables, /<h2>Chương trình nộp trước<\/h2>/);
+assert.match(receivables, /Browser chỉ render policy và số liệu materialized do máy chủ trả về/);
+assert.doesNotMatch(receivables, /Phí nộp tiền muộn/);
+assert.doesNotMatch(receivables, /<h2>Chương trình nộp trước<\/h2>/);
+assert.match(receivables, /Chương trình nộp trước \(chỉ School Admin\)/);
 assert.match(receivables, /href="late-pickup-statistics.html"/);
 assert.match(latePickup, /<h1>Thống kê đón muộn<\/h1>/);
 assert.match(latePickup, /Ma trận học sinh - ngày/);
@@ -87,4 +96,4 @@ for (const day of ['05/09', '06/09', '07/09', '08/09', '09/09']) assert.match(la
 assert.match(latePickup, /Xuất dữ liệu chưa được mô phỏng trong release này/);
 assert.match(prototype, /form\.hasAttribute\('data-static-filter'\)/);
 
-console.log('Rendered mockup contract checks passed (late-pickup configuration included).');
+console.log('Rendered mockup contract checks passed (receivable tabs included).');

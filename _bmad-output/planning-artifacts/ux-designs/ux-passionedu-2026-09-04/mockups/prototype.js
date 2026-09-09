@@ -349,6 +349,23 @@ function focusRoute() {
   }
   const route = window.location.hash || '#overview';
   const state = queueState(route);
+  const receivableTabs = $$('[data-receivable-tabs] a');
+  const receivableStates = $$('.route-state');
+  if (receivableStates.length) {
+    const selected = receivableStates.find(section => section.id === state.name) || receivableStates[0];
+    receivableStates.forEach(section => { section.hidden = section !== selected; });
+    receivableTabs.forEach(link => {
+      const active = link.getAttribute('href') === `#${selected.id}`;
+      link.classList.toggle('active', active);
+      link.setAttribute('aria-current', active ? 'page' : 'false');
+    });
+    if (window.location.hash) {
+      const heading = $('h2', selected);
+      heading?.setAttribute('tabindex', '-1');
+      heading?.focus();
+    }
+    return;
+  }
   const invoiceRoutes = $$('[data-invoice-state]');
   if (invoiceRoutes.length) {
     const invoiceState = ['draft', 'receipt', 'issued'].includes(state.name) ? state.name : 'draft';
