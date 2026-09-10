@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-08
+last_updated: 2026-09-10
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -52,7 +52,7 @@ development_status:
   epic-4-retrospective: optional
 
   epic-5: backlog
-  5-1-quan-ly-receivable-catalog-discount-va-chargerule-co-precedence: backlog
+  5-1-quan-ly-receivable-catalog-chargerule-va-chinh-sach-uu-dai-co-phien-ban: backlog
   5-2-tao-collectionrun-va-server-authoritative-preview: backlog
   5-3-generate-invoice-draft-idempotent-theo-snapshot-roster-rule: backlog
   5-4-ra-soat-invoice-draft-adjustment-va-promotional-coverage-co-audit: backlog
@@ -63,11 +63,11 @@ development_status:
 
   epic-6: backlog
   6-1-ghi-exact-receipt-settlement-cho-mot-student: backlog
-  6-2-settle-exact-prepaid-payment-source-invoice: backlog
-  6-3-correction-va-hoan-tien-promotional-coverage-theo-operating-day-preview: backlog
+  6-2-settle-exact-promotion-coverage-source-invoice: backlog
+  6-3-correction-va-hoan-tien-promotion-coverage-theo-operating-day-preview: backlog
   6-4-chuyen-prior-debt-va-year-end-settlement-an-toan: backlog
   6-5-bao-cao-finance-reconcile-tu-ledger: backlog
-  6-6-release-gate-cho-exact-settlement-va-promotional-refund: backlog
+  6-6-release-gate-cho-exact-settlement-va-promotion-coverage-refund: backlog
   epic-6-retrospective: optional
 
   epic-7: backlog

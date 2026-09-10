@@ -31,3 +31,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-dong-bo-ba-contract-passionedu.md`
   summary: Bổ sung mockup Payroll theo từng trạng thái và vai trò sau submit.
   evidence: Mockup hiện chỉ giải thích separation-of-duties bằng copy, chưa dựng submitted, approver, refused, approved-unpaid hoặc payout-confirmation state; đây là vòng sửa mockup kế tiếp.
+- source_spec: `_bmad-output/implementation-artifacts/spec-tab-cau-hinh-khoan-thu.md`
+  summary: Đồng bộ PRD/SPEC và decision trước khi mở server-side materialization phí đón muộn.
+  evidence: Mockup hiện mô tả policy/block và khoản phí materialized từ thời điểm trả trẻ, nhưng PRD canonical vẫn giới hạn release ở reference cho dòng MANUAL; cần Product/Architecture phê duyệt contract trước API, persistence hoặc lifecycle implementation.
+- source_spec: `_bmad-output/implementation-artifacts/spec-tab-cau-hinh-khoan-thu.md`
+  summary: Thêm browser-level test cho deep-link, Back/Forward và focus của tab Khoản thu.
+  evidence: Contract test hiện kiểm tra markup/hash handler tĩnh; chưa thực thi focusRoute để xác minh transition và aria-current trong browser.

@@ -494,6 +494,39 @@ function bindMockActions() {
     renderSettings();
   }));
   $$('[data-journal-search], [data-journal-filter]').forEach(control => control.addEventListener(control.matches('select') ? 'change' : 'input', renderTeacherJournals));
+  $$('[data-open-receivable-form]').forEach(button => button.addEventListener('click', () => {
+    const section = button.closest('#receivables');
+    const list = $('[data-receivable-list]', section);
+    const form = $('[data-receivable-form]', section);
+    form.reset();
+    $$('[data-charge-scope-options]').forEach(options => { options.hidden = options.dataset.chargeScopeOptions !== 'school'; });
+    const isNew = button.dataset.openReceivableForm === 'new';
+    $('[data-receivable-form-title]', form).textContent = isNew ? 'Thêm khoản thu' : `Sửa ${button.dataset.receivableName}`;
+    if (isNew) {
+      ['receivable-name', 'receivable-code', 'receivable-price', 'receivable-period'].forEach(name => { form.elements[name].value = ''; });
+    } else {
+      form.elements['receivable-name'].value = button.dataset.receivableName;
+      form.elements['receivable-code'].value = button.dataset.receivableCode;
+      form.elements['receivable-price'].value = button.dataset.receivablePrice;
+      form.elements['receivable-period'].value = button.dataset.receivablePeriod;
+      if (button.dataset.receivableScope) {
+        form.elements['charge-scope'].value = button.dataset.receivableScope;
+        $$('[data-charge-scope-options]').forEach(options => { options.hidden = options.dataset.chargeScopeOptions !== button.dataset.receivableScope; });
+      }
+    }
+    list.hidden = true;
+    form.hidden = false;
+    $('h2', form)?.focus();
+  }));
+  $$('[data-close-receivable-form]').forEach(button => button.addEventListener('click', () => {
+    const section = button.closest('#receivables');
+    $('[data-receivable-form]', section).hidden = true;
+    $('[data-receivable-list]', section).hidden = false;
+    $('h2', section)?.focus();
+  }));
+  $$('input[name="charge-scope"]').forEach(scope => scope.addEventListener('change', () => {
+    $$('[data-charge-scope-options]').forEach(options => { options.hidden = options.dataset.chargeScopeOptions !== scope.value; });
+  }));
   const bankAccount = $('#bank-account');
   const issueButton = $('[aria-describedby="bank-account-required"]');
   if (bankAccount && issueButton) bankAccount.addEventListener('change', () => {
