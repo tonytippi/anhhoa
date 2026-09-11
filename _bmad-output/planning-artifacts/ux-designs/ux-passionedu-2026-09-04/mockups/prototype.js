@@ -368,7 +368,7 @@ function focusRoute() {
   }
   const invoiceRoutes = $$('[data-invoice-state]');
   if (invoiceRoutes.length) {
-    const invoiceState = ['draft', 'receipt', 'issued'].includes(state.name) ? state.name : 'draft';
+    const invoiceState = ['draft', 'receipt', 'issued', 'paid'].includes(state.name) ? state.name : 'draft';
     invoiceRoutes.forEach(section => { section.hidden = section.dataset.invoiceState !== invoiceState; });
     const activeInvoice = invoiceRoutes.find(section => !section.hidden);
     const heading = $('h1', activeInvoice) || $('h2', activeInvoice);

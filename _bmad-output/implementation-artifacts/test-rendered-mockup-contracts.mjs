@@ -52,14 +52,26 @@ assert.match(timekeeping, /data-fixture-complete="\[aria-describedby='calculate-
 assert.match(payroll, /data-fixture-complete="\[aria-describedby='payroll-submit-blocked'\]"/);
 assert.match(prototype, /target\.disabled = false/);
 
+// Finance sidebar opens workspaces; Invoice and Receipt stay contextual deep links.
+assert.doesNotMatch(shell, /invoice-detail-review\.html/);
+assert.doesNotMatch(shell, /'invoice-review'|\'settlement\'/);
+assert.match(shell, /'runs', 'Đợt thu', root \+ 'invoice-generation\.html'/);
+assert.doesNotMatch(shell, /Đợt thu \/ Nộp trước/);
+assert.match(generation, /href="invoice-detail-review\.html#draft" aria-label="Hóa đơn của Bé An">Hóa đơn/);
+assert.match(generation, /href="invoice-detail-review\.html#receipt" aria-label="Thu tiền cho Bé Bình">Thu tiền/);
+assert.match(generation, /href="invoice-detail-review\.html#paid" aria-label="Hóa đơn của Bé Dũng">Hóa đơn/);
+assert.match(invoice, /data-admin-route="invoice-detail"/);
+assert.match(invoice, /href="invoice-generation\.html">Quay lại Đợt thu/);
+assert.match(invoice, /href="#receipt">Thu tiền cho Bé Bình/);
 // Invoice lifecycle and exact Receipt facts remain mutually exclusive and server-fixture based.
-for (const state of ['draft', 'receipt', 'issued']) assert.match(invoice, new RegExp(`data-invoice-state="${state}"`));
+for (const state of ['draft', 'receipt', 'issued', 'paid']) assert.match(invoice, new RegExp(`data-invoice-state="${state}"`));
 assert.match(prototype, /section\.dataset\.invoiceState !== invoiceState/);
 assert.match(invoice, /id="bank-account" required/);
 for (const fact of ['receipt-date', 'receipt-method', 'receipt-reference', 'receipt-evidence']) assert.match(invoice, new RegExp(`id="${fact}"`));
-assert.match(invoice, /id="receipt-amount" value="8\.100\.000 đ" readonly/);
-assert.match(invoice, /Bé An · Ánh Hoa · Năm học 2026-2027/);
+assert.match(invoice, /id="receipt-amount" value="2\.350\.000 đ" readonly/);
+assert.match(invoice, /Bé Bình · Ánh Hoa · Năm học 2026-2027/);
 assert.match(invoice, /Không cho phép một phần, dư, chưa phân bổ hoặc khác học sinh/);
+assert.match(invoice, /không có thao tác thu tiền khác/);
 assert.match(prototype, /receipt\.reportValidity\(\)/);
 assert.match(prototype, /delete issueButton\.dataset\.idempotentAction/);
 // CollectionRun landing, student-level details and authoritative generate.
@@ -90,6 +102,10 @@ for (const heading of ['Học sinh', 'Khoản thu', 'Cần thu', 'Đã thu', 'C�
 assert.match(generation, /Đã bao phủ/);
 assert.match(generation, /Không tạo hóa đơn/);
 assert.match(generation, /Không tạo hóa đơn 0 đ/);
+assert.match(generation, /Bé Bình/);
+assert.match(generation, /Bé Bình[\s\S]*?2\.350\.000 đ[\s\S]*?href="invoice-detail-review\.html#receipt" aria-label="Thu tiền cho Bé Bình">Thu tiền/);
+assert.match(generation, /Bé Dũng[\s\S]*?href="invoice-detail-review\.html#paid" aria-label="Hóa đơn của Bé Dũng">Hóa đơn/);
+assert.doesNotMatch(generation, /Bé Dũng[\s\S]*?href="invoice-detail-review\.html#receipt"/);
 assert.match(prototype, /data-open-run-detail/);
 assert.match(prototype, /data-close-run-detail/);
 assert.match(prototype, /\$\('\[data-collection-run-landing-head\]', root\)\.hidden = true/);
@@ -138,7 +154,8 @@ assert.match(receivables, /17:38/);
 assert.match(receivables, /Trang này chỉ hiển thị các khung giờ và số liệu đã được hệ thống xác nhận/);
 assert.doesNotMatch(receivables, /Phí nộp tiền muộn/);
 assert.doesNotMatch(receivables, /<h2>Chương trình nộp trước<\/h2>/);
-assert.match(receivables, /Chương trình nộp trước \(chỉ School Admin\)/);
+assert.match(receivables, /href="#discount-policies">Chính sách ưu đãi \(chỉ School Admin\)/);
+assert.doesNotMatch(receivables, /invoice-generation\.html#prepaid/);
 assert.match(receivables, /href="late-pickup-statistics.html"/);
 assert.match(latePickup, /<h1>Thống kê đón muộn<\/h1>/);
 assert.match(latePickup, /Ma trận học sinh - ngày/);
