@@ -98,9 +98,19 @@ function reconcileOperation(opener = document.activeElement) {
         holiday.id = operation.holidayId;
         holiday.dataset.holidayStart = operation.holidayStart;
         holiday.dataset.holidayEnd = operation.holidayEnd;
-        holiday.innerHTML = `<td><b>${operation.holidayName}</b></td><td>${operation.holidayStart.split('-').reverse().join('/')}</td><td>${operation.holidayEnd.split('-').reverse().join('/')}</td><td>${operation.holidayDays}</td><td><span class="badge success">Đã xác nhận</span></td><td><button class="button secondary" type="button" data-confirm="Lịch sử kỳ nghỉ ${operation.holidayName}|Kỳ nghỉ đã được hệ thống xác nhận. Snapshot lịch, điểm danh, đơn nghỉ và hóa đơn quá khứ vẫn chỉ đọc.|Xem lịch sử">Xem lịch sử</button></td>`;
+        const values = [operation.holidayName, operation.holidayStart.split('-').reverse().join('/'), operation.holidayEnd.split('-').reverse().join('/'), operation.holidayDays];
+        values.forEach((value, index) => {
+          const cell = document.createElement('td');
+          if (index === 0) { const name = document.createElement('b'); name.textContent = value; cell.append(name); }
+          else cell.textContent = value;
+          holiday.append(cell);
+        });
+        const status = document.createElement('td'); status.innerHTML = '<span class="badge success">Đã xác nhận</span>'; holiday.append(status);
+        const action = document.createElement('td'); action.innerHTML = '<button class="button secondary" type="button" data-confirm="Lịch sử kỳ nghỉ|Kỳ nghỉ đã được hệ thống xác nhận. Snapshot lịch, điểm danh, đơn nghỉ, hóa đơn, coverage và hoàn tiền quá khứ vẫn chỉ đọc.|Xem lịch sử">Xem lịch sử</button>'; holiday.append(action);
         body.append(holiday);
       }
+      const form = document.getElementById(operation.formId);
+      if (form) { form.reset(); form.hidden = true; delete form.dataset.dirty; $('[data-open-holiday-form]')?.focus(); }
     }
     if (operation.target) renderOperationResult(operation);
     if (operation.conflict) {
@@ -724,10 +734,10 @@ function bindMockActions() {
         button.dataset.operationResultTitle = 'Kết quả kỳ nghỉ từ hệ thống';
         button.dataset.operationResult = `Hệ thống đã xác nhận kỳ nghỉ ${safeName}. Lịch sử và snapshot quá khứ vẫn giữ nguyên.`;
         button.dataset.operationHolidayId = `holiday-${uuid()}`;
-        button.dataset.operationHolidayName = safeName;
+        button.dataset.operationHolidayName = name;
         button.dataset.operationHolidayStart = start;
         button.dataset.operationHolidayEnd = end;
-        button.dataset.operationHolidayDays = '3 ngày';
+        button.dataset.operationHolidayDays = ({ '2027-01-01/2027-01-01': '1 ngày', '2027-01-01/2027-01-02': '2 ngày', '2027-01-01/2027-01-03': '3 ngày', '2027-01-05/2027-01-05': '1 ngày' })[`${start}/${end}`] || 'Kết quả do hệ thống trả về';
         if (missingRequired || invalidOrder || existing) {
           button.dataset.operationConflict = 'true';
           button.dataset.operationResultTitle = missingRequired || invalidOrder ? 'Khoảng ngày không hợp lệ từ hệ thống' : 'Xung đột kỳ nghỉ từ hệ thống';
@@ -742,6 +752,8 @@ function bindMockActions() {
             : invalidOrder
             ? 'Ngày kết thúc phải cùng hoặc sau ngày bắt đầu.'
             : `Khoảng ngày chồng lấn kỳ nghỉ ${existing.cells[0].textContent.trim()}.`;
+          const fieldError = $('#holiday-end-date-error', form);
+          if (fieldError) { fieldError.textContent = message?.textContent || 'Kiểm tra ngày kết thúc.'; fieldError.hidden = false; }
         }
         showIdempotentConfirmation(button);
         return;
