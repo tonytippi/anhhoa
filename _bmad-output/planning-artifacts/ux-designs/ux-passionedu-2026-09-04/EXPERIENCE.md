@@ -21,7 +21,7 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | --- | --- | --- |
 | Ops School list and provision | Platform Operator | Create, suspend/reactivate School; bootstrap owner; never read School business data. |
 | School chooser / switcher | Admin/Staff, Parent with multiple active Schools | Select an authorized School before scoped work. A Parent with one active School enters its home directly; a Parent with no active StudentParent link is denied a Parent session. |
-| Tổng quan | Admin | School management overview; no attendance, handover or daily-journal mutation destination. |
+| Tổng quan | Admin | Tổng quan vận hành theo School/ngày, read-only: sĩ số/lớp, điểm danh do server trả về, trẻ đã được đón và đơn nghỉ; không là nơi mutation điểm danh, giờ đón hay nhật ký. |
 | Danh bộ | School Admin | SchoolYear, Class, Student enrollment, Parent links, Staff assignments. |
 | Cấu hình trường | School Admin | Typed School, calendar, finance, attendance and Parent-access policy. |
 | Khoản thu / Đợt thu | Finance | Catalog, CollectionRun setup, preview, generate and issue review. |
@@ -54,7 +54,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Component | Use | Behavioral rules |
 | --- | --- | --- |
 | School context switcher | Admin/Staff, Parent | Visible name is mandatory. On dirty form or pending/uncertain mutation, open switch guard: remain, discard, or reconcile Operation. No auto-save draft. |
-| Operational queue card | Tổng quan | Opens a prefiltered destination by date/class/status. Counts and labels are server data; no optimistic count changes. |
+| Tổng quan theo ngày | Admin | Dải chỉ số ngắn và bảng theo lớp hiển thị sĩ số, đã có mặt, nghỉ có đơn, đã được đón và trạng thái chưa đến lớp. Count/nhãn/date context là dữ liệu server, không optimistic hay tự tính trên browser. Hôm nay chưa có `PRESENT`/`ABSENT` xác nhận là `Chưa đến lớp`; ngày quá khứ `ABSENT` xác nhận không có đơn duyệt là `Nghỉ không phép`, còn không có bản ghi là `Chưa ghi nhận`. Card nghỉ có đơn mở danh sách đơn với filter URL-backed. |
 | SchoolYear setup | School Admin | Creates one active SchoolYear through a named confirmation. Class, Student, pending Parent link and Staff assignment forms show effective date and server validation; Staff profile never implies a login grant. |
 | Policy change form | School Admin | Shows active policy, effective date, required reason and server-returned impact. A pending version cannot silently replace active policy; conflict/validation keeps both values visible for correction. |
 | Roster transition wizard | School Admin | Preview -> confirm -> Operation reconciliation. Source history stays visible; records excluded by server cannot be force-moved. |
@@ -104,6 +104,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Finance lifecycle conflict | Draft/issue/void/settlement actions refresh server state and explain why the action is unavailable; no local state override. |
 | No report data | Report retains School, period and filter context and says no ledger activity matches; it does not show zero as a confirmed collection result without an as-of context. |
 | Handover unavailable | Missing permission, already-recorded state or validation error names the reason and refreshes the child/day record; no late-fee suggestion appears. |
+| Daily Admin overview | Shows selected School/date and server-returned loading, error or no-authorized-data state; it never substitutes zero for an unresolved state or offers attendance/handover mutation. |
 | Parent inbox empty | Bell opens "Chưa có thông báo điểm danh trong 30 ngày gần đây." |
 | Policy conflict | Form keeps active and proposed effective-dated values visible, focuses server validation, and does not claim policy changed until confirmed. |
 | Adjustment unavailable | Finance sees source reason and target state such as no eligible DRAFT Invoice, issued or voided; no manual fallback is implied. |

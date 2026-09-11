@@ -9,8 +9,6 @@
   var root = route === 'roster' ? '../' : '';
   var links = [
     ['VẬN HÀNH', 'overview', 'Tổng quan', root + 'admin-staff.html#overview'],
-    ['', 'leave', 'Xin nghỉ', root + 'admin-staff.html#leave'],
-    ['', 'handover', 'Bàn giao', root + 'admin-staff.html#handover'],
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
     ['CẤU HÌNH', 'settings', 'Cấu hình trường', root + 'school-settings.html'],
     ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
@@ -25,7 +23,7 @@
   links.forEach(function (link) {
     var current = link[1] === route;
     if (link[0]) navigation += '<p class="nav-group">' + link[0] + '</p>';
-    var href = isWorkspace && ['overview', 'leave', 'handover'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
+    var href = isWorkspace && ['overview'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
     navigation += '<a class="side-link' + (current ? ' active' : '') + '" href="' + href + '"' + (current ? ' aria-current="page"' : '') + '>' + link[2] + '</a>';
   });
 
@@ -50,7 +48,7 @@
 
   function updateNavigation() {
     var activeRoute = window.location.hash.split('?')[0].slice(1) || route;
-    if (isWorkspace && ['overview', 'leave', 'handover'].indexOf(activeRoute) === -1) {
+    if (isWorkspace && !['overview', 'leave'].includes(activeRoute)) {
       window.location.hash = '#overview';
       return;
     }
@@ -59,7 +57,8 @@
       var targetHash = (rawHref.split('#')[1] || '').split('?')[0];
       var targetPage = rawHref.split('#')[0].split('/').pop();
       var currentPage = (window.location.pathname || '').split('/').pop();
-      var isCurrent = rawHref.charAt(0) === '#' ? targetHash === activeRoute : (targetPage === currentPage && (!targetHash || targetHash === activeRoute));
+      var isOverviewContext = targetHash === 'overview' && isWorkspace && ['overview', 'leave'].indexOf(activeRoute) !== -1;
+      var isCurrent = isOverviewContext || (rawHref.charAt(0) === '#' ? targetHash === activeRoute : (targetPage === currentPage && (!targetHash || targetHash === activeRoute)));
       if (!currentPage && activeRoute === route && link.getAttribute('aria-current') === 'page') isCurrent = true;
       link.classList.toggle('active', isCurrent);
       if (isCurrent) link.setAttribute('aria-current', 'page');

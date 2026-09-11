@@ -7,7 +7,7 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 | Cổng thông tin | Tệp | Màn hình được mô phỏng |
 | --- | --- | --- |
 | Mục lục rà soát | `review.html` | Điểm bắt đầu và hướng dẫn rà soát toàn bộ quy trình. |
-| Quản trị và nhân sự | `admin/admin-staff.html` | Workspace vận hành: Tổng quan ưu tiên đơn nghỉ và bàn giao theo bảng có ngữ cảnh Trường/ngày, bộ lọc, xác nhận có tên và đối soát thao tác. Điểm danh chỉ được cấu hình theo chính sách tại Cấu hình trường. |
+| Quản trị và nhân sự | `admin/admin-staff.html` | Tổng quan vận hành read-only theo Trường/ngày: dải chỉ số ngắn và bảng theo lớp cho sĩ số, có mặt, nghỉ có đơn, chưa đến lớp/nghỉ không phép/chưa ghi nhận và đã được đón. Danh sách đơn nghỉ là detail URL-backed mở từ overview. Admin không có route hay mutation điểm danh/giờ đón. |
 | Cấu hình trường | `admin/school-settings.html` | Hồ sơ Trường Ánh Hoa, lịch, chính sách tài chính/điểm danh/bàn giao/quyền xem Phụ huynh theo hiệu lực và lịch sử; tài khoản nhận tiền có tìm, lọc, sắp xếp, trang URL-backed, ngừng dùng không xóa và đối soát thao tác. |
 | Danh bộ | `admin/roster/roster.html` | Danh sách Trường Ánh Hoa với tìm kiếm, lọc, sắp xếp và trang trong URL; bảng, caption, empty state và mã chỉ trong thông tin đối soát. |
 | Năm học và lớp | `admin/roster/school-year-classes.html` | Một năm học đang hiệu lực, lớp thuộc năm học, ngày hiệu lực và lỗi máy chủ có summary được focus/liên kết. |
@@ -35,6 +35,7 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 - Xung đột trường dữ liệu/chính sách, trạng thái quyền truy cập an toàn khi thu hồi và tối thiểu hóa dữ liệu phụ huynh.
 - Phí đón muộn dùng phiên bản cấu hình theo Trường, thời điểm trả trẻ đã xác nhận và số liệu hệ thống đã ghi nhận; trang không tự tính phí. Phí nộp tiền muộn không có tab, mức phí hay thao tác vì chưa có chính sách được chốt.
 - Teacher là cổng duy nhất ghi nhận điểm danh theo School/Class/date có binding, capability và assignment hiệu lực; Admin chỉ cấu hình policy điểm danh typed/versioned tại Cấu hình trường, không có danh sách, route hay mutation điểm danh.
+- Tổng quan Admin dùng fact server-returned theo School/date: hôm nay chưa có attendance xác nhận là `Chưa đến lớp`; ngày quá khứ chỉ `ABSENT` xác nhận không có đơn duyệt mới là `Nghỉ không phép`, còn không có record là `Chưa ghi nhận`. `Đã được đón` là fact read-only, không gợi ý phí.
 - DailyJournal là current version theo Student/date; phụ huynh chỉ xem nội dung/ảnh được server xác nhận, không xem attendance evidence, danh tính Teacher hay audit/version history.
 - Danh sách nhận xét Teacher chỉ đổi từ `Chưa có nhận xét` sang `Đã có nhận xét` sau kết quả terminal; khi đang đối soát, list giữ nguyên và không cho gửi lại.
 - Thanh toán chính xác, khoản trả trước tường minh, ngữ cảnh điều chỉnh/hoàn tiền hai bước.

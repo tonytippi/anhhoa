@@ -28,15 +28,12 @@ function row(id, className, date, status) {
 function harness() {
   const windowListeners = {};
   const documentListeners = {};
-  const routes = ['overview', 'leave', 'handover'];
+  const routes = ['overview', 'leave'];
   const sections = Object.fromEntries(routes.map(name => [name, element({ 'data-route': '' })]));
   const headings = Object.fromEntries(routes.map(name => [name, element({ tabindex: '-1' })]));
   const contexts = Object.fromEntries(routes.slice(1).map(name => [name, element()]));
   const empty = Object.fromEntries(routes.slice(1).map(name => [name, element()]));
-  const rows = {
-    leave: [row('leave-thu', 'mam-3-4', '2026-09-06', 'pending'), row('leave-an', 'choi-4-5', '2026-09-05', 'approved')],
-    handover: [row('handover-huy', 'mam-3-4', '2026-09-05', 'missing'), row('handover-mai', 'mam-3-4', '2026-09-05', 'complete')]
-  };
+  const rows = { leave: [row('leave-thu', 'mam-3-4', '2026-09-05', 'approved'), row('leave-an', 'choi-4-5', '2026-09-05', 'approved')] };
   const filters = Object.fromEntries(routes.slice(1).map(name => {
     const form = element({ 'data-queue-filter': name });
     form.dataset.queueFilter = name;
@@ -70,9 +67,20 @@ function harness() {
   return { context, headings, contexts, filters, sideLinks, rows, empty, windowListeners, documentListeners };
 }
 
-assert.match(workspace, /#leave\?date=2026-09-06&amp;status=pending/);
-assert.doesNotMatch(workspace, /attendance|Điểm danh/i);
+assert.match(workspace, /#leave\?date=2026-09-05&amp;status=approved/);
+assert.match(workspace, /#leave\?date=2026-09-05">Danh sách đơn xin nghỉ/);
+assert.doesNotMatch(workspace, /data-evidence|Ghi nhận điểm danh/i);
 assert.doesNotMatch(shellSource, /attendance|Điểm danh/i);
+assert.doesNotMatch(shellSource, /Xin nghỉ|Bàn giao/);
+assert.doesNotMatch(workspace, /Ghi nhận giờ đón|Bàn giao/);
+assert.match(workspace, /data-overview-date="2026-09-05"[\s\S]*?Chưa đến lớp[\s\S]*?Nghỉ có đơn[\s\S]*?Đã được đón/);
+assert.match(workspace, /Trẻ chưa có điểm danh có mặt hoặc vắng được xác nhận hôm nay/);
+assert.match(workspace, /data-overview-date="2026-09-04"[\s\S]*?Nghỉ không phép[\s\S]*?Chưa ghi nhận[\s\S]*?Nghỉ có đơn[\s\S]*?Đã được đón/);
+assert.doesNotMatch(workspace.match(/data-overview-date="2026-09-05"[\s\S]*?<\/div>\n        <div data-overview-date="2026-09-04"/)?.[0] || '', /Nghỉ không phép|Chưa ghi nhận/);
+assert.match(prototypeSource, /adminRoutes\.forEach\(section => \{ section\.hidden = section !== selected; \}\)/);
+assert.match(workspace, /data-overview-empty hidden>Chưa có số liệu vận hành/);
+assert.match(prototypeSource, /empty\.hidden = overviewDates\.some/);
+assert.match(shellSource, /targetHash === 'overview' && isWorkspace && \['overview', 'leave'\]/);
 const app = harness();
 const dialogMock = `function dialog(title, content, actions = '', opener) {
   const node = { buttons: {}, closeDialog() { opener?.focus(); }, remove() {}, querySelector(selector) { return selector === '.dialog' ? this.panel : this.buttons[selector.slice(1, -1)] || null; }, querySelectorAll() { return []; } };
@@ -96,40 +104,12 @@ navigate('#attendance?class=choi-4-5&date=2026-09-05&status=missing');
 assert.equal(app.context.window.location.hash, '#overview');
 assert.equal(app.sideLinks[0].getAttribute('aria-current'), 'page');
 
-navigate('#leave?class=mam-3-4&date=2026-09-06&status=pending');
+navigate('#leave?class=mam-3-4&date=2026-09-05&status=approved');
 assert.equal(app.rows.leave[0].hidden, false);
 assert.equal(app.rows.leave[1].hidden, true);
 assert.equal(app.empty.leave.hidden, true);
 
-navigate('#handover?class=mam-3-4&date=2026-09-05&status=missing');
-assert.equal(app.rows.handover[0].hidden, false);
-assert.equal(app.rows.handover[1].hidden, true);
+navigate('#handover?date=2026-09-05');
+assert.equal(app.context.window.location.hash, '#overview');
 
-const action = element();
-action.dataset = { actionTitle: 'Ghi nhận', actionLabel: 'Gửi', actionConsequence: 'Kiểm tra', operationRow: 'handover-huy', operationOutcome: 'complete', operationResult: 'Đã ghi nhận bàn giao.' };
-app.context.__queueTest.showIdempotentConfirmation(action);
-const confirmation = app.context.dialogs.at(-1);
-confirmation.buttons['data-idempotent-submit'].callback({ currentTarget: confirmation.buttons['data-idempotent-submit'] });
-assert.equal(confirmation.buttons['data-idempotent-submit'].disabled, true);
-app.context.__queueTest.showIdempotentConfirmation(action);
-const reconciliation = app.context.dialogs.at(-1);
-assert.ok(reconciliation.buttons['data-return-operation-outcome']);
-reconciliation.buttons['data-return-operation-outcome'].callback();
-assert.equal(app.rows.handover[0].dataset.status, 'complete');
-app.context.__queueTest.showIdempotentConfirmation(action);
-assert.ok(app.context.dialogs.at(-1).buttons['data-idempotent-submit']);
-
-const pendingAction = element();
-pendingAction.dataset = { actionTitle: 'Ghi nhận', actionLabel: 'Gửi', actionConsequence: 'Kiểm tra', operationRow: 'handover-huy', operationTerminal: 'false' };
-const pendingDialog = { panel: {}, querySelector(selector) { return selector === '.dialog' ? this.panel : this.buttons?.[selector.slice(1, -1)] || null; }, remove() {} };
-pendingDialog.buttons = {};
-Object.defineProperty(pendingDialog.panel, 'innerHTML', { set(value) { ['data-reconcile'].forEach(name => { if (value.includes(name)) pendingDialog.buttons[name] = { focus() {}, addEventListener(event, callback) { this.callback = callback; } }; }); } });
-app.context.__queueTest.showOperation('Đã gửi thao tác', pendingAction, pendingDialog);
-pendingDialog.buttons['data-reconcile'].callback();
-const pendingReconciliation = app.context.dialogs.at(-1);
-pendingReconciliation.buttons['data-return-operation-outcome'].callback();
-assert.ok(pendingReconciliation.buttons['data-reconcile']);
-app.context.__queueTest.showIdempotentConfirmation(action);
-assert.ok(app.context.dialogs.at(-1).buttons['data-return-operation-outcome']);
-
-console.log('Admin workspace queue rendering and reconciliation checks passed.');
+console.log('Admin daily overview routes, filters and date-state semantics passed.');

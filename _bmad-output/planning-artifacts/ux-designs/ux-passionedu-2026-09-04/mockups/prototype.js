@@ -376,8 +376,25 @@ function focusRoute() {
     heading?.focus();
     return;
   }
-  if ($('[data-admin-shell][data-admin-route="overview"]') && !['overview', 'leave', 'handover'].includes(state.name)) {
+  if ($('[data-admin-shell][data-admin-route="overview"]') && !['overview', 'leave'].includes(state.name)) {
     window.location.hash = '#overview';
+    return;
+  }
+  const adminRoutes = $$('[data-admin-shell][data-admin-route="overview"] [data-route]');
+  if (adminRoutes.length) {
+    const selected = document.getElementById(state.name);
+    adminRoutes.forEach(section => { section.hidden = section !== selected; });
+    if (state.name === 'overview') {
+      const overviewDates = $$('[data-overview-date]');
+      const selectedDate = state.date;
+      overviewDates.forEach(section => { section.hidden = section.dataset.overviewDate !== selectedDate; });
+      const empty = $('[data-overview-empty]');
+      if (empty) empty.hidden = overviewDates.some(section => section.dataset.overviewDate === selectedDate);
+    }
+    if (state.name === 'leave') renderQueue(route);
+    const heading = $('h1', selected);
+    heading?.setAttribute('tabindex', '-1');
+    heading?.focus();
     return;
   }
   const localRoute = document.getElementById(state.name);
