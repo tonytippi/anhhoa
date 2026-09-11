@@ -1,5 +1,6 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const escapeHtml = value => value.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
 let knownOperation = null;
 
 function dialog(title, content, actions = '', opener = document.activeElement) {
@@ -90,6 +91,17 @@ function reconcileOperation(opener = document.activeElement) {
         renderTeacherJournals();
       }
     }
+    if (operation.lifecycle === 'holiday-create') {
+      const body = $('[data-holiday-rows]');
+      if (body && !document.getElementById(operation.holidayId)) {
+        const holiday = document.createElement('tr');
+        holiday.id = operation.holidayId;
+        holiday.dataset.holidayStart = operation.holidayStart;
+        holiday.dataset.holidayEnd = operation.holidayEnd;
+        holiday.innerHTML = `<td><b>${operation.holidayName}</b></td><td>${operation.holidayStart.split('-').reverse().join('/')}</td><td>${operation.holidayEnd.split('-').reverse().join('/')}</td><td>${operation.holidayDays}</td><td><span class="badge success">Đã xác nhận</span></td><td><button class="button secondary" type="button" data-confirm="Lịch sử kỳ nghỉ ${operation.holidayName}|Kỳ nghỉ đã được hệ thống xác nhận. Snapshot lịch, điểm danh, đơn nghỉ và hóa đơn quá khứ vẫn chỉ đọc.|Xem lịch sử">Xem lịch sử</button></td>`;
+        body.append(holiday);
+      }
+    }
     if (operation.target) renderOperationResult(operation);
     if (operation.conflict) {
       const form = document.getElementById(operation.formId);
@@ -126,6 +138,11 @@ function showOperation(title, button, node) {
     journalHref: button.dataset.operationJournalHref,
     confirmedAt: button.dataset.operationConfirmedAt,
     journalOutcome: button.dataset.operationJournalOutcome,
+    holidayId: button.dataset.operationHolidayId,
+    holidayName: button.dataset.operationHolidayName,
+    holidayStart: button.dataset.operationHolidayStart,
+    holidayEnd: button.dataset.operationHolidayEnd,
+    holidayDays: button.dataset.operationHolidayDays,
     sourceButton: button
   };
   $('.dialog', node).innerHTML = `<h2 id="dialog-title">${title}</h2><div class="operation"><p>Yêu cầu đã được gửi. Đang kiểm tra kết quả với hệ thống trước khi cho phép gửi lại.</p></div><div class="dialog-actions"><button class="button" type="button" data-reconcile>Đối soát kết quả</button></div>`;
@@ -533,6 +550,11 @@ function bindMockActions() {
     renderSettings();
   }));
   $$('[data-journal-search], [data-journal-filter]').forEach(control => control.addEventListener(control.matches('select') ? 'change' : 'input', renderTeacherJournals));
+  $$('[data-open-holiday-form]').forEach(button => button.addEventListener('click', () => {
+    const form = $('#holiday-form');
+    form.hidden = false;
+    $('h2', form)?.focus();
+  }));
   $$('[data-open-receivable-form]').forEach(button => button.addEventListener('click', () => {
     const section = button.closest('#receivables');
     const list = $('[data-receivable-list]', section);
@@ -676,6 +698,54 @@ function bindMockActions() {
     form.addEventListener('submit', event => {
       event.preventDefault();
       if (form.classList.contains('journal-editor')) return;
+      if (form.hasAttribute('data-holiday-form')) {
+        const name = form.elements['holiday-name'].value.trim();
+        const start = form.elements['holiday-start-date'].value;
+        const end = form.elements['holiday-end-date'].value;
+        const summary = $('[data-error-summary]', form);
+        const title = $('[data-holiday-error-title]', form);
+        const message = $('[data-holiday-error-message]', form);
+        const missingRequired = !name || !start || !end;
+        const existing = !missingRequired && $$('[data-holiday-rows] tr').find(row => start <= row.dataset.holidayEnd && end >= row.dataset.holidayStart);
+        const invalidOrder = !missingRequired && start > end;
+        const safeName = escapeHtml(name);
+        if (summary) summary.hidden = true;
+        $$('[data-field-error]', form).forEach(error => { error.hidden = true; });
+        const button = document.createElement('button');
+        button.dataset.actionTitle = `Xác nhận thêm kỳ nghỉ ${safeName}`;
+        button.dataset.actionLabel = 'Xác nhận tạo kỳ nghỉ';
+        button.dataset.actionConsequence = missingRequired
+          ? 'Hệ thống kiểm tra đủ tên kỳ nghỉ, ngày bắt đầu và ngày kết thúc trước khi xác nhận.'
+          : `Trường Ánh Hoa sẽ tạo kỳ nghỉ ${safeName} từ ${start.split('-').reverse().join('/')} đến ${end.split('-').reverse().join('/')}. Hệ thống kiểm tra phạm vi ngày, Trường và xung đột trước khi xác nhận.`;
+        button.dataset.operationLifecycle = missingRequired || invalidOrder || existing ? 'holiday-validation' : 'holiday-create';
+        button.dataset.operationTarget = 'settings-operation-result';
+        button.dataset.operationRefresh = 'settings';
+        button.dataset.operationForm = form.id;
+        button.dataset.operationResultTitle = 'Kết quả kỳ nghỉ từ hệ thống';
+        button.dataset.operationResult = `Hệ thống đã xác nhận kỳ nghỉ ${safeName}. Lịch sử và snapshot quá khứ vẫn giữ nguyên.`;
+        button.dataset.operationHolidayId = `holiday-${uuid()}`;
+        button.dataset.operationHolidayName = safeName;
+        button.dataset.operationHolidayStart = start;
+        button.dataset.operationHolidayEnd = end;
+        button.dataset.operationHolidayDays = '3 ngày';
+        if (missingRequired || invalidOrder || existing) {
+          button.dataset.operationConflict = 'true';
+          button.dataset.operationResultTitle = missingRequired || invalidOrder ? 'Khoảng ngày không hợp lệ từ hệ thống' : 'Xung đột kỳ nghỉ từ hệ thống';
+          button.dataset.operationResult = missingRequired
+            ? 'Nhập tên kỳ nghỉ, ngày bắt đầu và ngày kết thúc.'
+            : invalidOrder
+            ? 'Ngày kết thúc phải cùng hoặc sau ngày bắt đầu.'
+            : `Khoảng ngày đề xuất chồng lấn kỳ nghỉ ${existing.cells[0].textContent.trim()}.`;
+          if (title) title.textContent = missingRequired || invalidOrder ? 'Ngày kết thúc không hợp lệ' : 'Khoảng ngày bị chồng lấn';
+          if (message) message.textContent = missingRequired
+            ? 'Nhập tên kỳ nghỉ, ngày bắt đầu và ngày kết thúc.'
+            : invalidOrder
+            ? 'Ngày kết thúc phải cùng hoặc sau ngày bắt đầu.'
+            : `Khoảng ngày chồng lấn kỳ nghỉ ${existing.cells[0].textContent.trim()}.`;
+        }
+        showIdempotentConfirmation(button);
+        return;
+      }
       if (!form.hasAttribute('data-policy-proposal')) {
         focusErrorSummary(form);
         return;

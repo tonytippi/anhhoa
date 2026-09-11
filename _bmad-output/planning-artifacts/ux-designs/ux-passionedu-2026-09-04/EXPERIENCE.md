@@ -23,7 +23,7 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | School chooser / switcher | Admin/Staff, Parent with multiple active Schools | Select an authorized School before scoped work. A Parent with one active School enters its home directly; a Parent with no active StudentParent link is denied a Parent session. |
 | Tổng quan | Admin | Tổng quan vận hành theo School/ngày, read-only: sĩ số/lớp, điểm danh do server trả về, trẻ đã được đón và đơn nghỉ; không là nơi mutation điểm danh, giờ đón hay nhật ký. |
 | Danh bộ | School Admin | SchoolYear, Class, Student enrollment, Parent links, Staff assignments. |
-| Cấu hình trường | School Admin | Typed School, calendar, finance, attendance and Parent-access policy. |
+| Cấu hình trường | School Admin | Typed School, fixed workweek/holiday calendar, finance, attendance and Parent-access policy. |
 | Khoản thu / Đợt thu | Finance | Catalog, CollectionRun setup, preview, generate and issue review. |
 | Thu tiền / Công nợ / Báo cáo | Finance | Exact ledger posting, debt, prepaid-payment coverage, correction and school-scoped report. |
 | Lương & Nhân sự | Payroll-enabled School Admin, Finance Manager Accountant | Employment terms, common payroll policy, machine-code mapping, file timekeeping review, payroll reconciliation, separated approval/payout and correction. “Kế toán” is a persona label for `FINANCE_MANAGER`, not a role. Hidden when the server does not grant Payroll entitlement and the action capability. |
@@ -57,6 +57,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Tổng quan theo ngày | Admin | Dải chỉ số ngắn và bảng theo lớp hiển thị sĩ số, đã có mặt, nghỉ có đơn, đã được đón và trạng thái chưa đến lớp. Count/nhãn/date context là dữ liệu server, không optimistic hay tự tính trên browser. Hôm nay chưa có `PRESENT`/`ABSENT` xác nhận là `Chưa đến lớp`; ngày quá khứ `ABSENT` xác nhận không có đơn duyệt là `Nghỉ không phép`, còn không có bản ghi là `Chưa ghi nhận`. Card nghỉ có đơn mở danh sách đơn với filter URL-backed. |
 | SchoolYear setup | School Admin | Creates one active SchoolYear through a named confirmation. Class, Student, pending Parent link and Staff assignment forms show effective date and server validation; Staff profile never implies a login grant. |
 | Policy change form | School Admin | Shows active policy, effective date, required reason and server-returned impact. A pending version cannot silently replace active policy; conflict/validation keeps both values visible for correction. |
+| School holiday calendar | School Admin | Default schedule is read-only: Monday through Saturday, with Sunday non-operating. Add a named inclusive holiday range only through a server-validated Operation; overlap/order errors retain input, and audit/history never rewrites calendar snapshots, attendance, leave or Finance facts. |
 | Roster transition wizard | School Admin | Preview -> confirm -> Operation reconciliation. Source history stays visible; records excluded by server cannot be force-moved. |
 | CollectionRun list and detail | Finance | Finance sidebar opens only list/configuration workspaces, never a fixture Invoice or Receipt. Default view is a compact table of operating collection runs with filter and create action. Selecting a run opens a Student table with charge snapshot, gross/discount/due/paid/outstanding, text Invoice status and an Invoice/projection action. Detail hides landing actions and retains only run title plus Back. Preview/generate remains server-authoritative; timeout goes to Operation reconciliation. |
 | Invoice review and receipt | Finance | Invoice review and Receipt are contextual deep destinations only after selecting a Student and Invoice from CollectionRun detail. Receipt starts from one selected Student and server-returned eligible issued Invoices. The exact total required for every selected Invoice is shown; partial, excess, mixed-Student and unallocated posting are rejected as one posting. No independent Student balance is offered. |
@@ -91,7 +92,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Cold load | Skeleton matches the destination layout; never shows stale content from another School. |
 | No authorized Parent data | Gentle `{components.illustration-panel}` empty state with signed-out/safe next action; no child names remain. |
 | No attendance on a working day | `NOT_RECORDED` text label and update context; never infer absence. |
-| Holiday / non-operating date | Date history labels the calendar status instead of implying missing attendance. |
+| Holiday / non-operating date | Date history labels the calendar status instead of implying missing attendance. The server calendar uses the fixed Monday-Saturday schedule and confirmed inclusive School holiday ranges. |
 | Permission denied / revoke / `401` | Clear protected memory, close sheets/dialogs, then route to safe chooser or signed-out state. |
 | School suspended | Keep identity session; replace School content with suspended explanation and allowed alternative School chooser. |
 | Validation error | Error summary receives focus and links to fields; `fieldErrors` appear adjacent to the field. |
@@ -215,13 +216,13 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 5. **Climax:** Danh bộ shows the new Student in the correct SchoolYear/Class with pending Parent status; the Staff assignment does not imply that Staff can sign in.
 6. Failure: another active SchoolYear or invalid effective date is returned by the server; the form explains the field conflict and does not create a local placeholder record.
 
-### Flow 1f - Versioned School policy (Hoa, School Admin)
+### Flow 1f - School policy and holiday calendar (Hoa, School Admin)
 
-1. Hoa opens a typed calendar, finance, attendance, handover or Parent-access policy.
+1. Hoa opens the read-only calendar schedule or a typed finance, attendance, handover or Parent-access policy.
 2. She sees active value, effective date and proposed change; money/access/attendance changes require a reason.
-3. She submits the server-validated version and reviews any conflict with another effective policy.
-4. **Climax:** The policy history shows the new effective version without rewriting past snapshots.
-5. Failure: a conflict or invalid date keeps active/proposed values visible and focuses the returned field error.
+3. For calendar, Hoa adds a named inclusive holiday range; for policy, she submits the server-validated version and reviews any conflict.
+4. **Climax:** The confirmed holiday or policy history appears without rewriting past snapshots.
+5. Failure: a date-order or overlap error keeps holiday input visible; policy conflict keeps active/proposed values visible and focuses the returned field error.
 
 ### Flow 2 - CollectionRun preview and issue (Minh, Finance Manager, end of month)
 
