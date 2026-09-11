@@ -524,6 +524,60 @@ function bindMockActions() {
     $('[data-receivable-list]', section).hidden = false;
     $('h2', section)?.focus();
   }));
+  $$('[data-open-collection-run]').forEach(button => button.addEventListener('click', () => {
+    const root = button.closest('[data-admin-shell]');
+    const list = $('[data-collection-run-list]', root);
+    const form = $('[data-collection-run-form]', root);
+    const preview = $('[data-collection-run-preview]', root);
+    const generate = $('[data-generate-collection-run]', root);
+    const ready = button.dataset.runMode === 'ready';
+    list.hidden = true;
+    form.hidden = false;
+    preview.hidden = !ready;
+    generate.disabled = !ready;
+    if (ready) generate.dataset.idempotentAction = '';
+    else delete generate.dataset.idempotentAction;
+    if (ready) {
+      form.elements['collection-period'].value = button.dataset.runPeriod;
+      form.elements['collection-scope'].value = button.dataset.runScope;
+      $('[data-run-snapshot]', root).textContent = `${button.dataset.runPeriod} · ${button.dataset.runScope}`;
+      $('[data-run-eligible]', root).textContent = `${button.dataset.runEligible} học sinh`;
+      $('[data-run-skipped]', root).textContent = `${button.dataset.runSkipped} học sinh`;
+      $('[data-run-net]', root).textContent = button.dataset.runNet;
+      generate.textContent = button.dataset.runGenerate;
+      generate.dataset.actionTitle = button.dataset.runGenerate;
+      generate.dataset.actionConsequence = `Tạo hóa đơn nháp từ snapshot hệ thống của ${button.dataset.runPeriod}, ${button.dataset.runScope}. Nếu quá thời gian chờ, hãy đối soát thao tác trước khi gửi lại.`;
+    }
+    $('[data-collection-run-title]', form).textContent = ready ? 'Xem trước đợt thu tháng 09/2026' : 'Tạo đợt thu mới';
+    $('h2', form)?.focus();
+  }));
+  $$('[data-close-collection-run]').forEach(button => button.addEventListener('click', () => {
+    const root = button.closest('[data-admin-shell]');
+    $('[data-collection-run-form]', root).hidden = true;
+    $('[data-collection-run-list]', root).hidden = false;
+    $('h1', root)?.focus();
+  }));
+  $$('[data-preview-collection-run]').forEach(button => button.addEventListener('click', () => {
+    const root = button.closest('[data-admin-shell]');
+    const preview = $('[data-collection-run-preview]', root);
+    const generate = $('[data-generate-collection-run]', root);
+    const node = dialog('Gửi yêu cầu xem trước', '<p>Hệ thống sẽ kiểm tra kỳ, phạm vi và các khoản thu trong catalog rồi trả về projection authoritative. Bản mẫu không tự tính eligibility hoặc tổng tiền.</p>', '<button class="button" type="button" data-return-run-preview>Nhận kết quả từ hệ thống</button>', button);
+    $('[data-return-run-preview]', node).addEventListener('click', () => {
+      preview.hidden = false;
+      generate.disabled = false;
+      generate.dataset.idempotentAction = '';
+      node.remove();
+      $('h2', preview)?.focus();
+    });
+  }));
+  $$('[data-collection-run-config] :is(input,select)').forEach(control => control.addEventListener('change', () => {
+    const root = control.closest('[data-admin-shell]');
+    const preview = $('[data-collection-run-preview]', root);
+    const generate = $('[data-generate-collection-run]', root);
+    preview.hidden = true;
+    generate.disabled = true;
+    delete generate.dataset.idempotentAction;
+  }));
   $$('input[name="charge-scope"]').forEach(scope => scope.addEventListener('change', () => {
     $$('[data-charge-scope-options]').forEach(options => { options.hidden = options.dataset.chargeScopeOptions !== scope.value; });
   }));
