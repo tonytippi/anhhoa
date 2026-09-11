@@ -22,7 +22,27 @@
         </nav>
 
         <section id="school-information" data-settings-panel>
-          <div class="grid two"><article class="card"><h2 tabindex="-1">Thông tin trường</h2><dl><dt>Tên hiển thị</dt><dd>Trường Mầm non Ánh Hoa</dd><dt>Múi giờ</dt><dd>Việt Nam</dd><dt>Năm học đang hiệu lực</dt><dd>2026-2027</dd></dl></article><article class="card"><h2>Thông tin đối soát</h2><p class="muted">Lịch sử nêu người thực hiện, thời điểm và lý do sau khi hệ thống trả kết quả cuối cùng. Bản chụp quá khứ không bị thay đổi.</p></article></div>
+          <form id="school-profile-form" class="card school-profile" data-mock-form data-school-profile aria-label="Hồ sơ trường">
+            <div class="route-head"><div><h2 tabindex="-1">Hồ sơ trường</h2><p class="muted">Thông tin nhận diện và liên hệ chỉ đổi sau khi hệ thống xác nhận.</p></div><button class="button" type="submit">Lưu hồ sơ</button></div>
+            <div class="notice danger" data-error-summary tabindex="-1" hidden><b>Không thể dùng tệp đã chọn</b><p><a href="#profile-logo" data-profile-error-link>Kiểm tra tệp logo hoặc banner.</a></p></div>
+            <div class="profile-branding">
+              <div class="profile-banner" data-profile-banner-preview><span class="profile-fallback-mark" aria-hidden="true">PE</span><img alt="Xem trước banner Trường" hidden></div>
+              <div class="profile-logo" data-profile-logo-preview><span class="profile-fallback-mark" aria-hidden="true">AH</span><img alt="Xem trước logo Trường" hidden></div>
+              <div class="profile-media-fields">
+                <label>Banner trường<input id="profile-banner" name="banner" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="profile-banner-help profile-banner-error"><span id="profile-banner-help" class="muted">JPEG, PNG hoặc WebP, tối đa 10 MB. Chỉ xem trước cục bộ, chưa lưu.</span><span id="profile-banner-error" class="field-error" data-profile-media-error="banner" hidden></span></label>
+                <label>Logo trường<input id="profile-logo" name="logo" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="profile-logo-help profile-logo-error"><span id="profile-logo-help" class="muted">JPEG, PNG hoặc WebP, tối đa 10 MB. Chỉ xem trước cục bộ, chưa lưu.</span><span id="profile-logo-error" class="field-error" data-profile-media-error="logo" hidden></span></label>
+              </div>
+            </div>
+            <div class="grid two profile-fields">
+              <label>Tên hiển thị<input name="display-name" value="Trường Mầm non Ánh Hoa" required></label>
+              <label>Địa chỉ<textarea name="address" required>123 Đường Hoa Phượng, Phường 7, TP. Hồ Chí Minh</textarea></label>
+              <label>Điện thoại hỗ trợ<input name="support-phone" type="tel" value="028 3822 1234" required></label>
+              <label>Email hỗ trợ<input name="support-email" type="email" value="hotro@anhhoa.edu.vn" required></label>
+              <label>Múi giờ<input name="timezone" value="Asia/Ho_Chi_Minh (Việt Nam)" readonly></label>
+            </div>
+            <p class="notice info">Bản nháp và xem trước chỉ nằm trên trình duyệt. Khi gửi, hệ thống đối soát thao tác trước khi cập nhật hồ sơ đã xác nhận.</p>
+            <p class="muted" data-profile-confirmed>Hệ thống xác nhận lần cuối: 01/09/2026, 08:30.</p>
+          </form>
         </section>
 
         <section id="calendar" data-settings-panel hidden>

@@ -128,6 +128,18 @@ for (const [id, label] of [['school-information', 'Thông tin trường'], ['cal
 }
 assert.match(settings, /data-settings-tabs/);
 assert.doesNotMatch(settings, /data-receivable-tabs|class="route-state"/);
+assert.match(settings, /id="school-profile-form"/);
+assert.match(settings, /data-school-profile/);
+assert.match(settings, /data-profile-banner-preview/);
+assert.match(settings, /data-profile-logo-preview/);
+for (const field of ['display-name', 'address', 'support-phone', 'support-email']) assert.match(settings, new RegExp(`name="${field}"`));
+assert.match(settings, /name="timezone" value="Asia\/Ho_Chi_Minh \(Việt Nam\)" readonly/);
+assert.match(settings, /accept="image\/jpeg,image\/png,image\/webp"/);
+assert.doesNotMatch(settings, /Thông tin đối soát/);
+assert.match(prototype, /function clearProfilePreview/);
+assert.match(prototype, /URL\.createObjectURL\(file\)/);
+assert.match(prototype, /URL\.revokeObjectURL/);
+assert.match(prototype, /school-profile-save/);
 assert.match(prototype, /function renderSettingsTabs/);
 assert.match(prototype, /\[data-settings-panel\]/);
 assert.match(prototype, /\[data-settings-tabs\] a/);

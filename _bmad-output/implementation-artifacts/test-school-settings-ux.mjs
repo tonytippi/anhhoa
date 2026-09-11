@@ -9,6 +9,9 @@ const [html, rosterHtml, shell, script] = await Promise.all([
 ]);
 function load(url) {
   const dom = new JSDOM(html, { runScripts: 'outside-only', url });
+  dom.window.revokedUrls = [];
+  dom.window.URL.createObjectURL = file => `blob:mock-${file.name}`;
+  dom.window.URL.revokeObjectURL = url => dom.window.revokedUrls.push(url);
   dom.window.eval(shell); dom.window.eval(script);
   dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
   return dom.window;
@@ -18,13 +21,55 @@ roster.window.eval(shell);
 assert.equal([...roster.window.document.querySelectorAll('.side-link')].find(link => link.textContent === 'Cấu hình trường').getAttribute('href'), '../school-settings.html');
 
 const tabCases = [
-  ['school-information', 'Thông tin trường'], ['calendar', 'Lịch hoạt động'], ['finance-payment', 'Tài chính & thanh toán'],
+  ['school-information', 'Hồ sơ trường'], ['calendar', 'Lịch hoạt động'], ['finance-payment', 'Tài chính & thanh toán'],
   ['attendance-handover', 'Điểm danh & bàn giao'], ['parent-access', 'Truy cập phụ huynh']
 ];
 const defaultTab = load('https://mock.test/admin/school-settings.html');
 assert.equal(defaultTab.document.querySelector('#school-information').hidden, false);
 assert.equal(defaultTab.document.querySelectorAll('[data-settings-panel]:not([hidden])').length, 1);
 assert.equal(defaultTab.document.querySelector('[data-settings-tabs] a[href="#school-information"]').getAttribute('aria-current'), 'page');
+const profile = defaultTab.document.querySelector('#school-profile-form');
+assert.match(profile.textContent, /Hồ sơ trường/);
+assert.equal(profile.elements.timezone.value, 'Asia/Ho_Chi_Minh (Việt Nam)');
+assert.equal(defaultTab.document.querySelector('input[name="timezone"]').readOnly, true);
+assert.equal(defaultTab.document.querySelectorAll('h2').length > 1, true);
+assert.doesNotMatch(defaultTab.document.querySelector('#school-information').textContent, /Thông tin đối soát/);
+const profileLogo = profile.elements.logo;
+Object.defineProperty(profileLogo, 'files', { value: [new defaultTab.File(['logo'], 'logo.png', { type: 'image/png' })], configurable: true });
+profileLogo.dispatchEvent(new defaultTab.Event('change', { bubbles: true }));
+assert.equal(profile.dataset.dirty, 'true');
+assert.equal(defaultTab.document.querySelector('[data-profile-logo-preview] img').hidden, false);
+assert.match(profile.textContent, /Chỉ xem trước cục bộ, chưa lưu/);
+const localLogoPreview = defaultTab.document.querySelector('[data-profile-logo-preview] img').src;
+Object.defineProperty(profileLogo, 'files', { value: [new defaultTab.File(['x'], 'logo.gif', { type: 'image/gif' })], configurable: true });
+profileLogo.dispatchEvent(new defaultTab.Event('change', { bubbles: true }));
+assert.equal(defaultTab.document.querySelector('[data-profile-logo-preview] img').hidden, false, 'invalid media retains prior preview');
+assert.equal(profile.querySelector('[data-profile-media-error="logo"]').hidden, false);
+profile.elements['display-name'].value = 'Trường Mầm non Ánh Hoa Mới';
+profile.dispatchEvent(new defaultTab.Event('submit', { bubbles: true, cancelable: true }));
+assert.equal(defaultTab.document.querySelector('.dialog-backdrop'), null, 'invalid media blocks profile confirmation');
+Object.defineProperty(profileLogo, 'files', { value: [new defaultTab.File(['logo'], 'logo-2.png', { type: 'image/png' })], configurable: true });
+profileLogo.dispatchEvent(new defaultTab.Event('change', { bubbles: true }));
+assert.equal(profile.querySelector('[data-error-summary]').hidden, true);
+profile.dispatchEvent(new defaultTab.Event('submit', { bubbles: true, cancelable: true }));
+const profileDialog = () => defaultTab.document.querySelector('.dialog-backdrop:last-child');
+assert.match(profileDialog().textContent, /Xác nhận lưu hồ sơ trường/);
+assert.match(profile.querySelector('[data-profile-confirmed]').textContent, /01\/09\/2026/, 'no optimistic confirmed timestamp');
+profileDialog().querySelector('[data-idempotent-submit]').click(); profileDialog().querySelector('[data-reconcile]').click(); profileDialog().querySelector('[data-return-operation-outcome]').click();
+assert.match(profile.querySelector('[data-profile-confirmed]').textContent, /11\/09\/2026/);
+assert.equal(profile.dataset.dirty, undefined);
+assert.equal(defaultTab.document.querySelector('[data-profile-logo-preview] img').hidden, true);
+assert.ok(defaultTab.revokedUrls.includes('blob:mock-logo-2.png'));
+assert.match(defaultTab.document.querySelector('#school-settings h1').textContent, /Ánh Hoa Mới/);
+profileDialog().querySelector('[data-close]').click();
+Object.defineProperty(profileLogo, 'files', { value: [new defaultTab.File(['logo'], 'logo.png', { type: 'image/png' })], configurable: true });
+profileLogo.dispatchEvent(new defaultTab.Event('change', { bubbles: true }));
+defaultTab.document.querySelector('[data-school-context]').click();
+const discardDialog = () => defaultTab.document.querySelector('.dialog-backdrop:last-child');
+discardDialog().querySelector('[data-discard-context]').click();
+assert.equal(profile.dataset.dirty, undefined);
+assert.equal(defaultTab.document.querySelector('#school-profile-form'), null, 'discard removes the old School profile and local media preview');
+discardDialog().querySelector('[data-close]').click();
 for (const [id, label] of tabCases) {
   const window = load(`https://mock.test/admin/school-settings.html#${id}`);
   const panels = [...window.document.querySelectorAll('[data-settings-panel]')];

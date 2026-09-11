@@ -3,6 +3,22 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHtml = value => value.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
 let knownOperation = null;
 
+function clearProfilePreview(form, name) {
+  const preview = $(`[data-profile-${name}-preview]`, form);
+  const image = $('img', preview);
+  if (preview.dataset.objectUrl) URL.revokeObjectURL?.(preview.dataset.objectUrl);
+  delete preview.dataset.objectUrl;
+  image.removeAttribute('src');
+  image.hidden = true;
+  $('.profile-fallback-mark', preview).hidden = false;
+}
+
+function clearProfileMedia(form) {
+  ['banner', 'logo'].forEach(name => clearProfilePreview(form, name));
+  $$('[data-profile-media-error]', form).forEach(error => { error.hidden = true; error.textContent = ''; });
+  $('[data-error-summary]', form).hidden = true;
+}
+
 function dialog(title, content, actions = '', opener = document.activeElement) {
   const node = document.createElement('div');
   node.className = 'dialog-backdrop';
@@ -112,6 +128,20 @@ function reconcileOperation(opener = document.activeElement) {
       const form = document.getElementById(operation.formId);
       if (form) { form.reset(); form.hidden = true; delete form.dataset.dirty; $('[data-open-holiday-form]')?.focus(); }
     }
+    if (operation.lifecycle === 'school-profile-save') {
+      const form = document.getElementById(operation.formId);
+      if (form) {
+        clearProfileMedia(form);
+        form.reset();
+        delete form.dataset.dirty;
+        $('[data-profile-confirmed]', form).textContent = `Hệ thống xác nhận lần cuối: ${operation.confirmedAt}.`;
+        form.elements['display-name'].value = operation.profileName;
+        form.elements.address.value = operation.profileAddress;
+        form.elements['support-phone'].value = operation.profilePhone;
+        form.elements['support-email'].value = operation.profileEmail;
+        $('h1', document.getElementById('school-settings')).textContent = `Cấu hình trường · ${operation.profileName}`;
+      }
+    }
     if (operation.target) renderOperationResult(operation);
     if (operation.conflict) {
       const form = document.getElementById(operation.formId);
@@ -153,6 +183,11 @@ function showOperation(title, button, node) {
     holidayStart: button.dataset.operationHolidayStart,
     holidayEnd: button.dataset.operationHolidayEnd,
     holidayDays: button.dataset.operationHolidayDays,
+    profileTimestamp: button.dataset.operationProfileTimestamp,
+    profileName: button.dataset.operationProfileName,
+    profileAddress: button.dataset.operationProfileAddress,
+    profilePhone: button.dataset.operationProfilePhone,
+    profileEmail: button.dataset.operationProfileEmail,
     sourceButton: button
   };
   $('.dialog', node).innerHTML = `<h2 id="dialog-title">${title}</h2><div class="operation"><p>Yêu cầu đã được gửi. Đang kiểm tra kết quả với hệ thống trước khi cho phép gửi lại.</p></div><div class="dialog-actions"><button class="button" type="button" data-reconcile>Đối soát kết quả</button></div>`;
@@ -181,6 +216,7 @@ function showSchoolContextGuard(button) {
     $$('[data-mock-form]').forEach(form => {
       form.reset();
       delete form.dataset.dirty;
+      if (form.hasAttribute('data-school-profile')) clearProfileMedia(form);
     });
     $$('[data-mock-receipt]').forEach(form => form.reset());
     const oldBankAccount = $('#bank-account');
@@ -708,6 +744,31 @@ function bindMockActions() {
     form.addEventListener('submit', event => {
       event.preventDefault();
       if (form.classList.contains('journal-editor')) return;
+      if (form.hasAttribute('data-school-profile')) {
+        if (!form.reportValidity() || $$('[data-profile-media-error]', form).some(error => !error.hidden)) {
+          $('[data-error-summary]', form).hidden = false;
+          $('[data-error-summary]', form).focus();
+          return;
+        }
+        const button = document.createElement('button');
+        button.dataset.actionTitle = 'Xác nhận lưu hồ sơ trường';
+        button.dataset.actionLabel = 'Xác nhận lưu hồ sơ';
+        button.dataset.actionConsequence = 'Hệ thống kiểm tra quyền, thông tin hồ sơ và thao tác trước khi cập nhật. Bản nháp chỉ trở thành hồ sơ đã xác nhận sau kết quả cuối cùng.';
+        button.dataset.operationLifecycle = 'school-profile-save';
+        button.dataset.operationTarget = 'settings-operation-result';
+        button.dataset.operationRefresh = 'settings';
+        button.dataset.operationForm = form.id;
+        button.dataset.operationResultTitle = 'Hồ sơ trường từ hệ thống';
+        button.dataset.operationResult = 'Hệ thống đã xác nhận hồ sơ trường và thông tin liên hệ mới.';
+        button.dataset.operationProfileTimestamp = '11/09/2026, 10:15';
+        button.dataset.operationConfirmedAt = '11/09/2026, 10:15';
+        button.dataset.operationProfileName = form.elements['display-name'].value;
+        button.dataset.operationProfileAddress = form.elements.address.value;
+        button.dataset.operationProfilePhone = form.elements['support-phone'].value;
+        button.dataset.operationProfileEmail = form.elements['support-email'].value;
+        showIdempotentConfirmation(button);
+        return;
+      }
       if (form.hasAttribute('data-holiday-form')) {
         const name = form.elements['holiday-name'].value.trim();
         const start = form.elements['holiday-start-date'].value;
@@ -789,6 +850,42 @@ function bindMockActions() {
         button.dataset.operationResult = `Hệ thống không thể ghi nhận ${policy} vì đã có phiên bản hiệu lực chồng lấn.`;
       }
       showIdempotentConfirmation(button);
+    });
+  });
+  $$('[data-school-profile]').forEach(form => {
+    ['banner', 'logo'].forEach(name => {
+      const input = form.elements[name];
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const error = $(`[data-profile-media-error="${name}"]`, form);
+        const valid = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) && file.size <= 10 * 1024 * 1024;
+        if (!valid) {
+          error.textContent = 'Chỉ chọn một tệp JPEG, PNG hoặc WebP không quá 10 MB.';
+          error.hidden = false;
+          input.setAttribute('aria-invalid', 'true');
+          $('[data-error-summary]', form).hidden = false;
+          $('[data-profile-error-link]', form).setAttribute('href', `#profile-${name}`);
+          $('[data-error-summary]', form).focus();
+          input.value = '';
+          return;
+        }
+        error.hidden = true;
+        error.textContent = '';
+        input.removeAttribute('aria-invalid');
+        const remainingError = $$('[data-profile-media-error]', form).find(item => !item.hidden);
+        const summary = $('[data-error-summary]', form);
+        if (!remainingError) summary.hidden = true;
+        else $('[data-profile-error-link]', form).setAttribute('href', `#profile-${remainingError.dataset.profileMediaError}`);
+        const preview = $(`[data-profile-${name}-preview]`, form);
+        clearProfilePreview(form, name);
+        const image = $('img', preview);
+        preview.dataset.objectUrl = URL.createObjectURL(file);
+        image.src = preview.dataset.objectUrl;
+        image.hidden = false;
+        $('.profile-fallback-mark', preview).hidden = true;
+        form.dataset.dirty = 'true';
+      });
     });
   });
   $$('[data-error-summary] a[href^="#"]').forEach(link => link.addEventListener('click', event => {
