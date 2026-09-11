@@ -93,8 +93,6 @@ function reconcileOperation(opener = document.activeElement) {
     if (operation.target) renderOperationResult(operation);
     if (operation.conflict) {
       const form = document.getElementById(operation.formId);
-      const proposed = row && $('[data-policy-proposed]', row);
-      if (proposed) proposed.textContent = `Xung đột: ${operation.value} từ ${operation.effectiveDate}; phiên bản đang áp dụng vẫn giữ nguyên.`;
       if (form) focusErrorSummary(form);
       knownOperation = null;
       node.remove();
@@ -244,11 +242,14 @@ function renderRoster() {
 
 function settingsState(route = window.location.search) {
   const params = new URLSearchParams(route.replace(/^\?/, ''));
+  const status = ['all', 'active', 'inactive'].includes(params.get('status')) ? params.get('status') : 'all';
+  const sort = ['bank', 'effective'].includes(params.get('sort')) ? params.get('sort') : 'bank';
+  const requestedPage = Number(params.get('page'));
   return {
     q: (params.get('q') || '').trim().toLocaleLowerCase('vi'),
-    status: params.get('status') || 'all',
-    sort: params.get('sort') || 'bank',
-    page: Math.max(1, Number(params.get('page')) || 1)
+    status,
+    sort,
+    page: Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1
   };
 }
 
@@ -288,6 +289,7 @@ function renderSettingsTabs(focus = Boolean(window.location.hash)) {
   const panels = $$('[data-settings-panel]', section);
   const requested = window.location.hash.replace(/^#/, '');
   const selected = panels.find(panel => panel.id === requested) || panels[0];
+  if (requested && selected.id !== requested) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${selected.id}`);
   panels.forEach(panel => { panel.hidden = panel !== selected; });
   $$('[data-settings-tabs] a', section).forEach(link => {
     const active = link.getAttribute('href') === `#${selected.id}`;

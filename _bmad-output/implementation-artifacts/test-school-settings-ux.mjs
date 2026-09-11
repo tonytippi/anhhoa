@@ -21,6 +21,10 @@ const tabCases = [
   ['school-information', 'Thông tin trường'], ['calendar', 'Lịch hoạt động'], ['finance-payment', 'Tài chính & thanh toán'],
   ['attendance-handover', 'Điểm danh & bàn giao'], ['parent-access', 'Truy cập phụ huynh']
 ];
+const defaultTab = load('https://mock.test/admin/school-settings.html');
+assert.equal(defaultTab.document.querySelector('#school-information').hidden, false);
+assert.equal(defaultTab.document.querySelectorAll('[data-settings-panel]:not([hidden])').length, 1);
+assert.equal(defaultTab.document.querySelector('[data-settings-tabs] a[href="#school-information"]').getAttribute('aria-current'), 'page');
 for (const [id, label] of tabCases) {
   const window = load(`https://mock.test/admin/school-settings.html#${id}`);
   const panels = [...window.document.querySelectorAll('[data-settings-panel]')];
@@ -34,6 +38,7 @@ const dialog = () => window.document.querySelector('.dialog-backdrop:last-child'
 const visibleRows = () => [...window.document.querySelectorAll('[data-bank-account-rows] tr')].filter(row => !row.hidden);
 const fallback = load('https://mock.test/admin/school-settings.html#not-a-settings-tab');
 assert.equal(fallback.document.querySelector('#school-information').hidden, false, 'invalid tab falls back to school information');
+assert.equal(fallback.location.hash, '#school-information');
 window.location.hash = '#finance-payment';
 assert.equal(window.document.querySelector('#finance-payment').hidden, false);
 assert.equal(visibleRows().length, 2);
@@ -55,6 +60,15 @@ assert.match(dialog().textContent, /Xác nhận đề xuất Điểm danh/);
 dialog().querySelector('[data-idempotent-submit]').click(); dialog().querySelector('[data-reconcile]').click(); dialog().querySelector('[data-return-operation-outcome]').click();
 assert.match(window.document.querySelector('#policy-2 [data-policy-proposed]').textContent, /02\/10\/2026/);
 dialog().querySelector('[data-close]').click();
+attendance.elements.policy.value = 'policy-3';
+attendance.elements['proposed-value'].value = 'Yêu cầu lý do khi điều chỉnh';
+attendance.elements['effective-date'].value = '2026-10-03';
+attendance.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+assert.match(dialog().textContent, /Xác nhận đề xuất Bàn giao/);
+dialog().querySelector('[data-idempotent-submit]').click(); dialog().querySelector('[data-reconcile]').click(); dialog().querySelector('[data-return-operation-outcome]').click();
+assert.match(window.document.querySelector('#policy-3 [data-policy-proposed]').textContent, /03\/10\/2026/);
+assert.match(window.document.querySelector('#policy-2 [data-policy-proposed]').textContent, /02\/10\/2026/);
+dialog().querySelector('[data-close]').click();
 for (const [tab, formId, row] of [['finance-payment', 'finance-policy-proposal-form', 'policy-1'], ['parent-access', 'parent-access-policy-proposal-form', 'policy-4']]) {
   window.location.hash = `#${tab}`;
   const form = window.document.querySelector(`#${formId}`);
@@ -71,7 +85,8 @@ calendar.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: t
 dialog().querySelector('[data-idempotent-submit]').click(); dialog().querySelector('[data-reconcile]').click(); dialog().querySelector('[data-return-operation-outcome]').click();
 assert.equal(calendar.querySelector('[data-error-summary]').hidden, false);
 assert.equal(window.document.activeElement, calendar.querySelector('[data-error-summary]'));
-assert.match(window.document.querySelector('#policy-0 [data-policy-proposed]').textContent, /Xung đột/);
+assert.equal(window.document.querySelector('#policy-0 [data-policy-proposed]').textContent, 'Thứ hai đến thứ bảy từ 01/10/2026');
+assert.equal(window.document.querySelector('#policy-1 [data-policy-proposed]').textContent, 'Hoàn tiền cần School Admin khác duyệt từ 02/10/2026');
 window.location.hash = '#finance-payment';
 window.history.replaceState(null, '', '?status=active&page=1#finance-payment');
 window.__rosterMock.renderSettings();
