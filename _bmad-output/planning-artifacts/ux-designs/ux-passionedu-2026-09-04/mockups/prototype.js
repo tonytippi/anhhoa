@@ -557,6 +557,20 @@ function bindMockActions() {
     $('[data-collection-run-list]', root).hidden = false;
     $('h1', root)?.focus();
   }));
+  $$('[data-open-run-detail]').forEach(button => button.addEventListener('click', () => {
+    const root = button.closest('[data-admin-shell]');
+    $('[data-collection-run-landing-head]', root).hidden = true;
+    $('[data-collection-run-list]', root).hidden = true;
+    $('[data-collection-run-detail]', root).hidden = false;
+    $('h2', root)?.focus();
+  }));
+  $$('[data-close-run-detail]').forEach(button => button.addEventListener('click', () => {
+    const root = button.closest('[data-admin-shell]');
+    $('[data-collection-run-detail]', root).hidden = true;
+    $('[data-collection-run-landing-head]', root).hidden = false;
+    $('[data-collection-run-list]', root).hidden = false;
+    $('h1', root)?.focus();
+  }));
   $$('[data-preview-collection-run]').forEach(button => button.addEventListener('click', () => {
     const root = button.closest('[data-admin-shell]');
     const preview = $('[data-collection-run-preview]', root);

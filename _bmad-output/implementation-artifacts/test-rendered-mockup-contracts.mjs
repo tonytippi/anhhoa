@@ -62,12 +62,11 @@ assert.match(invoice, /Bé An · Ánh Hoa · Năm học 2026-2027/);
 assert.match(invoice, /Không cho phép một phần, dư, chưa phân bổ hoặc khác học sinh/);
 assert.match(prototype, /receipt\.reportValidity\(\)/);
 assert.match(prototype, /delete issueButton\.dataset\.idempotentAction/);
-// CollectionRun landing, authoritative preview, idempotent generate and isolated PREPAID flow.
+// CollectionRun landing, student-level details and authoritative generate.
 assert.match(generation, /<h1>Đợt thu<\/h1>/);
 assert.match(generation, /Lịch sử đợt thu/);
 for (const heading of ['Kỳ', 'Loại', 'Trạng thái', 'Hóa đơn tạo / bỏ qua', 'Gross', 'Ưu đãi', 'Net', 'Thời điểm tính']) assert.match(generation, new RegExp(`<th(?: class="money")?>${heading}</th>`));
 assert.match(generation, /data-open-collection-run/);
-assert.match(generation, /Số liệu, trạng thái và thời điểm tính bên dưới do hệ thống xác nhận/);
 assert.match(generation, /Danh mục đủ điều kiện do hệ thống đề xuất theo Trường, phạm vi và hiệu lực/);
 assert.match(generation, /active · phân công theo học sinh/);
 assert.doesNotMatch(generation, /name="(?:total|custom-price|student-price)"/);
@@ -77,18 +76,25 @@ assert.match(generation, /Chỉ run `READY` mới có thể tạo hóa đơn/);
 assert.match(generation, /disabled data-generate-collection-run/);
 assert.match(generation, /data-operation-lifecycle="collection-run-generate"/);
 assert.match(generation, /Dự kiến 124 \/ 3/);
-assert.match(generation, /data-run-period="Tháng 09\/2026"/);
-assert.match(prototype, /generate\.dataset\.actionTitle = button\.dataset\.runGenerate/);
+assert.match(generation, /data-open-run-detail>Chi tiết/);
 assert.match(prototype, /\[data-collection-run-config\] :is\(input,select\)/);
 assert.match(prototype, /preview\.hidden = true;/);
 assert.match(prototype, /data-preview-collection-run/);
 assert.match(prototype, /Bản mẫu không tự tính eligibility hoặc tổng tiền/);
 assert.match(prototype, /generate\.dataset\.idempotentAction = ''/);
-assert.match(generation, /NỘP TRƯỚC · LUỒNG RIÊNG/);
-assert.match(generation, /Chỉ School Admin chọn policy `PREPAID`/);
-assert.match(generation, /không phải khoản thu bổ sung của run thường/);
-assert.match(generation, /Coverage chỉ được cấp sau khi source Invoice thanh toán đủ chính xác/);
-assert.match(generation, /Parent không có lựa chọn hay mutation trong luồng này/);
+assert.match(generation, /data-collection-run-detail hidden/);
+assert.match(generation, /data-collection-run-landing-head/);
+assert.match(generation, /class="run-summary"/);
+assert.match(generation, /Danh sách học sinh · Tháng 09\/2026/);
+for (const heading of ['Học sinh', 'Khoản thu', 'Cần thu', 'Đã thu', 'Còn thiếu']) assert.match(generation, new RegExp(`<th(?: class="money")?>${heading}`));
+assert.match(generation, /Đã bao phủ/);
+assert.match(generation, /Không tạo hóa đơn/);
+assert.match(generation, /Không tạo hóa đơn 0 đ/);
+assert.match(prototype, /data-open-run-detail/);
+assert.match(prototype, /data-close-run-detail/);
+assert.match(prototype, /\$\('\[data-collection-run-landing-head\]', root\)\.hidden = true/);
+assert.match(css, /\.run-summary\{display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
+assert.doesNotMatch(generation, /NỘP TRƯỚC|`PREPAID`|nộp trước/);
 
 // Receivable form owns its default scope; a class matrix shows every charge for every Student.
 for (const id of ['receivables', 'student-assignments', 'discount-policies', 'late-pickup']) assert.match(receivables, new RegExp(`class="route-state" id="${id}"`));
