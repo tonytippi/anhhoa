@@ -282,6 +282,21 @@ function renderSettings() {
   });
 }
 
+function renderSettingsTabs(focus = Boolean(window.location.hash)) {
+  const section = $('#school-settings[data-route]');
+  if (!section) return;
+  const panels = $$('[data-settings-panel]', section);
+  const requested = window.location.hash.replace(/^#/, '');
+  const selected = panels.find(panel => panel.id === requested) || panels[0];
+  panels.forEach(panel => { panel.hidden = panel !== selected; });
+  $$('[data-settings-tabs] a', section).forEach(link => {
+    const active = link.getAttribute('href') === `#${selected.id}`;
+    link.classList.toggle('active', active);
+    link.setAttribute('aria-current', active ? 'page' : 'false');
+  });
+  if (focus && window.location.hash) $('h2', selected)?.focus();
+}
+
 function focusErrorSummary(form) {
   const summary = $('[data-error-summary]', form);
   if (!summary) return;
@@ -349,6 +364,11 @@ function focusRoute() {
   }
   const route = window.location.hash || '#overview';
   const state = queueState(route);
+  if ($('#school-settings[data-route]')) {
+    renderSettingsTabs();
+    renderSettings();
+    return;
+  }
   const receivableTabs = $$('[data-receivable-tabs] a');
   const receivableStates = $$('.route-state');
   if (receivableStates.length) {
@@ -450,7 +470,7 @@ function bindMockActions() {
   window.addEventListener('teacher-access-revoked', showTeacherAccessRevoked);
   window.addEventListener('popstate', () => {
     if ($('#roster[data-route]')) renderRoster();
-    else if ($('#school-settings[data-route]')) renderSettings();
+    else if ($('#school-settings[data-route]')) { renderSettingsTabs(false); renderSettings(); }
   });
   document.addEventListener('click', event => {
     const button = event.target.closest('[data-operation], [data-confirm], [data-evidence], [data-provision], [data-idempotent-action], [data-school-context]');
@@ -485,7 +505,7 @@ function bindMockActions() {
     if (form.hasAttribute('data-bank-account-filter')) {
       const params = new URLSearchParams(new FormData(form));
       params.set('page', '1');
-      window.history.pushState(null, '', `?${params.toString()}`);
+      window.history.pushState(null, '', `?${params.toString()}${window.location.hash || '#finance-payment'}`);
       renderSettings();
       return;
     }
@@ -507,7 +527,7 @@ function bindMockActions() {
   $$('[data-bank-account-page]').forEach(button => button.addEventListener('click', () => {
     const params = new URLSearchParams(window.location.search);
     params.set('page', button.dataset.bankAccountPage);
-    window.history.pushState(null, '', `?${params.toString()}`);
+    window.history.pushState(null, '', `?${params.toString()}${window.location.hash || '#finance-payment'}`);
     renderSettings();
   }));
   $$('[data-journal-search], [data-journal-filter]').forEach(control => control.addEventListener(control.matches('select') ? 'change' : 'input', renderTeacherJournals));
@@ -658,19 +678,20 @@ function bindMockActions() {
         focusErrorSummary(form);
         return;
       }
-      const date = $('#effective-date', form);
+       const date = $('[name="effective-date"]', form);
       const summary = $('[data-error-summary]', form);
       if (summary) summary.hidden = true;
       $$('[data-field-error]', form).forEach(error => { error.hidden = true; });
-      const policy = form.elements.policy.value;
+       const selectedOption = form.elements.policy?.options[form.elements.policy.selectedIndex];
+       const policy = selectedOption?.textContent || form.dataset.policyLabel;
       const value = form.elements['proposed-value'].value;
       const button = document.createElement('button');
       button.dataset.actionTitle = `Xác nhận đề xuất ${policy}`;
       button.dataset.actionLabel = 'Xác nhận gửi đề xuất';
       button.dataset.actionConsequence = `Trường Ánh Hoa sẽ gửi ${policy}: ${value}, hiệu lực từ ${date.value.split('-').reverse().join('/')}. Hệ thống sẽ đối soát kết quả trước khi cho phép gửi lại.`;
-      const fixture = form.elements.policy.options[form.elements.policy.selectedIndex].dataset.conflictFixture;
+       const fixture = selectedOption?.dataset.conflictFixture || form.dataset.conflictFixture;
       button.dataset.operationLifecycle = fixture ? 'policy-conflict' : 'policy-version';
-      button.dataset.operationRow = `policy-${form.elements.policy.selectedIndex}`;
+       button.dataset.operationRow = form.elements.policy?.value || form.dataset.policyRow;
       button.dataset.operationValue = value;
       button.dataset.operationEffectiveDate = date.value.split('-').reverse().join('/');
       button.dataset.operationTarget = 'policy-version-result';
@@ -695,5 +716,5 @@ function bindMockActions() {
   focusRoute();
 }
 
-if (typeof window !== 'undefined') window.__rosterMock = { rosterState, matchesRosterRow, renderRoster, settingsState, renderSettings, focusErrorSummary, renderTeacherJournals };
+if (typeof window !== 'undefined') window.__rosterMock = { rosterState, matchesRosterRow, renderRoster, settingsState, renderSettings, renderSettingsTabs, focusErrorSummary, renderTeacherJournals };
 if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', bindMockActions);

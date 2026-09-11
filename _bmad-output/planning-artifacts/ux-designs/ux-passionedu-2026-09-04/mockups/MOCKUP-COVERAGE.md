@@ -8,7 +8,7 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 | --- | --- | --- |
 | Mục lục rà soát | `review.html` | Điểm bắt đầu và hướng dẫn rà soát toàn bộ quy trình. |
 | Quản trị và nhân sự | `admin/admin-staff.html` | Tổng quan vận hành read-only theo Trường/ngày: dải chỉ số ngắn và bảng theo lớp cho sĩ số, có mặt, nghỉ có đơn, chưa đến lớp/nghỉ không phép/chưa ghi nhận và đã được đón. Danh sách đơn nghỉ là detail URL-backed mở từ overview. Admin không có route hay mutation điểm danh/giờ đón. |
-| Cấu hình trường | `admin/school-settings.html` | Hồ sơ Trường Ánh Hoa, lịch, chính sách tài chính/điểm danh/bàn giao/quyền xem Phụ huynh theo hiệu lực và lịch sử; tài khoản nhận tiền có tìm, lọc, sắp xếp, trang URL-backed, ngừng dùng không xóa và đối soát thao tác. |
+| Cấu hình trường | `admin/school-settings.html` | Năm tab liên kết trực tiếp: Thông tin trường (hồ sơ/audit), Lịch hoạt động, Tài chính & thanh toán (FinancePolicy và BankAccount), Điểm danh & bàn giao, Truy cập phụ huynh. Mỗi policy giữ hiệu lực/lịch sử; BankAccount giữ `q`, `status`, `sort`, `page` trên URL đồng thời bảo toàn `#finance-payment`, ngừng dùng không xóa và đối soát thao tác. |
 | Danh bộ | `admin/roster/roster.html` | Danh sách Trường Ánh Hoa với tìm kiếm, lọc, sắp xếp và trang trong URL; bảng, caption, empty state và mã chỉ trong thông tin đối soát. |
 | Năm học và lớp | `admin/roster/school-year-classes.html` | Một năm học đang hiệu lực, lớp thuộc năm học, ngày hiệu lực và lỗi máy chủ có summary được focus/liên kết. |
 | Hồ sơ và ghi danh | `admin/roster/student-enrollment.html` | Hồ sơ học sinh tách ghi danh, khoảng hiệu lực và lịch sử bằng nhãn nghiệp vụ ngắn. |

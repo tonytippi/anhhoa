@@ -3,11 +3,11 @@ import { readFile, readdir } from 'node:fs/promises';
 
 const mockups = new URL('../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/', import.meta.url);
 const read = path => readFile(new URL(path, mockups), 'utf8');
-const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, latePickup] = await Promise.all([
+const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, latePickup, settings] = await Promise.all([
   read('prototype.css'), read('admin/admin-shell.js'), read('prototype.js'), read('parent/parent.html'),
   read('admin/payroll-timekeeping-import.html'), read('admin/payroll-run-review.html'),
   read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'),
-  read('admin/receivable-configuration.html'), read('admin/late-pickup-statistics.html')
+  read('admin/receivable-configuration.html'), read('admin/late-pickup-statistics.html'), read('admin/school-settings.html')
 ]);
 
 // Admin mobile: viewport containment, scroll-owned tables, accessible sheet and focus return.
@@ -120,6 +120,23 @@ assert.match(css, /\.tabs a\.active,\.tabs button\.active\{color:var\(--green\);
 assert.match(prototype, /const receivableTabs = \$\$\('\[data-receivable-tabs\] a'\)/);
 assert.match(prototype, /const selected = receivableStates\.find/);
 assert.match(prototype, /section\.hidden = section !== selected/);
+
+// Settings owns a separate tab namespace and finance keeps its query state with the selected hash.
+for (const [id, label] of [['school-information', 'Thông tin trường'], ['calendar', 'Lịch hoạt động'], ['finance-payment', 'Tài chính &amp; thanh toán'], ['attendance-handover', 'Điểm danh &amp; bàn giao'], ['parent-access', 'Truy cập phụ huynh']]) {
+  assert.match(settings, new RegExp(`href="#${id}">${label}`));
+  assert.match(settings, new RegExp(`id="${id}" data-settings-panel`));
+}
+assert.match(settings, /data-settings-tabs/);
+assert.doesNotMatch(settings, /data-receivable-tabs|class="route-state"/);
+assert.match(prototype, /function renderSettingsTabs/);
+assert.match(prototype, /\[data-settings-panel\]/);
+assert.match(prototype, /\[data-settings-tabs\] a/);
+assert.match(prototype, /\$\{window\.location\.hash \|\| '#finance-payment'\}/);
+assert.match(settings, /data-policy-row="policy-0"/);
+assert.match(settings, /data-policy-row="policy-1"/);
+assert.match(settings, /data-policy-row="policy-2"/);
+assert.match(settings, /data-policy-row="policy-4"/);
+assert.equal(settings.match(/data-queue-filter|data-queue-rows|data-evidence/g), null);
 assert.match(receivables, /data-open-receivable-form="edit"/);
 assert.match(receivables, /data-receivable-form/);
 assert.match(prototype, /data-open-receivable-form/);
