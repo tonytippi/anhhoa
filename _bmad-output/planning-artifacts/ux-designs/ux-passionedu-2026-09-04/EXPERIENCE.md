@@ -23,7 +23,7 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | School chooser / switcher | Admin/Staff, Parent with multiple active Schools | Select an authorized School before scoped work. A Parent with one active School enters its home directly; a Parent with no active StudentParent link is denied a Parent session. |
 | Tổng quan | Admin | Tổng quan vận hành theo School/ngày, read-only: sĩ số/lớp, điểm danh do server trả về, trẻ đã được đón và đơn nghỉ; không là nơi mutation điểm danh, giờ đón hay nhật ký. |
 | Danh bộ | School Admin | SchoolYear, Class, Student enrollment, Parent links, Staff assignments. |
-| Cấu hình trường | School Admin | Typed School, fixed workweek/holiday calendar, finance, attendance and Parent-access policy. |
+| Cấu hình trường | School Admin | Typed School, fixed workweek/holiday calendar, finance and attendance policy. Parent authorization is a server-enforced baseline, not a School setting. |
 | Khoản thu / Đợt thu | Finance | Catalog, CollectionRun setup, preview, generate and issue review. |
 | Thu tiền / Công nợ / Báo cáo | Finance | Exact ledger posting, debt, prepaid-payment coverage, correction and school-scoped report. |
 | Lương & Nhân sự | Payroll-enabled School Admin, Finance Manager Accountant | Employment terms, common payroll policy, machine-code mapping, file timekeeping review, payroll reconciliation, separated approval/payout and correction. “Kế toán” is a persona label for `FINANCE_MANAGER`, not a role. Hidden when the server does not grant Payroll entitlement and the action capability. |
@@ -81,8 +81,8 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Suspend/reactivate dialog | Platform Operator | Names School, current status and result of the next-request block. Requires confirmation, uses Operation reconciliation on timeout, and never offers business-data access after completion. |
 | Today card | Parent | One per authorized child. Opens child attendance and daily journal for today. Status text is always explicit; `NOT_RECORDED` is neutral. |
 | Attendance history | Parent | Date-first list; each entry contains only allowed child snapshot, date, status and update time. No Staff, reason, media or class content. |
-| Leave request | Parent | Create from child detail; edit/cancel only `PENDING`. Result is pending/approved/rejected without deadline explanation. |
-| Parent inbox | Parent | Bell badge counts unread in-app events. Events retain 30 days, mark read on open, and deep-link to the authorized child/date. Revoked/ineligible event data disappears. |
+| Leave request | Parent | Create from child detail when server-authorized; edit/cancel only `PENDING`. Result is pending/approved/rejected without deadline explanation. |
+| Parent inbox | Parent | Bell badge counts unread in-app events. Events retain 30 days, mark read on open, and deep-link to the authorized child/date. Revoked/ineligible event data disappears. Active StudentParent, revoke and retention are server-enforced, never configured by School Admin. |
 | Payment instruction | Parent | Read-only snapshot text for outstanding obligation: obligation code, period, issued Invoice total snapshot, server-returned current outstanding VND, current state, update time, receiving bank, account number, account-holder name and transfer content. Issued total and current outstanding are separately labeled. No “I paid” action; VietQR/copy/deep links are not part of this release. |
 
 ## State Patterns
@@ -218,7 +218,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 
 ### Flow 1f - School policy and holiday calendar (Hoa, School Admin)
 
-1. Hoa opens the read-only calendar schedule or a typed finance, attendance, handover or Parent-access policy.
+1. Hoa opens the read-only calendar schedule or a typed finance, attendance or handover policy.
 2. She sees active value, effective date and proposed change; money/access/attendance changes require a reason.
 3. For calendar, Hoa adds a named inclusive holiday range; for policy, she submits the server-validated version and reviews any conflict.
 4. **Climax:** The confirmed holiday or policy history appears without rewriting past snapshots.

@@ -121,11 +121,13 @@ assert.match(prototype, /const receivableTabs = \$\$\('\[data-receivable-tabs\] 
 assert.match(prototype, /const selected = receivableStates\.find/);
 assert.match(prototype, /section\.hidden = section !== selected/);
 
-// Settings owns a separate tab namespace and finance keeps its query state with the selected hash.
-for (const [id, label] of [['school-information', 'Thông tin trường'], ['calendar', 'Lịch hoạt động'], ['finance-payment', 'Tài chính &amp; thanh toán'], ['attendance-handover', 'Điểm danh &amp; bàn giao'], ['parent-access', 'Truy cập phụ huynh']]) {
+// Settings owns a separate four-tab namespace and finance keeps its query state with the selected hash.
+for (const [id, label] of [['school-information', 'Thông tin trường'], ['calendar', 'Lịch hoạt động'], ['finance-payment', 'Tài chính &amp; thanh toán'], ['attendance-handover', 'Điểm danh &amp; bàn giao']]) {
   assert.match(settings, new RegExp(`href="#${id}">${label}`));
   assert.match(settings, new RegExp(`id="${id}" data-settings-panel`));
 }
+assert.equal((settings.match(/data-settings-panel/g) || []).length, 4);
+assert.doesNotMatch(settings, /#parent-access|id="parent-access"|Truy cập phụ huynh|parent-access-policy-proposal-form|parent-access-effective-date/);
 assert.match(settings, /data-settings-tabs/);
 assert.doesNotMatch(settings, /data-receivable-tabs|class="route-state"/);
 assert.match(settings, /id="school-profile-form"/);
@@ -146,7 +148,7 @@ assert.match(prototype, /\[data-settings-tabs\] a/);
 assert.match(prototype, /\$\{window\.location\.hash \|\| '#finance-payment'\}/);
 assert.match(settings, /data-policy-row="policy-1"/);
 assert.match(settings, /data-policy-row="policy-2"/);
-assert.match(settings, /data-policy-row="policy-4"/);
+assert.doesNotMatch(settings, /data-policy-row="policy-4"/);
 assert.match(settings, /Lịch mặc định: Thứ hai đến Thứ bảy/);
 assert.match(settings, /Chủ nhật là ngày không hoạt động/);
 for (const heading of ['Tên kỳ nghỉ', 'Từ ngày', 'Đến ngày', 'Số ngày', 'Trạng thái', 'Tùy chọn']) assert.match(settings, new RegExp(`<th>${heading}</th>`));

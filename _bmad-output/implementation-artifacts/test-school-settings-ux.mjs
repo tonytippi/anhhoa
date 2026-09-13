@@ -22,7 +22,7 @@ assert.equal([...roster.window.document.querySelectorAll('.side-link')].find(lin
 
 const tabCases = [
   ['school-information', 'Hồ sơ trường'], ['calendar', 'Lịch hoạt động'], ['finance-payment', 'Tài chính & thanh toán'],
-  ['attendance-handover', 'Điểm danh & bàn giao'], ['parent-access', 'Truy cập phụ huynh']
+  ['attendance-handover', 'Điểm danh & bàn giao']
 ];
 const defaultTab = load('https://mock.test/admin/school-settings.html');
 assert.equal(defaultTab.document.querySelector('#school-information').hidden, false);
@@ -84,6 +84,10 @@ const visibleRows = () => [...window.document.querySelectorAll('[data-bank-accou
 const fallback = load('https://mock.test/admin/school-settings.html#not-a-settings-tab');
 assert.equal(fallback.document.querySelector('#school-information').hidden, false, 'invalid tab falls back to school information');
 assert.equal(fallback.location.hash, '#school-information');
+const parentAccessFallback = load('https://mock.test/admin/school-settings.html#parent-access');
+assert.equal(parentAccessFallback.document.querySelector('#school-information').hidden, false, 'obsolete Parent access tab falls back to school information');
+assert.equal(parentAccessFallback.document.querySelectorAll('[data-settings-panel]:not([hidden])').length, 1);
+assert.equal(parentAccessFallback.location.hash, '#school-information');
 window.location.hash = '#finance-payment';
 assert.equal(window.document.querySelector('#finance-payment').hidden, false);
 assert.equal(visibleRows().length, 2);
@@ -114,7 +118,7 @@ dialog().querySelector('[data-idempotent-submit]').click(); dialog().querySelect
 assert.match(window.document.querySelector('#policy-3 [data-policy-proposed]').textContent, /03\/10\/2026/);
 assert.match(window.document.querySelector('#policy-2 [data-policy-proposed]').textContent, /02\/10\/2026/);
 dialog().querySelector('[data-close]').click();
-for (const [tab, formId, row] of [['finance-payment', 'finance-policy-proposal-form', 'policy-1'], ['parent-access', 'parent-access-policy-proposal-form', 'policy-4']]) {
+for (const [tab, formId, row] of [['finance-payment', 'finance-policy-proposal-form', 'policy-1']]) {
   window.location.hash = `#${tab}`;
   const form = window.document.querySelector(`#${formId}`);
   form.elements['effective-date'].value = '2026-10-02';
