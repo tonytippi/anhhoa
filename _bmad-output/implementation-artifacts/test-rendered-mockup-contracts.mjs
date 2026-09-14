@@ -147,7 +147,16 @@ assert.match(prototype, /\[data-settings-panel\]/);
 assert.match(prototype, /\[data-settings-tabs\] a/);
 assert.match(prototype, /\$\{window\.location\.hash \|\| '#finance-payment'\}/);
 assert.match(settings, /data-policy-row="policy-1"/);
-assert.match(settings, /data-policy-row="policy-2"/);
+for (const [id, label] of [['attendance-evidence-setting', 'Ảnh khi điểm danh'], ['handover-evidence-setting', 'Ảnh khi trả trẻ']]) {
+  assert.match(settings, new RegExp(`id="${id}"`));
+  assert.match(settings, new RegExp(`<h2 id="${id.replace('-setting', '-title')}">${label}</h2>`));
+}
+assert.match(settings, /name="evidence-mode"/);
+assert.match(settings, /value="REQUIRED" selected>Bắt buộc/);
+assert.match(settings, /value="OPTIONAL">Tùy chọn/);
+assert.match(settings, /Parent chỉ nhận thông báo và giờ trả đã xác nhận, không xem ảnh/);
+const attendanceHandoverPanel = settings.match(/<section id="attendance-handover"[\s\S]*?<\/section>\n\s*\n\s*<div id="policy-version-result"/)?.[0] || '';
+assert.doesNotMatch(attendanceHandoverPanel, /Phiên bản chính sách điểm danh và bàn giao|attendance-handover-policy-proposal-form|name="proposed-value"|cutoff time|grace period|block\/reference/);
 assert.doesNotMatch(settings, /data-policy-row="policy-4"/);
 assert.match(settings, /Lịch mặc định: Thứ hai đến Thứ bảy/);
 assert.match(settings, /Chủ nhật là ngày không hoạt động/);
@@ -163,7 +172,7 @@ assert.match(prototype, /data-holiday-form/);
 assert.match(prototype, /holiday-validation|holiday-create/);
 assert.match(prototype, /data-holiday-rows/);
 assert.match(prototype, /operation\.lifecycle === 'holiday-create'/);
-assert.equal(settings.match(/data-queue-filter|data-queue-rows|data-evidence/g), null);
+assert.equal(settings.match(/data-queue-filter|data-queue-rows|data-evidence(?:[=\s])/g), null);
 assert.match(receivables, /data-open-receivable-form="edit"/);
 assert.match(receivables, /data-receivable-form/);
 assert.match(prototype, /data-open-receivable-form/);

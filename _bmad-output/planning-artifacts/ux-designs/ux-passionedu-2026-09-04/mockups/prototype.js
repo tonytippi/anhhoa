@@ -79,6 +79,15 @@ function reconcileOperation(opener = document.activeElement) {
         const proposed = $('[data-policy-proposed]', row);
         if (proposed) proposed.textContent = `${operation.value} từ ${operation.effectiveDate}`;
       }
+      if (operation.lifecycle === 'evidence-setting') {
+        const value = $('[data-evidence-setting-value]', row);
+        const copy = $('[data-evidence-setting-copy]', row);
+        const required = operation.value === 'REQUIRED';
+        if (value) { value.textContent = required ? 'Bắt buộc' : 'Tùy chọn'; value.className = `badge ${required ? 'success' : 'neutral'}`; }
+        if (copy) copy.textContent = row.dataset.evidenceSetting === 'attendance'
+          ? (required ? 'Khi ghi có mặt, giáo viên phải đính kèm ảnh.' : 'Khi ghi có mặt, giáo viên có thể đính kèm ảnh.')
+          : (required ? 'Khi xác nhận trả trẻ, giáo viên phải đính kèm ảnh.' : 'Khi xác nhận trả trẻ, giáo viên có thể đính kèm ảnh.');
+      }
       if (operation.lifecycle === 'attendance-present') {
         const status = $('[data-attendance-status]', row);
         const update = $('[data-attendance-update]', row);
@@ -816,6 +825,24 @@ function bindMockActions() {
           const fieldError = $('#holiday-end-date-error', form);
           if (fieldError) { fieldError.textContent = message?.textContent || 'Kiểm tra ngày kết thúc.'; fieldError.hidden = false; }
         }
+        showIdempotentConfirmation(button);
+        return;
+      }
+      if (form.hasAttribute('data-evidence-setting-form')) {
+        const value = form.elements['evidence-mode'].value;
+        const label = form.dataset.settingLabel;
+        const button = document.createElement('button');
+        button.dataset.actionTitle = `Xác nhận thay đổi ${label}`;
+        button.dataset.actionLabel = 'Xác nhận thay đổi';
+        button.dataset.actionConsequence = `Trường Ánh Hoa sẽ đặt ${label.toLowerCase()} là ${value === 'REQUIRED' ? 'bắt buộc' : 'tùy chọn'}. Hệ thống đối soát thao tác trước khi cho phép gửi lại.`;
+        button.dataset.operationLifecycle = 'evidence-setting';
+        button.dataset.operationRow = form.dataset.settingTarget;
+        button.dataset.operationValue = value;
+        button.dataset.operationTarget = 'policy-version-result';
+        button.dataset.operationResultTitle = 'Cấu hình ảnh từ hệ thống';
+        button.dataset.operationResult = `Hệ thống đã xác nhận ${label.toLowerCase()} là ${value === 'REQUIRED' ? 'bắt buộc' : 'tùy chọn'}.`;
+        button.dataset.operationRefresh = 'settings';
+        button.dataset.operationForm = form.id;
         showIdempotentConfirmation(button);
         return;
       }

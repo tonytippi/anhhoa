@@ -101,23 +101,20 @@ window.history.replaceState(null, '', '?status=all&sort=effective&page=2#finance
 window.dispatchEvent(new window.PopStateEvent('popstate'));
 assert.match(visibleRows()[0].textContent, /Ngân hàng Việt Thịnh/);
 assert.equal(window.location.hash, '#finance-payment');
-const attendance = window.document.querySelector('#attendance-handover-policy-proposal-form');
-attendance.elements['proposed-value'].value = 'Bằng chứng ảnh bắt buộc khi ghi nhận có mặt';
-attendance.elements['effective-date'].value = '2026-10-02';
-attendance.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-assert.match(dialog().textContent, /Xác nhận đề xuất Điểm danh/);
-dialog().querySelector('[data-idempotent-submit]').click(); dialog().querySelector('[data-reconcile]').click(); dialog().querySelector('[data-return-operation-outcome]').click();
-assert.match(window.document.querySelector('#policy-2 [data-policy-proposed]').textContent, /02\/10\/2026/);
-dialog().querySelector('[data-close]').click();
-attendance.elements.policy.value = 'policy-3';
-attendance.elements['proposed-value'].value = 'Yêu cầu lý do khi điều chỉnh';
-attendance.elements['effective-date'].value = '2026-10-03';
-attendance.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-assert.match(dialog().textContent, /Xác nhận đề xuất Bàn giao/);
-dialog().querySelector('[data-idempotent-submit]').click(); dialog().querySelector('[data-reconcile]').click(); dialog().querySelector('[data-return-operation-outcome]').click();
-assert.match(window.document.querySelector('#policy-3 [data-policy-proposed]').textContent, /03\/10\/2026/);
-assert.match(window.document.querySelector('#policy-2 [data-policy-proposed]').textContent, /02\/10\/2026/);
-dialog().querySelector('[data-close]').click();
+for (const [id, label] of [['attendance-evidence-setting', 'Ảnh khi điểm danh'], ['handover-evidence-setting', 'Ảnh khi trả trẻ']]) {
+  window.location.hash = '#attendance-handover';
+  const setting = window.document.querySelector(`#${id}`);
+  const form = setting.querySelector('[data-evidence-setting-form]');
+  assert.match(setting.textContent, new RegExp(label));
+  assert.match(setting.textContent, /Bắt buộc/);
+  form.elements['evidence-mode'].value = 'OPTIONAL';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.match(dialog().textContent, new RegExp(`Xác nhận thay đổi ${label}`));
+  dialog().querySelector('[data-idempotent-submit]').click(); dialog().querySelector('[data-reconcile]').click(); dialog().querySelector('[data-return-operation-outcome]').click();
+  assert.equal(setting.querySelector('[data-evidence-setting-value]').textContent, 'Tùy chọn');
+  assert.match(setting.querySelector('[data-evidence-setting-copy]').textContent, /có thể đính kèm ảnh/);
+  dialog().querySelector('[data-close]').click();
+}
 for (const [tab, formId, row] of [['finance-payment', 'finance-policy-proposal-form', 'policy-1']]) {
   window.location.hash = `#${tab}`;
   const form = window.document.querySelector(`#${formId}`);
@@ -182,5 +179,5 @@ const changedRow = window.document.querySelector('#bank-account-an-binh');
 assert.equal(changedRow.dataset.status, 'inactive');
 assert.equal(changedRow.querySelector('[data-bank-account-action] button').disabled, true);
 assert.equal(window.location.hash, '#finance-payment');
-assert.equal(window.document.querySelectorAll('[data-queue-filter], [data-queue-rows], [data-evidence]').length, 0);
+assert.equal(window.document.querySelectorAll('[data-queue-filter], [data-queue-rows], [data-evidence], [data-handover-action]').length, 0);
 console.log('School settings UX behavioral matrix passed');

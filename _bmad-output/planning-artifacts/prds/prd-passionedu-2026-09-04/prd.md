@@ -230,9 +230,9 @@ Parent chi co the gui leave request cho Student duoc uy quyen; Teacher co capabi
 **He qua kiem thu:**
 - Calendar loai ngay nghi/le; `PRESENT` conflict voi leave request va loai ngay do khoi de xuat meal adjustment.
 - Leave truoc deadline auto-approve; sau deadline can role duoc cap phe duyet.
-- Attendance photo evidence tuan theo mode cua School, Parent khong xem evidence; retention la hai thang lich.
-- `AttendancePolicy.photoEvidenceMode` la `REQUIRED` hoac `OPTIONAL`; REQUIRED tu choi PRESENT khong co evidence. Evidence chi Staff co capability attendance hoac School Admin dung School scope xem, xoa blob/preview sau hai thang lich va giu audit metadata xoa.
-- Sau attendance event, Parent chi nhan in-app notification event theo StudentParent link active; notification khong chua evidence anh va khong mo rong thanh SMS, email, Zalo hay chat.
+- Anh bang chung diem danh va tra tre tuan theo mode cua School, Parent khong xem evidence; retention la hai thang lich.
+- `AttendancePolicy.photoEvidenceMode` va `HandoverPolicy.photoEvidenceMode` chi la `REQUIRED` hoac `OPTIONAL`; REQUIRED tu choi tuong ung `PRESENT` hoac `pickedUpAt` khong co evidence. Evidence chi Staff co capability tuong ung hoac School Admin dung School scope xem, xoa blob/preview sau hai thang lich va giu audit metadata xoa.
+- Sau attendance hoac handover event, Parent chi nhan in-app notification event theo StudentParent link active; notification khong chua evidence anh va khong mo rong thanh SMS, email, Zalo hay chat.
 - StudentServiceEnrollment co status, effective dates va audit; chi School Admin/Finance Manager tao/huy. Parent co the tao, sua/huy leave request khi PENDING; khong tu huy service.
 - Parent hoac School Admin co the tao long leave; chi School Admin duyet/tu choi va chon effective date khong truoc ngay request. Approval dung eligibility CollectionRun tuong lai; Invoice da issue dung adjustment/refund co source.
 - Meal adjustment la dong am co source tren Invoice DRAFT ke tiep; Saturday MANUAL phai kiem tra service coverage de khong charge trung.
@@ -241,12 +241,13 @@ Parent chi co the gui leave request cho Student duoc uy quyen; Teacher co capabi
 
 #### FR-13: Handover va late pickup reference
 
-Nhan vien duoc cap capability ghi picked-up time; policy cutoff/grace/block la reference de Finance them dong `MANUAL` trong Invoice `DRAFT` khi can.
+Nhan vien duoc cap capability ghi picked-up time va anh evidence theo `HandoverPolicy.photoEvidenceMode`; handover la reference de Finance them dong `MANUAL` trong Invoice `DRAFT` khi can.
 
 **He qua kiem thu:**
 - He thong khong tu dong tinh late-pickup fee trong release nay.
 - Handover khong thay the pickup authorization, la domain deferred rieng.
-- Reference snapshot va audit giu du thong tin de Finance giai thich dong thu thu cong.
+- Reference snapshot va audit giu du thong tin de Finance giai thich dong thu thu cong; khong co cutoff/grace/block policy trong release nay.
+- Parent chi nhan thoi diem tra tre da xac nhan trong DTO/event toi thieu; khong nhan evidence, Staff identity hay ly do noi bo.
 
 ### 4.6 Payroll opt-in, nhan su va cham cong
 

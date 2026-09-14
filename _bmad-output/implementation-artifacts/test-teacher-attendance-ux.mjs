@@ -195,6 +195,17 @@ assert.equal(khoa.querySelector('[data-attendance-action] [data-evidence]'), nul
 assert.equal(khoa.querySelector('[data-attendance-action] button').disabled, true);
 activeDialog().querySelector('[data-close]').click();
 
+const handover = window.document.querySelector('#handover');
+const handoverEvidence = handover.querySelectorAll('input[type="file"]');
+assert.equal(handoverEvidence.length, 2);
+for (const input of handoverEvidence) {
+  assert.ok(input.required);
+  assert.equal(input.accept, 'image/jpeg,image/png,image/webp');
+}
+assert.match(handover.textContent, /Ảnh bằng chứng đang bắt buộc/);
+assert.match(handover.textContent, /không phải pickup authorization và không tự tạo phí/);
+assert.match(handover.textContent, /Phụ huynh chỉ nhận giờ trả đã được hệ thống xác nhận, không xem ảnh/);
+
 const secondDom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://mock.test/teacher/teacher.html#class-day' });
 const revokedWindow = secondDom.window;
 revokedWindow.eval(script);

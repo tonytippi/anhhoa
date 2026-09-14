@@ -587,28 +587,22 @@ So that Finance co cac rule nen va tai khoan hop le de phat hanh nghia vu ma kho
 **Then** switch guard chan silent context change va cho reconcile Operation khi applicable
 **And** UI chi hien thi server-confirmed active policy/account state.
 
-### Story 3.3: Cấu hình attendance, handover và Parent access theo policy typed
+### Story 3.3: Cấu hình evidence điểm danh và trả trẻ theo policy typed
 
 As a School Admin,
-I want to version cac policy attendance, handover va Parent access,
-So that lop hoc va Parent portal ap dung rule da duoc phe duyet thay vi JSON tu do hoac logic client.
+I want to cấu hình evidence cho điểm danh và trả trẻ,
+So that lop hoc ap dung rule da duoc phe duyet thay vi JSON tu do hoac logic client.
 
 **Acceptance Criteria:**
 
-**Given** School Admin chon attendance policy
+**Given** School Admin chon attendance hoac handover evidence policy
 **When** tao version moi
-**Then** policy chi nhan `photoEvidenceMode` la `REQUIRED` hoac `OPTIONAL`, cung effective date va audit/reason
-**And** policy `REQUIRED` tro thanh server-enforced input cho attendance write, khong phai UI hint.
+**Then** policy chi nhan `photoEvidenceMode` la `REQUIRED` hoac `OPTIONAL`, cung audit
+**And** policy `REQUIRED` tro thanh server-enforced input cho tuong ung attendance `PRESENT` hoac handover `pickedUpAt` write, khong phai UI hint.
 
-**Given** School Admin tao handover hoac Parent-access policy version
-**When** request hop le
-**Then** handover policy luu cutoff time, grace period va block/reference behavior typed, cung effective date, audit va lay dung version theo School/as-of date
-**And** UI hien thi active/proposed/history ro rang, khong co free-form key-value JSON thay cho domain schema.
-
-**Given** Parent operational/finance retention phai duoc danh gia
-**When** enrollment ket thuc hoac obligation settlement hoan tat
-**Then** server ap dung 30 ngay operational/sensitive retention va ParentAccessPolicy versioned voi default 12 thang sau settlement
-**And** client khong the keo dai retention qua query parameter, cache hoac stale route.
+**Given** School Admin xem Settings
+**When** evidence mode dang ap dung duoc render
+**Then** UI hien thi ro rieng yeu cau anh cho `PRESENT` va `pickedUpAt`, khong co free-form key-value JSON, cutoff, grace hay block policy.
 
 **Given** School Admin cau hinh DailyJournalPolicy
 **When** tao version policy moi
@@ -636,7 +630,7 @@ So that cau hinh tien, access va attendance khong bi leak hoac rewrite lich su.
 **Given** attendance, finance hoac Parent domain truy van policy
 **When** policy version thay doi sau khi source/snapshot da duoc tao
 **Then** domain nhan typed as-of result tu server theo contract
-**And** test chung minh snapshot lich su khong bi rewrite boi policy hien hanh.
+**And** test chung minh snapshot evidence lich su khong bi rewrite boi setting hien hanh.
 
 ## Epic 4: Vận hành lớp học có kiểm soát
 
@@ -696,19 +690,19 @@ So that anh tre em khong bi lo hay ton tai vo thoi han va Parent projection co n
 
 **Acceptance Criteria:**
 
-**Given** attendance record co evidence
-**When** Staff khong co attendance capability, School khac hoac Parent truy cap evidence/media route
+**Given** attendance hoac handover record co evidence
+**When** Staff khong co capability tuong ung, School khac hoac Parent truy cap evidence/media route
 **Then** request bi tu choi va Parent DTO/event khong co media URL, preview, Staff identity hoac internal reason
-**And** authorized attendance Staff/School Admin chi xem evidence trong dung School scope.
+**And** authorized capability-bearing Staff/School Admin chi xem evidence trong dung School scope.
 
-**Given** evidence da xac nhan duoc hai thang lich
+**Given** attendance hoac handover evidence da xac nhan duoc hai thang lich
 **When** retention cleanup chay
 **Then** blob/preview bi xoa, audit metadata ve deletion van con
 **And** Staff/Admin doc record sau cleanup thay thong bao audit-safe "Tep bang chung da het han".
 
-**Given** mot attendance write thanh cong hoac retry idempotent
+**Given** mot attendance hoac handover write thanh cong hoac retry idempotent
 **When** transaction hoan tat
-**Then** domain emit dung mot in-app notification source event co School/Student/date nhung khong chua evidence hoac internal facts
+**Then** domain emit dung mot in-app notification source event co School/Student/date va, voi handover, chi confirmed picked-up time, nhung khong chua evidence hoac internal facts
 **And** delivery/read projection chi co the duoc Parent portal xu ly sau khi recheck active `StudentParent` o Epic 7.
 
 ### Story 4.4: Teacher ghi handover như operational reference
@@ -721,12 +715,12 @@ So that lop co lich su ban giao ma khong tao mot khoan phi tu dong.
 
 **Given** Teacher dang dung teacher audience, co handover capability, Student/Class/day thuoc selected School
 **When** Staff submit picked-up time
-**Then** server validate StaffProfile binding, membership, capability, Class assignment, state va handover policy as-of date va snapshot cutoff/grace/block reference cung audit vao confirmed operational record
+**Then** server validate StaffProfile binding, membership, handover capability, Class assignment, state va `HandoverPolicy.photoEvidenceMode`; REQUIRED tu choi picked-up time khong co evidence hop le va snapshot evidence reference/audit vao confirmed operational record
 **And** missing capability, already-recorded state hoac validation error tra ly do server va UI refresh record.
 
 **Given** Finance hoac Staff xem handover record
 **When** record duoc trinh bay
-**Then** UI label no la operational reference voi School/date/Student context va Finance co the doc immutable cutoff/grace/block snapshot de giai thich dong `MANUAL`
+**Then** UI label no la operational reference voi School/date/Student context va Finance co the doc immutable audit-safe handover snapshot de giai thich dong `MANUAL`
 **And** khong tinh, goi y, tao hoac tu dong post late-pickup fee; khong bien no thanh pickup authorization.
 
 ### Story 4.5: Service enrollment và long leave làm nguồn Finance có kiểm soát
