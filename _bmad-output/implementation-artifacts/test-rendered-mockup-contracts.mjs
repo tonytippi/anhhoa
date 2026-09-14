@@ -154,7 +154,8 @@ for (const [id, label] of [['attendance-evidence-setting', 'Ảnh khi điểm da
 assert.match(settings, /name="evidence-mode"/);
 assert.match(settings, /value="REQUIRED" selected>Bắt buộc/);
 assert.match(settings, /value="OPTIONAL">Tùy chọn/);
-assert.match(settings, /Parent chỉ nhận thông báo và giờ trả đã xác nhận, không xem ảnh/);
+assert.match(settings, /Phụ huynh chỉ nhận giờ trả đã xác nhận, không xem ảnh/);
+assert.match(settings, /Tệp bị xóa sau 2 tháng lịch/);
 const attendanceHandoverPanel = settings.match(/<section id="attendance-handover"[\s\S]*?<\/section>\n\s*\n\s*<div id="policy-version-result"/)?.[0] || '';
 assert.doesNotMatch(attendanceHandoverPanel, /Phiên bản chính sách điểm danh và bàn giao|attendance-handover-policy-proposal-form|name="proposed-value"|cutoff time|grace period|block\/reference/);
 assert.doesNotMatch(settings, /data-policy-row="policy-4"/);

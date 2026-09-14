@@ -112,7 +112,7 @@ for (const [id, label] of [['attendance-evidence-setting', 'Ảnh khi điểm da
   assert.match(dialog().textContent, new RegExp(`Xác nhận thay đổi ${label}`));
   dialog().querySelector('[data-idempotent-submit]').click(); dialog().querySelector('[data-reconcile]').click(); dialog().querySelector('[data-return-operation-outcome]').click();
   assert.equal(setting.querySelector('[data-evidence-setting-value]').textContent, 'Tùy chọn');
-  assert.match(setting.querySelector('[data-evidence-setting-copy]').textContent, /có thể đính kèm ảnh/);
+  assert.match(setting.querySelector('[data-evidence-setting-copy]').textContent, /có thể chụp ảnh/);
   dialog().querySelector('[data-close]').click();
 }
 for (const [tab, formId, row] of [['finance-payment', 'finance-policy-proposal-form', 'policy-1']]) {

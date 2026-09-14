@@ -202,9 +202,9 @@ for (const input of handoverEvidence) {
   assert.ok(input.required);
   assert.equal(input.accept, 'image/jpeg,image/png,image/webp');
 }
-assert.match(handover.textContent, /Ảnh bằng chứng đang bắt buộc/);
-assert.match(handover.textContent, /không phải pickup authorization và không tự tạo phí/);
-assert.match(handover.textContent, /Phụ huynh chỉ nhận giờ trả đã được hệ thống xác nhận, không xem ảnh/);
+assert.match(handover.textContent, /Cần ảnh khi trả trẻ/);
+assert.match(handover.textContent, /Không xác nhận người đón hoặc tự tính phí/);
+assert.match(handover.textContent, /Phụ huynh chỉ nhận giờ đã xác nhận/);
 
 const secondDom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://mock.test/teacher/teacher.html#class-day' });
 const revokedWindow = secondDom.window;

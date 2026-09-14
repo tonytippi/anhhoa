@@ -85,8 +85,8 @@ function reconcileOperation(opener = document.activeElement) {
         const required = operation.value === 'REQUIRED';
         if (value) { value.textContent = required ? 'Bắt buộc' : 'Tùy chọn'; value.className = `badge ${required ? 'success' : 'neutral'}`; }
         if (copy) copy.textContent = row.dataset.evidenceSetting === 'attendance'
-          ? (required ? 'Khi ghi có mặt, giáo viên phải đính kèm ảnh.' : 'Khi ghi có mặt, giáo viên có thể đính kèm ảnh.')
-          : (required ? 'Khi xác nhận trả trẻ, giáo viên phải đính kèm ảnh.' : 'Khi xác nhận trả trẻ, giáo viên có thể đính kèm ảnh.');
+          ? (required ? 'Khi ghi có mặt, giáo viên phải chụp ảnh.' : 'Khi ghi có mặt, giáo viên có thể chụp ảnh.')
+          : (required ? 'Khi trả trẻ, giáo viên phải chụp ảnh.' : 'Khi trả trẻ, giáo viên có thể chụp ảnh.');
       }
       if (operation.lifecycle === 'attendance-present') {
         const status = $('[data-attendance-status]', row);
