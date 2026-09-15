@@ -1,7 +1,7 @@
 ---
 name: PassionEdu
 status: final
-updated: 2026-09-08
+updated: 2026-09-14
 sources:
   - ../../../specs/spec-passionedu/SPEC.md
   - ../../prds/prd-passionedu-2026-09-04/prd.md
@@ -30,7 +30,7 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | Teacher home / Class day | Teacher | Assigned-Class attendance, handover and daily-journal progress for the selected date. |
 | Parent home | Parent | Today cards for authorized children, current daily journals, unread inbox badge and outstanding obligations. |
 | Child detail | Parent | Daily attendance, current daily journals, leave requests, authorized obligations and snapshot instruction. |
-| Parent inbox | Parent | 30-day attendance events; deep-link to authorized child/date. |
+| Parent inbox | Parent | 30-day attendance and confirmed-handover events; deep-link to authorized child/date. |
 
 Admin/Staff navigation only shows capabilities the server grants. Parent child filters and content remain within the selected School; a child never persists visually after School switch or revoke. See `mockups/admin/admin-operational-queue.html`, `mockups/admin/finance-run-preview.html`, `mockups/admin/payroll-overview.html`, `mockups/admin/payroll-timekeeping-import.html`, `mockups/admin/payroll-run-review.html`, `mockups/admin/payroll-correction.html`, `mockups/parent/parent-home.html`, and `mockups/parent/parent-inbox.html`.
 
@@ -82,7 +82,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Today card | Parent | One per authorized child. Opens child attendance and daily journal for today. Status text is always explicit; `NOT_RECORDED` is neutral. |
 | Attendance history | Parent | Date-first list; each entry contains only allowed child snapshot, date, status and update time. No Staff, reason, media or class content. |
 | Leave request | Parent | Create from child detail when server-authorized; edit/cancel only `PENDING`. Result is pending/approved/rejected without deadline explanation. |
-| Parent inbox | Parent | Bell badge counts unread in-app events. Events retain 30 days, mark read on open, and deep-link to the authorized child/date. Revoked/ineligible event data disappears. Active StudentParent, revoke and retention are server-enforced, never configured by School Admin. |
+| Parent inbox | Parent | Bell badge counts unread in-app events. Events retain 30 days, mark read on open, and deep-link to the authorized child/date. Attendance events show the permitted attendance facts; handover events show only confirmed picked-up time. Revoked/ineligible event data disappears. Active StudentParent, revoke and retention are server-enforced, never configured by School Admin. |
 | Payment instruction | Parent | Read-only snapshot text for outstanding obligation: obligation code, period, issued Invoice total snapshot, server-returned current outstanding VND, current state, update time, receiving bank, account number, account-holder name and transfer content. Issued total and current outstanding are separately labeled. No “I paid” action; VietQR/copy/deep links are not part of this release. |
 
 ## State Patterns
@@ -106,7 +106,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | No report data | Report retains School, period and filter context and says no ledger activity matches; it does not show zero as a confirmed collection result without an as-of context. |
 | Handover unavailable | Missing permission, required evidence, already-recorded state or validation error names the reason and refreshes the child/day record; no late-fee suggestion appears. |
 | Daily Admin overview | Shows selected School/date and server-returned loading, error or no-authorized-data state; it never substitutes zero for an unresolved state or offers attendance/handover mutation. |
-| Parent inbox empty | Bell opens "Chưa có thông báo điểm danh trong 30 ngày gần đây." |
+| Parent inbox empty | Bell opens "Chưa có thông báo trong 30 ngày gần đây." |
 | Policy conflict | Form keeps active and proposed effective-dated values visible, focuses server validation, and does not claim policy changed until confirmed. |
 | Adjustment unavailable | Finance sees source reason and target state such as no eligible DRAFT Invoice, issued or voided; no manual fallback is implied. |
 | Payroll not enabled | Do not render Payroll navigation or an empty data screen. Direct/deep link explains "Trường này chưa được bật tính lương" and offers a safe School context action; no record detail is revealed. |

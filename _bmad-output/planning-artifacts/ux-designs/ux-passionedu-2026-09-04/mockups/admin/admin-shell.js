@@ -7,6 +7,7 @@
   var route = host.getAttribute('data-admin-route');
   // URLs resolve from the current document, so roster pages need a different root.
   var root = route === 'roster' ? '../' : '';
+  var payrollEnabled = host.getAttribute('data-payroll-enabled') === 'true';
   var links = [
     ['VẬN HÀNH', 'overview', 'Tổng quan', root + 'admin-staff.html#overview'],
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
@@ -21,6 +22,7 @@
   var isWorkspace = route === 'overview';
 
   links.forEach(function (link) {
+    if (!payrollEnabled && ['timekeeping', 'payroll', 'workforce'].indexOf(link[1]) !== -1) return;
     var current = link[1] === route;
     if (link[0]) navigation += '<p class="nav-group">' + link[0] + '</p>';
     var href = isWorkspace && ['overview'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
