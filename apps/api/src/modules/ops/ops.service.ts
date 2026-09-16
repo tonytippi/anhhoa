@@ -1,17 +1,18 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../identity/prisma.service.js';
 
 type ProvisionInput = { name?: unknown; slug?: unknown; ownerEmail?: unknown };
 const email = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
 const fingerprint = (body: unknown) => createHash('sha256').update(JSON.stringify(body)).digest('hex');
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class OpsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async grantFor(identityId: string) {
-    const grant = await this.prisma.platformOperatorGrant.findUnique({ where: { userIdentityId: identityId } });
+    const grant = await this.prisma.platformOperatorGrant.findFirst({ where: { userIdentityId: identityId, revokedAt: null } });
     if (!grant) throw new ForbiddenException({ code: 'OPS_ACCESS_DENIED', message: 'Bạn không có quyền vận hành nền tảng.' });
     return grant;
   }
@@ -26,10 +27,12 @@ export class OpsService {
   }
 
   async provision(identityId: string, key: string, operationId: string, input: ProvisionInput) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu khởi tạo không hợp lệ.' });
     const grant = await this.grantFor(identityId); const name = typeof input.name === 'string' ? input.name.trim() : ''; const slug = typeof input.slug === 'string' ? input.slug.trim().toLowerCase() : ''; const ownerEmail = email(input.ownerEmail);
     if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail)) throw new ConflictException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu khởi tạo không hợp lệ.' });
     return this.mutate(grant.id, identityId, 'POST /api/ops/schools', key, operationId, { name, slug, ownerEmail }, undefined, async (tx, operationId) => {
       const owner = await tx.userIdentity.upsert({ where: { emailNormalized: ownerEmail }, create: { emailNormalized: ownerEmail }, update: {} });
+      if (owner.id === identityId) throw new ForbiddenException({ code: 'OPS_OWNER_BOOTSTRAP_DENIED', message: 'Platform Operator không thể là chủ sở hữu đầu tiên của trường.' });
       const school = await tx.school.create({ data: { name, slug, initialOwnerIdentityId: owner.id } });
       const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: owner.id } });
       await tx.schoolRoleGrant.create({ data: { schoolId: school.id, membershipId: membership.id, userIdentityId: owner.id, role: 'SCHOOL_ADMIN' } });
@@ -39,12 +42,14 @@ export class OpsService {
   }
 
   async lifecycle(identityId: string, schoolId: string, next: 'ACTIVE' | 'SUSPENDED', key: string, operationId: string) {
+    if (!uuid.test(schoolId)) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Mã trường không hợp lệ.' });
     const grant = await this.grantFor(identityId);
     return this.mutate(grant.id, identityId, `POST /api/ops/schools/${schoolId}/${next.toLowerCase()}`, key, operationId, { schoolId, next }, schoolId, async (tx, operationId) => {
       const school = await tx.school.findUnique({ where: { id: schoolId } });
       if (!school) throw new NotFoundException({ code: 'SCHOOL_NOT_FOUND', message: 'Không tìm thấy trường.' });
       if (school.status !== next) {
-        await tx.school.update({ where: { id: school.id }, data: { status: next } });
+        const updated = await tx.school.updateMany({ where: { id: school.id, status: school.status }, data: { status: next } });
+        if (updated.count !== 1) throw new ConflictException({ code: 'SCHOOL_LIFECYCLE_CONFLICT', message: 'Trạng thái trường đã thay đổi. Hãy đối soát rồi thử lại.' });
         await tx.auditRecord.create({ data: { schoolId, actorIdentityId: identityId, action: next === 'SUSPENDED' ? 'SCHOOL_SUSPENDED' : 'SCHOOL_REACTIVATED', provenance: { platformOperatorGrantId: grant.id, operationId } } });
       }
       return { schoolId, status: next, noOp: school.status === next };
@@ -58,7 +63,6 @@ export class OpsService {
   }
 
   private async mutate(grantId: string, identityId: string, route: string, key: string, operationId: string, body: unknown, schoolId: string | undefined, work: (tx: any, operationId: string) => Promise<unknown>) {
-    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuid.test(key) || !uuid.test(operationId)) throw new UnauthorizedException({ code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Cần Idempotency-Key và X-Operation-Id UUID.' });
     const actorReference = grantId; const requestFingerprint = fingerprint(body);
     const existing = await this.prisma.operation.findUnique({ where: { actorReference_route_idempotencyKey: { actorReference, route, idempotencyKey: key } } });

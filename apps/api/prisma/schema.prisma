@@ -82,6 +82,7 @@ model PlatformOperatorGrant {
   id             String       @id @default(uuid()) @db.Uuid
   userIdentityId String       @unique @db.Uuid
   createdAt      DateTime     @default(now())
+  revokedAt      DateTime?
   userIdentity   UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   operations     Operation[]
 }

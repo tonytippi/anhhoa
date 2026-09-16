@@ -2,6 +2,7 @@ CREATE TABLE "PlatformOperatorGrant" (
   "id" UUID NOT NULL DEFAULT gen_random_uuid(),
   "userIdentityId" UUID NOT NULL,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "revokedAt" TIMESTAMP(3),
   CONSTRAINT "PlatformOperatorGrant_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "PlatformOperatorGrant_userIdentityId_fkey" FOREIGN KEY ("userIdentityId") REFERENCES "UserIdentity"("id") ON DELETE RESTRICT
 );

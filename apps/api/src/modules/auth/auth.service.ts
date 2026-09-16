@@ -65,6 +65,8 @@ export class AuthService {
     if (audience === 'parent') return { redirect: audienceConfig(audience).deniedRedirect };
     if (audience === 'ops') {
       if (identity.emailNormalized !== superadminEmail()) return { redirect: audienceConfig(audience).deniedRedirect };
+      const existingGrant = await this.prisma.platformOperatorGrant.findUnique({ where: { userIdentityId: identity.id }, select: { revokedAt: true } });
+      if (existingGrant?.revokedAt) return { redirect: audienceConfig(audience).deniedRedirect };
       await this.prisma.platformOperatorGrant.upsert({ where: { userIdentityId: identity.id }, create: { userIdentityId: identity.id }, update: {} });
     }
     const csrf = random(); return { redirect: transaction.redirect, cookie: this.issueSession(audience, identity.id, identity.emailNormalized), csrf };
@@ -90,7 +92,7 @@ export class AuthService {
     return payload;
   }
   issueSession(aud: Audience, userIdentityId: string, email: string): string { return this.issue({ aud, sub: userIdentityId, email, exp: Date.now() + authSecrets().sessionTtlSeconds * 1000 }); }
-  async platformOperatorGrant(userIdentityId: string): Promise<{ id: string } | null> { return this.prisma.platformOperatorGrant.findUnique({ where: { userIdentityId }, select: { id: true } }); }
+  async platformOperatorGrant(userIdentityId: string): Promise<{ id: string } | null> { return this.prisma.platformOperatorGrant.findFirst({ where: { userIdentityId, revokedAt: null }, select: { id: true } }); }
   session(audience: Audience, token?: string): { userIdentityId: string; email: string } {
     const parts = token?.split('.') ?? []; const [encoded, signature] = parts;
     if (parts.length !== 2 || !encoded || !signature) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });

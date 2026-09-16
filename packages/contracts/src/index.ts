@@ -1,4 +1,5 @@
 export type ApiResponse<T> = { data: T };
+export type ApiListResponse<T, Meta extends object = Record<string, never>> = { data: T; meta: Meta };
 export type ApiError = { error: { code: string; message: string; fieldErrors?: Record<string, string> } };
 export type Audience = 'app' | 'teacher' | 'parent' | 'ops';
 export type SessionDto = { audience: Audience; userIdentityId: string; email: string; platformOperatorGrantId?: string };

@@ -99,6 +99,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('auth PostgreSQL p
     const opsSession = service.session('ops', opsResult.cookie);
     expect(appSession.userIdentityId).toBe(opsSession.userIdentityId);
     await expect(prisma.userIdentity.count({ where: { googleSubject: subject } })).resolves.toBe(1);
+    await expect(prisma.platformOperatorGrant.findUniqueOrThrow({ where: { userIdentityId: opsSession.userIdentityId } })).resolves.toMatchObject({ revokedAt: null });
     await expect(service.callback('app', app.state, app.started.correlation, idToken(app.nonce, subject, email))).rejects.toThrow('OAuth state');
     if (previousSuperadmin === undefined) delete process.env.SUPERADMIN_EMAIL;
     else process.env.SUPERADMIN_EMAIL = previousSuperadmin;

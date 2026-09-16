@@ -79,6 +79,15 @@ Owner pending chỉ là `UserIdentity` không `googleSubject`; cơ chế OAuth c
 
 ## Verification
 
+### Review Findings
+
+- [x] [Review][Patch] Platform Operator có thể tự nhận School membership qua owner bootstrap [apps/api/src/modules/ops/ops.service.ts:32]
+- [x] [Review][Patch] PlatformOperatorGrant không thể revoke khi còn Operation lịch sử [apps/api/prisma/migrations/20260916000003_ops_school_lifecycle/migration.sql:23]
+- [x] [Review][Patch] Provision body `null` và lifecycle `schoolId` không phải UUID trả lỗi 500 thay vì validation error [apps/api/src/modules/ops/ops.service.ts:28]
+- [x] [Review][Patch] Lifecycle concurrent với idempotency key khác không serializable [apps/api/src/modules/ops/ops.service.ts:43]
+- [x] [Review][Patch] GET Ops schools không tuân `{ data, meta }` và thiếu behavioral coverage cho list [apps/api/src/modules/ops/ops.service.ts:19]
+- [x] [Review][Patch] Thiếu proof integration cho superadmin grant bootstrap và revocation tồn tại sau Operation [apps/api/src/modules/auth/auth.service.ts:66]
+
 **Commands:**
 - `pnpm --filter @passionedu/api prisma:generate && pnpm --filter @passionedu/api prisma:migrate:deploy` -- expected: migration lifecycle/grant/Operation áp dụng và Prisma client hợp lệ.
 - `pnpm --filter @passionedu/api test && pnpm --filter @passionedu/api test:integration` -- expected: Ops authorization, atomicity, idempotency, lifecycle và Google pending-owner proof pass trên PostgreSQL.
