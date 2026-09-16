@@ -2,7 +2,7 @@
 title: "PRD Initiative - PassionEdu: Nen tang van hanh da truong"
 status: final
 created: 2026-09-04
-updated: 2026-09-08
+updated: 2026-09-16
 supersedes:
   - prds/prd-anhhoa-2026-08-18/prd.md
   - prds/prd-anhhoa-parent-pwa-2026-08-22/prd.md
@@ -61,11 +61,11 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **ReceivableGroup / Receivable** - Nhom va khoan thu scoped theo School; danh muc co the inactive nhung khong sua snapshot lich su.
 - **ChargeRule** - Rule scoped theo School, Class hoac Student trong CollectionRun; quantity chi `FIXED` hoac `MANUAL`.
 - **PromotionPolicy / PromotionPolicyVersion** - Chinh sach uu dai School-scoped va phien ban effective-dated, co target Receivable, don vi/so luong ap dung, dieu kien typed, giam VND/phan tram, fulfillment, stacking va snapshot.
-- **CollectionRun** - Dot thu cua SchoolYear de preview va tao nghia vu cho hoc sinh.
+- **CollectionRun** - Dot thu thang cua SchoolYear, gan voi mot `billingMonth` de preview va tao nghia vu cho hoc sinh.
 - **Invoice** - Nghia vu thu theo mot Student va mot CollectionRun; noi dung khoa sau khi issue.
 - **Receipt** - Khoan thu da ghi nhan; phan bo vao Invoice qua so cai append-only.
 - **StudentPromotionAssignment** - Gan mot PromotionPolicyVersion cho mot Student theo effective interval, ly do va audit; khong tu suy luan quan he gia dinh.
-- **StudentPromotionalCoverage** - Bao phu theo tung Student/Receivable/ky chi do server phat hanh sau khi source Invoice cua policy `PREPAID_COVERAGE` trong `PREPAID` CollectionRun da duoc settle exact; luu policy version va paid-source provenance bat bien.
+- **StudentPromotionalCoverage** - Bao phu theo tung Student/Receivable/ky chi do server phat hanh sau khi Invoice nop truoc cua policy `PREPAID_COVERAGE` trong CollectionRun thuong da duoc settle exact; luu policy version va paid-source provenance bat bien.
 - **Payment instruction** - Ban chup tai khoan nhan va noi dung chuyen khoan cua Invoice da issue.
 - **Operation** - Ban ghi doi soat cua mutation idempotent, scoped theo School va actor membership.
 - **Payroll entitlement** - Trang thai capability Payroll opt-in cua School; chi server co quyen cho phep dung Payroll, khong phai menu frontend hay role grant.
@@ -166,20 +166,23 @@ Finance Manager hoac School Admin quan ly ReceivableGroup, Receivable, ChargeRul
 - ChargeRule chi co quantity `FIXED` hoac `MANUAL`; Finance Manager/SCHOOL_ADMIN nhap/override quantity, gia hoac adjustment trong Invoice `DRAFT` co ghi chu/audit. Khong co auto-pricing tu attendance, handover hay service enrollment. Gia la gia mac dinh cua Receivable hoac override duoc audit trong Invoice `DRAFT`.
 - `PromotionPolicy` co identity School-scoped va version effective-dated. Moi version co mot hoac nhieu target Receivable, don vi va so luong ap dung, dieu kien typed, giam phan tram hoac VND nguyen, fulfillment mode, priority, stacking/exclusivity va effective period. Target quantity vi du 12 thang la rule cua policy; yeu cau ky lien tiep, neu co, la business validation khi evaluate, khong phai unique constraint.
 - `StudentPromotionAssignment` gan mot policy version cho Student theo effective interval, reason va audit. Assignment la co che tong quat; he thong khong tu suy luan quan he gia dinh hoac thu tu con. Server evaluate policy khi tao/refresh Invoice `DRAFT` va evaluate lai truoc Issue; policy application snapshot version, target, ket qua, priority va assignment provenance neu co. Nhieu policy chi stack theo typed priority/exclusivity: fixed VND truoc percentage, tie-break deterministically, tong giam khong vuot gia goc target va khong tao dong am/credit vo danh.
-- `PREPAID_COVERAGE` la fulfillment mode cua policy. Sau thoa thuan truc tiep voi Parent, chi School Admin chon policy/start period; API tinh eligibility/muc giam, tao dedicated `PREPAID` CollectionRun va source Invoice DRAFT gom future receivable-period facts. Source Invoice phai settle exact; chi sau `PAID` server moi issue `StudentPromotionalCoverage` voi PromotionPolicyVersion/Invoice/Receipt provenance. Khong actor nao tao coverage truc tiep. Moi fact luu Receivable, period key, service interval `[serviceFrom, serviceTo)` nam tron ky, gia/discount, calendar version/timezone va paid-source snapshot bat bien. Coverage issued khong overlap cung Student/SchoolYear/Receivable/ky; fact khong co operating day eligible bi tu choi.
+- `PREPAID_COVERAGE` la fulfillment mode cua policy trong dot thu thang, khong tao `PREPAID` CollectionRun rieng. Khi ra soat preview cua dot thu thang, Finance Manager hoac School Admin chon policy version va ap dung phuong an nop truoc cho mot hoac nhieu Student da co thoa thuan; thang bat dau luon la `billingMonth` cua dot thu. Preview cho phep chon theo lo; API van la nguon chan ly cho eligibility, muc giam va cac ky duoc bao phu, khong hien thi hay suy dien "du dieu kien" o tung Student truoc ket qua evaluate. API tao mot Invoice `DRAFT` duy nhat cua moi Student trong run: Invoice gom future receivable-period facts cua cac target duoc policy bao phu, dong thoi co the gom cac khoan thu khong nam trong coverage cua dung billingMonth dang mo; khong gom khoan ngoai coverage cua cac thang tuong lai. Invoice phai settle exact; chi sau `PAID` server moi issue `StudentPromotionalCoverage` voi PromotionPolicyVersion/Invoice/Receipt provenance. Khong actor nao tao coverage truc tiep. Moi fact luu Receivable, period key, service interval `[serviceFrom, serviceTo)` nam tron ky, gia/discount, calendar version/timezone va paid-source snapshot bat bien. Coverage issued khong overlap cung Student/SchoolYear/Receivable/ky; fact khong co operating day eligible bi tu choi.
 
 #### FR-8: CollectionRun preview va generate
 
-Finance Manager tao `MONTHLY`, `ANNUAL` hoac `ONE_OFF` CollectionRun, xem preview authoritative va generate Invoice `DRAFT` idempotent.
+Finance Manager tao hoac mo dot thu `MONTHLY` cua tung thang trong SchoolYear, bo sung khoan thu dang active vao dot thang truoc khi generate, xem preview authoritative, chon phuong an nop truoc cho Student da co thoa thuan khi duoc cap quyen, va generate Invoice `DRAFT` idempotent.
 
 **He qua kiem thu:**
 - Preview va generate dung cung service server-side; preview hien thi ly do skip va du lieu nguon can thiet de ra soat.
+- Moi CollectionRun cua release dau la `MONTHLY`, bat buoc co `billingMonth` chuan `YYYY-MM`. Moi SchoolYear co dung mot dot thu chuan cho mot `billingMonth`; khi ke toan chon mot thang da co dot, UI mo dot hien co thay vi tao dot moi.
+- Ke toan bo sung mot Receivable dang active vao dot thang `DRAFT` hoac `READY`, chon pham vi ap dung va xem lai preview truoc khi generate. Khoan bo sung duoc snapshot vao rule cua dot, khong phai dong tien nhap tu do. Sau `GENERATED`, rule/pham vi cua dot khoa; khong them khoan moi vao Invoice da issue. Khoan phat sinh sau do phai duoc xu ly bang adjustment/refund co source theo FR-9/FR-10, khong tao dot thu mot lan rieng.
+- Trong dot thang, preview cho phep chon mot hoac nhieu Student va ap dung policy nop truoc da chon theo thoa thuan; thang bat dau la billingMonth cua dot. Sau evaluate, preview hien thi phuong an thu theo thang hoac nop truoc cua tung Student. Browser khong tu suy ra eligibility, discount hay cac ky coverage. Invoice nop truoc chi gom khoan target cho cac ky tuong lai va khoan ngoai coverage cua billingMonth dang mo.
 - Preview/generate tra promotion evaluation per target: applied, khong du dieu kien hoac bi loai theo stacking; browser khong tu tinh discount/total. Issue evaluate lai trong transaction; ket qua khac DRAFT snapshot bat buoc review lai.
-- Moi Student co toi da mot Invoice trong mot CollectionRun; run co the co cung ky voi run khac.
-- `MONTHLY` dung `billingMonth` chuan `YYYY-MM`; `ANNUAL` va `ONE_OFF` dung `periodKey` text ke toan nhap. Cac gia tri nay khong unique, nen mot SchoolYear co the co run chuan va run bo sung cung ky.
+- Moi Student co toi da mot Invoice trong mot CollectionRun; moi `billingMonth` cua SchoolYear chi co mot CollectionRun.
+- `billingMonth` la khoa van hanh de quan ly dot thu theo thang; khong co `ANNUAL`, `ONE_OFF`, `periodKey` tu do hay run bo sung trong release dau.
 - Generate transactional tra created/skipped; timeout phai doi soat operation truoc retry.
 - Lifecycle la `DRAFT -> READY -> GENERATED -> CLOSED`: rule sua o DRAFT, READY chi generate tu cau hinh hop le, GENERATED khoa rule/pham vi goc, CLOSED khong tao/sua Invoice. Generate phan loai toi thieu invoice ton tai, enrollment khong du dieu kien, khong co lop active va khong co rule.
-- Sau GENERATED, Finance Manager/SCHOOL_ADMIN chi co the them Student chua co Invoice, tao dung mot `DRAFT` tu rule snapshot; them khoan moi cho Invoice da issue dung run bo sung.
+- Sau GENERATED, Finance Manager/SCHOOL_ADMIN chi co the them Student chua co Invoice, tao dung mot `DRAFT` tu rule snapshot. Invoice da issue khong nhan khoan thu moi; dung adjustment/refund co source neu can xu ly ngoai le.
 - CollectionRun skip dung cap Student/Receivable/ky da duoc `StudentPromotionalCoverage` issued bao phu voi ly do `COVERED_BY_PROMOTIONAL_COVERAGE`; cac khoan thu eligible khac cua Student van duoc tao.
 
 #### FR-9: Issue va snapshot nghia vu
