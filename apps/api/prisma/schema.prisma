@@ -33,9 +33,8 @@ enum MembershipStatus {
 
 enum SchoolRole {
   SCHOOL_ADMIN
-  STAFF
-  TEACHER
   FINANCE_MANAGER
+  CLASS_TEACHER
 }
 
 enum OperationActorType {
@@ -57,7 +56,6 @@ model UserIdentity {
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   memberships     SchoolMembership[]
-  roleGrants      SchoolRoleGrant[]
   audits          AuditRecord[]
   operations      Operation[]
   platformGrant   PlatformOperatorGrant?
@@ -97,10 +95,11 @@ model SchoolMembership {
   school         School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   userIdentity   UserIdentity     @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   roleGrants     SchoolRoleGrant[]
-  audits         AuditRecord[]
-  operations     Operation[]
+  audits         AuditRecord[]      @relation("AuditMembership")
+  operations     Operation[]        @relation("OperationMembership")
 
   @@unique([schoolId, userIdentityId])
+  @@unique([schoolId, id])
   @@index([schoolId, status])
 }
 
@@ -108,15 +107,13 @@ model SchoolRoleGrant {
   id             String           @id @default(uuid()) @db.Uuid
   schoolId       String           @db.Uuid
   membershipId   String           @db.Uuid
-  userIdentityId String           @db.Uuid
   role           SchoolRole
   createdAt      DateTime         @default(now())
   school         School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  membership     SchoolMembership @relation(fields: [membershipId], references: [id], onDelete: Restrict)
-  userIdentity   UserIdentity     @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
+  membership     SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, membershipId, role])
-  @@index([schoolId, userIdentityId])
+  @@index([schoolId, membershipId])
 }
 
 model AuditRecord {
@@ -130,7 +127,7 @@ model AuditRecord {
   createdAt      DateTime         @default(now())
   school         School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   actorIdentity  UserIdentity?    @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
-  membership     SchoolMembership? @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+  membership     SchoolMembership? @relation("AuditMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
 
   @@index([schoolId, createdAt])
 }
@@ -151,7 +148,7 @@ model Operation {
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   school          School?            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  membership      SchoolMembership?  @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+  membership      SchoolMembership?  @relation("OperationMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   platformOperatorGrant PlatformOperatorGrant? @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
   actorIdentity   UserIdentity?      @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
 

@@ -15,11 +15,11 @@ describe('AdminShell', () => {
   it('clears protected content before a logout request settles', async () => {
     let settleLogout!: () => void;
     document.cookie = 'app_csrf=csrf-value';
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { audience: 'app', userIdentityId: 'id', email: 'a@example.com' } }))).mockImplementationOnce(() => new Promise<void>((resolve) => { settleLogout = resolve; })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { audience: 'app', userIdentityId: 'id', email: 'a@example.com' } }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }))).mockImplementationOnce(() => new Promise<void>((resolve) => { settleLogout = resolve; })));
     render(<AdminShell />);
-    await screen.findByText('Cổng quản trị đang được khởi tạo.');
+    await screen.findByText('Đang tải ngữ cảnh trường...');
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất' }));
-    expect(screen.queryByText('Cổng quản trị đang được khởi tạo.')).toBeNull();
+    expect(screen.queryByText('Đang tải ngữ cảnh trường...')).toBeNull();
     expect(screen.getByRole('link', { name: 'Đăng nhập với Google' }).getAttribute('href')).toBe('/api/app/auth/google/start');
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith('/api/app/auth/logout', expect.objectContaining({ headers: { 'x-csrf-token': 'csrf-value' } })));
     settleLogout();

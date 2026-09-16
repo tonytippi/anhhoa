@@ -35,7 +35,7 @@ export class OpsService {
       if (owner.id === identityId) throw new ForbiddenException({ code: 'OPS_OWNER_BOOTSTRAP_DENIED', message: 'Platform Operator không thể là chủ sở hữu đầu tiên của trường.' });
       const school = await tx.school.create({ data: { name, slug, initialOwnerIdentityId: owner.id } });
       const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: owner.id } });
-      await tx.schoolRoleGrant.create({ data: { schoolId: school.id, membershipId: membership.id, userIdentityId: owner.id, role: 'SCHOOL_ADMIN' } });
+       await tx.schoolRoleGrant.create({ data: { schoolId: school.id, membershipId: membership.id, role: 'SCHOOL_ADMIN' } });
       await tx.auditRecord.create({ data: { schoolId: school.id, actorIdentityId: identityId, action: 'SCHOOL_PROVISIONED', provenance: { platformOperatorGrantId: grant.id, operationId } } });
       return { schoolId: school.id, status: school.status };
     });
