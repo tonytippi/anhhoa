@@ -1,0 +1,13 @@
+.ops-shell { max-width: 1120px; margin: 0 auto; padding: 2rem; font-family: system-ui, sans-serif; color: #183229; }
+.ops-shell header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.notice { border-left: 4px solid #25724e; padding: 1rem; background: #edf8f1; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 720px; }
+th, td { border-bottom: 1px solid #cbd8d1; padding: .8rem; text-align: left; }
+button, input { font: inherit; padding: .65rem .8rem; min-height: 44px; }
+button { background: #176b46; color: white; border: 0; border-radius: .25rem; cursor: pointer; }
+button + button { margin-left: .5rem; background: #456057; }
+label { display: grid; gap: .3rem; margin: .8rem 0; }
+.dialog { position: fixed; inset: 0; display: grid; place-items: center; background: rgb(0 0 0 / .45); padding: 1rem; }
+.dialog form { background: white; padding: 1.5rem; max-width: 520px; width: 100%; border-radius: .5rem; }
+@media (max-width: 767px) { .ops-shell { padding: 1rem; } .ops-shell header { display: block; } .ops-shell header button { margin-top: 1rem; } }

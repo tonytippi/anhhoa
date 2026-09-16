@@ -1,6 +1,8 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { bootstrapSession, googleLoginUrl, logout } from './auth-session';
-export function OpsShell() { const [signedIn, setSignedIn] = useState<boolean>(); useEffect(() => { const controller = new AbortController(); let current = true; void bootstrapSession(() => setSignedIn(false), controller.signal).then((session) => { if (current) setSignedIn(Boolean(session)); }); return () => { current = false; controller.abort(); }; }, []); if (signedIn === undefined) return <main><h1>PassionEdu - Vận hành nền tảng</h1><p>Đang xác thực phiên...</p></main>; return <main><h1>PassionEdu - Vận hành nền tảng</h1>{signedIn ? <><p>Quản lý trường đang được khởi tạo.</p><button onClick={() => void logout(() => setSignedIn(false))}>Đăng xuất</button></> : <><p>Vui lòng đăng nhập để tiếp tục.</p><a href={googleLoginUrl}>Đăng nhập với Google</a></>}</main>; }
+import { OpsSchools } from './ops-schools';
+import './ops-schools.css';
+export function OpsShell() { const [session, setSession] = useState<Awaited<ReturnType<typeof bootstrapSession>>>(); const clear = () => setSession(undefined); useEffect(() => { const controller = new AbortController(); let current = true; void bootstrapSession(clear, controller.signal).then((value) => { if (current) setSession(value); }); return () => { current = false; controller.abort(); }; }, []); if (session === undefined) return <main><h1>PassionEdu - Vận hành nền tảng</h1><p>Vui lòng đăng nhập để tiếp tục.</p><a href={googleLoginUrl}>Đăng nhập với Google</a></main>; return <OpsSchools session={session} clear={() => void logout(clear)} />; }
 const root = document.getElementById('root');
 if (root) createRoot(root).render(<StrictMode><OpsShell /></StrictMode>);

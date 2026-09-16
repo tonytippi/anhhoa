@@ -36,7 +36,11 @@ async function begin(audience: 'app' | 'ops' = 'app') {
 
 afterEach(async () => {
   if (transactionIds.length) await prisma.oAuthTransaction.deleteMany({ where: { id: { in: transactionIds.splice(0) } } });
-  if (emails.length) await prisma.userIdentity.deleteMany({ where: { emailNormalized: { in: emails.splice(0) } } });
+  if (emails.length) {
+    const identities = await prisma.userIdentity.findMany({ where: { emailNormalized: { in: emails } }, select: { id: true } });
+    await prisma.platformOperatorGrant.deleteMany({ where: { userIdentityId: { in: identities.map((identity) => identity.id) } } });
+    await prisma.userIdentity.deleteMany({ where: { emailNormalized: { in: emails.splice(0) } } });
+  }
 });
 
 afterAll(async () => {
@@ -79,9 +83,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('auth PostgreSQL p
   });
 
   it('concurrently binds one canonical Google UserIdentity and rejects replay after consume', async () => {
+    const previousSuperadmin = process.env.SUPERADMIN_EMAIL;
+    const email = `${emailPrefix}-canonical@example.com`;
+    process.env.SUPERADMIN_EMAIL = email;
     const app = await begin('app');
     const ops = await begin('ops');
-    const email = `${emailPrefix}-canonical@example.com`;
     emails.push(email);
     const subject = `google-canonical-${crypto.randomUUID()}`;
     const [appResult, opsResult] = await Promise.all([
@@ -94,6 +100,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('auth PostgreSQL p
     expect(appSession.userIdentityId).toBe(opsSession.userIdentityId);
     await expect(prisma.userIdentity.count({ where: { googleSubject: subject } })).resolves.toBe(1);
     await expect(service.callback('app', app.state, app.started.correlation, idToken(app.nonce, subject, email))).rejects.toThrow('OAuth state');
+    if (previousSuperadmin === undefined) delete process.env.SUPERADMIN_EMAIL;
+    else process.env.SUPERADMIN_EMAIL = previousSuperadmin;
   });
 
   it('keeps the first Google subject bound when distinct subjects race for one email', async () => {

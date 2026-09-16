@@ -27,10 +27,12 @@ export class AuthController {
   }
 
   @Get('session')
-  session(@Param('audience') value: string, @Req() request: RequestLike) {
+  async session(@Param('audience') value: string, @Req() request: RequestLike) {
     const selected = audience(value); const config = audienceConfig(selected);
     const identity = this.auth.session(selected, cookie(request, config.cookieName));
-    return { data: { audience: selected, ...identity } };
+    const grant = selected === 'ops' ? await this.auth.platformOperatorGrant(identity.userIdentityId) : undefined;
+    if (selected === 'ops' && !grant) throw new UnauthorizedException({ code: 'OPS_ACCESS_DENIED', message: 'Bạn không có quyền vận hành nền tảng.' });
+    return { data: { audience: selected, ...identity, ...(grant ? { platformOperatorGrantId: grant.id } : {}) } };
   }
 
   @Post('logout')

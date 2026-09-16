@@ -62,4 +62,9 @@ describe('AuthController', () => {
     await app.close();
     expect(missingOrigin.status).toBe(401); expect(mismatchedCsrf.status).toBe(401);
   });
+  it('rejects an Ops session after its PlatformOperatorGrant is revoked', async () => {
+    const app = await createApi(); await app.listen(0); const port = app.getHttpServer().address().port; const auth = app.get(AuthService); vi.spyOn(auth, 'platformOperatorGrant').mockResolvedValue(null);
+    const token = auth.issueSession('ops', 'identity-id', 'operator@example.com'); const response = await fetch(`http://127.0.0.1:${port}/api/ops/auth/session`, { headers: { cookie: `ops_session=${token}` } }); await app.close();
+    expect(response.status).toBe(401); await expect(response.json()).resolves.toMatchObject({ error: { code: 'OPS_ACCESS_DENIED' } });
+  });
 });

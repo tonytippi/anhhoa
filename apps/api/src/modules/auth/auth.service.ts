@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from 'node:crypto';
 import type { Audience } from './auth.config.js';
-import { audienceConfig, authSecrets } from './auth.config.js';
+import { audienceConfig, authSecrets, superadminEmail } from './auth.config.js';
 import { PrismaService } from '../identity/prisma.service.js';
 
 type IdToken = { iss: string; aud: string | string[]; azp?: string; sub: string; email: string; email_verified: boolean | string; nonce: string; exp: number };
@@ -63,6 +63,10 @@ export class AuthService {
       identity = await consumeAndBind();
     }
     if (audience === 'parent') return { redirect: audienceConfig(audience).deniedRedirect };
+    if (audience === 'ops') {
+      if (identity.emailNormalized !== superadminEmail()) return { redirect: audienceConfig(audience).deniedRedirect };
+      await this.prisma.platformOperatorGrant.upsert({ where: { userIdentityId: identity.id }, create: { userIdentityId: identity.id }, update: {} });
+    }
     const csrf = random(); return { redirect: transaction.redirect, cookie: this.issueSession(audience, identity.id, identity.emailNormalized), csrf };
   }
 
@@ -86,6 +90,7 @@ export class AuthService {
     return payload;
   }
   issueSession(aud: Audience, userIdentityId: string, email: string): string { return this.issue({ aud, sub: userIdentityId, email, exp: Date.now() + authSecrets().sessionTtlSeconds * 1000 }); }
+  async platformOperatorGrant(userIdentityId: string): Promise<{ id: string } | null> { return this.prisma.platformOperatorGrant.findUnique({ where: { userIdentityId }, select: { id: true } }); }
   session(audience: Audience, token?: string): { userIdentityId: string; email: string } {
     const parts = token?.split('.') ?? []; const [encoded, signature] = parts;
     if (parts.length !== 2 || !encoded || !signature) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
@@ -95,7 +100,7 @@ export class AuthService {
       const session = json<Session>(encoded);
       if (!session || typeof session.sub !== 'string' || typeof session.email !== 'string' || !Number.isFinite(session.exp) || session.exp < Date.now()) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
       if (session.aud !== audience) throw new UnauthorizedException({ code: 'INVALID_AUDIENCE', message: 'Session không thuộc audience này.' });
-      return { userIdentityId: session.sub, email: session.email };
+    return { userIdentityId: session.sub, email: session.email };
     } catch (error) { if (error instanceof UnauthorizedException) throw error; throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' }); }
   }
 }

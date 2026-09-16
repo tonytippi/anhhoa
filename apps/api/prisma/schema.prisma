@@ -13,10 +13,12 @@ model School {
   status      SchoolStatus       @default(ACTIVE)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+  initialOwnerIdentityId String? @db.Uuid
   memberships SchoolMembership[]
   roleGrants  SchoolRoleGrant[]
   audits      AuditRecord[]
   operations  Operation[]
+  initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
 enum SchoolStatus {
@@ -58,6 +60,8 @@ model UserIdentity {
   roleGrants      SchoolRoleGrant[]
   audits          AuditRecord[]
   operations      Operation[]
+  platformGrant   PlatformOperatorGrant?
+  initiallyOwnedSchools School[] @relation("InitialSchoolOwner")
 }
 
 model OAuthTransaction {
@@ -72,6 +76,14 @@ model OAuthTransaction {
   createdAt       DateTime @default(now())
 
   @@index([audience, expiresAt])
+}
+
+model PlatformOperatorGrant {
+  id             String       @id @default(uuid()) @db.Uuid
+  userIdentityId String       @unique @db.Uuid
+  createdAt      DateTime     @default(now())
+  userIdentity   UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
+  operations     Operation[]
 }
 
 model SchoolMembership {
@@ -126,19 +138,23 @@ model Operation {
   id              String             @id @default(uuid()) @db.Uuid
   schoolId        String?            @db.Uuid
   membershipId    String?            @db.Uuid
+  platformOperatorGrantId String?    @db.Uuid
   actorIdentityId String?            @db.Uuid
   actorType       OperationActorType
   actorReference  String
   route           String
   fingerprint     String
+  idempotencyKey  String
   status          OperationStatus    @default(PENDING)
   outcome         Json?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   school          School?            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership      SchoolMembership?  @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+  platformOperatorGrant PlatformOperatorGrant? @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
   actorIdentity   UserIdentity?      @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
 
-  @@unique([schoolId, actorReference, route, fingerprint])
+  @@unique([actorReference, route, idempotencyKey])
+  @@index([platformOperatorGrantId, createdAt])
   @@index([schoolId, route])
 }

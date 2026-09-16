@@ -7,7 +7,8 @@ const database = () => {
   const transaction = { id: 'transaction-id', audience: 'app', correlationHash: '', nonce: '', redirect: 'http://localhost:5173', expiresAt: new Date(Date.now() + 60000), consumedAt: null };
   const oAuthTransaction = { create: vi.fn(async ({ data }) => { Object.assign(transaction, data); return transaction; }), findUnique: vi.fn(async () => transaction), updateMany: vi.fn(async () => ({ count: 1 })) };
   const userIdentity = { findUnique: vi.fn().mockResolvedValue(null), findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'identity-id', emailNormalized: 'admin@example.com', googleSubject: 'google-123' }), create: vi.fn().mockResolvedValue({ id: 'identity-id', emailNormalized: 'admin@example.com', googleSubject: 'google-123' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }) };
-  return { oAuthTransaction, userIdentity, $transaction: vi.fn(async (work) => work({ oAuthTransaction, userIdentity })) };
+  const platformOperatorGrant = { upsert: vi.fn() };
+  return { oAuthTransaction, userIdentity, platformOperatorGrant, $transaction: vi.fn(async (work) => work({ oAuthTransaction, userIdentity })) };
 };
 
 describe('AuthService', () => {
@@ -53,5 +54,10 @@ describe('AuthService', () => {
     const malformed = Buffer.from('{').toString('base64url');
     const signature = (service as unknown as { sign(value: string): string }).sign(malformed);
     expect(() => service.session('app', `${malformed}.${signature}`)).toThrow('Cần đăng nhập');
+  });
+  it('denies Ops cookie issuance unless the normalized superadmin identity receives the grant', async () => {
+    const prior = process.env.SUPERADMIN_EMAIL; process.env.SUPERADMIN_EMAIL = 'operator@example.com'; const prisma = database(); const service = new AuthService(prisma as never); const start = await service.start('ops'); const state = new URL(start.authorizationUrl).searchParams.get('state')!; const nonce = new URL(start.authorizationUrl).searchParams.get('nonce')!;
+    await expect(service.callback('ops', state, start.correlation, google(nonce))).resolves.toEqual({ redirect: 'http://localhost:5176' }); expect(prisma.platformOperatorGrant.upsert).not.toHaveBeenCalled();
+    if (prior === undefined) delete process.env.SUPERADMIN_EMAIL; else process.env.SUPERADMIN_EMAIL = prior;
   });
 });

@@ -47,3 +47,9 @@ export function authSecrets(strict = false) {
   if (strict && (!process.env.SESSION_SECRET || sessionSecret.length < 32 || !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)) throw new Error('OAuth and session secrets must be configured before startup.');
   return { sessionSecret, stateTtlSeconds, sessionTtlSeconds };
 }
+
+export function superadminEmail(strict = false): string {
+  const email = process.env.SUPERADMIN_EMAIL?.trim().toLowerCase();
+  if (strict && (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new Error('SUPERADMIN_EMAIL must be a valid email.');
+  return email ?? '';
+}
