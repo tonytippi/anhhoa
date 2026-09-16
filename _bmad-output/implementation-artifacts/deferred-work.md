@@ -13,9 +13,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-dong-bo-ba-contract-passionedu.md`
   summary: Chốt hành vi khi kỳ nộp trước liên tiếp vượt ranh giới SchoolYear.
   evidence: Finance records bị scope theo SchoolYear nhưng program term chưa mô tả rõ reject hay chia nguồn khi vượt năm học; quyết định này nằm ngoài ba mâu thuẫn đã duyệt.
-- source_spec: `_bmad-output/implementation-artifacts/spec-dong-bo-ba-contract-passionedu.md`
-  summary: Thiết kế atomic reservation và settlement-to-coverage cho PREPAID source Invoice.
-  evidence: Review phát hiện overlap có thể chỉ bị phát hiện sau khi thu tiền và coverage issuance failure có thể để lại nguồn đã trả nhưng chưa có coverage.
+- source_spec: `_bmad-output/implementation-artifacts/spec-dong-bo-build-input-finance-2026-09-16.md`
+  summary: Thiết kế atomic reservation và settlement-to-coverage cho Invoice monthly run được chọn `PREPAID_COVERAGE`.
+  evidence: Review phát hiện overlap có thể chỉ bị phát hiện sau actual Receipt close và coverage issuance failure có thể để lại Invoice monthly run đã đóng `EXACT` nhưng chưa có coverage.
 - source_spec: `_bmad-output/implementation-artifacts/spec-dong-bo-ba-contract-passionedu.md`
   summary: Chốt reversal policy khi source Receipt đã phát hành promotional coverage.
   evidence: Reversal của nguồn đã cấp coverage có thể để lại coverage không còn nguồn tiền nhưng backlog hiện chưa định nghĩa guard hoặc workflow thu hồi.
@@ -37,3 +37,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-tab-cau-hinh-khoan-thu.md`
   summary: Thêm browser-level test cho deep-link, Back/Forward và focus của tab Khoản thu.
   evidence: Contract test hiện kiểm tra markup/hash handler tĩnh; chưa thực thi focusRoute để xác minh transition và aria-current trong browser.
+- source_spec: `_bmad-output/implementation-artifacts/spec-dong-bo-build-input-finance-2026-09-16.md`
+  summary: Rà soát và đồng bộ ba mockup Finance dirty với contract actual Receipt, coverage exact-close và revision/cancellation.
+  evidence: Mockup local có logic client-side cho settlement/carry, cho phép close non-exact Invoice coverage và revision sau close; chúng nằm ngoài phạm vi đồng bộ documentation đã duyệt nên không được sửa trong task này.

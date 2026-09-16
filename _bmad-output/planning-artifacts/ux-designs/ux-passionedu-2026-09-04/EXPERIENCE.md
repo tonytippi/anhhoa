@@ -1,7 +1,7 @@
 ---
 name: PassionEdu
 status: final
-updated: 2026-09-14
+updated: 2026-09-16
 sources:
   - ../../../specs/spec-passionedu/SPEC.md
   - ../../prds/prd-passionedu-2026-09-04/prd.md
@@ -25,7 +25,7 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | Danh bộ | School Admin | SchoolYear, Class, Student enrollment, Parent links, Staff assignments. |
 | Cấu hình trường | School Admin | Typed School, fixed workweek/holiday calendar, finance and attendance policy. Parent authorization is a server-enforced baseline, not a School setting. |
 | Khoản thu / Đợt thu | Finance | Catalog, CollectionRun setup, preview, generate and issue review. |
-| Thu tiền / Công nợ / Báo cáo | Finance | Exact ledger posting, debt, prepaid-payment coverage, correction and school-scoped report. |
+| Thu tiền / Công nợ / Báo cáo | Finance | Actual Receipt close, settlement carry, promotional coverage, debt, correction and school-scoped report. |
 | Lương & Nhân sự | Payroll-enabled School Admin, Finance Manager Accountant | Employment terms, common payroll policy, machine-code mapping, file timekeeping review, payroll reconciliation, separated approval/payout and correction. “Kế toán” is a persona label for `FINANCE_MANAGER`, not a role. Hidden when the server does not grant Payroll entitlement and the action capability. |
 | Teacher home / Class day | Teacher | Assigned-Class attendance, handover and daily-journal progress for the selected date. |
 | Parent home | Parent | Today cards for authorized children, current daily journals, unread inbox badge and outstanding obligations. |
@@ -61,8 +61,8 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Roster transition wizard | School Admin | Preview -> confirm -> Operation reconciliation. Source history stays visible; records excluded by server cannot be force-moved. |
 | CollectionRun list and detail | Finance | Finance sidebar opens only list/configuration workspaces, never a fixture Invoice or Receipt. Default view is a compact table of operating collection runs with filter and create action. Selecting a run opens a Student table with charge snapshot, gross/discount/due/paid/outstanding, text Invoice status and an Invoice/projection action. Detail hides landing actions and retains only run title plus Back. Preview/generate remains server-authoritative; timeout goes to Operation reconciliation. |
 | Invoice review and receipt | Finance | Invoice review and Receipt are contextual deep destinations only after selecting a Student and Invoice from CollectionRun detail. Receipt is for one selected `ISSUED` Invoice and records the verified actual amount received. Before confirmation, the server returns the resulting exact/shortfall/overpayment outcome and next-run carry provenance; Finance cannot edit that projection or create an independent balance. A correction action prepares a replacement from immutable source facts, requires reason/named confirmation and reconciles the operation; the old Invoice becomes `CANCELLED` only when the replacement is issued. |
-| Promotion policy and debt transfer | School Admin, Finance | Finance manages effective-dated policy versions with targets, quantity/unit, discount, fulfillment and stacking. School Admin selects an eligible `PREPAID_COVERAGE` policy/start month after offline Parent agreement; the server creates the dedicated `PREPAID` run/source Invoice. Debt transfer names source and target obligation; it is an auditable movement, not an editable balance. |
-| Student promotion coverage | School Admin, Finance | Back-office review shows policy-version-derived Student/SchoolYear receivable-period facts, service intervals, snapshot price/discount/calendar, overlap/eligibility and waiting-for-exact-paid state. Coverage is issued by the server only after the source Invoice is fully paid; no direct create action exists. Parent has no policy catalog, assignment, request or selection action. |
+| Promotion policy and debt transfer | School Admin, Finance | Finance manages effective-dated policy versions with targets, quantity/unit, discount, fulfillment and stacking. After offline Parent agreement, a Finance Manager or School Admin selects an eligible `PREPAID_COVERAGE` policy version for one or more Students in a monthly-run preview; its start month is the run billing month. Debt transfer names source and target obligation; it is an auditable movement, not an editable balance. |
+| Student promotion coverage | School Admin, Finance | Back-office review shows policy-version-derived Student/SchoolYear receivable-period facts, service intervals, snapshot price/discount/calendar, overlap/eligibility and waiting-for-`EXACT`-close state. Coverage is issued by the server only after the selected monthly-run Invoice closes `EXACT`; no direct create action exists. Parent has no policy catalog, assignment, request or selection action. |
 | Ledger correction dialog | Finance | Names source amount and impact. Existing posting is never editable. Với policy `DIRECT`, School Admin hoặc Finance Manager được cấp quyền xác nhận và post ngay sau named confirmation. Với `SCHOOL_ADMIN_APPROVAL`, Finance Manager tạo request, requester không thấy approve action và School Admin khác người tạo mới approve/refuse. Cả hai nhánh dùng Operation reconciliation. |
 | Finance report | Finance | Requires School and report period context, displays ledger-derived as-of time and supports filter/empty/error states. Export is not offered. |
 | Payroll entitlement state | Platform Ops, School Admin, Finance Manager Accountant | Payroll navigation and destinations remain absent without entitlement and the route capability; deep links/jobs are denied server-side before record disclosure. `PILOT_ENABLED` carries “Đang thử nghiệm”; `SUSPENDED`/`RETIRED` deny new work and retain only authorized historical read/export. Entitlement never grants role/capability. |
@@ -108,7 +108,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Daily Admin overview | Shows selected School/date and server-returned loading, error or no-authorized-data state; it never substitutes zero for an unresolved state or offers attendance/handover mutation. |
 | Parent inbox empty | Bell opens "Chưa có thông báo trong 30 ngày gần đây." |
 | Policy conflict | Form keeps active and proposed effective-dated values visible, focuses server validation, and does not claim policy changed until confirmed. |
-| Adjustment unavailable | Finance sees source reason and target state such as no eligible DRAFT Invoice, issued or voided; no manual fallback is implied. |
+| Adjustment unavailable | Finance sees source reason and target state such as no eligible DRAFT Invoice, issued or cancelled; no manual fallback is implied. |
 | Payroll not enabled | Do not render Payroll navigation or an empty data screen. Direct/deep link explains "Trường này chưa được bật tính lương" and offers a safe School context action; no record detail is revealed. |
 | Payroll pilot | A restrained text badge "Đang thử nghiệm" appears near the route heading. It does not imply reduced authorization, audit or correction requirements. |
 | Timekeeping review required | Batch summary names unresolved machine codes and row errors; calculate is unavailable until server reports review completion. Source display name mismatch is shown as comparison context, never as a selectable identity. |
@@ -236,26 +236,26 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 
 ### Flow 2b - Ledger correction (Minh, Finance Manager)
 
-1. Minh opens a receipt or prepayment detail and sees immutable posting facts, current allocation/outstanding and audit context.
-2. He starts reversal/refund, enters source-linked amount and required reason, and reviews server-returned impact.
+1. Minh opens a closed Invoice and sees immutable Receipt, settlement outcome, SettlementDifference/carry status and audit context returned by the server.
+2. He starts a source-linked reversal or refund, enters the amount and required reason, and reviews the server-returned impact; he cannot edit the original Receipt, client-allocate money or create a generic prepayment.
 3. In two-step policy, he submits a request and sees "Chờ School Admin khác duyệt" instead of an approve action.
-4. **Climax:** After approval/posting, the original record remains readable and a new ledger entry explains the correction.
-5. Failure: concurrent settlement changes source balance. The dialog refreshes the server outcome and asks Minh to review a newly permitted action; it never edits the old posting.
+4. **Climax:** After approval/posting, the original records remain readable and the append-only ledger shows the correction and any resulting source-linked difference/carry state.
+5. Failure: concurrent settlement changes the source state. The dialog refreshes the server outcome and asks Minh to review the permitted action; it never edits the old posting.
 
-### Flow 2c - Receipt, allocation and debt (Minh, Finance Manager)
+### Flow 2c - Actual Receipt close, carry and debt (Minh, Finance Manager)
 
-1. Minh opens Thu tiền for the visible School and period, then records a Receipt from the verified amount received.
-2. Minh opens one eligible Invoice, enters the verified actual amount received and sees the server-returned exact/shortfall/overpayment result plus the next-run carry projection.
-3. One normal Receipt cannot be unallocated or cross Student/School/SchoolYear. A prepaid-payment source Invoice remains a separate exact-settlement flow and never creates an independent Student balance.
-4. When prior debt is included, Minh opens the source trail rather than editing a balance.
-5. **Climax:** The ledger detail and report refresh show receipt, allocation, prepaid-payment coverage and outstanding as separate values with an as-of time.
-6. Failure: a concurrent allocation changes availability; the form refreshes server limits and prevents an over-allocation submission.
+1. Minh opens Thu tiền for the visible School and period, selects one `ISSUED` Invoice, and records the verified actual VND amount received.
+2. The server closes that one Invoice and returns `EXACT`, `SHORTFALL` or `OVERPAYMENT`; non-exact close appends one immutable SettlementDifference and shows the source-linked next-run carry status.
+3. Minh cannot client-allocate money, create a generic prepayment or submit an unallocated, mixed-Student, cross-School or cross-SchoolYear Receipt. An Invoice with selected `PREPAID_COVERAGE` facts remains in the normal monthly run and must close `EXACT` before coverage issues.
+4. When prior debt or a remaining difference is included, Minh opens the source trail rather than editing a balance; carry materializes only on the next eligible same-Student/School/SchoolYear monthly DRAFT Invoice.
+5. **Climax:** The ledger detail and report refresh show actual Receipt, settlement outcome, SettlementDifference/carry, promotional coverage and outstanding as separate server-derived values with an as-of time.
+6. Failure: a concurrent close or carry materialization changes state. The form refreshes the server outcome and prevents a duplicate close or manual reapplication.
 
 ### Flow 2d - Service, long leave and meal adjustment (Hoa and Minh)
 
 1. Hoa or Minh creates an effective-dated StudentServiceEnrollment; Parent cannot cancel it directly.
 2. Mai or Hoa starts long leave; only Hoa as School Admin approves/rejects and confirms an effective date.
-3. Approval excludes future CollectionRun eligibility. Finance opens the immutable source and sees the server-selected next DRAFT target, or an issued/voided/no-target outcome.
+3. Approval excludes future CollectionRun eligibility. Finance opens the immutable source and sees the server-selected next DRAFT target, or an issued/cancelled/no-target outcome.
 4. **Climax:** Minh posts the source-linked negative adjustment or refund path; the original source and outcome remain traceable.
 5. Failure: there is no eligible DRAFT target. The UI names that outcome and does not invent a manual credit or automatic charge.
 

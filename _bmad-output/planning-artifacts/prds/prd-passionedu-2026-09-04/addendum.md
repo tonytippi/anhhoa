@@ -2,7 +2,7 @@
 
 ## Nguon va truy vet
 
-- Approved change proposals: `../../sprint-change-proposal-2026-08-31.md`, `../../sprint-change-proposal-2026-09-05.md`, `../../sprint-change-proposal-2026-09-07.md`.
+- Approved change proposals: `../../sprint-change-proposal-2026-08-31.md`, `../../sprint-change-proposal-2026-09-05.md`, `../../sprint-change-proposal-2026-09-07.md`, `../../sprint-change-proposal-2026-09-16.md`.
 - Discovery inputs: `../../../../docs/kidsonline-feature-catalog.md`, `../../../../docs/multi-school-tenancy-catalog.md`, `../../../../docs/receivables-clean-break-blueprint.md`, `../../../../docs/roster-and-people-catalog.md`, `../../../../docs/school-settings-catalog.md`.
 - Superseded references: `../prd-anhhoa-2026-08-18/prd.md`, `../prd-anhhoa-parent-pwa-2026-08-22/prd.md`.
 
@@ -28,7 +28,7 @@
 ## Quy tac finance chi tiet
 
 - ChargeRule quantity chi `FIXED` hoac `MANUAL`; attendance, handover va service enrollment la reference, khong la auto-pricing engine.
-- `MONTHLY` dung `billingMonth` `YYYY-MM`; `ANNUAL`/`ONE_OFF` dung `periodKey`; cung ky co the co nhieu CollectionRun.
+- Moi CollectionRun cua release dau la `MONTHLY`, bat buoc co `billingMonth` `YYYY-MM`; moi SchoolYear chi co mot CollectionRun cho mot billingMonth. Khong co `ANNUAL`, `ONE_OFF`, `periodKey` tu do hay run bo sung.
 - Rule precedence `STUDENT` > `CLASS` > `SCHOOL`; conflict cung do dac hieu bi tu choi.
 - Meal leave tao adjustment am cho Invoice `DRAFT` ke tiep; `PRESENT` conflict loai ngay do. Late pickup va Saturday hoc le la dong `MANUAL` co audit.
 - Reversal mode cua School: direct hoac Finance Manager request va School Admin khac actor phe duyet.
@@ -36,7 +36,7 @@
 ## Verification matrix toi thieu
 
 - Integration PostgreSQL: tenant isolation tren read/write/delete/report, revoke, unique scoped va idempotency cross-school.
-- Finance: preview/generate idempotent, PromotionPolicy version/target/assignment evaluation va snapshot, `PREPAID_COVERAGE policy -> PREPAID CollectionRun -> exact-paid source Invoice -> StudentPromotionalCoverage`, actual-receipt close, source-linked SettlementDifference carry to next run, issued-Invoice replacement/cancellation, reversal/refund, debt transfer va year-end settlement. Normal Receipt closes one Invoice with exact/shortfall/overpayment outcome; no unallocated Receipt, `StudentPrepayment` or generic balance. Coverage chi issue sau source Invoice exact-paid, cung Student, School va SchoolYear, va giu immutable policy-version/fact/provenance snapshot.
+- Finance: preview/generate idempotent cho monthly CollectionRun, PromotionPolicy version/target/assignment evaluation va snapshot, selected `PREPAID_COVERAGE` future facts trong Invoice DRAFT cua monthly run, actual-receipt close, source-linked SettlementDifference carry to next run, issued-Invoice replacement/cancellation, reversal/refund, debt transfer va year-end settlement. Normal Receipt closes one Invoice with exact/shortfall/overpayment outcome; no unallocated Receipt, `StudentPrepayment` or generic balance. Coverage chi issue sau khi Invoice chua future coverage facts dong `EXACT`, cung Student, School va SchoolYear, va giu immutable policy-version/fact/provenance snapshot.
 - Payroll: `Ke toan`/`Accountant` la persona cua active same-School `FINANCE_MANAGER`, khong phai preset role. Entitlement khong cap role/capability; route/job/action can capability rieng. Finance Manager prepare/reconcile/submit, School Admin khac UserIdentity approve/refuse va reopen unpaid approved run, Finance Manager co `PAYROLL_PAYOUT_CONFIRM` xac nhan payout sau approve.
 - E2E: chooser/switcher, pending owner bind Google, Teacher audience/Class assignment, Parent multi-school, Parent revoke/cache clear, leave/attendance/handover/journal permission states.
 - Compatibility: OAuth callback/cookie/origin boundaries theo portal; Parent bank enhancement chi phat hanh sau device/browser test matrix.

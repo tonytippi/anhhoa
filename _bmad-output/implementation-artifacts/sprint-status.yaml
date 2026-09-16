@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-10
+last_updated: 2026-09-16
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -63,12 +63,12 @@ development_status:
   epic-5-retrospective: optional
 
   epic-6: backlog
-  6-1-ghi-exact-receipt-settlement-cho-mot-student: backlog
-  6-2-settle-exact-promotion-coverage-source-invoice: backlog
+  6-1-ghi-actual-receipt-dong-invoice-va-carry-chenh-lech: backlog
+  6-2-dong-exact-invoice-co-promotion-coverage: backlog
   6-3-correction-va-hoan-tien-promotion-coverage-theo-operating-day-preview: backlog
   6-4-chuyen-prior-debt-va-year-end-settlement-an-toan: backlog
   6-5-bao-cao-finance-reconcile-tu-ledger: backlog
-  6-6-release-gate-cho-exact-settlement-va-promotion-coverage-refund: backlog
+  6-6-release-gate-cho-actual-receipt-carry-va-promotion-coverage-refund: backlog
   epic-6-retrospective: optional
 
   epic-7: backlog
@@ -77,7 +77,7 @@ development_status:
   7-3-parent-inbox-attendance-co-re-authorization: backlog
   7-4-parent-tao-va-quan-ly-leave-request-duoc-phep: backlog
   7-5-parent-tu-cap-nhat-so-dien-thoai-co-audit: backlog
-  7-6-parent-xem-obligation-issued-va-payment-instruction-snapshot: backlog
+  7-6-parent-xem-obligation-hieu-luc-va-payment-instruction-snapshot: backlog
   7-7-parent-pwa-accessibility-retention-va-cross-school-release-gate: backlog
   7-8-pilot-performance-va-accessibility-release-gate: backlog
   epic-7-retrospective: optional

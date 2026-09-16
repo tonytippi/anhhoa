@@ -7,12 +7,13 @@ paradigm: vertical-slice modular monolith with isolated portal clients
 scope: "Superseding architecture for the PassionEdu multi-school platform"
 status: final
 created: 2026-09-04
-updated: 2026-09-08
+updated: 2026-09-16
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17]
 sources:
   - ../../prds/prd-passionedu-2026-09-04/prd.md
   - ../../prds/prd-passionedu-2026-09-04/addendum.md
   - ../../sprint-change-proposal-2026-08-31.md
+  - ../../sprint-change-proposal-2026-09-16.md
   - ../../payroll-module-roadmap-2026-09-08.md
 companions: []
 ---
@@ -99,11 +100,13 @@ flowchart TD
 
 - **Supersession (2026-09-16):** The preceding normal exact-settlement, `PAID`/`VOIDED` Invoice and multi-Invoice Allocation clauses are superseded. The finance posting boundary closes exactly one `ISSUED` Invoice with the actual VND Receipt amount and derives immutable `EXACT`, `SHORTFALL` or `OVERPAYMENT` outcome. A non-exact close atomically appends one source-linked `SettlementDifference`; the next eligible same-Student, same-School, same-SchoolYear `MONTHLY` Invoice DRAFT alone materializes its remaining amount as `SHORTFALL_CARRY` or `OVERPAYMENT_CARRY`. Negative carry is capped so the target Invoice never becomes negative; an unapplied remainder stays source-linked for a later eligible run. Generic balance, Student prepayment, unallocated Receipt and cross-Student/School/SchoolYear application are forbidden. An issued-content correction creates a replacement Invoice and atomically changes its source to `CANCELLED`, preserving immutable snapshots and revision lineage. It is the sole exception to one Invoice per Student/run: replacement has `revisesInvoiceId` to exactly one same-School/Student/run `CANCELLED` source; a second replacement, missing lineage or cross-graph lineage is rejected by database/service constraints. A confirmed source Receipt is represented on the replacement only through append-only settlement-transfer projection; it is never rewritten. The shared lock order, transaction, source/remaining limit and Operation idempotency checks reject duplicate closes, duplicate materialization, cancelled targets and concurrent over-application. `CLOSED` or `CANCELLED` Invoice satisfies CollectionRun close; Parent projections expose only the current effective Invoice, never internal correction provenance.
 
+- **Correction (2026-09-16):** The preceding dedicated `PREPAID` CollectionRun/source Invoice clauses are also superseded. `PREPAID_COVERAGE` is a `PromotionPolicy` fulfillment mode within the normal `MONTHLY` CollectionRun, never a separate run. After direct Parent agreement, a Finance Manager or School Admin selects an eligible policy version for one or more Students while reviewing the authoritative preview; the start period is that run's `billingMonth`. The one DRAFT Invoice for each selected Student includes the covered future receivable-period facts and may include non-covered Receivables of the open billing month, but never unrelated future charges. Coverage issues only when that Invoice closes with `EXACT`; no actor creates coverage directly. `StudentPromotionalCoverage` and each fact snapshot policy version, Receivable, period, contained service interval, price/discount, calendar version/timezone and paid Invoice/Receipt provenance. Normal runs skip only issued covered facts; overlap for the same Student/SchoolYear/Receivable/period and facts without an eligible operating day are rejected. Catalog, policy, assignment, class or service changes never rewrite issued facts. Refund uses each fact's paid snapshot/calendar service interval, rejects a non-positive denominator and caps calculated and approved totals to its remaining paid source after prior refund/reversal. A CollectionRun cannot close while it contains a `DRAFT` Invoice; each Invoice must be `ISSUED`, `CLOSED` or `CANCELLED`. Parent projections expose only the current effective Invoice and its permitted payment/settlement data, never internal correction rationale, SettlementDifference or transfer provenance.
+
 ### AD-8 - Transaction, idempotency and audit boundary [ADOPTED]
 
 - **Binds:** FR-1 through FR-13
 - **Prevents:** duplicate batch/ledger actions after timeout and untraceable privilege/policy/money changes
-- **Rule:** State-changing workflows that affect multiple records run in PostgreSQL transactions. CollectionRun generation, prepaid-promotion selection, roster transition/close year, issue, actual-receipt close/carry materialization, Invoice revision/cancellation/settlement transfer, reversal/refund, approval and Parent leave mutations require client UUID `Idempotency-Key`. `Operation` scopes School + route + actor type/reference (`SCHOOL_MEMBERSHIP`, `PARENT_PROFILE` or `PLATFORM_OPERATOR_GRANT`), with actor UserIdentity when present; it atomically persists a request fingerprint/outcome, replays identical retries and rejects changed reuses. Operation reads authorize the same actor context that created it. Clients reconcile `GET /operations/:operationId` before retry. Audit stores School, actor identity/reference, timestamp, provenance and required reason.
+- **Rule:** State-changing workflows that affect multiple records run in PostgreSQL transactions. CollectionRun generation, `PREPAID_COVERAGE` policy selection, roster transition/close year, issue, actual-receipt close, carry materialization, Invoice revision/cancellation/settlement transfer, reversal/refund, approval and Parent leave mutations require client UUID `Idempotency-Key`. `Operation` scopes School + route + actor type/reference (`SCHOOL_MEMBERSHIP`, `PARENT_PROFILE` or `PLATFORM_OPERATOR_GRANT`), with actor UserIdentity when present; it atomically persists a request fingerprint/outcome, replays identical retries and rejects changed reuses. Operation reads authorize the same actor context that created it. Clients reconcile `GET /operations/:operationId` before retry. Audit stores School, actor identity/reference, timestamp, provenance and required reason.
 
 ### AD-9 - Clean-break target schema [ADOPTED]
 
@@ -121,7 +124,7 @@ flowchart TD
 
 - **Binds:** all releases
 - **Prevents:** happy-path-only proof and UI-only validation of tenant/ledger invariants
-- **Rule:** Pure transitions/calculations use API unit tests; PostgreSQL integration tests prove tenant isolation, scoped uniqueness, revoke, transactions, ledger concurrency and idempotency; portal E2E proves audience/session isolation, chooser/switcher and Parent cross-school behavior. E1 tenant-isolation proof gates all subsequent releases.
+- **Rule:** Pure transitions/calculations use API unit tests; PostgreSQL integration tests prove tenant isolation, scoped uniqueness, revoke, transactions, ledger concurrency and idempotency. Finance integration fixtures cover one-time close of lower/exact/higher actual Receipts, one immutable source-linked SettlementDifference per non-exact close, bounded same-Student/School/SchoolYear next-run carry, no negative target total, and no unallocated/cross-tenant/year carry. They also prove replacement/cancellation lineage, confirmed-Receipt settlement-transfer provenance and no duplicate close/materialization under retry or concurrency. Portal E2E proves audience/session isolation, chooser/switcher, Parent cross-school behavior and that Parent sees only the effective Invoice without internal correction or ledger provenance. E1 tenant-isolation proof gates all subsequent releases.
 
 ### AD-12 - Tenant graph integrity [ADOPTED]
 
@@ -133,7 +136,7 @@ flowchart TD
 
 - **Binds:** FR-12, FR-13, FR-7 through FR-11
 - **Prevents:** duplicated or wrongly targeted meal adjustments and attendance becoming an unapproved pricing engine
-- **Rule:** `attendance` owns immutable leave/attendance eligibility sources and never writes Invoice lines. Leave before the School deadline is auto-approved; leave after it needs the configured approval. Calendar holidays are excluded and a confirmed `PRESENT` creates conflict that excludes that date. `finance` alone materializes a source-linked negative meal adjustment onto the next eligible DRAFT Invoice through an idempotent command keyed by source/day/receivable. The command defines no-target, issued/voided target and retry outcomes, records source provenance and never rematerializes an already handled source. An approved long leave excludes future CollectionRun eligibility; issued obligations use a source-linked adjustment/refund workflow. Attendance, handover and service data remain references for Finance `MANUAL` decisions; they never calculate charges automatically. A manual Saturday charge must validate active StudentServiceEnrollment coverage for that date and rejects duplicate charging for a covered service.
+- **Rule:** `attendance` owns immutable leave/attendance eligibility sources and never writes Invoice lines. Leave before the School deadline is auto-approved; leave after it needs the configured approval. Calendar holidays are excluded and a confirmed `PRESENT` creates conflict that excludes that date. `finance` alone materializes a source-linked negative meal adjustment onto the next eligible DRAFT Invoice through an idempotent command keyed by source/day/receivable. The command defines no-target, issued/cancelled target and retry outcomes, records source provenance and never rematerializes an already handled source. An approved long leave excludes future CollectionRun eligibility; issued obligations use a source-linked adjustment/refund workflow. Attendance, handover and service data remain references for Finance `MANUAL` decisions; they never calculate charges automatically. A manual Saturday charge must validate active StudentServiceEnrollment coverage for that date and rejects duplicate charging for a covered service.
 
 ### AD-14 - Attendance and handover evidence lifecycle [ADOPTED]
 
@@ -251,7 +254,7 @@ flowchart LR
 | Payroll opt-in, workforce terms and timekeeping | `school-features`, `workforce`, `timekeeping`, `web` | AD-2, AD-3, AD-6, AD-8, AD-17 |
 | Payroll calculation, approval, payout and correction | `payroll`, `workforce`, `timekeeping`, `web` | AD-2, AD-3, AD-8, AD-17, AD-18 |
 | Catalog, CollectionRun and Invoice issue | `finance`, `web` | AD-2, AD-3, AD-7, AD-8 |
-| Receipt, prepaid-payment coverage, debt and reports | `finance`, `web` | AD-2, AD-3, AD-7, AD-8, AD-11 |
+| Receipt, settlement carry/revision, promotional coverage, debt and reports | `finance`, `web` | AD-2, AD-3, AD-7, AD-8, AD-11 |
 | Attendance, handover and daily journals | `attendance`, `roster`, `teacher-web` | AD-2, AD-3, AD-6, AD-8, AD-14 |
 | Parent authorization and finance read model | `parents`, `parent-auth`, `parent-portal`, `parent-web` | AD-1, AD-3, AD-4, AD-7, AD-11 |
 

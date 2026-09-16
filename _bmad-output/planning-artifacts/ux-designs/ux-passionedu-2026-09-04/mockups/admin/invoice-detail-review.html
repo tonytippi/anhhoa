@@ -1,6 +1,162 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PassionEdu · Hóa đơn nộp trước</title><link rel="stylesheet" href="../prototype.css"><link rel="stylesheet" href="finance-style.css"><script defer src="admin-shell.js"></script></head><body><div data-admin-shell data-admin-route="runs"><div class="finance-page">
-<section><div class="route"><div><p class="eyebrow">ĐỢT THU THÁNG 10/2026 · BÉ MINH ANH · MẦM 4A</p><h1>Hóa đơn nộp trước</h1><p>Một hóa đơn trong đợt thu tháng 10/2026. Phạm vi chi trả chỉ kích hoạt khi thu đủ.</p></div><span class="badge warning" id="invoice-status">Nháp</span></div><div class="card"><div class="line"><span><b>Chính sách áp dụng</b><br><small class="muted">Ưu đãi nộp trước học kỳ · Nộp trước 3 tháng học phí · Giảm 3% · Bắt đầu từ tháng 10/2026</small></span><a class="btn btn-secondary" href="receivable-configuration.html#policies">Xem chính sách</a></div></div></section>
-<section id="draft"><div class="split"><div class="card"><h2>Chi tiết hóa đơn</h2><p class="muted">Hóa đơn gồm học phí nộp trước và các khoản thu của tháng 10/2026. Ưu đãi được tính theo chính sách đã chọn.</p><div class="line"><span>Học phí tháng 10/2026<br><small class="muted">Khoản thu · Kỳ dịch vụ 10/2026</small></span><b>1.500.000 đ</b></div><div class="line"><span>Học phí tháng 11/2026<br><small class="muted">Khoản thu · Kỳ dịch vụ 11/2026</small></span><b>1.500.000 đ</b></div><div class="line"><span>Học phí tháng 12/2026<br><small class="muted">Khoản thu · Kỳ dịch vụ 12/2026</small></span><b>1.500.000 đ</b></div><div class="line"><span>Tiền ăn tháng 10/2026<br><small class="muted">Khoản thu trong đợt tháng 10/2026</small></span><b>600.000 đ</b></div><div class="line"><span>Giảm trừ ưu đãi nộp trước 3%<br><small class="muted">Áp dụng cho 3 tháng học phí</small></span><b>-135.000 đ</b></div><div class="line"><b>Tổng cần thu</b><b>4.965.000 đ</b></div></div><div class="card"><h2>Rà soát trước khi phát hành</h2><p class="muted">Dòng hóa đơn, mức ưu đãi và phạm vi kỳ sẽ được chốt khi phát hành.</p><label class="field">Tài khoản nhận tiền<select><option>Vietcombank · 1020 888 999</option></select></label><button class="btn btn-primary" type="button" id="issue-invoice" style="margin-top:16px">Phát hành hóa đơn</button><p class="muted" id="issue-feedback" aria-live="polite"></p></div></div></section>
-<section id="coverage-result" hidden><div class="card"><div class="route"><div><h2>Phạm vi chi trả đã kích hoạt</h2><p>Học phí tháng 10-12/2026 sẽ được bỏ qua trong các đợt thu thường sau này. Tiền ăn tháng 10/2026 đã được thu trong hóa đơn này.</p></div><span class="badge success">Đã thu đủ</span></div><div class="line"><span>Phiếu thu PT-2026-1015-014<br><small class="muted">Ghi nhận lúc 14:30 hôm nay</small></span><b>4.965.000 đ</b></div></div></section>
-</div></div><script>window.addEventListener('DOMContentLoaded',function(){(function(){var button=document.getElementById('issue-invoice');button.addEventListener('click',function(){button.disabled=true;document.getElementById('issue-feedback').textContent='Đang phát hành hóa đơn. Không gửi lại thao tác trước khi có kết quả.';window.setTimeout(function(){document.getElementById('invoice-status').textContent='Đã phát hành';document.getElementById('invoice-status').className='badge info';button.textContent='Ghi nhận thu đủ 4.965.000 đ';button.disabled=false;button.addEventListener('click',function(){button.disabled=true;document.getElementById('issue-feedback').textContent='Đang kiểm tra kết quả với hệ thống. Không gửi lại trước khi có kết quả.';window.setTimeout(function(){document.getElementById('coverage-result').hidden=false;button.textContent='Đã ghi nhận thu đủ';document.getElementById('invoice-status').textContent='Đã thu đủ';document.getElementById('invoice-status').className='badge success';},650);},{once:true});},650);});}());});</script></body></html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PassionEdu · Chi tiết hóa đơn</title>
+  <link rel="stylesheet" href="../prototype.css">
+  <link rel="stylesheet" href="finance-style.css">
+  <script defer src="admin-shell.js"></script>
+</head>
+<body>
+  <div data-admin-shell data-admin-route="runs">
+    <div class="finance-page">
+      <section data-od-id="invoice-header">
+        <div class="route">
+          <div>
+            <p class="eyebrow">ĐỢT THU THÁNG 10/2026 · BÉ MINH ANH · MẦM 4A</p>
+            <h1>Hóa đơn nộp trước</h1>
+            <p>Hóa đơn trong đợt thu tháng 10/2026. Kế toán ghi nhận đúng số tiền thực nhận.</p>
+          </div>
+          <span class="badge warning" id="invoice-status">Nháp</span>
+        </div>
+        <div class="card">
+          <div class="line">
+            <span><b>Chính sách áp dụng</b><br><small class="muted">Ưu đãi nộp trước học kỳ · Nộp trước 3 tháng học phí · Giảm 3% · Bắt đầu từ tháng 10/2026</small></span>
+            <a class="btn btn-secondary" href="receivable-configuration.html#policies">Xem chính sách</a>
+          </div>
+        </div>
+      </section>
+
+      <section data-od-id="invoice-detail">
+        <div class="split">
+          <div class="card" data-od-id="invoice-lines">
+            <h2>Chi tiết hóa đơn</h2>
+            <p class="muted">Ưu đãi và các khoản thu được chốt tại thời điểm phát hành.</p>
+            <div class="line"><span>Học phí tháng 10/2026<br><small class="muted">Kỳ dịch vụ 10/2026</small></span><b>1.500.000 đ</b></div>
+            <div class="line"><span>Học phí tháng 11/2026<br><small class="muted">Kỳ dịch vụ 11/2026</small></span><b>1.500.000 đ</b></div>
+            <div class="line"><span>Học phí tháng 12/2026<br><small class="muted">Kỳ dịch vụ 12/2026</small></span><b>1.500.000 đ</b></div>
+            <div class="line"><span>Tiền ăn tháng 10/2026<br><small class="muted">Khoản thu trong đợt tháng 10/2026</small></span><b>600.000 đ</b></div>
+            <div class="line"><span>Giảm trừ ưu đãi nộp trước 3%<br><small class="muted">Áp dụng cho 3 tháng học phí</small></span><b>-135.000 đ</b></div>
+            <div class="line"><b>Tổng cần thu</b><b id="invoice-total">4.965.000 đ</b></div>
+          </div>
+
+          <div class="card" data-od-id="invoice-action">
+            <div id="issue-panel">
+              <h2>Rà soát trước khi phát hành</h2>
+              <p class="muted">Kiểm tra dòng hóa đơn, ưu đãi và tài khoản nhận tiền trước khi phát hành.</p>
+              <label class="field">Tài khoản nhận tiền<select><option>Vietcombank · 1020 888 999</option></select></label>
+              <button class="btn btn-primary" type="button" id="issue-invoice" style="margin-top:16px">Phát hành hóa đơn</button>
+            </div>
+            <div id="receipt-panel" hidden>
+              <h2>Ghi nhận tiền đã nhận</h2>
+              <p class="muted">Nhập số tiền thực nhận. Nếu chênh lệch, hệ thống tự đưa phần thiếu hoặc thừa vào hóa đơn nháp tháng kế tiếp.</p>
+              <label class="field">Số tiền thực nhận<input id="payment-amount" type="text" inputmode="numeric" value="4.850.000"></label>
+              <label class="field">Hình thức nhận tiền<select><option>Chuyển khoản</option><option>Tiền mặt</option></select></label>
+              <label class="field">Mã tham chiếu<input type="text" value="MB-1026-104"></label>
+              <button class="btn btn-primary" type="button" id="record-receipt" style="margin-top:16px">Ghi nhận tiền đã nhận</button>
+            </div>
+            <button class="btn btn-secondary" type="button" id="open-revision" hidden style="margin-top:16px">Tạo lại hóa đơn</button>
+            <p class="muted" id="action-feedback" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section data-od-id="settlement-result" id="settlement-result" hidden>
+        <div class="card">
+          <div class="route">
+            <div><h2 id="settlement-title">Đã ghi nhận phiếu thu</h2><p id="settlement-copy"></p></div>
+            <span class="badge" id="settlement-badge"></span>
+          </div>
+          <div class="line"><span>Phiếu thu PT-2026-1015-014<br><small class="muted">Ghi nhận lúc 14:30 hôm nay</small></span><b id="received-value"></b></div>
+        </div>
+      </section>
+
+      <dialog id="revision-dialog" data-od-id="invoice-revision-dialog">
+        <form method="dialog" class="dialog-body">
+          <h2>Tạo lại hóa đơn</h2>
+          <p class="muted">Hóa đơn hiện tại sẽ được hủy sau khi hệ thống tạo bản thay thế từ nội dung đã chốt. Lịch sử phiếu thu và hóa đơn cũ vẫn được lưu.</p>
+          <label class="field">Lý do tạo lại<input id="revision-reason" type="text" placeholder="Ví dụ: Sai khoản thu tiền ăn"></label>
+          <p class="muted" id="revision-feedback" aria-live="polite"></p>
+          <div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" type="button" id="confirm-revision">Tạo bản hóa đơn thay thế</button></div>
+        </form>
+      </dialog>
+    </div>
+  </div>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      var total = 4965000;
+      var issue = document.getElementById('issue-invoice');
+      var issuePanel = document.getElementById('issue-panel');
+      var receiptPanel = document.getElementById('receipt-panel');
+      var actionFeedback = document.getElementById('action-feedback');
+      var status = document.getElementById('invoice-status');
+      var revision = document.getElementById('open-revision');
+      function format(amount) { return amount.toLocaleString('vi-VN') + ' đ'; }
+      function parseAmount(value) { return Number(String(value).replace(/[^0-9]/g, '')); }
+
+      issue.addEventListener('click', function () {
+        issue.disabled = true;
+        actionFeedback.textContent = 'Đang phát hành hóa đơn. Không gửi lại thao tác trước khi có kết quả.';
+        window.setTimeout(function () {
+          status.textContent = 'Đã phát hành';
+          status.className = 'badge info';
+          issuePanel.hidden = true;
+          receiptPanel.hidden = false;
+          revision.hidden = false;
+          actionFeedback.textContent = 'Hóa đơn đã phát hành. Ghi nhận số tiền thực nhận khi phụ huynh thanh toán.';
+        }, 500);
+      });
+
+      document.getElementById('record-receipt').addEventListener('click', function () {
+        var amount = parseAmount(document.getElementById('payment-amount').value);
+        if (!amount) { actionFeedback.textContent = 'Nhập số tiền thực nhận trước khi ghi nhận.'; return; }
+        this.disabled = true;
+        actionFeedback.textContent = 'Đang kiểm tra kết quả với hệ thống. Không gửi lại trước khi có kết quả.';
+        window.setTimeout(function () {
+          var difference = total - amount;
+          var result = document.getElementById('settlement-result');
+          var title = document.getElementById('settlement-title');
+          var copy = document.getElementById('settlement-copy');
+          var badge = document.getElementById('settlement-badge');
+          document.getElementById('received-value').textContent = format(amount);
+          result.hidden = false;
+          status.textContent = 'Đã đóng';
+          status.className = 'badge success';
+          receiptPanel.hidden = true;
+          revision.hidden = false;
+          if (difference > 0) {
+            title.textContent = 'Đã ghi nhận thu thiếu';
+            copy.textContent = 'Còn thiếu ' + format(difference) + '. Hệ thống sẽ thêm khoản này vào hóa đơn nháp của đợt thu tháng 11/2026 cho Bé Minh Anh.';
+            badge.textContent = 'Thu thiếu'; badge.className = 'badge warning';
+          } else if (difference < 0) {
+            title.textContent = 'Đã ghi nhận thu thừa';
+            copy.textContent = 'Thu thừa ' + format(-difference) + '. Hệ thống sẽ giảm số tiền cần thu trên hóa đơn nháp của đợt thu tháng 11/2026; hóa đơn đó không thể âm.';
+            badge.textContent = 'Thu thừa'; badge.className = 'badge info';
+          } else {
+            title.textContent = 'Đã ghi nhận thu đủ';
+            copy.textContent = 'Phạm vi chi trả học phí tháng 10-12/2026 đã được kích hoạt. Tiền ăn tháng 10/2026 đã được thu trong hóa đơn này.';
+            badge.textContent = 'Thu đủ'; badge.className = 'badge success';
+          }
+          actionFeedback.textContent = 'Kết quả đã được ghi nhận.';
+        }, 650);
+      });
+
+      document.getElementById('open-revision').addEventListener('click', function () { document.getElementById('revision-dialog').showModal(); });
+      document.getElementById('confirm-revision').addEventListener('click', function () {
+        var reason = document.getElementById('revision-reason').value.trim();
+        var feedback = document.getElementById('revision-feedback');
+        if (!reason) { feedback.textContent = 'Nhập lý do trước khi tạo lại hóa đơn.'; return; }
+        this.disabled = true;
+        feedback.textContent = 'Đang tạo bản hóa đơn thay thế. Không gửi lại thao tác trước khi có kết quả.';
+        window.setTimeout(function () {
+          document.getElementById('revision-dialog').close();
+          status.textContent = 'Bản thay thế: Nháp';
+          status.className = 'badge warning';
+          actionFeedback.textContent = 'Đã tạo bản hóa đơn thay thế để rà soát. Hóa đơn cũ được giữ trong lịch sử và không còn là nghĩa vụ thanh toán.';
+        }, 650);
+      });
+    });
+  </script>
+</body>
+</html>
