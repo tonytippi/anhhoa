@@ -59,6 +59,7 @@ development_status:
   5-5-issue-invoice-voi-payment-instruction-snapshot-bat-bien: backlog
   5-6-kiem-thu-collectionrun-va-invoice-issuance-release-gate: backlog
   5-7-dong-collectionrun-da-generate: backlog
+  5-8-revision-invoice-da-phat-hanh-va-huy-ban-cu: backlog
   epic-5-retrospective: optional
 
   epic-6: backlog

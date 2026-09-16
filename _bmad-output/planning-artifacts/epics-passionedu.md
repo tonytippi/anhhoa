@@ -943,13 +943,8 @@ So that Parent va Finance cung tham chieu mot obligation/payment instruction kho
 
 **Given** Invoice da `ISSUED`
 **When** Finance Manager hoac client co sua line, quantity, price, discount, BankAccount, Payment instruction, total hoac state
-**Then** server tu choi mutation va chi finance settlement workflow sau nay moi co the derive `PAID` hay transition `VOIDED` khi chua allocation
-**And** parent/client khong the set outstanding hoac payment status.
-
-**Given** Invoice `ISSUED` chua co Allocation
-**When** Finance Manager hoac School Admin yeu cau void voi reason va `Idempotency-Key`
-**Then** server transition Invoice sang `VOIDED`, luu audit/Operation va immutable obligation snapshot van doc duoc
-**And** Invoice co settlement, wrong School/capability hoac retry fingerprint thay doi bi tu choi; retry giong nhau replay terminal outcome.
+**Then** server tu choi mutation; chi actual-receipt close hoac Story 5.8 revision workflow co the transition Invoice
+**And** parent/client khong the set outstanding, settlement outcome, payment status hay `CANCELLED` state.
 
 **Given** Finance Manager xem issue confirmation hay issued Invoice
 **When** server tra result
@@ -989,7 +984,7 @@ So that cau hinh va pham vi cua dot thu duoc khoa ro rang truoc khi chi con xem/
 
 **Given** CollectionRun `GENERATED` trong selected School va Finance Manager co capability hop le
 **When** Finance Manager xac nhan close voi `Idempotency-Key`
-**Then** server chi transition run sang `CLOSED` khi moi Invoice trong run da `ISSUED`, `PAID` hoac `VOIDED`, persist actor/reason/audit va `Operation`, replay identical retry va reconcile truoc retry sau timeout
+**Then** server chi transition run sang `CLOSED` khi moi Invoice trong run da `ISSUED`, `CLOSED` hoac `CANCELLED`, persist actor/reason/audit va `Operation`, replay identical retry va reconcile truoc retry sau timeout
 **And** run o `DRAFT`, `READY`, da `CLOSED`, con Invoice `DRAFT`, wrong School/capability hoac changed fingerprint bi tu choi.
 
 **Given** CollectionRun da `CLOSED`
@@ -997,32 +992,75 @@ So that cau hinh va pham vi cua dot thu duoc khoa ro rang truoc khi chi con xem/
 **Then** server tu choi mutation va UI chi cho read/filter/report voi server explanation
 **And** integration test chung minh lifecycle `DRAFT -> READY -> GENERATED -> CLOSED` va create/edit lock o `CLOSED`.
 
-## Epic 6: Thu tiền, đối soát công nợ và báo cáo sổ cái
-
-Finance xac nhan thanh toan Invoice theo exact settlement, bao gom source Invoice cua policy `PREPAID_COVERAGE`, hoan tien coverage theo operating-day preview co override/audit, va doi soat toan bo bang append-only ledger.
-
-### Story 6.1: Ghi exact Receipt settlement cho một Student
+### Story 5.8: Revision Invoice đã phát hành và huỷ bản cũ
 
 As a Finance Manager,
-I want to ghi mot Receipt settle du mot hoac nhieu Invoice cua cung Student,
-So that van hanh thanh toan thong thuong chi co chua tra hoac da tra du, khong co partial payment.
+I want to prepare and issue a corrected replacement for an `ISSUED` Invoice,
+So that a Parent receives the corrected obligation while the original Invoice history remains auditable.
 
 **Acceptance Criteria:**
 
-**Given** Finance Manager co capability trong selected School va chon mot Student
-**When** server tra cac Invoice `ISSUED` con outstanding khong phai source Invoice `PREPAID` cua Student do
-**Then** UI hien thi tung Invoice, outstanding server-returned va tong exact amount de settle toan bo cac Invoice duoc chon; prepaid source Invoice dung Story 6.2.
-**And** khong cho chon Invoice khac School hoac khac Student.
+**Given** an `ISSUED` Invoice in the selected School needs correction
+**When** Finance submits a revision request with source Invoice, reason and `Idempotency-Key`
+**Then** the server creates one replacement `DRAFT` from immutable source facts with revision lineage and audit
+**And** no source line, payment instruction, issue snapshot, Receipt or audit record is overwritten.
 
-**Given** Finance Manager submit Receipt cung cac target Invoice
-**When** so Receipt bang dung tong outstanding hien tai cua moi target
-**Then** finance posting transaction tao Receipt/Allocation append-only va moi Invoice target derive `PAID` cung ledger as-of time
-**And** request bat buoc `Idempotency-Key`, persist `Operation` theo actor/School/route/fingerprint va retry giong nhau replay terminal outcome; `PARTIALLY_PAID` khong ton tai, client khong the set Invoice total, outstanding hay status.
+**Given** source and replacement share the same CollectionRun
+**When** the server persists revision lineage
+**Then** `revisesInvoiceId` must reference exactly one `CANCELLED` source of the same School, Student and run
+**And** a second replacement, missing lineage or cross-School/Student/run lineage is rejected without weakening normal one-Invoice-per-Student/run generation.
 
-**Given** Receipt thap hon hoac cao hon tong target, target khong cung Student, khong co target, Invoice voided hoac concurrent posting lam outstanding thay doi
-**When** Finance Manager submit
-**Then** server tu choi toan bo normal settlement truoc khi ghi posting
-**And** UI giu immutable source facts, refresh server limits/state va khong the retry truoc Operation reconciliation.
+**Given** the replacement DRAFT is reviewed and issued
+**When** Finance confirms issue with `Idempotency-Key`
+**Then** one transaction issues the replacement and changes the source Invoice to `CANCELLED`
+**And** a failed, duplicate or changed-fingerprint request cannot leave both the cancelled source and replacement in an ambiguous state.
+
+**Given** the source Invoice has a confirmed Receipt
+**When** the replacement is issued
+**Then** the server writes only append-only settlement-transfer provenance from source Receipt/Invoice to replacement
+**And** any final shortage/excess follows Story 6.1 SettlementDifference/carry rules; it does not rewrite the original Receipt.
+
+**Given** Parent opens the source or replacement obligation
+**When** the authorized projection is returned
+**Then** only the replacement is payable/current-effective and the source is not a payment target
+**And** correction reason, ledger transfer and internal audit remain absent from Parent DTOs.
+
+## Epic 6: Thu tiền, đối soát công nợ và báo cáo sổ cái
+
+Finance ghi actual Receipt de dong Invoice, carry chenh lech sang dot thu sau, settle exact source Invoice cua policy `PREPAID_COVERAGE`, hoan tien coverage theo operating-day preview co override/audit, va doi soat toan bo bang append-only ledger.
+
+> **Supersession (2026-09-16):** Epic 5/6 normal-settlement wording that requires exact Receipt, derives `PAID`/`VOIDED`, permits void, or rejects shortfall/excess is replaced. Finance closes exactly one normal `ISSUED` Invoice with actual received VND. The server derives `EXACT`, `SHORTFALL` or `OVERPAYMENT`, appends one source-linked SettlementDifference for a non-exact close, and only materializes its remaining amount as bounded `SHORTFALL_CARRY`/`OVERPAYMENT_CARRY` in the next eligible same-Student/School/SchoolYear MONTHLY Invoice DRAFT. No generic balance, unallocated Receipt or cross-Student/School/SchoolYear carry exists. An issued-content correction prepares/issues a replacement and atomically changes the source to `CANCELLED`; source snapshots and confirmed Receipt remain immutable, with any replacement settlement represented only by append-only transfer provenance.
+
+### Story 6.1: Ghi actual Receipt, dong Invoice va carry chenh lech
+
+As a Finance Manager,
+I want to ghi so tien thuc nhan va dong mot Invoice cua mot Student,
+So that phan thieu hoac thua duoc truy vet va dua sang dot thu sau thay vi bi mat hoac thanh so du chung.
+
+**Acceptance Criteria:**
+
+> **Superseded acceptance (2026-09-16):** The following exact multi-Invoice criteria are replaced by this contract.
+
+**Given** Finance Manager selects one `ISSUED` Invoice in the selected School
+**When** they enter the verified actual amount received and confirm with an `Idempotency-Key`
+**Then** one transaction appends the Receipt, closes that Invoice and derives server-side `EXACT`, `SHORTFALL` or `OVERPAYMENT`
+**And** client cannot set status, difference or carry, and duplicate/concurrent close attempts replay or reject through the same Operation.
+
+**Given** actual Receipt differs from the issued amount
+**When** the Invoice closes
+**Then** the server appends exactly one immutable SettlementDifference linked to that Invoice and Receipt: positive for shortfall and negative for overpayment
+**And** it creates no unallocated Receipt, generic balance, StudentPrepayment or cross-Student/School/SchoolYear entitlement.
+
+**Given** a later eligible `MONTHLY` CollectionRun generates a DRAFT Invoice for that same Student, School and SchoolYear
+**When** Finance views/generates the DRAFT
+**Then** the server materializes the remaining source difference as `SHORTFALL_CARRY` or `OVERPAYMENT_CARRY` with source provenance
+**And** an overpayment carry is capped so target Invoice total never becomes negative; any remainder stays source-linked for a later eligible run and cannot be manually applied twice.
+
+**Given** Finance reviews an actual-receipt close or carry result
+**When** the UI renders
+**Then** it shows server-returned issued amount, actual receipt, outcome, difference and next-run carry status with Operation reconciliation after timeout
+**And** neither UI nor Parent can alter finance posting, carry amount or lineage.
+
 
 ### Story 6.2: Settle exact promotion coverage source Invoice
 
@@ -1034,7 +1072,7 @@ So that toan bo cac ky tuong lai da mua chi duoc cover sau khi School nhan dung 
 
 **Given** Finance Manager chon source Invoice `ISSUED` cua `PREPAID` CollectionRun
 **When** ho submit Receipt bang dung outstanding cua Invoice do
-**Then** transaction post Receipt/Allocation append-only, source Invoice derive `PAID` va issue `StudentPromotionalCoverage` cho tung receivable-period fact da snapshot
+**Then** transaction post Receipt/Allocation append-only, source Invoice dong `CLOSED` voi outcome `EXACT` va issue `StudentPromotionalCoverage` cho tung receivable-period fact da snapshot
 **And** coverage luu policy version, Invoice/Receipt paid provenance, gia goc, reduction, service interval, calendar version/timezone va chi monthly run sau do skip fact issued nay.
 
 **Given** Receipt khong bang exact outstanding cua source Invoice, Invoice voided, policy version/SchoolYear khong hop le, fact overlap hoac concurrent posting da doi state
@@ -1095,8 +1133,8 @@ So that cong no duoc thu dung mot lan va khong tu carry sang nam hoc moi.
 
 **Given** target Invoice co `PRIOR_DEBT` duoc thanh toan
 **When** Finance post Receipt
-**Then** target van phai duoc settle dung toan bo theo exact settlement
-**And** khong co partial debt settlement state hay client-side carryover.
+**Then** target dong theo actual-receipt contract va moi shortfall/overpayment tao SettlementDifference/carry co source
+**And** khong co client-side carryover, generic balance hay double collection cua debt source.
 
 **Given** SchoolYear ket thuc
 **When** Finance xem debt/open balances
@@ -1114,7 +1152,7 @@ So that toi doi soat duoc gross, promotion discount/refund, receipt, allocation,
 **Given** Finance Manager chon School context va report period/filter hop le
 **When** API tao report
 **Then** server aggregate ledger/snapshot theo School, CollectionRun, period, ReceivableGroup, Class va status, tra as-of timestamp
-**And** totals tach rieng gross, promotion discount theo policy/version, refund, net billed, receipt, allocation, coverage va outstanding bang VND integer, khong co grouping `PARTIALLY_PAID`.
+**And** totals tach rieng gross, promotion discount theo policy/version, refund, net billed, actual Receipt, settlement outcome, open/materialized SettlementDifference, carry adjustment, revision/cancellation, coverage va outstanding bang VND integer.
 
 **Given** promotion coverage hoac coverage refund ap dung
 **When** report/detail duoc tao
@@ -1126,7 +1164,7 @@ So that toi doi soat duoc gross, promotion discount/refund, receipt, allocation,
 **Then** UI giu School/period/filter, neu khong co hoat dong thay vi xac nhan "0 collected" khong co as-of context
 **And** VND right-align, table caption/keyboard access, server error and accessible empty/loading states; khong co export trong release nay.
 
-### Story 6.6: Release gate cho exact settlement và promotion coverage refund
+### Story 6.6: Release gate cho actual Receipt, carry và promotion coverage refund
 
 As a release owner,
 I want automated proof rang moi posting va report reconcile dung duoi retry/concurrency,
@@ -1136,8 +1174,8 @@ So that duplicate posting, cross-tenant settlement hoac report sai khong vao pil
 
 **Given** PostgreSQL fixture co nhieu School/Student/Invoice/Receipt, `PREPAID` CollectionRun, policy version, coverage va ledger state
 **When** integration suite chay settlement, reversal/refund, debt transfer va report scenarios dong thoi
-**Then** exact multi-Invoice settlement cho cung Student pass; partial, unallocated, mixed-Student, cross-School va duplicate posting bi tu choi
-**And** source Invoice cua `PREPAID` run chi settle exact va issue coverage khi PAID; partial, excess, generic balance va `Student Prepayment` deu bi tu choi; lock order, append-only history va Operation idempotency deu duoc kiem tra.
+**Then** one-Invoice actual close produces exact, shortfall and overpayment outcomes once; unallocated, cross-School and duplicate posting are rejected
+**And** next-run carry is bounded, source-linked, same-Student/School/SchoolYear and never duplicated; source Invoice cua `PREPAID` run chi dong `EXACT` va issue coverage khi `CLOSED`; generic balance va `Student Prepayment` deu bi tu choi; lock order, append-only history va Operation idempotency deu duoc kiem tra.
 
 **Given** issued promotion coverage va withdrawal/transfer/eligible-service-cancellation fixture
 **When** suite chay coverage/refund scenarios
@@ -1151,7 +1189,7 @@ So that duplicate posting, cross-tenant settlement hoac report sai khong vao pil
 
 ## Epic 7: Parent portal đa trường, read-first
 
-Parent dung PWA mobile-first de xem dung Student duoc uy quyen, attendance/DailyJournal/inbox, gui leave request khi con `PENDING`, va xem obligation `ISSUED` cung Payment instruction snapshot. Parent khong co finance policy/coverage, refund hay operational mutation.
+Parent dung PWA mobile-first de xem dung Student duoc uy quyen, attendance/DailyJournal/inbox, gui leave request khi con `PENDING`, va xem obligation hieu luc `ISSUED`/`CLOSED` cung Payment instruction snapshot. Parent khong co finance policy/coverage, refund hay operational mutation.
 
 ### Story 7.1: Khởi tạo Parent context đa trường an toàn
 
@@ -1278,23 +1316,23 @@ So that School co thong tin lien lac hien hanh ma quyen va lien ket cua toi van 
 **Then** request bi tu choi truoc khi cap nhat va UI hien field error accessible
 **And** timeout dung Idempotency Operation reconciliation, khong ghi trung hoac giu protected state sau revoke.
 
-### Story 7.6: Parent xem obligation ISSUED và Payment instruction snapshot
+### Story 7.6: Parent xem obligation hiệu lực và Payment instruction snapshot
 
 As a Parent,
-I want to xem Invoice con outstanding va payment instruction snapshot cho dung Student,
+I want to xem Invoice hieu luc va payment instruction snapshot cho dung Student,
 So that toi co the thuc hien thanh toan ngoai he thong ma khong thay doi trang thai finance.
 
 **Acceptance Criteria:**
 
-**Given** Parent authorized cho Student va Invoice `ISSUED` con outstanding trong retention
+**Given** Parent authorized cho Student va Invoice hieu luc `ISSUED` con outstanding hoac `CLOSED` trong retention
 **When** Parent mo obligation detail
-**Then** API tra minimum read model gom obligation code, period, issued Invoice total snapshot, server-derived current outstanding VND, state/update time, receiving bank, account number, account holder va transfer content
+**Then** API tra minimum read model gom obligation code, period, issued Invoice total snapshot, server-derived actual Receipt/outcome/current outstanding VND, state/update time, receiving bank, account number, account holder va transfer content
 **And** issued total/current outstanding duoc label rieng; API khong tra audit noi bo, live account, data tre khac hoac finance source khong can thiet.
 
-**Given** Invoice `PAID`, `VOIDED`, khong con outstanding hoac vuot Parent finance retention
+**Given** Invoice `CANCELLED`, Invoice khong con hieu luc, hoac vuot Parent finance retention
 **When** Parent list/detail duoc tai
 **Then** Payment instruction/payment invitation khong duoc hien thi
-**And** Parent khong thay `PARTIALLY_PAID`, Receipt/allocation, promotion coverage, refund control, "I paid", VietQR, copy-field hoac bank deep-link action.
+**And** Parent khong thay SettlementDifference, carry, Receipt/allocation detail, correction reason, promotion coverage, refund control, "I paid", VietQR, copy-field hoac bank deep-link action.
 
 **Given** issued Invoice da duoc settle nhung coverage refund lien quan van chua settlement trong Parent finance retention
 **When** Parent xem finance history authorized cho Student
@@ -1314,7 +1352,7 @@ So that Parent portal khong leak du lieu tre em hoac finance va van dung duoc tr
 
 **Acceptance Criteria:**
 
-**Given** fixture co Parent voi nhieu Student/School, active/revoked links, attendance events, Invoice `ISSUED`/`PAID`/`VOIDED`, promotion coverage va refunds
+**Given** fixture co Parent voi nhieu Student/School, active/revoked links, attendance events, Invoice `ISSUED`/`CLOSED`/`CANCELLED`, replacement lineage, promotion coverage va refunds
 **When** API/PostgreSQL integration va Parent E2E suites chay
 **Then** cross-School/cross-Student route, UUID, filter, deep-link, finance-field, attendance evidence, unauthorized journal media/audit va Parent mutation attempt deu bi tu choi
 **And** recheck per returned/requested `studentId`, revoke, expiry, 30-day operational retention cua attendance/journal va finance retention deu pass.
@@ -1325,7 +1363,7 @@ So that Parent portal khong leak du lieu tre em hoac finance va van dung duoc tr
 **And** offline khong queue hoac gia vo hoan tat mutation.
 
 **Given** Parent opens payment instruction or notification
-**When** state is unauthorized, expired, no outstanding, `PAID`, `VOIDED`, revoked or retention-expired
+**When** state is unauthorized, expired, obsolete `CANCELLED`, revoked or retention-expired
 **Then** app hides protected detail/action and renders server-confirmed safe fallback
 **And** Epic 7 khong complete neu Parent cross-school, retention, notification re-authorization hoac payment read-model test con fail.
 
