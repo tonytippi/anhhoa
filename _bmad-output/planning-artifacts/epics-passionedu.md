@@ -14,7 +14,7 @@ supersedes:
   - epics.md
   - epics-parent-pwa.md
 status: final
-updated: 2026-09-08
+updated: 2026-09-16
 ---
 
 # PassionEdu - Epic Breakdown
@@ -22,6 +22,41 @@ updated: 2026-09-08
 ## Overview
 
 Tai lieu nay phan ra initiative PassionEdu da truong thanh cac epic va story co the trien khai. PRD PassionEdu, Architecture Spine, SPEC va UX spines la nguon quyet dinh. Hai artifact epic Anh Hoa legacy duoc giu nguyen de truy vet va khong mo ta pham vi thay the nay.
+
+## UX and Mockup Traceability
+
+Khi implement mot story co bề mặt portal, `DESIGN.md` va `EXPERIENCE.md` la UX contract bat buoc; mockup duoi day la mốc visual/interaction de giam lech implementation. Neu mockup mau thuan voi hai UX spine, UX spine thang. `MOCKUP-COVERAGE.md` la inventory va diem vao review; mockup HTML la static, khong thay the REST, authorization, state transition, money hay Operation contract cua API.
+
+| Stories | UX/mocking reference | Implementation boundary |
+| --- | --- | --- |
+| 1.1 | `mockups/review.html`, `MOCKUP-COVERAGE.md` | Scaffold shell cua bon portal theo inventory; khong tai su dung shell legacy. |
+| 1.2, 1.4, 1.6 | `EXPERIENCE.md` §§ Information Architecture, State Patterns, Accessibility Floor; `mockups/admin/admin-operational-queue.html`, `mockups/teacher/teacher.html`, `mockups/parent/parent.html`, `mockups/ops/ops.html` | Session, switch/revoke va capability van do API quyet dinh; mockup chi dinh nghia safe state va visible context. |
+| 1.3 | `mockups/ops/ops.html` | Ops chi provision/suspend/reactivate, khong co School business-data destination. |
+| 1.5 | `EXPERIENCE.md` §§ State Patterns, Interaction Primitives | Story API/security; chi implement cac error/reconciliation state khi endpoint da co. |
+| 2.1 | `mockups/admin/roster/school-year-classes.html`, `mockups/admin/roster/roster.html` | Table, error summary, visible School/SchoolYear context. |
+| 2.2 | `mockups/admin/roster/student-enrollment.html`, `mockups/admin/roster/roster.html` | Profile/enrollment va history la surfaces tach biet. |
+| 2.3 | `mockups/admin/roster/student-parent-links.html`, `mockups/parent/parent.html` | Revoke phai dan toi Parent safe state, khong chi cap nhat row Admin. |
+| 2.4 | `mockups/admin/roster/staff-assignments.html` | Tach Staff record, assignment va login/role state. |
+| 2.5 | `mockups/admin/roster/roster-transition.html` | Preview -> named confirmation -> Operation reconciliation. |
+| 3.1, 3.2, 3.3, 3.4 | `mockups/admin/school-settings.html` | Bon tab Settings; Parent access khong la tab/configuration. |
+| 4.1 | `mockups/admin/admin-operational-queue.html`, `mockups/parent/parent.html` | Admin review-only; Parent leave surface chi duoc build trong Epic 7. |
+| 4.2, 4.3, 4.4, 4.7 | `mockups/teacher/teacher.html`, `mockups/parent/parent.html` | Teacher la portal mutation duy nhat; Parent khong bao gio nhan evidence/Staff facts. |
+| 4.5 | `mockups/admin/receivable-configuration.html`, `mockups/admin/invoice-detail-review.html` | Chi hien server-returned adjustment/refund outcome; khong co auto-fee affordance. |
+| 4.6 | `mockups/admin/admin-operational-queue.html` | Tong quan theo School/ngay, table-first va server-returned counts. |
+| 5.1 | `mockups/admin/receivable-configuration.html` | Catalog, scope matrix va policy version la UI Finance configuration. |
+| 5.2, 5.3, 5.7 | `mockups/admin/invoice-generation.html` | CollectionRun list/detail, server preview/skips va reconciliation; `PREPAID_COVERAGE` khong la run rieng. |
+| 5.4, 5.5, 5.6, 5.8 | `mockups/admin/invoice-detail-review.html`, `mockups/parent/parent.html` | Invoice la deep destination; Parent chi thay effective obligation sau khi API projection ton tai. |
+| 6.1, 6.2, 6.3, 6.4, 6.6 | `mockups/admin/invoice-detail-review.html`, `EXPERIENCE.md` §§ Invoice review and receipt, Adjustment/carry/refund review | Actual Receipt closes mot Invoice; outcome/carry/refund deu server-returned. |
+| 6.5 | `mockups/admin/finance-run-preview.html`, `EXPERIENCE.md` § Finance report | Bao cao la server ledger-derived; mockup mốc nay khong mo rong lifecycle Finance. |
+| 7.1, 7.2, 7.4, 7.5, 7.7, 7.8 | `mockups/parent/parent.html`, `mockups/parent/parent-home.html` | Mobile-first, clear protected state truoc safe fallback, khong cache protected API data. |
+| 7.3 | `mockups/parent/parent-inbox.html` | Inbox deep link phai re-authorize School/Student/date. |
+| 7.6 | `mockups/parent/parent.html`, `EXPERIENCE.md` § Payment instruction | Read-only effective Invoice; khong hien correction/ledger provenance hay payment mutation. |
+| 8.1, 8.2, 8.3 | `mockups/admin/payroll-overview.html` | Navigation/deep link chi xuat hien sau entitlement va capability server grant. |
+| 9.1, 9.2, 9.3 | `mockups/admin/payroll-timekeeping-import.html` | Import -> preview -> commit -> review; khong suy dien tien tu handover. |
+| 10.1, 10.2, 10.3 | `mockups/admin/payroll-run-review.html` | Snapshot, different-identity approval, reopen va payout la server-confirmed states. |
+| 11.1, 11.2 | `mockups/admin/payroll-correction.html` | Paid source read-only; correction/ky luong rieng theo approval/payout boundary. |
+
+**Story delivery rule:** Implementation spec tao cho mot story phai copy cac link o bang nay vao phan `context`, ghi ro mockup route/state dang build, va them visual/E2E assertion cho loading, validation, revoke/permission-denied, timeout reconciliation va responsive behavior neu story co portal surface. Story API-only khong duoc tao UI local/optimistic thay cho server contract.
 
 ## Requirements Inventory
 

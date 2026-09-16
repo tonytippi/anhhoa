@@ -198,11 +198,11 @@ activeDialog().querySelector('[data-close]').click();
 const handover = window.document.querySelector('#handover');
 const handoverEvidence = handover.querySelectorAll('input[type="file"]');
 assert.equal(handoverEvidence.length, 2);
-for (const input of handoverEvidence) {
-  assert.ok(input.required);
-  assert.equal(input.accept, 'image/jpeg,image/png,image/webp');
-}
-assert.match(handover.textContent, /Cần ảnh khi trả trẻ/);
+assert.ok(handoverEvidence[0].required);
+assert.equal(handoverEvidence[0].accept, 'image/jpeg,image/png,image/webp');
+assert.equal(handoverEvidence[1].required, false);
+assert.equal(handoverEvidence[1].accept, 'image/jpeg,image/png,image/webp');
+assert.match(handover.textContent, /Yêu cầu ảnh do chính sách Trường trả về/);
 assert.match(handover.textContent, /Không xác nhận người đón hoặc tự tính phí/);
 assert.match(handover.textContent, /Phụ huynh chỉ nhận giờ đã xác nhận/);
 
