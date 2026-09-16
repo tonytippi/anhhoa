@@ -16,7 +16,7 @@
           <div>
             <p class="eyebrow">ĐỢT THU THÁNG 10/2026 · BÉ MINH ANH · MẦM 4A</p>
             <h1>Hóa đơn nộp trước</h1>
-            <p>Hóa đơn trong đợt thu tháng 10/2026. Kế toán ghi nhận đúng số tiền thực nhận.</p>
+            <p>Hóa đơn có fact nộp trước trong đợt thu tháng 10/2026. Coverage chỉ được cấp khi hệ thống xác nhận thu đủ.</p>
           </div>
           <span class="badge warning" id="invoice-status">Nháp</span>
         </div>
@@ -50,11 +50,11 @@
             </div>
             <div id="receipt-panel" hidden>
               <h2>Ghi nhận tiền đã nhận</h2>
-              <p class="muted">Nhập số tiền thực nhận. Nếu chênh lệch, hệ thống tự đưa phần thiếu hoặc thừa vào hóa đơn nháp tháng kế tiếp.</p>
-              <label class="field">Số tiền thực nhận<input id="payment-amount" type="text" inputmode="numeric" value="4.850.000"></label>
+              <p class="muted">Invoice này chứa fact nộp trước nên chỉ nhận đúng tổng cần thu. Thu thiếu hoặc thu thừa bị hệ thống từ chối và không tạo coverage.</p>
+              <label class="field">Số tiền hệ thống xác nhận đã nhận<input id="payment-amount" type="text" value="4.965.000 đ" readonly></label>
               <label class="field">Hình thức nhận tiền<select><option>Chuyển khoản</option><option>Tiền mặt</option></select></label>
               <label class="field">Mã tham chiếu<input type="text" value="MB-1026-104"></label>
-              <button class="btn btn-primary" type="button" id="record-receipt" style="margin-top:16px">Ghi nhận tiền đã nhận</button>
+              <button class="btn btn-primary" type="button" id="record-receipt" style="margin-top:16px">Xác nhận thu đủ 4.965.000 đ</button>
             </div>
             <button class="btn btn-secondary" type="button" id="open-revision" hidden style="margin-top:16px">Tạo lại hóa đơn</button>
             <p class="muted" id="action-feedback" aria-live="polite"></p>
@@ -75,8 +75,9 @@
       <dialog id="revision-dialog" data-od-id="invoice-revision-dialog">
         <form method="dialog" class="dialog-body">
           <h2>Tạo lại hóa đơn</h2>
-          <p class="muted">Hóa đơn hiện tại sẽ được hủy sau khi hệ thống tạo bản thay thế từ nội dung đã chốt. Lịch sử phiếu thu và hóa đơn cũ vẫn được lưu.</p>
+          <p class="muted">Chỉ dùng khi hóa đơn đang phát hành và chưa đóng. Sau khi bản thay thế được phát hành, hệ thống atomically chuyển bản cũ sang Đã hủy; lịch sử vẫn được lưu.</p>
           <label class="field">Lý do tạo lại<input id="revision-reason" type="text" placeholder="Ví dụ: Sai khoản thu tiền ăn"></label>
+          <label><input id="revision-confirmation" type="checkbox"> Tôi xác nhận tạo bản thay thế cho hóa đơn của Bé Minh Anh</label>
           <p class="muted" id="revision-feedback" aria-live="polite"></p>
           <div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" type="button" id="confirm-revision">Tạo bản hóa đơn thay thế</button></div>
         </form>
@@ -85,15 +86,12 @@
   </div>
   <script>
     window.addEventListener('DOMContentLoaded', function () {
-      var total = 4965000;
       var issue = document.getElementById('issue-invoice');
       var issuePanel = document.getElementById('issue-panel');
       var receiptPanel = document.getElementById('receipt-panel');
       var actionFeedback = document.getElementById('action-feedback');
       var status = document.getElementById('invoice-status');
       var revision = document.getElementById('open-revision');
-      function format(amount) { return amount.toLocaleString('vi-VN') + ' đ'; }
-      function parseAmount(value) { return Number(String(value).replace(/[^0-9]/g, '')); }
 
       issue.addEventListener('click', function () {
         issue.disabled = true;
@@ -109,36 +107,23 @@
       });
 
       document.getElementById('record-receipt').addEventListener('click', function () {
-        var amount = parseAmount(document.getElementById('payment-amount').value);
-        if (!amount) { actionFeedback.textContent = 'Nhập số tiền thực nhận trước khi ghi nhận.'; return; }
         this.disabled = true;
         actionFeedback.textContent = 'Đang kiểm tra kết quả với hệ thống. Không gửi lại trước khi có kết quả.';
         window.setTimeout(function () {
-          var difference = total - amount;
           var result = document.getElementById('settlement-result');
           var title = document.getElementById('settlement-title');
           var copy = document.getElementById('settlement-copy');
           var badge = document.getElementById('settlement-badge');
-          document.getElementById('received-value').textContent = format(amount);
+          document.getElementById('received-value').textContent = '4.965.000 đ';
           result.hidden = false;
           status.textContent = 'Đã đóng';
           status.className = 'badge success';
           receiptPanel.hidden = true;
-          revision.hidden = false;
-          if (difference > 0) {
-            title.textContent = 'Đã ghi nhận thu thiếu';
-            copy.textContent = 'Còn thiếu ' + format(difference) + '. Hệ thống sẽ thêm khoản này vào hóa đơn nháp của đợt thu tháng 11/2026 cho Bé Minh Anh.';
-            badge.textContent = 'Thu thiếu'; badge.className = 'badge warning';
-          } else if (difference < 0) {
-            title.textContent = 'Đã ghi nhận thu thừa';
-            copy.textContent = 'Thu thừa ' + format(-difference) + '. Hệ thống sẽ giảm số tiền cần thu trên hóa đơn nháp của đợt thu tháng 11/2026; hóa đơn đó không thể âm.';
-            badge.textContent = 'Thu thừa'; badge.className = 'badge info';
-          } else {
-            title.textContent = 'Đã ghi nhận thu đủ';
-            copy.textContent = 'Phạm vi chi trả học phí tháng 10-12/2026 đã được kích hoạt. Tiền ăn tháng 10/2026 đã được thu trong hóa đơn này.';
-            badge.textContent = 'Thu đủ'; badge.className = 'badge success';
-          }
-          actionFeedback.textContent = 'Kết quả đã được ghi nhận.';
+          revision.hidden = true;
+          title.textContent = 'Đã ghi nhận thu đủ';
+          copy.textContent = 'Phạm vi chi trả học phí tháng 10-12/2026 đã được kích hoạt. Tiền ăn tháng 10/2026 đã được thu trong hóa đơn này.';
+          badge.textContent = 'Thu đủ'; badge.className = 'badge success';
+          actionFeedback.textContent = 'Hệ thống đã ghi nhận kết quả exact và cấp coverage.';
         }, 650);
       });
 
@@ -147,13 +132,12 @@
         var reason = document.getElementById('revision-reason').value.trim();
         var feedback = document.getElementById('revision-feedback');
         if (!reason) { feedback.textContent = 'Nhập lý do trước khi tạo lại hóa đơn.'; return; }
+        if (!document.getElementById('revision-confirmation').checked) { feedback.textContent = 'Xác nhận đúng học sinh và hóa đơn trước khi tiếp tục.'; return; }
         this.disabled = true;
         feedback.textContent = 'Đang tạo bản hóa đơn thay thế. Không gửi lại thao tác trước khi có kết quả.';
         window.setTimeout(function () {
           document.getElementById('revision-dialog').close();
-          status.textContent = 'Bản thay thế: Nháp';
-          status.className = 'badge warning';
-          actionFeedback.textContent = 'Đã tạo bản hóa đơn thay thế để rà soát. Hóa đơn cũ được giữ trong lịch sử và không còn là nghĩa vụ thanh toán.';
+          actionFeedback.textContent = 'Hệ thống đã tạo bản thay thế ở trạng thái nháp để rà soát. Hóa đơn hiện tại vẫn là nghĩa vụ thanh toán cho đến khi bản thay thế được phát hành.';
         }, 650);
       });
     });
