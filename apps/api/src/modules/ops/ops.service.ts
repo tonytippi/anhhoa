@@ -1,10 +1,11 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { PrismaService } from '../identity/prisma.service.js';
+import { auditData } from '../common/audit.js';
+import { requestFingerprint } from '../common/mutation-protection.js';
+import { isOperationIdempotencyCollision } from '../common/operation-idempotency.js';
 
 type ProvisionInput = { name?: unknown; slug?: unknown; ownerEmail?: unknown };
 const email = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
-const fingerprint = (body: unknown) => createHash('sha256').update(JSON.stringify(body)).digest('hex');
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
@@ -36,7 +37,7 @@ export class OpsService {
       const school = await tx.school.create({ data: { name, slug, initialOwnerIdentityId: owner.id } });
       const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: owner.id } });
        await tx.schoolRoleGrant.create({ data: { schoolId: school.id, membershipId: membership.id, role: 'SCHOOL_ADMIN' } });
-      await tx.auditRecord.create({ data: { schoolId: school.id, actorIdentityId: identityId, action: 'SCHOOL_PROVISIONED', provenance: { platformOperatorGrantId: grant.id, operationId } } });
+       await tx.auditRecord.create({ data: auditData(school.id, { identityId, type: 'PLATFORM_OPERATOR_GRANT', reference: grant.id }, 'SCHOOL_PROVISIONED', { platformOperatorGrantId: grant.id, operationId }) });
       return { schoolId: school.id, status: school.status };
     });
   }
@@ -50,7 +51,7 @@ export class OpsService {
       if (school.status !== next) {
         const updated = await tx.school.updateMany({ where: { id: school.id, status: school.status }, data: { status: next } });
         if (updated.count !== 1) throw new ConflictException({ code: 'SCHOOL_LIFECYCLE_CONFLICT', message: 'Trạng thái trường đã thay đổi. Hãy đối soát rồi thử lại.' });
-        await tx.auditRecord.create({ data: { schoolId, actorIdentityId: identityId, action: next === 'SUSPENDED' ? 'SCHOOL_SUSPENDED' : 'SCHOOL_REACTIVATED', provenance: { platformOperatorGrantId: grant.id, operationId } } });
+         await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: 'PLATFORM_OPERATOR_GRANT', reference: grant.id }, next === 'SUSPENDED' ? 'SCHOOL_SUSPENDED' : 'SCHOOL_REACTIVATED', { platformOperatorGrantId: grant.id, operationId }) });
       }
       return { schoolId, status: next, noOp: school.status === next };
     });
@@ -64,21 +65,24 @@ export class OpsService {
 
   private async mutate(grantId: string, identityId: string, route: string, key: string, operationId: string, body: unknown, schoolId: string | undefined, work: (tx: any, operationId: string) => Promise<unknown>) {
     if (!uuid.test(key) || !uuid.test(operationId)) throw new UnauthorizedException({ code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Cần Idempotency-Key và X-Operation-Id UUID.' });
-    const actorReference = grantId; const requestFingerprint = fingerprint(body);
-    const existing = await this.prisma.operation.findUnique({ where: { actorReference_route_idempotencyKey: { actorReference, route, idempotencyKey: key } } });
-    if (existing) { if (existing.fingerprint !== requestFingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency-Key đã dùng cho yêu cầu khác.' }); return { id: existing.id, status: existing.status, outcome: existing.outcome }; }
+     const actorReference = grantId; const requestFingerprintValue = requestFingerprint(body);
+     const existing = await this.prisma.operation.findFirst({ where: { schoolId: schoolId ?? null, platformOperatorGrantId: grantId, actorReference, actorType: 'PLATFORM_OPERATOR_GRANT', route, idempotencyKey: key } });
+     if (existing) { if (existing.fingerprint !== requestFingerprintValue) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency-Key đã dùng cho yêu cầu khác.' }); return { id: existing.id, status: existing.status, outcome: existing.outcome }; }
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const operation = await tx.operation.create({ data: { id: operationId, schoolId, actorType: 'PLATFORM_OPERATOR_GRANT', actorReference, platformOperatorGrantId: grantId, actorIdentityId: identityId, route, idempotencyKey: key, fingerprint: requestFingerprint } });
+          await tx.$queryRaw`SELECT 1 FROM "PlatformOperatorGrant" WHERE "id" = ${grantId}::uuid FOR UPDATE`;
+          const activeGrant = await tx.platformOperatorGrant.findFirst({ where: { id: grantId, userIdentityId: identityId, revokedAt: null }, select: { id: true } });
+          if (!activeGrant) throw new ForbiddenException({ code: 'OPS_ACCESS_DENIED', message: 'Bạn không có quyền vận hành nền tảng.' });
+          const operation = await tx.operation.create({ data: { id: operationId, schoolId, actorType: 'PLATFORM_OPERATOR_GRANT', actorReference, platformOperatorGrantId: grantId, actorIdentityId: identityId, route, idempotencyKey: key, fingerprint: requestFingerprintValue } });
         const outcome = await work(tx, operation.id);
         const completed = await tx.operation.update({ where: { id: operation.id }, data: { status: 'COMPLETED', outcome: outcome as object } });
         return { id: completed.id, status: completed.status, outcome: completed.outcome };
       });
     } catch (error) {
-      if ((error as { code?: string }).code !== 'P2002') throw error;
-      const replay = await this.prisma.operation.findUnique({ where: { actorReference_route_idempotencyKey: { actorReference, route, idempotencyKey: key } } });
-      if (replay?.fingerprint === requestFingerprint) return { id: replay.id, status: replay.status, outcome: replay.outcome };
-      throw new ConflictException({ code: 'OPERATION_CONFLICT', message: 'Yêu cầu trùng với thao tác hoặc trường đã tồn tại.' });
+       if (!isOperationIdempotencyCollision(error)) throw error;
+       const replay = await this.prisma.operation.findFirst({ where: { schoolId: schoolId ?? null, platformOperatorGrantId: grantId, actorReference, actorType: 'PLATFORM_OPERATOR_GRANT', route, idempotencyKey: key } });
+        if (replay?.fingerprint === requestFingerprintValue) return { id: replay.id, status: replay.status, outcome: replay.outcome };
+        throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Không thể xác nhận thao tác trùng lặp. Hãy đối soát thao tác trước khi thử lại.' });
     }
   }
 }

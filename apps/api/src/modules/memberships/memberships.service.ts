@@ -1,12 +1,13 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { PrismaService } from '../identity/prisma.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
+import { auditData } from '../common/audit.js';
+import { requestFingerprint } from '../common/mutation-protection.js';
+import { isOperationIdempotencyCollision } from '../common/operation-idempotency.js';
 
 type Role = 'SCHOOL_ADMIN' | 'FINANCE_MANAGER' | 'CLASS_TEACHER';
 const roles = new Set<Role>(['SCHOOL_ADMIN', 'FINANCE_MANAGER', 'CLASS_TEACHER']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const fingerprint = (body: unknown) => createHash('sha256').update(JSON.stringify(body)).digest('hex');
 
 @Injectable()
 export class MembershipsService {
@@ -28,7 +29,7 @@ export class MembershipsService {
       const user = await tx.userIdentity.upsert({ where: { emailNormalized: email }, create: { emailNormalized: email }, update: {} });
       const membership = await tx.schoolMembership.create({ data: { schoolId, userIdentityId: user.id } });
       await tx.schoolRoleGrant.createMany({ data: selectedRoles.map((role) => ({ schoolId, membershipId: membership.id, role })) });
-      await tx.auditRecord.create({ data: { schoolId, actorIdentityId: identityId, membershipId: actor.membershipId, action: 'MEMBERSHIP_CREATED', reason: typeof body.reason === 'string' ? body.reason : null, provenance: { operationId: op, targetMembershipId: membership.id } } });
+       await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: 'SCHOOL_MEMBERSHIP', reference: actor.membershipId, membershipId: actor.membershipId }, 'MEMBERSHIP_CREATED', { operationId: op, targetMembershipId: membership.id }, typeof body.reason === 'string' ? body.reason : null) });
       return { membershipId: membership.id, status: 'ACTIVE', roles: selectedRoles };
     });
   }
@@ -39,8 +40,8 @@ export class MembershipsService {
       const target = await tx.schoolMembership.findFirst({ where: { id: membershipId, schoolId, status: 'ACTIVE' }, include: { roleGrants: true } });
       if (!target) throw new NotFoundException({ code: 'MEMBERSHIP_NOT_FOUND', message: 'Không tìm thấy membership đang hoạt động.' });
       await this.guardLastAdmin(tx, schoolId, target.id, []);
-      await tx.schoolRoleGrant.deleteMany({ where: { schoolId, membershipId } }); await tx.schoolMembership.update({ where: { id: membershipId }, data: { status: 'REVOKED' } });
-      await tx.auditRecord.create({ data: { schoolId, actorIdentityId: identityId, membershipId: actor.membershipId, action: 'MEMBERSHIP_REVOKED', reason, provenance: { operationId: op, targetMembershipId: membershipId } } });
+       await tx.schoolRoleGrant.deleteMany({ where: { schoolId, membershipId } }); await tx.schoolMembership.updateMany({ where: { id: membershipId, schoolId }, data: { status: 'REVOKED' } });
+       await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: 'SCHOOL_MEMBERSHIP', reference: actor.membershipId, membershipId: actor.membershipId }, 'MEMBERSHIP_REVOKED', { operationId: op, targetMembershipId: membershipId }, reason) });
       return { membershipId, status: 'REVOKED' };
     });
   }
@@ -51,7 +52,7 @@ export class MembershipsService {
       const target = await tx.schoolMembership.findFirst({ where: { id: membershipId, schoolId, status: 'ACTIVE' } }); if (!target) throw new NotFoundException({ code: 'MEMBERSHIP_NOT_FOUND', message: 'Không tìm thấy membership đang hoạt động.' });
       await this.guardLastAdmin(tx, schoolId, membershipId, selectedRoles);
       await tx.schoolRoleGrant.deleteMany({ where: { schoolId, membershipId } }); await tx.schoolRoleGrant.createMany({ data: selectedRoles.map((role) => ({ schoolId, membershipId, role })) });
-      await tx.auditRecord.create({ data: { schoolId, actorIdentityId: identityId, membershipId: actor.membershipId, action: 'MEMBERSHIP_ROLES_REPLACED', reason, provenance: { operationId: op, targetMembershipId: membershipId, roles: selectedRoles } } });
+       await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: 'SCHOOL_MEMBERSHIP', reference: actor.membershipId, membershipId: actor.membershipId }, 'MEMBERSHIP_ROLES_REPLACED', { operationId: op, targetMembershipId: membershipId, roles: selectedRoles }, reason) });
       return { membershipId, status: 'ACTIVE', roles: selectedRoles };
     });
   }
@@ -74,8 +75,8 @@ export class MembershipsService {
   }
   private async mutate(actor: { membershipId: string }, identityId: string, schoolId: string, route: string, key: string, operationId: string, body: unknown, work: (tx: any, operationId: string) => Promise<unknown>) {
     if (!uuid.test(key) || !uuid.test(operationId)) throw new UnauthorizedException({ code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Cần Idempotency-Key và X-Operation-Id UUID.' });
-    const requestFingerprint = fingerprint(body); const existing = await this.prisma.operation.findUnique({ where: { actorReference_route_idempotencyKey: { actorReference: actor.membershipId, route, idempotencyKey: key } } });
-    if (existing) { if (existing.fingerprint !== requestFingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency-Key đã dùng cho yêu cầu khác.' }); return { id: existing.id, status: existing.status, outcome: existing.outcome }; }
-    try { return await this.prisma.$transaction(async (tx) => { await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`; const activeSchool = await tx.school.findFirst({ where: { id: schoolId, status: 'ACTIVE' }, select: { id: true } }); if (!activeSchool) throw new NotFoundException({ code: 'SCHOOL_CONTEXT_DENIED', message: 'Không thể truy cập ngữ cảnh trường này.' }); const currentActor = await tx.schoolMembership.findFirst({ where: { id: actor.membershipId, schoolId, userIdentityId: identityId, status: 'ACTIVE', roleGrants: { some: { role: 'SCHOOL_ADMIN' } } } }); if (!currentActor) throw new ForbiddenException({ code: 'CAPABILITY_DENIED', message: 'Bạn không có quyền thực hiện thao tác này.' }); const operation = await tx.operation.create({ data: { id: operationId, schoolId, membershipId: actor.membershipId, actorIdentityId: identityId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: actor.membershipId, route, idempotencyKey: key, fingerprint: requestFingerprint } }); const outcome = await work(tx, operation.id); const completed = await tx.operation.update({ where: { id: operation.id }, data: { status: 'COMPLETED', outcome: outcome as object } }); return { id: completed.id, status: completed.status, outcome: completed.outcome }; }); } catch (error) { if ((error as { code?: string }).code !== 'P2002') throw error; const replay = await this.prisma.operation.findUnique({ where: { actorReference_route_idempotencyKey: { actorReference: actor.membershipId, route, idempotencyKey: key } } }); if (replay?.fingerprint === requestFingerprint) return { id: replay.id, status: replay.status, outcome: replay.outcome }; throw new ConflictException({ code: 'OPERATION_CONFLICT', message: 'Thao tác đang được xử lý.' }); }
+     const requestFingerprintValue = requestFingerprint(body); const existing = await this.prisma.operation.findFirst({ where: { schoolId, actorReference: actor.membershipId, actorType: 'SCHOOL_MEMBERSHIP', route, idempotencyKey: key } });
+     if (existing) { if (existing.fingerprint !== requestFingerprintValue) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency-Key đã dùng cho yêu cầu khác.' }); return { id: existing.id, status: existing.status, outcome: existing.outcome }; }
+        try { return await this.prisma.$transaction(async (tx) => { await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`; const activeSchool = await tx.school.findFirst({ where: { id: schoolId, status: 'ACTIVE' }, select: { id: true } }); if (!activeSchool) throw new NotFoundException({ code: 'SCHOOL_CONTEXT_DENIED', message: 'Không thể truy cập ngữ cảnh trường này.' }); const currentActor = await tx.schoolMembership.findFirst({ where: { id: actor.membershipId, schoolId, userIdentityId: identityId, status: 'ACTIVE', roleGrants: { some: { role: 'SCHOOL_ADMIN' } } } }); if (!currentActor) throw new ForbiddenException({ code: 'CAPABILITY_DENIED', message: 'Bạn không có quyền thực hiện thao tác này.' }); const operation = await tx.operation.create({ data: { id: operationId, schoolId, membershipId: actor.membershipId, actorIdentityId: identityId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: actor.membershipId, route, idempotencyKey: key, fingerprint: requestFingerprintValue } }); const outcome = await work(tx, operation.id); const completed = await tx.operation.update({ where: { id: operation.id }, data: { status: 'COMPLETED', outcome: outcome as object } }); return { id: completed.id, status: completed.status, outcome: completed.outcome }; }); } catch (error) { if (!isOperationIdempotencyCollision(error)) throw error; const replay = await this.prisma.operation.findFirst({ where: { schoolId, actorReference: actor.membershipId, actorType: 'SCHOOL_MEMBERSHIP', route, idempotencyKey: key } }); if (replay?.fingerprint === requestFingerprintValue) return { id: replay.id, status: replay.status, outcome: replay.outcome }; throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Không thể xác nhận thao tác trùng lặp. Hãy đối soát thao tác trước khi thử lại.' }); }
   }
 }

@@ -121,6 +121,8 @@ model AuditRecord {
   schoolId       String           @db.Uuid
   actorIdentityId String?         @db.Uuid
   membershipId   String?          @db.Uuid
+  actorType      OperationActorType?
+  actorReference String?
   action         String
   reason         String?
   provenance     Json?
@@ -152,7 +154,9 @@ model Operation {
   platformOperatorGrant PlatformOperatorGrant? @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
   actorIdentity   UserIdentity?      @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
 
-  @@unique([actorReference, route, idempotencyKey])
+  // PostgreSQL partial unique indexes below are migration-owned because Prisma cannot express predicates.
+  @@index([schoolId, actorType, actorReference, route, idempotencyKey])
+  @@index([platformOperatorGrantId, actorType, actorReference, route, idempotencyKey])
   @@index([platformOperatorGrantId, createdAt])
   @@index([schoolId, route])
 }

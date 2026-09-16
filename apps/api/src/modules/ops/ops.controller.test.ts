@@ -15,6 +15,12 @@ describe('OpsController', () => {
     await expect(controller.provision(request({ origin: 'http://localhost:5176', cookie: 'ops_csrf=token', 'x-csrf-token': 'token' }), 'key', 'op', { name: 'A' })).resolves.toEqual({ data: { id: 'op' } });
     expect(ops.provision).toHaveBeenCalledWith('actor-id', 'key', 'op', { name: 'A' });
   });
+  it('blocks lifecycle mutations before service execution on invalid CSRF proof', async () => {
+    const controller = new OpsController(auth as never, ops as never);
+    await expect(controller.suspend(request({ origin: 'http://localhost:5176', cookie: 'ops_csrf=token', 'x-csrf-token': 'wrong' }), 'school', 'key', 'op')).rejects.toMatchObject({ status: 401 });
+    await expect(controller.reactivate(request({ cookie: 'ops_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'op')).rejects.toMatchObject({ status: 401 });
+    expect(ops.lifecycle).not.toHaveBeenCalled();
+  });
   it('returns list data with the standard list metadata envelope', async () => {
     const controller = new OpsController(auth as never, ops as never); ops.list.mockResolvedValue([{ id: 'school-id' }]);
     await expect(controller.list(request({ cookie: 'ops_session=session' }))).resolves.toEqual({ data: [{ id: 'school-id' }], meta: {} });

@@ -16,4 +16,10 @@ describe('MembershipsController mutation boundary', () => {
     await expect(controller.create(request({ origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', { email: 'a@example.com', roles: ['CLASS_TEACHER'] })).resolves.toEqual({ data: { id: 'operation' } });
     expect(memberships.create).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', { email: 'a@example.com', roles: ['CLASS_TEACHER'] });
   });
+  it('blocks revoke and role changes before their service methods on invalid CSRF proof', async () => {
+    const controller = new MembershipsController(auth as never, memberships as never);
+    await expect(controller.revoke(request({ origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-csrf-token': 'wrong' }), 'school', 'membership', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
+    await expect(controller.roles(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'membership', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
+    expect(memberships.revoke).not.toHaveBeenCalled(); expect(memberships.replaceRoles).not.toHaveBeenCalled();
+  });
 });

@@ -2,6 +2,7 @@ import { Controller, Get, Param, Post, Query, Req, Res, UnauthorizedException } 
 import type { Audience } from './auth.config.js';
 import { audienceConfig } from './auth.config.js';
 import { AuthService } from './auth.service.js';
+import { assertCookieMutation } from '../common/mutation-protection.js';
 
 const audiences = new Set<Audience>(['app', 'teacher', 'parent', 'ops']);
 function audience(value: string): Audience { if (!audiences.has(value as Audience)) throw new UnauthorizedException(); return value as Audience; }
@@ -38,7 +39,7 @@ export class AuthController {
   @Post('logout')
   logout(@Param('audience') value: string, @Req() request: RequestLike, @Res() response: ResponseLike): void {
     const selected = audience(value); const config = audienceConfig(selected);
-    if (request.headers.origin !== config.origin || !request.headers['x-csrf-token'] || request.headers['x-csrf-token'] !== cookie(request, config.csrfCookieName)) throw new UnauthorizedException({ code: 'OAUTH_DENIED', message: 'CSRF không hợp lệ.' });
+    assertCookieMutation(request, config.origin, config.csrfCookieName);
     response.clearCookie(config.cookieName, { httpOnly: true, secure: true, sameSite: 'lax', path: '/' });
     response.clearCookie(config.csrfCookieName, { httpOnly: false, secure: true, sameSite: 'lax', path: '/' }).status(204).send();
   }
