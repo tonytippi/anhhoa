@@ -47,7 +47,7 @@ Khi implement mot story co bề mặt portal, `DESIGN.md` va `EXPERIENCE.md` la 
 | 5.2, 5.3, 5.7 | `mockups/admin/invoice-generation.html` | CollectionRun list/detail, server preview/skips va reconciliation; `PREPAID_COVERAGE` khong la run rieng. |
 | 5.4, 5.5, 5.6, 5.8 | `mockups/admin/invoice-detail-review.html`, `mockups/parent/parent.html` | Invoice la deep destination; Parent chi thay effective obligation sau khi API projection ton tai. |
 | 6.1, 6.2, 6.3, 6.4, 6.6 | `mockups/admin/invoice-detail-review.html`, `EXPERIENCE.md` §§ Invoice review and receipt, Adjustment/carry/refund review | Actual Receipt closes mot Invoice; outcome/carry/refund deu server-returned. |
-| 6.5 | `mockups/admin/finance-run-preview.html`, `EXPERIENCE.md` § Finance report | Bao cao la server ledger-derived; mockup mốc nay khong mo rong lifecycle Finance. |
+| 6.5 | `mockups/admin/finance-run-preview.html`, `EXPERIENCE.md` § Finance report | Bon workspace bao cao va CSV la server ledger-derived; mockup mốc nay khong mo rong lifecycle Finance. |
 | 7.1, 7.2, 7.4, 7.5, 7.7, 7.8 | `mockups/parent/parent.html`, `mockups/parent/parent-home.html` | Mobile-first, clear protected state truoc safe fallback, khong cache protected API data. |
 | 7.3 | `mockups/parent/parent-inbox.html` | Inbox deep link phai re-authorize School/Student/date. |
 | 7.6 | `mockups/parent/parent.html`, `EXPERIENCE.md` § Payment instruction | Read-only effective Invoice; khong hien correction/ledger provenance hay payment mutation. |
@@ -82,7 +82,7 @@ FR-9: Finance Manager issue Invoice DRAFT voi audited override/adjustment, activ
 
 FR-10: Finance Manager ghi actual Receipt de dong mot Invoice, tao carry shortfall/overpayment co provenance sang dot thang sau, va chi issue `PREPAID_COVERAGE` sau Invoice dong `EXACT`; sua sai bang revision/cancellation hoac append-only reversal/refund co policy approval, reason, audit va idempotency.
 
-FR-11: He thong gop prior debt trong cung SchoolYear mot cach truy vet, settlement year-end va bao cao ledger theo gross, promotion discount/refund, actual receipt, SettlementDifference/carry, revision/cancellation, coverage va outstanding.
+FR-11: He thong gop prior debt trong cung SchoolYear mot cach truy vet, settlement year-end va bon workspace bao cao ledger `asOf` theo gross, promotion discount/refund, actual receipt, SettlementDifference/carry, revision/cancellation, coverage va outstanding; Finance Manager/School Admin export CSV server-authorized cua dung result.
 
 FR-12: Parent gui leave request cho Student duoc uy quyen; Teacher co capability ghi attendance, handover va DailyJournal trong Class duoc phan cong; Admin/Finance quan ly service enrollment; Finance chi tao meal adjustment source-linked, khong tu dong tinh fee.
 
@@ -144,7 +144,7 @@ UX-DR6: Build typed policy forms, SchoolYear/roster forms and transition wizard 
 
 UX-DR7: Build Finance catalog, CollectionRun configure/scope/preview/generate wizard and Invoice issue review showing server calculation version, skips, VND totals, immutable snapshots and lifecycle locks.
 
-UX-DR8: Build settlement, promotion coverage, debt, correction/refund and report views with immutable source facts, server-returned limits/as-of time, explicit two-step approval and no client-computed authority.
+UX-DR8: Build settlement, promotion coverage, debt, correction/refund and four report workspaces with immutable source facts, server-returned limits/as-of time/filter/version, authorized CSV export, explicit two-step approval and no client-computed authority.
 
 UX-DR9: Build attendance/handover/service/long-leave flows with required evidence, calendar/leave conflicts, source-linked adjustment outcome and no automatic fee affordance.
 
@@ -1179,25 +1179,31 @@ So that cong no duoc thu dung mot lan va khong tu carry sang nam hoc moi.
 ### Story 6.5: Báo cáo finance reconcile từ ledger
 
 As a Finance Manager,
-I want to xem report scoped theo School/run/period/group/class/status tu ledger,
+I want to xem bon workspace report va CSV scoped theo School/run/period/group/class/status tu ledger,
 So that toi doi soat duoc gross, promotion discount/refund, receipt, allocation, coverage va outstanding.
 
 **Acceptance Criteria:**
 
-**Given** Finance Manager chon School context va report period/filter hop le
+**Given** Finance Manager hoac School Admin co quyen chon School context va report period/filter hop le
 **When** API tao report
-**Then** server aggregate ledger/snapshot theo School, CollectionRun, period, ReceivableGroup, Class va status, tra as-of timestamp
+**Then** server authorize membership truoc aggregate lookup va aggregate ledger/snapshot theo School, CollectionRun, period, ReceivableGroup, Class va status trong mot trong bon workspace: overview, run reconciliation, outstanding/debt hoac cash/adjustment ledger
+**And** response tra `asOf`, `generatedAt`, `Asia/Ho_Chi_Minh`, normalized filter va report-definition version; chi ledger event posted khong muon hon `asOf` duoc tinh, billed nhom theo Invoice `billingMonth`, cash nhom theo Receipt/refund/reversal posting time
 **And** totals tach rieng gross, promotion discount theo policy/version, refund, net billed, actual Receipt, settlement outcome, open/materialized SettlementDifference, carry adjustment, revision/cancellation, coverage va outstanding bang VND integer.
 
 **Given** promotion coverage hoac coverage refund ap dung
 **When** report/detail duoc tao
 **Then** report giu coverage/refund source provenance theo contract
-**And** source catalog, Student/Class, policy hoac BankAccount da doi sau posting khong rewrite finance lich su.
+**And** reversal/refund hien theo posting time; revision/cancellation giu audit lineage nhung obligation total chi tinh current-effective Invoice server projection, va source catalog, Student/Class, policy hoac BankAccount da doi sau posting khong rewrite finance lich su.
+
+**Given** authorized actor da nhan report result
+**When** ho yeu cau CSV
+**Then** API tao CSV tu dung result/filter da authorize, kem `asOf`, timezone, filter va definition version; request/download duoc audit, file reference opaque va het han, download re-authorize School membership
+**And** cross-School filter/object access, CSV client-side, Parent/Payroll data va PDF/XLSX/scheduled export deu bi tu choi.
 
 **Given** khong co ledger activity khop filter, report load/error hoac responsive view
 **When** Finance UI render
 **Then** UI giu School/period/filter, neu khong co hoat dong thay vi xac nhan "0 collected" khong co as-of context
-**And** VND right-align, table caption/keyboard access, server error and accessible empty/loading states; khong co export trong release nay.
+**And** VND right-align, table caption/keyboard access, server error and accessible empty/loading/expired-export states; khong co period close/reopen, custom dashboard/report hay Payroll report trong release nay.
 
 ### Story 6.6: Release gate cho actual Receipt, carry và promotion coverage refund
 
@@ -1220,6 +1226,7 @@ So that duplicate posting, cross-tenant settlement hoac report sai khong vao pil
 **Given** Finance portal E2E chay settlement/correction/report flows
 **When** user gap concurrent state change, timeout, policy approval boundary, no-data hoac School switch
 **Then** UI refresh server limits/state, vao Operation reconciliation, khong double submit va giu accessible source/error/as-of context
+**And** report fixture prove event truoc/sau `asOf`, reversal/refund, revision/cancellation, carry, debt va coverage reconcile nhat quan giua bon workspace; CSV chi co dung server result/metadata, audit va deny cross-School/expired/revoked download
 **And** Epic 6 khong complete neu reconciliation fixture hoac ledger concurrency suite con fail.
 
 ## Epic 7: Parent portal đa trường, read-first

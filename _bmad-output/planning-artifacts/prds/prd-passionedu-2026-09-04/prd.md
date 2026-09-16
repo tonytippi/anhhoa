@@ -225,6 +225,11 @@ He thong gop no mo trong cung SchoolYear vao Invoice moi bang `PRIOR_DEBT` truy 
 - Khong auto-carryover sang SchoolYear moi; write-off, adjustment hay thu tien co audit.
 - Report tach gross, promotion discount theo policy/version, refund, net billed, actual receipt, settlement outcome, open/materialized SettlementDifference, carry adjustment, coverage va outstanding theo School, run, period, group, class va status.
 - Report giu provenance cua StudentPromotionalCoverage/refund, revision/cancellation va SettlementDifference khi ap dung; khong suy dien dong tien tu client state hay Invoice mutable fields.
+- Report MVP gom bon workspace read-only: tong quan finance; doi soat theo CollectionRun; cong no va prior debt; so cash va adjustment. Moi workspace chi Finance Manager/School Admin cua School duoc cap quyen moi doc duoc, ho tro filter theo `asOf`, SchoolYear, billing month/khoang ky, CollectionRun, Class, ReceivableGroup, Receivable va Invoice status khi phu hop; drill-down chi tra cac chung tu finance nguon duoc cap quyen.
+- Moi response report la server snapshot, luon tra `asOf`, `generatedAt`, timezone nghiep vu cua School (`Asia/Ho_Chi_Minh` trong MVP), filter da ap dung va report-definition version. Chi ledger event da post khong muon hon `asOf` duoc tinh; billed measure nhom theo Invoice `billingMonth`, cash measure nhom theo thoi diem post Receipt/refund/reversal. Event post sau `asOf` khong viet lai response/snapshot da xem.
+- Refund/reversal hien tai thoi diem post va lien ket chung tu nguon. Report obligation giu revision/cancellation lineage cho audit nhung chi tinh Invoice current-effective theo server projection; report khong doc catalog, class, policy hay BankAccount mutable de viet lai lich su.
+- Finance Manager/School Admin co the yeu cau CSV cua dung report/filter da duoc cap quyen. API tao CSV tu result server-returned, kem metadata `asOf`/timezone/filter/version, audit request/download, re-authorize khi tai va cap URL/file het han; CSV khong la mutation finance va khong expose Parent DTO hay Payroll data.
+- MVP khong co period close/reopen, scheduled/custom report, dashboard tuy bien, PDF/XLSX format hay Payroll report. Payroll reporting la accounts-payable scope rieng sau E10/E11.
 
 ### 4.5 Van hanh lop hoc
 

@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-16
+last_updated: 2026-09-16 # Reporting scope added to existing Story 6.5; statuses unchanged.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system

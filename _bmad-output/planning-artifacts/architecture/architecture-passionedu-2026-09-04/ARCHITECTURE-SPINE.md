@@ -170,6 +170,14 @@ flowchart TD
 - **Prevents:** live time/contract changes rewriting pay history, arbitrary formulas becoming executable business logic, and correction of a paid payroll by overwrite
 - **Rule:** Payroll consumes only narrow workforce/timekeeping snapshot queries, never another module's tables. API evaluates VND `BIGINT` through typed, code-owned, schema-validated effective policy versions; stored scripts, SQL, arbitrary expressions and browser-calculated authority are forbidden. A `FINANCE_MANAGER` with preparation capabilities calculates/reconciles and submits a version. Only a `SCHOOL_ADMIN` with `PAYROLL_APPROVE`, whose resolved UserIdentity differs from every preparer/material editor and the submitter even when an identity has multiple grants, may approve/refuse it; School Admin with `PAYROLL_REOPEN` may reopen an approved unpaid version by audited reason into a new draft version. Approval locks the source/policy/component snapshots. After approval, only a `FINANCE_MANAGER` with `PAYROLL_PAYOUT_CONFIRM` confirms payout; School Admin does not inherit that action. A paid version never reopens: a Finance Manager prepares a signed correction delta referencing the source version, a different eligible School Admin approves/refuses it, and Finance Manager confirms any resulting payout. Import commit, calculate, submit, approve/refuse, reopen, correction approval/refusal and payout confirmation are transactional, idempotent Operations with audit.
 
+### AD-19 - Finance reporting and CSV boundary [ADOPTED]
+
+- **Binds:** FR-11
+- **Prevents:** mutable/live data rewriting finance reports, inconsistent period totals, cross-School extracts and client-derived reconciliation
+- **Rule:** `finance` owns read-only reporting queries and the four Finance workspaces: overview, CollectionRun reconciliation, outstanding/debt, and cash/adjustment ledger. Each query authorizes the active same-School `FINANCE_MANAGER` or `SCHOOL_ADMIN` before aggregate lookup and derives the School solely from membership, never from a trusted filter. A report response declares `asOf`, `generatedAt`, `Asia/Ho_Chi_Minh`, the normalized applied filter and `reportDefinitionVersion`; it reads only append-only ledger records posted at or before `asOf` plus immutable obligation snapshots. Billed measures group by Invoice `billingMonth`; cash measures group by Receipt, reversal and refund posting timestamp. Reversal/refund remains at its posting time with source provenance. Revision/cancellation remains visible to audit drill-down but obligation totals include only the server-resolved current-effective Invoice; live catalog, roster, policy and BankAccount values never rewrite historical results.
+
+- **Export:** CSV is the sole MVP export. The API generates it from the same authorized report query and embeds result metadata; it records an audit event for request and download, re-authorizes the actor and School scope before download, and uses an expiring opaque file reference. No browser aggregation, direct object URL, Parent data, Payroll data, PDF/XLSX, scheduled/custom report, or accounting period close/reopen belongs to this boundary.
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -254,7 +262,7 @@ flowchart LR
 | Payroll opt-in, workforce terms and timekeeping | `school-features`, `workforce`, `timekeeping`, `web` | AD-2, AD-3, AD-6, AD-8, AD-17 |
 | Payroll calculation, approval, payout and correction | `payroll`, `workforce`, `timekeeping`, `web` | AD-2, AD-3, AD-8, AD-17, AD-18 |
 | Catalog, CollectionRun and Invoice issue | `finance`, `web` | AD-2, AD-3, AD-7, AD-8 |
-| Receipt, settlement carry/revision, promotional coverage, debt and reports | `finance`, `web` | AD-2, AD-3, AD-7, AD-8, AD-11 |
+| Receipt, settlement carry/revision, promotional coverage, debt and reports | `finance`, `web` | AD-2, AD-3, AD-7, AD-8, AD-11, AD-19 |
 | Attendance, handover and daily journals | `attendance`, `roster`, `teacher-web` | AD-2, AD-3, AD-6, AD-8, AD-14 |
 | Parent authorization and finance read model | `parents`, `parent-auth`, `parent-portal`, `parent-web` | AD-1, AD-3, AD-4, AD-7, AD-11 |
 
