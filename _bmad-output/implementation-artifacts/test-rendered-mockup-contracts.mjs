@@ -3,11 +3,11 @@ import { readFile, readdir } from 'node:fs/promises';
 
 const mockups = new URL('../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/', import.meta.url);
 const read = path => readFile(new URL(path, mockups), 'utf8');
-const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, settings] = await Promise.all([
+const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, settings, report] = await Promise.all([
   read('prototype.css'), read('admin/admin-shell.js'), read('prototype.js'), read('parent/parent.html'),
   read('admin/payroll-timekeeping-import.html'), read('admin/payroll-run-review.html'),
   read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'),
-  read('admin/receivable-configuration.html'), read('admin/school-settings.html')
+   read('admin/receivable-configuration.html'), read('admin/school-settings.html'), read('admin/finance-report.html')
 ]);
 
 // Admin mobile: viewport containment, scroll-owned tables, accessible sheet and focus return.
@@ -20,7 +20,9 @@ assert.match(shell, /event\.key === 'Escape'/);
 assert.match(shell, /if \(returnFocus && lastOpener\) lastOpener\.focus\(\)/);
 assert.match(shell, /workspace\.inert = true/);
 assert.match(shell, /workspace\.inert = false/);
-assert.doesNotMatch(shell, /'report', 'Báo cáo'/);
+assert.match(shell, /'report', 'Báo cáo', root \+ 'finance-report\.html'/);
+assert.match(shell, /var financeAuthorized = host\.getAttribute\('data-finance-authorized'\) === 'true';/);
+assert.match(shell, /!financeAuthorized && link\[1\] === 'report'/);
 for (const entry of await readdir(new URL('admin/', mockups))) {
   if (entry.endsWith('.html')) assert.match(await read(`admin/${entry}`), /name="viewport"/);
 }
@@ -66,6 +68,18 @@ assert.match(invoice, /revision\.hidden = true/);
 assert.match(invoice, /id="revision-confirmation"/);
 assert.match(invoice, /hóa đơn hiện tại vẫn là nghĩa vụ thanh toán/i);
 assert.doesNotMatch(invoice, /parseAmount|toLocaleString|var difference/);
+// Finance reports are a server-result-only Finance workspace with CSV as its sole export.
+assert.match(report, /data-admin-route="report"/);
+for (const workspace of ['overview', 'runs', 'debt', 'ledger']) assert.match(report, new RegExp(`data-workspace="${workspace}"`));
+for (const metadata of ['data-as-of', 'Asia\/Ho_Chi_Minh', 'data-normalized-filter', 'Finance report v1\.0']) assert.match(report, new RegExp(metadata));
+assert.match(report, /Tệp CSV chứa đúng các dòng và metadata của kết quả đã được cấp quyền/);
+for (const filter of ['collectionRun', 'receivableGroup', 'invoiceStatus']) assert.match(report, new RegExp(`name="${filter}"`));
+for (const source of ['finance-source-difference', 'finance-source-coverage', 'finance-source-receipt', 'finance-source-refund', 'finance-source-reversal']) assert.match(report, new RegExp(source));
+assert.match(report, /aria-busy="true"/);
+assert.match(report, /Settlement difference mở[\s\S]*Carry đã materialize[\s\S]*Revision\/hủy/);
+assert.match(report, /Hoàn tiền coverage[\s\S]*Reversal[\s\S]*Tiền\/điều chỉnh có dấu/);
+assert.match(report, /query\(\) !== 'workspace=' \+ current \+ '&fixture=october'/);
+assert.doesNotMatch(report, /PDF|XLSX|Payroll|createObjectURL|Blob\(|toLocaleString|reduce\(|invoice-detail-review/);
 // CollectionRun landing, student-level details and authoritative generate.
 assert.match(generation, /<h1>Đợt thu<\/h1>/);
 assert.match(generation, /Mỗi tháng có một đợt thu chung/);

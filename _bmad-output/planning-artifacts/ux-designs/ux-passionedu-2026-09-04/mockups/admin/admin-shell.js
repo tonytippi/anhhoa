@@ -8,12 +8,14 @@
   // URLs resolve from the current document, so roster pages need a different root.
   var root = route === 'roster' ? '../' : '';
   var payrollEnabled = host.getAttribute('data-payroll-enabled') === 'true';
+  var financeAuthorized = host.getAttribute('data-finance-authorized') === 'true';
   var links = [
     ['VẬN HÀNH', 'overview', 'Tổng quan', root + 'admin-staff.html#overview'],
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
     ['CẤU HÌNH', 'settings', 'Cấu hình trường', root + 'school-settings.html'],
     ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
     ['', 'runs', 'Đợt thu', root + 'invoice-generation.html'],
+    ['', 'report', 'Báo cáo', root + 'finance-report.html'],
     ['LƯƠNG & NHÂN SỰ', 'timekeeping', 'Chấm công', root + 'payroll-timekeeping-import.html'],
     ['', 'payroll', 'Bảng lương', root + 'payroll-run-review.html'],
     ['', 'workforce', 'Hợp đồng & chính sách', root + 'payroll-overview.html']
@@ -23,6 +25,7 @@
 
   links.forEach(function (link) {
     if (!payrollEnabled && ['timekeeping', 'payroll', 'workforce'].indexOf(link[1]) !== -1) return;
+    if (!financeAuthorized && link[1] === 'report') return;
     var current = link[1] === route;
     if (link[0]) navigation += '<p class="nav-group">' + link[0] + '</p>';
     var href = isWorkspace && ['overview'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
