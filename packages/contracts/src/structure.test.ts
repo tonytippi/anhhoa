@@ -38,7 +38,7 @@ describe('target platform structure', () => {
 
   it('does not track legacy source, secrets, or cross-app imports', async () => {
     const paths = tracked();
-    expect(paths.some((path) => path === 'compose.yaml' || path === 'docker-compose.test.yml' || /apps\/api\/src\/(common|modules\/(auth|admins|classes|students|invoices))\//.test(path))).toBe(false);
+    expect(paths.some((path) => path === 'compose.yaml' || path === 'docker-compose.test.yml' || /apps\/api\/src\/(common|modules\/(admins|classes|students|invoices))\//.test(path))).toBe(false);
     expect(paths.some((path) => /(^|\/)\.env(?:$|\.)/.test(path) && !path.endsWith('.example'))).toBe(false);
     const sourcePaths = paths.filter((path) => /^apps\/(api|web|teacher-web|parent-web|ops-web)\/src\/.*\.(ts|tsx)$/.test(path));
     const sources = await Promise.all(sourcePaths.map(read));

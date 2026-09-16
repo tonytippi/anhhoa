@@ -4,7 +4,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  define: { __API_URL__: JSON.stringify(process.env.VITE_API_URL ?? 'https://api.passionedu.org') },
+  define: {
+    __API_URL__: JSON.stringify(process.env.VITE_API_URL ?? 'https://api.passionedu.org'),
+    __CSRF_COOKIE_NAME__: JSON.stringify(process.env.VITE_CSRF_COOKIE_NAME ?? 'app_csrf'),
+  },
   plugins: [
     react(),
     tailwindcss(),

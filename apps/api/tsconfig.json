@@ -10,5 +10,5 @@
     "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src/main.ts", "src/app.module.ts", "src/modules/health/**/*.ts", "src/**/*.test.ts"]
+  "include": ["src/**/*.ts"]
 }

@@ -1,4 +1,15 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ParentShell } from './main';
-describe('ParentShell', () => { it('has an accessible audience heading', () => { render(<ParentShell />); expect(screen.getByRole('heading', { name: 'PassionEdu' })).toBeTruthy(); }); });
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.cookie = 'parent_csrf=; Max-Age=0'; });
+
+describe('ParentShell', () => {
+  it('keeps protected content hidden after a 401 startup response and exposes Google login', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    render(<ParentShell />);
+    await screen.findByRole('link', { name: 'Đăng nhập với Google' });
+    expect(screen.queryByText('Cổng phụ huynh đang được khởi tạo.')).toBeNull();
+  });
+
+});

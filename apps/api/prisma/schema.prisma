@@ -51,12 +51,27 @@ enum OperationStatus {
 model UserIdentity {
   id              String             @id @default(uuid()) @db.Uuid
   emailNormalized String             @unique
+  googleSubject   String?            @unique
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   memberships     SchoolMembership[]
   roleGrants      SchoolRoleGrant[]
   audits          AuditRecord[]
   operations      Operation[]
+}
+
+model OAuthTransaction {
+  id              String   @id @default(uuid()) @db.Uuid
+  audience        String
+  stateHash       String   @unique
+  correlationHash String
+  nonce           String
+  redirect        String
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([audience, expiresAt])
 }
 
 model SchoolMembership {

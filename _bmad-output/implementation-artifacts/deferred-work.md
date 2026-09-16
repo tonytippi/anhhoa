@@ -40,3 +40,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-dong-bo-build-input-finance-2026-09-16.md`
   summary: Rà soát và đồng bộ ba mockup Finance dirty với contract actual Receipt, coverage exact-close và revision/cancellation.
   evidence: Mockup local có logic client-side cho settlement/carry, cho phép close non-exact Invoice coverage và revision sau close; chúng nằm ngoài phạm vi đồng bộ documentation đã duyệt nên không được sửa trong task này.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-2-dang-nhap-google-va-co-lap-session-theo-audience.md`
+  summary: Bổ sung Parent active-link recheck, direct context và authorized School chooser trong Story 2.3.
+  evidence: Story 1.2 cố ý từ chối Parent callback vì chưa có ParentProfile và StudentParent active-link authority.
