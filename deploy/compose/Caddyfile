@@ -1,0 +1,5 @@
+app.passionedu.org { tls {$TLS_CERT_FILE} {$TLS_KEY_FILE}; reverse_proxy admin:80 }
+teacher.passionedu.org { tls {$TLS_CERT_FILE} {$TLS_KEY_FILE}; reverse_proxy teacher:80 }
+parent.passionedu.org { tls {$TLS_CERT_FILE} {$TLS_KEY_FILE}; reverse_proxy parent:80 }
+ops.passionedu.org { tls {$TLS_CERT_FILE} {$TLS_KEY_FILE}; reverse_proxy ops:80 }
+api.passionedu.org { tls {$TLS_CERT_FILE} {$TLS_KEY_FILE}; reverse_proxy api:3000 }

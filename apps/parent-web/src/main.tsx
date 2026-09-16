@@ -1,8 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './app';
 import './styles.css';
-import './account-header.css';
-import './invoice-detail.css';
+export function ParentShell() { return <main><h1>PassionEdu</h1><p>Cổng phụ huynh đang được khởi tạo.</p></main>; }
 
-createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
+const root = document.getElementById('root');
+if (root) createRoot(root).render(<StrictMode><ParentShell /></StrictMode>);

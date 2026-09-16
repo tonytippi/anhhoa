@@ -1,11 +1,12 @@
 {
-  "name": "parent-web",
+  "name": "@passionedu/parent-web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "lint": "tsc -b --pretty false",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --config vitest.config.ts"
   },

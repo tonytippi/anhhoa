@@ -1,8 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './app/app';
 import './index.css';
+export function AdminShell() { return <main><h1>PassionEdu - Quản trị trường</h1><p>Cổng quản trị đang được khởi tạo.</p></main>; }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode><App /></StrictMode>,
-);
+const root = document.getElementById('root');
+if (root) createRoot(root).render(<StrictMode><AdminShell /></StrictMode>);

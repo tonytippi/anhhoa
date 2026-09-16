@@ -14,8 +14,8 @@ project_key: passionedu
 tracking_system: file-system
 story_location: /home/sonnh/projects/anhhoa/_bmad-output/implementation-artifacts
 development_status:
-  epic-1: backlog
-  1-1-khoi-tao-nen-tang-target-da-portal: backlog
+  epic-1: in-progress
+  1-1-khoi-tao-nen-tang-target-da-portal: review
   1-2-dang-nhap-google-va-co-lap-session-theo-audience: backlog
   1-3-provision-va-lifecycle-school-qua-ops: backlog
   1-4-membership-capability-va-school-context-an-toan: backlog

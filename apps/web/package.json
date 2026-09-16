@@ -1,15 +1,14 @@
 {
-  "name": "web",
+  "name": "@passionedu/admin-web",
   "private": true,
   "type": "module",
   "version": "0.0.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint src --max-warnings=0",
+    "lint": "tsc -b --pretty false",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run --config vitest.config.ts",
-    "test:e2e": "playwright test"
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",

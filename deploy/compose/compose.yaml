@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    build: { context: ../.., dockerfile: apps/api/Dockerfile }
+    working_dir: /app/apps/api
+    command: ['pnpm', 'exec', 'prisma', 'migrate', 'deploy']
+    environment:
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build: { context: ../.., dockerfile: apps/api/Dockerfile }
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
+      SUPERADMIN_EMAIL: "${SUPERADMIN_EMAIL:?SUPERADMIN_EMAIL is required}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "require(\"http\").get(\"http://127.0.0.1:3000/health\", r => process.exit(r.statusCode === 200 ? 0 : 1)).on(\"error\", () => process.exit(1))"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  admin:
+    build: { context: ../.., dockerfile: apps/web/Dockerfile, args: { VITE_API_URL: https://api.passionedu.org } }
+    healthcheck: &portal-healthcheck
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1/']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  teacher:
+    build: { context: ../.., dockerfile: deploy/compose/portal.Dockerfile, args: { APP: teacher-web, VITE_API_URL: https://api.passionedu.org } }
+    healthcheck: *portal-healthcheck
+  parent:
+    build: { context: ../.., dockerfile: apps/parent-web/Dockerfile, args: { VITE_API_URL: https://api.passionedu.org } }
+    healthcheck: *portal-healthcheck
+  ops:
+    build: { context: ../.., dockerfile: deploy/compose/portal.Dockerfile, args: { APP: ops-web, VITE_API_URL: https://api.passionedu.org } }
+    healthcheck: *portal-healthcheck
+
+  proxy:
+    image: caddy:2.8-alpine
+    environment:
+      TLS_CERT_FILE: ${TLS_CERT_FILE:?TLS_CERT_FILE is required}
+      TLS_KEY_FILE: ${TLS_KEY_FILE:?TLS_KEY_FILE is required}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${TLS_CERT_DIR:?TLS_CERT_DIR is required}:/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      admin: { condition: service_healthy }
+      teacher: { condition: service_healthy }
+      parent: { condition: service_healthy }
+      ops: { condition: service_healthy }
+      api: { condition: service_healthy }
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

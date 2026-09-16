@@ -3,6 +3,6 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  server: { port: 5174, strictPort: true, proxy: { '/api': { target: 'http://localhost:3000', changeOrigin: true, cookiePathRewrite: { '/parent/auth/google': '/api/parent/auth/google' }, rewrite: (path) => path.replace(/^\/api(?=\/|$)/, '') } } },
-  plugins: [react(), VitePWA({ registerType: 'autoUpdate', manifest: { name: 'Ánh Hoa Preschool', short_name: 'Ánh Hoa Preschool', start_url: '/', display: 'standalone', background_color: '#fff9ed', theme_color: '#8b4513', icons: [{ src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }] }, workbox: { navigateFallbackDenylist: [/^\/api(?:\/|$)/], runtimeCaching: [] } })],
+  define: { __API_URL__: JSON.stringify(process.env.VITE_API_URL ?? 'https://api.passionedu.org') },
+  plugins: [react(), VitePWA({ registerType: 'autoUpdate', manifest: { name: 'PassionEdu Phụ huynh', short_name: 'Phụ huynh', start_url: '/', display: 'standalone', background_color: '#F7F8F3', theme_color: '#247A51', icons: [{ src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }] }, workbox: { navigateFallbackDenylist: [/^\/api(?:\/|$)/, /payment|media|evidence/i], runtimeCaching: [] } })],
 });

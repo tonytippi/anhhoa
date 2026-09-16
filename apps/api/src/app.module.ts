@@ -1,22 +1,5 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
-import { ConfigModule } from './common/config/config.module.js';
-import { SessionAuthGuard } from './common/guards/session-auth.guard.js';
-import { CsrfMiddleware } from './common/middleware/csrf.middleware.js';
-import { PrismaModule } from './common/prisma/prisma.module.js';
-import { AuthModule } from './modules/auth/auth.module.js';
-import { ClassesModule } from './modules/classes/classes.module.js';
-import { StudentsModule } from './modules/students/students.module.js';
-import { OperationsModule } from './modules/operations/operations.module.js';
-import { InvoiceTemplateModule } from './modules/invoice-template/invoice-template.module.js';
-import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module.js';
-import { InvoicesModule } from './modules/invoices/invoices.module.js';
-import { ReportsModule } from './modules/reports/reports.module.js';
-import { ParentsModule } from './modules/parents/parents.module.js';
-import { ParentAuthModule } from './modules/parent-auth/parent-auth.module.js';
-import { ParentPortalModule } from './modules/parent-portal/parent-portal.module.js';
+import { Module } from '@nestjs/common';
+import { HealthModule } from './modules/health/health.module.js';
 
-@Module({ imports: [ConfigModule, PrismaModule, AuthModule, ParentAuthModule, ParentPortalModule, ClassesModule, StudentsModule, OperationsModule, InvoiceTemplateModule, BankAccountsModule, InvoicesModule, ReportsModule, ParentsModule], providers: [{ provide: APP_GUARD, useClass: SessionAuthGuard }] })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer): void { consumer.apply(CsrfMiddleware).forRoutes('*'); }
-}
+@Module({ imports: [HealthModule] })
+export class AppModule {}

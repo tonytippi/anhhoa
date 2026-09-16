@@ -5,6 +5,6 @@
     "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
     "lint": { "dependsOn": ["^lint"] },
     "typecheck": { "dependsOn": ["^typecheck"], "outputs": [] },
-    "test": { "dependsOn": ["^test"], "outputs": ["coverage/**"] }
+    "test": { "dependsOn": ["^test"], "outputs": [] }
   }
 }
