@@ -438,15 +438,20 @@ So that Epic 2 tro di khong duoc phat hanh tren authorization chua duoc xac minh
 
 **Acceptance Criteria:**
 
-**Given** it nhat hai School, nhieu membership/Parent link va cac audience sessions trong PostgreSQL integration fixture
-**When** suite chay cac route/query/write/report scoped
-**Then** cross-School UUID, filter, route, header, join, aggregate va relation insert deu bi tu choi
-**And** scoped unique constraints va audit/Operation provenance duoc kiem tra bang automated tests.
+**Given** it nhat hai School, nhieu SchoolMembership va session audience Admin, Teacher, Parent, Ops trong PostgreSQL integration fixture
+**When** release suite chay moi route/query/write scoped ma Epic 1 da phat hanh
+**Then** cross-School UUID, route, header, membership/Operation reference va tenant-owned relation insert deu bi tu choi
+**And** scoped unique constraints, audit/Operation provenance, origin/CSRF denial va idempotency scope duoc kiem tra bang automated tests.
 
-**Given** mot membership, Parent link hoac School bi revoke/suspend
+**Given** mot SchoolMembership hoac School bi revoke/suspend
 **When** request ke tiep va portal foreground/deep-link dien ra
 **Then** server tu choi context khong hop le, portal xoa protected state va dua user ve chooser hoac signed-out safe state
 **And** valid context khac cua cung UserIdentity van dung duoc.
+
+**Given** Parent audience chua co active StudentParent domain o Epic 1
+**When** callback, session hoac protected request duoc thu
+**Then** server va Parent portal fail-closed, khong issue Parent session va khong lo protected DTO/cache
+**And** Parent-link/cross-School chooser/revoke proof la release gate cua Story 2.3 sau khi StudentParent ton tai.
 
 **Given** portal E2E suite chay
 **When** user chuyen audience hoac School trong cac trang thai sach, dirty va timeout
@@ -521,9 +526,13 @@ So that Parent chi co the nhan dung school context va du lieu cua tre duoc uy qu
 **Then** binding duoc thuc hien atomically voi recheck `StudentParent` active truoc Parent session issue
 **And** subject mismatch hoac email da reassigned bi tu choi cho toi khi School Admin revoke/gan lai voi audit.
 
-**Given** School Admin revoke StudentParent link
+**Given** PostgreSQL integration va portal E2E fixture co it nhat hai School, nhieu StudentParent active/revoked cua mot ParentProfile va Parent session da bind
+**When** Parent truy cap route, UUID, filter, School chooser hoac child context khong nam trong active link
+**Then** ParentSchoolContext tu choi truoc protected query, DTO/cache khong lo Student/School khac va session issue chi xay ra sau atomic active-link recheck.
+
+**Given** School Admin revoke mot StudentParent link
 **When** Parent gui request ke tiep hoac mo protected child context
-**Then** server tu choi child/school data dua tren link do va portal xoa protected state
+**Then** server tu choi child/school data dua tren link do va portal xoa protected state ve chooser hoac signed-out safe state
 **And** audit giu lich su link/revoke; Parent van co the xem Student/School khac neu link khac con active.
 
 ### Story 2.4: Quản lý Staff profile và phân công theo effective date
