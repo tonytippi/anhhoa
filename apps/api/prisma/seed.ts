@@ -12,7 +12,7 @@ export async function seed(): Promise<void> {
       await tx.school.upsert({
         where: { slug: 'truong-mau-passionedu' },
         update: {},
-        create: { name: 'Trường mẫu PassionEdu', slug: 'truong-mau-passionedu' },
+        create: { name: 'Trường mẫu PassionEdu', slug: 'truong-mau-passionedu', studentCodePrefix: 'PE' },
       });
     });
   } finally {

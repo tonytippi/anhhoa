@@ -35,7 +35,7 @@ async function identity(email: string) {
 }
 
 async function school(name: string) {
-  const result = await prisma.school.create({ data: { name, slug: `release-${uuid()}` } });
+  const result = await prisma.school.create({ data: { name, slug: `release-${uuid()}`, studentCodePrefix: 'S' } });
   ids.schools.push(result.id);
   return result;
 }

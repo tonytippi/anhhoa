@@ -4,7 +4,7 @@ import { auditData } from '../common/audit.js';
 import { requestFingerprint } from '../common/mutation-protection.js';
 import { isOperationIdempotencyCollision } from '../common/operation-idempotency.js';
 
-type ProvisionInput = { name?: unknown; slug?: unknown; ownerEmail?: unknown };
+type ProvisionInput = { name?: unknown; slug?: unknown; ownerEmail?: unknown; studentCodePrefix?: unknown };
 const email = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -23,22 +23,22 @@ export class OpsService {
     const schools = await this.prisma.school.findMany({ orderBy: { createdAt: 'desc' }, include: { initialOwnerIdentity: true } });
     return schools.map((school) => {
       const owner = school.initialOwnerIdentity;
-      return { id: school.id, name: school.name, slug: school.slug, status: school.status, ownerEmail: owner?.emailNormalized ?? '', ownerBound: Boolean(owner?.googleSubject), updatedAt: school.updatedAt.toISOString() };
+      return { id: school.id, name: school.name, slug: school.slug, studentCodePrefix: school.studentCodePrefix, status: school.status, ownerEmail: owner?.emailNormalized ?? '', ownerBound: Boolean(owner?.googleSubject), updatedAt: school.updatedAt.toISOString() };
     });
   }
 
   async provision(identityId: string, key: string, operationId: string, input: ProvisionInput) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu khởi tạo không hợp lệ.' });
-    const grant = await this.grantFor(identityId); const name = typeof input.name === 'string' ? input.name.trim() : ''; const slug = typeof input.slug === 'string' ? input.slug.trim().toLowerCase() : ''; const ownerEmail = email(input.ownerEmail);
-    if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail)) throw new ConflictException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu khởi tạo không hợp lệ.' });
-    return this.mutate(grant.id, identityId, 'POST /api/ops/schools', key, operationId, { name, slug, ownerEmail }, undefined, async (tx, operationId) => {
+    const grant = await this.grantFor(identityId); const name = typeof input.name === 'string' ? input.name.trim() : ''; const slug = typeof input.slug === 'string' ? input.slug.trim().toLowerCase() : ''; const ownerEmail = email(input.ownerEmail); const studentCodePrefix = typeof input.studentCodePrefix === 'string' ? input.studentCodePrefix.trim().toUpperCase() : '';
+    if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail) || !/^[A-Z][A-Z0-9]{0,19}$/.test(studentCodePrefix)) throw new ConflictException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu khởi tạo không hợp lệ.' });
+    return this.mutate(grant.id, identityId, 'POST /api/ops/schools', key, operationId, { name, slug, ownerEmail, studentCodePrefix }, undefined, async (tx, operationId) => {
       const owner = await tx.userIdentity.upsert({ where: { emailNormalized: ownerEmail }, create: { emailNormalized: ownerEmail }, update: {} });
       if (owner.id === identityId) throw new ForbiddenException({ code: 'OPS_OWNER_BOOTSTRAP_DENIED', message: 'Platform Operator không thể là chủ sở hữu đầu tiên của trường.' });
-      const school = await tx.school.create({ data: { name, slug, initialOwnerIdentityId: owner.id } });
+      const school = await tx.school.create({ data: { name, slug, studentCodePrefix, initialOwnerIdentityId: owner.id } });
       const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: owner.id } });
        await tx.schoolRoleGrant.create({ data: { schoolId: school.id, membershipId: membership.id, role: 'SCHOOL_ADMIN' } });
        await tx.auditRecord.create({ data: auditData(school.id, { identityId, type: 'PLATFORM_OPERATOR_GRANT', reference: grant.id }, 'SCHOOL_PROVISIONED', { platformOperatorGrantId: grant.id, operationId }) });
-      return { schoolId: school.id, status: school.status };
+       return { schoolId: school.id, status: school.status, studentCodePrefix: school.studentCodePrefix };
     });
   }
 

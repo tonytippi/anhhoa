@@ -14,17 +14,33 @@ model School {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   initialOwnerIdentityId String? @db.Uuid
+  studentCodePrefix String
+  studentCodeSequence Int @default(0)
   memberships SchoolMembership[]
   roleGrants  SchoolRoleGrant[]
   audits      AuditRecord[]
   operations  Operation[]
   schoolYears SchoolYear[]
   classes     Class[]
+  students    Student[]
+  enrollments StudentEnrollment[]
+  enrollmentLifecycleTransitions StudentEnrollmentLifecycleTransition[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
 enum ClassStatus {
   ACTIVE
+  ARCHIVED
+}
+
+enum StudentEnrollmentLifecycle {
+  TRIAL
+  WAITING_FOR_CLASS
+  SCHEDULED_TO_START
+  ENROLLED
+  ON_LEAVE
+  WITHDRAWN
+  GRADUATED
 }
 
 model SchoolYear {
@@ -37,6 +53,7 @@ model SchoolYear {
   updatedAt DateTime @updatedAt
   school    School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   classes   Class[]
+  enrollments StudentEnrollment[]
 
   @@unique([schoolId, id])
   @@index([schoolId, startsOn])
@@ -52,8 +69,72 @@ model Class {
   updatedAt    DateTime    @updatedAt
   school       School      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   schoolYear   SchoolYear  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  enrollments  StudentEnrollment[]
 
   @@index([schoolId, schoolYearId])
+  @@unique([schoolId, id])
+  @@unique([schoolId, schoolYearId, id])
+}
+
+model Student {
+  id          String   @id @default(uuid()) @db.Uuid
+  schoolId    String   @db.Uuid
+  studentCode String
+  fullName    String
+  dateOfBirth DateTime @db.Date
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  enrollments StudentEnrollment[]
+
+  @@unique([schoolId, id])
+  @@index([schoolId, studentCode])
+}
+
+model StudentEnrollment {
+  id               String                     @id @default(uuid()) @db.Uuid
+  schoolId         String                     @db.Uuid
+  studentId        String                     @db.Uuid
+  schoolYearId     String                     @db.Uuid
+  classId          String                     @db.Uuid
+  lifecycle        StudentEnrollmentLifecycle
+  effectiveFrom    DateTime                   @db.Date
+  endedOn          DateTime?                  @db.Date
+  schoolYearName   String
+  schoolYearStartsOn DateTime                 @db.Date
+  schoolYearEndsOn DateTime                   @db.Date
+  className        String
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  school           School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student          Student                    @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear       SchoolYear                 @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  classroom        Class                      @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
+  lifecycleTransitions StudentEnrollmentLifecycleTransition[]
+
+  @@unique([schoolId, studentId, schoolYearId])
+  @@unique([schoolId, id])
+  @@index([schoolId, classId, lifecycle])
+  @@index([schoolId, studentId, createdAt])
+}
+
+model StudentEnrollmentLifecycleTransition {
+  id             String                     @id @default(uuid()) @db.Uuid
+  schoolId       String                     @db.Uuid
+  enrollmentId   String                     @db.Uuid
+  previousLifecycle StudentEnrollmentLifecycle?
+  lifecycle      StudentEnrollmentLifecycle
+  effectiveFrom  DateTime                   @db.Date
+  endedOn        DateTime?                  @db.Date
+  actorIdentityId String                    @db.Uuid
+  membershipId   String                     @db.Uuid
+  operationId    String                     @db.Uuid
+  createdAt      DateTime                   @default(now())
+  school         School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  enrollment     StudentEnrollment          @relation(fields: [schoolId, enrollmentId], references: [schoolId, id], onDelete: Restrict)
+
+  @@index([schoolId, enrollmentId, createdAt])
+  @@index([schoolId, operationId])
 }
 
 enum SchoolStatus {

@@ -5,7 +5,7 @@ import { PrismaService } from '../modules/identity/prisma.service.js';
 
 const prisma = new PrismaService(); const authorization = new AuthorizationService(prisma); const memberships = new MembershipsService(prisma, authorization); const ids: string[] = [];
 const uuid = () => crypto.randomUUID();
-async function school(name: string) { const result = await prisma.school.create({ data: { name, slug: `membership-${uuid()}` } }); ids.push(result.id); return result; }
+async function school(name: string) { const result = await prisma.school.create({ data: { name, slug: `membership-${uuid()}`, studentCodePrefix: 'S' } }); ids.push(result.id); return result; }
 async function identity() { const result = await prisma.userIdentity.create({ data: { emailNormalized: `${uuid()}@example.com` } }); return result; }
 async function grant(schoolId: string, identityId: string, role: 'SCHOOL_ADMIN' | 'FINANCE_MANAGER' | 'CLASS_TEACHER') { const membership = await prisma.schoolMembership.create({ data: { schoolId, userIdentityId: identityId } }); await prisma.schoolRoleGrant.create({ data: { schoolId, membershipId: membership.id, role } }); return membership; }
 afterEach(async () => { await prisma.auditRecord.deleteMany({ where: { schoolId: { in: ids } } }); await prisma.operation.deleteMany({ where: { schoolId: { in: ids } } }); await prisma.schoolRoleGrant.deleteMany({ where: { schoolId: { in: ids } } }); await prisma.schoolMembership.deleteMany({ where: { schoolId: { in: ids } } }); await prisma.school.deleteMany({ where: { id: { in: ids.splice(0) } } }); });
