@@ -23,8 +23,8 @@ development_status:
   1-6-release-gate-tenant-isolation-va-audience-access: done
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-quan-ly-schoolyear-va-class-trong-tenant: backlog
+  epic-2: in-progress
+  2-1-quan-ly-schoolyear-va-class-trong-tenant: in-progress
   2-2-tao-hoc-sinh-va-enrollment-co-vong-doi-bao-toan-lich-su: backlog
   2-3-lien-ket-parent-pending-va-revoke-theo-tung-hoc-sinh: backlog
   2-4-quan-ly-staff-profile-va-phan-cong-theo-effective-date: backlog
