@@ -2,7 +2,7 @@
 
 ## Khởi chạy workspace
 
-Yêu cầu Node.js 22 LTS và pnpm 11.9.0 (theo trường `packageManager` ở root).
+Yêu cầu Node.js 24.21.0 LTS và pnpm 11.9.0 (theo trường `packageManager` ở root). Dùng `nvm use` để nạp version được ghim trong `.nvmrc`.
 
 ```bash
 pnpm install

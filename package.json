@@ -1,6 +1,10 @@
 {
   "name": "passionedu",
   "private": true,
+  "engines": {
+    "node": ">=24.21.0 <25",
+    "pnpm": "11.9.0"
+  },
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "turbo dev",

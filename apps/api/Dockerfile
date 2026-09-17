@@ -1,4 +1,4 @@
-FROM node:22-alpine AS build
+FROM node:24.21.0-alpine AS build
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ RUN pnpm install --frozen-lockfile
 COPY apps/api apps/api
 RUN pnpm --filter @passionedu/api prisma:generate && pnpm --filter @passionedu/api build
 
-FROM node:22-alpine AS production
+FROM node:24.21.0-alpine AS production
 
 WORKDIR /app
 
