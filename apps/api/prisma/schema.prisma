@@ -18,7 +18,42 @@ model School {
   roleGrants  SchoolRoleGrant[]
   audits      AuditRecord[]
   operations  Operation[]
+  schoolYears SchoolYear[]
+  classes     Class[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
+}
+
+enum ClassStatus {
+  ACTIVE
+}
+
+model SchoolYear {
+  id        String   @id @default(uuid()) @db.Uuid
+  schoolId  String   @db.Uuid
+  name      String
+  startsOn  DateTime @db.Date
+  endsOn    DateTime @db.Date
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classes   Class[]
+
+  @@unique([schoolId, id])
+  @@index([schoolId, startsOn])
+}
+
+model Class {
+  id           String      @id @default(uuid()) @db.Uuid
+  schoolId     String      @db.Uuid
+  schoolYearId String      @db.Uuid
+  name         String
+  status       ClassStatus @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  school       School      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  schoolYear   SchoolYear  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+
+  @@index([schoolId, schoolYearId])
 }
 
 enum SchoolStatus {
