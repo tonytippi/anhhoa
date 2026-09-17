@@ -2,9 +2,10 @@
 title: 'Story 1.6: Release gate về tenant isolation và audience access'
 type: 'feature'
 created: '2026-09-16'
-status: 'draft'
+status: 'done'
+baseline_revision: 'fa693fbad09d14475be85c788bc939f04d3ef268'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '_bmad-output/implementation-artifacts/epic-1-context.md'
   - '_bmad-output/planning-artifacts/epics-passionedu.md'
@@ -41,35 +42,35 @@ deferred: []
 
 ## Code Map
 
-- `apps/api/src/integration/membership.integration.test.ts:14-98` -- PostgreSQL proof hiện hữu cho membership A/B, tenant graph, idempotency partial index, audit/Operation scope; tái dùng fixture/pattern cho gate API.
-- `apps/api/src/integration/ops.provision.integration.test.ts:12-42` -- lifecycle, suspension và typed audit/Operation provenance proof hiện hữu.
-- `apps/api/src/integration/auth.persistence.integration.test.ts:50-120` -- persistence/session fixture để mở rộng matrix audience qua HTTP boundary thay vì service-only.
-- `apps/api/src/modules/{auth,authorization,memberships,ops}/*.controller.ts` -- các REST surface hợp lệ cho audience cookie, chooser/context, membership command/Operation và School lifecycle.
-- `apps/api/src/modules/auth/auth.controller.test.ts:14-69` -- unit coverage CORS, host-only cookie, wrong-audience rejection và Parent callback fail-closed; giữ regression và nâng phần gate cần HTTP/DB.
+- `apps/api/src/integration/{membership,ops.provision,auth.persistence}.integration.test.ts` -- fixture/pattern PostgreSQL cho two-School membership, lifecycle, provenance, canonical identity; release gate mới phải qua Nest HTTP boundary thay vì chỉ gọi service.
+- `apps/api/src/{main.ts,modules/auth/auth.service.ts,modules/auth/auth.config.ts}` -- `createApi()`/CORS, callback deterministic chỉ ở `NODE_ENV=test`, audience cookie/origin defaults; runner E2E riêng phải listen API mà không thay production bootstrap.
+- `apps/api/src/modules/{auth,authorization,memberships,ops}/*.controller.ts` -- REST surface cho audience session, chooser/context, membership command/Operation và lifecycle School được release suite gọi.
+- `apps/api/prisma/seed.ts` -- seed development một School là read-only evidence; thêm fixture E2E riêng, không làm seed thường chứa authorization graph cho gate.
 - `apps/api/prisma/schema.prisma:40-162` -- tenant graph hiện có; chưa có ParentProfile, Student hoặc StudentParent, là read-only evidence cho dependency Story 2.3.
-- `apps/web/src/school-context.test.tsx:8-29`, `apps/teacher-web/src/school-context.test.tsx:5-8`, `apps/ops-web/src/shell.test.tsx:27-36`, `apps/parent-web/src/auth-session.test.ts:4-10` -- portal regression cho clear state, dirty/timeout, restricted navigation và Parent safe state.
-- `apps/web/playwright.config.ts:3-11`, `apps/web/package.json:6-12`, `package.json:5-12`, `turbo.json:3-9` -- Admin Playwright config chưa có spec/script và workspace gate chưa chạy E2E; cần khai báo task release gate rõ ràng.
+- `apps/{web,teacher-web,ops-web,parent-web}/src/**/*test.*` -- regression cho clear state, dirty/timeout, restricted navigation và Parent signed-out safe state; add assertions only where source behavior is not already covered.
+- `apps/web/{playwright.config.ts,package.json,e2e/release-gate.spec.ts}` -- Playwright hiện chỉ preview Admin trên `127.0.0.1`; chuyển sang topology `localhost` API + bốn portal và test browser thật với cookie/callback test-only.
+- `{apps/api/package.json,apps/api/{src/e2e-api.ts,scripts/seed-e2e-release-gate.ts},package.json,turbo.json}` -- scripts runner/fixture và non-cached E2E/release-gate tasks; build E2E portal phải nhận `VITE_API_URL=http://localhost:3000`.
 - `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-16-tenant-isolation-gate.md` -- quyết định đã phê duyệt: Epic 1 kiểm Parent fail-closed; Story 2.3 sở hữu proof Parent-link/cross-School.
 - `_bmad-output/implementation-artifacts/sprint-status.yaml:17-24` -- chỉ chuyển Story 1.6/epic-1 sau khi toàn bộ E1 release gate pass.
 
 ## Tasks & Acceptance
 
 **Execution:**
-- `apps/api/src/integration/release-gate.integration.test.ts` cùng fixture/helper integration hiện hữu -- thêm PostgreSQL + HTTP release suite cho two-School membership, crafted route/UUID/header/filter context, scoped uniqueness, audit/Operation provenance, revoke/suspend next request và four-audience cookie rejection; chỉ dùng route/domain đã tồn tại.
-- `apps/api/src/modules/{auth,authorization,memberships,ops}/*.controller.test.ts` -- giữ/củng cố boundary regression rằng reject xảy ra trước transition và không trả protected DTO/audit/Operation.
-- `apps/{web,teacher-web,ops-web,parent-web}/src/**/*test.*` -- mở rộng regression portal cho deep-link/revoke safe state, visible context, dirty switch, focus và timeout reconciliation; Parent chỉ chứng minh signed-out safe state trong Epic 1.
-- `apps/web/e2e/release-gate.spec.ts`, `apps/web/package.json`, `package.json`, `turbo.json` -- thêm browser gate chạy được bằng script/Turbo với API + PostgreSQL fixture thật, hoặc dừng blocked nếu topology hiện hữu không thể khởi tạo four audience portals mà không tạo domain mới; đảm bảo workspace gate gọi suite này.
+- `apps/api/src/integration/release-gate.integration.test.ts` -- thêm PostgreSQL + Nest HTTP release suite: two-School membership, crafted School/membership/Operation selectors, scoped uniqueness, audit/Operation provenance, reject-before-transition, revoke/suspend request tiếp theo và four-audience rejection; chỉ gọi REST E1 hiện hữu.
+- `apps/api/{src/e2e-api.ts,scripts/seed-e2e-release-gate.ts}`, `apps/api/package.json` -- thêm server test-only và fixture deterministic hai School/membership/Ops grant dùng database E2E riêng; không sửa production bootstrap hoặc thêm Parent aggregate.
+- `apps/{web,teacher-web,ops-web,parent-web}/src/**/*test.*` -- bổ sung regression source-anchored cho deep-link/revoke safe state, visible context, dirty switch/focus và timeout reconciliation; Parent chỉ chứng minh signed-out safe state trong Epic 1.
+- `apps/web/{playwright.config.ts,package.json,e2e/release-gate.spec.ts}`, `package.json`, `turbo.json` -- thêm browser gate chạy API/PostgreSQL fixture thật trên exact `localhost` origins, login deterministic qua test OAuth callback và non-cached root/Turbo scripts `test:e2e`/`test:release-gate`; gate phải fail process khi assertion lỗi.
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` -- chỉ chuyển `1-6` và `epic-1` sang `done` sau review và tất cả lệnh E1 gate pass; Parent-link proof được theo dõi/verify tại Story 2.3.
 
 **Acceptance Criteria:**
 - Given fixture PostgreSQL hai School và identity/membership audience hiện hữu, when release suite gửi crafted context vào mọi REST surface Epic 1 hiện có, then UUID/route/header context cross-School bị từ chối, scoped uniqueness và audit/Operation provenance được chứng minh tự động.
 - Given membership hoặc School A revoke/suspend trong khi identity còn context B, when request tiếp theo và portal deep-link/foreground chạy, then A bị deny, protected state bị xóa về chooser/safe state, và B còn dùng được.
-- Given browser gate chạy các switch clean, dirty và timeout trên các portal có surface Epic 1, when user đổi School/audience, then visible context, guard/focus state, audience isolation và Operation reconciliation pass; script gate lỗi làm CI/Turbo task lỗi.
+- Given browser gate chạy với API/PostgreSQL fixture thật trên Admin, Teacher, Parent và Ops, when user đổi School/audience trong trạng thái clean, dirty và timeout hoặc suspend School A, then visible context, guard/focus state, audience isolation, safe fallback và Operation reconciliation pass; script gate lỗi làm CI/Turbo task lỗi.
 - Given Parent audience chưa có active Parent-Student link domain, when session/callback hoặc protected access được thử, then server và portal fail-closed không lộ data; suite không tuyên bố coverage Parent cross-School link trước Story 2.3.
 
 ## Design Notes
 
-Release gate là aggregation layer, không phải authorization implementation khác. Browser runner phải khởi tạo API với database riêng và fixture server-authoritative; `vite preview` đơn lẻ chỉ cho confidence giả vì không chứng minh cookie, origin và resolver chain.
+Release gate là aggregation layer, không phải authorization implementation khác. Browser runner giữ `NODE_ENV=test` để dùng callback OIDC deterministic có sẵn, nhưng khởi tạo `createApi()` bằng runner riêng, PostgreSQL E2E riêng và bốn Vite previews trên `localhost`; `vite preview` đơn lẻ hoặc mocked `fetch` chỉ tạo confidence giả vì không chứng minh cookie, origin và resolver chain.
 
 ## Verification
 
@@ -77,11 +78,37 @@ Release gate là aggregation layer, không phải authorization implementation k
 - `pnpm --filter @passionedu/api prisma:generate && pnpm --filter @passionedu/api prisma:migrate:deploy` -- expected: Prisma client/migrations thành công.
 - `TARGET_INTEGRATION_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/anhhoa_test" pnpm --filter @passionedu/api test:integration` -- expected: release-gate PostgreSQL/HTTP suite và integration hiện hữu pass trên database riêng.
 - `pnpm --filter @passionedu/admin-web test && pnpm --filter @passionedu/teacher-web test && pnpm --filter @passionedu/parent-web test && pnpm --filter @passionedu/ops-web test` -- expected: portal safe-state regressions pass.
-- `pnpm test:e2e` -- expected: browser release gate chạy API/PostgreSQL fixture thật và fail process khi tenant/audience assertion lỗi.
+- `E2E_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/anhhoa_e2e" pnpm test:e2e` -- expected: browser release gate chạy API/PostgreSQL fixture thật và fail process khi tenant/audience assertion lỗi.
+- `TARGET_INTEGRATION_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/anhhoa_test" E2E_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/anhhoa_e2e" pnpm test:release-gate` -- expected: HTTP/PostgreSQL, portal regression và browser E2E mandatory gate pass tuần tự.
 - `pnpm lint && pnpm typecheck && pnpm test && pnpm build && git diff --check` -- expected: workspace quality, test và build pass, không whitespace error.
 
 ## Auto Run Result
 
-Status: draft
+Status: done
 
-Blocking condition đã được giải quyết bằng proposal được Tony phê duyệt ngày 2026-09-16: Story 1.6 chỉ gate contract Epic 1 và Parent fail-closed; Story 2.3 sở hữu proof `StudentParent` đa School, revoke và chooser. Sprint status giữ nguyên cho đến khi E1 release gate được triển khai, review và pass.
+Đã thêm release gate E1 có thể chạy: PostgreSQL/Nest HTTP suite kiểm tenant selector, idempotency theo School, audit/Operation provenance, revoke, suspend, origin/CSRF và ma trận audience; browser gate chạy API cùng bốn portal trên `localhost`, deterministic OAuth cookie thật, switch guard, timeout reconcile, foreground suspension safe fallback và Parent fail-closed. Fixture E2E reset transactionally theo advisory lock, không dùng Parent domain Epic 2.
+
+Files chính: `apps/api/src/integration/release-gate.integration.test.ts` (HTTP gate), `apps/api/src/e2e-api.ts` và `apps/api/scripts/seed-e2e-release-gate.ts` (runner/fixture), `apps/web/e2e/release-gate.spec.ts` (browser gate), `apps/web/src/school-context.tsx` (foreground revalidation và uncertain-mutation reconcile), package/Turbo scripts (mandatory gate).
+
+Review findings: 7 patch (high 2, medium 4, low 1), 0 deferred, 0 rejected. Patches xử lý fixture deterministic, provenance/idempotency/revoke/suspend HTTP proof, full audience matrix, foreground safe fallback, và reconciliation terminal. Follow-up review recommended: true (2 high patches).
+
+Verification pass: `prisma:generate`; `prisma:migrate:deploy`; API integration `31/31`; Admin `11/11`, Teacher `3/3`, Parent `3/3`, Ops `4/4`; browser E2E `4/4`; `pnpm test:release-gate`; `pnpm lint`; `pnpm typecheck`; `pnpm test`; `pnpm build`; `git diff --check`.
+
+Residual risk: deterministic OAuth is available only in `NODE_ENV=test`; the production Google upstream and production HTTPS cookie transport still require deployment-environment validation. Parent multi-School active-link/chooser/revoke proof remains intentionally owned by Story 2.3.
+
+## Review Triage Log
+
+### 2026-09-17 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 2, medium 4, low 1)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - [high] [patch] Revalidated an already-open School context on foreground and proved suspension clears protected Admin content before chooser fallback.
+  - [high] [patch] Extended HTTP audience proof to issue Admin/Teacher/Ops sessions and reject every mismatched audience, while retaining Parent fail-closed.
+  - [medium] [patch] Made the E2E fixture deterministic and isolated from stale local services; normalized the API bind host.
+  - [medium] [patch] Replaced direct revoke fixture mutation with authenticated HTTP proof and asserted state, scoped idempotency, audit and Operation provenance.
+  - [medium] [patch] Kept uncertain mutation input/dirty state until a real Operation terminal outcome reloads membership and unlocks controls.
+  - [medium] [patch] Added Ops HTTP suspension provenance and next-request denial proof.
+  - [low] [patch] Corrected implementation spec runner path and removed stale blocked-run result.

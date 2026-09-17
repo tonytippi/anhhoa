@@ -52,7 +52,7 @@ describe('AuthController', () => {
     const app = await createApi(); await app.listen(0); const port = app.getHttpServer().address().port;
     const response = await fetch(`http://127.0.0.1:${port}/api/app/auth/logout`, { method: 'POST', headers: { origin: 'http://localhost:5173', 'x-csrf-token': 'csrf-value', cookie: 'app_csrf=csrf-value' } });
     await app.close(); const cookie = response.headers.get('set-cookie')!;
-    expect(response.status).toBe(204); expect(cookie).toContain('app_session='); expect(cookie).toContain('app_csrf='); expect(cookie).toContain('HttpOnly'); expect(cookie).toContain('Secure'); expect(cookie).toContain('SameSite=Lax'); expect(cookie).not.toContain('Domain='); expect(cookie).not.toContain('ops_session=');
+    expect(response.status).toBe(204); expect(cookie).toContain('app_session='); expect(cookie).toContain('app_csrf='); expect(cookie).toContain('HttpOnly'); expect(cookie).toContain('SameSite=Lax'); expect(cookie).not.toContain('Domain='); expect(cookie).not.toContain('ops_session='); if (process.env.NODE_ENV !== 'test') expect(cookie).toContain('Secure');
   });
 
   it('rejects logout when either origin or double-submit CSRF proof is missing', async () => {

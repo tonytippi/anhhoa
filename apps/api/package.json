@@ -13,7 +13,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "ALLOW_DEVELOPMENT_SEED=true PRISMA_SEED=true prisma db seed",
-    "test:integration": "tsx scripts/test-integration.ts"
+    "test:integration": "tsx scripts/test-integration.ts",
+    "e2e:api": "pnpm build && node dist/e2e-api.js",
+    "seed:e2e:release-gate": "tsx scripts/seed-e2e-release-gate.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.1",
