@@ -50,6 +50,20 @@ SchoolYear/Class form quản lý Class, với refinement Class có monthlyFee, a
 
 **Rationale:** Giữ SchoolYear/Class là nền boundary cho danh bộ, không triển khai trước Student lifecycle hoặc finance pricing.
 
+### Story 2.1 - Public API và validation refinement
+
+**NEW:**
+
+```text
+- SchoolYear list/create dùng `GET`/`POST /api/app/schools/:schoolId/roster/school-years`.
+- Class list/create của một SchoolYear dùng `GET`/`POST /api/app/schools/:schoolId/roster/school-years/:schoolYearId/classes`; đổi tên Class dùng `POST /api/app/schools/:schoolId/roster/classes/:classId/name`.
+- SchoolYear DTO có `id`, `name`, `startsOn`, `endsOn`, `isActive`; Class DTO có `id`, `schoolYearId`, `name`, `status`, `createdAt`, `updatedAt`.
+- `SchoolYear.name` được trim, không rỗng sau trim, tối đa 100 ký tự và được phép trùng tên.
+- Validation trả `{ error: { code: "VALIDATION_ERROR", message, fieldErrors: { field: "message" } } }`. `fieldErrors` chỉ chứa field của input không hợp lệ.
+```
+
+**Rationale:** Khóa surface REST và error envelope tối thiểu cần để portal hiển thị field error đúng yêu cầu, không thêm capability, lifecycle hay domain mới.
+
 ### Story 2.2 - Deferred ownership
 
 **NEW:**
