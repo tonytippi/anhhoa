@@ -13,6 +13,12 @@ type Settings = {
   calendar: { effectiveFrom: string; holidays: Holiday[] } | null;
   financePolicy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } | null;
   financePolicyVersions: { id: string; effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string; reason: string | null }[];
+  attendancePolicy: { effectiveFrom: string; photoEvidenceMode: "REQUIRED" | "OPTIONAL"; reason: string } | null;
+  attendancePolicyVersions: { id: string; effectiveFrom: string; photoEvidenceMode: "REQUIRED" | "OPTIONAL"; reason: string }[];
+  handoverPolicy: { effectiveFrom: string; photoEvidenceMode: "REQUIRED" | "OPTIONAL"; reason: string } | null;
+  handoverPolicyVersions: { id: string; effectiveFrom: string; photoEvidenceMode: "REQUIRED" | "OPTIONAL"; reason: string }[];
+  dailyJournalPolicy: { effectiveFrom: string; reason: string; parentRetentionDaysAfterEnrollmentEnded: number; acceptedImageMimeTypes: string[]; maxImageSizeBytes: number; imageCountLimit: null } | null;
+  dailyJournalPolicyVersions: { id: string; effectiveFrom: string; reason: string; parentRetentionDaysAfterEnrollmentEnded: number; acceptedImageMimeTypes: string[]; maxImageSizeBytes: number; imageCountLimit: null }[];
   bankAccounts: { id: string; receivingBank: string; accountNumber: string; accountHolderName: string; transferTemplate: string; status: "ACTIVE" | "INACTIVE"; lifecycleTransitions: { previousStatus: "ACTIVE" | "INACTIVE" | null; status: "ACTIVE" | "INACTIVE"; reason: string | null; changedAt: string }[] }[];
 };
 type Pending = { id: string; schoolId: string };
@@ -59,13 +65,16 @@ export function SettingsWorkspace({
     holidays: [] as Holiday[],
   });
   const [financePolicy, setFinancePolicy] = useState({ effectiveFrom: "", dueDaysAfterIssue: "", taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", reason: "" });
+  const [attendancePolicy, setAttendancePolicy] = useState({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
+  const [handoverPolicy, setHandoverPolicy] = useState({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
+  const [dailyJournalPolicy, setDailyJournalPolicy] = useState({ effectiveFrom: "", reason: "" });
   const [bankAccount, setBankAccount] = useState({ receivingBank: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
   const [accountQuery, setAccountQuery] = useState("");
   const [accountStatus, setAccountStatus] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const [accountSort, setAccountSort] = useState<"newest" | "bank">("newest");
   const [lifecycle, setLifecycle] = useState<{ account: Settings["bankAccounts"][number]; status: "ACTIVE" | "INACTIVE"; reason: string }>();
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [errorScope, setErrorScope] = useState<"profile" | "calendar" | "financePolicy" | "bankAccount">(
+  const [errorScope, setErrorScope] = useState<"profile" | "calendar" | "financePolicy" | "attendancePolicy" | "handoverPolicy" | "dailyJournalPolicy" | "bankAccount">(
     "profile",
   );
   const [message, setMessage] = useState("");
@@ -131,6 +140,9 @@ export function SettingsWorkspace({
         });
         setCalendar({ effectiveFrom: "", holidays: [] });
         setFinancePolicy({ effectiveFrom: "", dueDaysAfterIssue: "", taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", reason: "" });
+        setAttendancePolicy({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
+        setHandoverPolicy({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
+        setDailyJournalPolicy({ effectiveFrom: "", reason: "" });
         setBankAccount({ receivingBank: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
       } else setMessage("Thao tác không thành công.");
     } catch {
@@ -156,6 +168,9 @@ export function SettingsWorkspace({
     setProfile({ effectiveFrom: "", schoolName: "", address: "", phone: "" });
     setCalendar({ effectiveFrom: "", holidays: [] });
     setFinancePolicy({ effectiveFrom: "", dueDaysAfterIssue: "", taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", reason: "" });
+    setAttendancePolicy({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
+    setHandoverPolicy({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
+    setDailyJournalPolicy({ effectiveFrom: "", reason: "" });
     setBankAccount({ receivingBank: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
     setAccountQuery(""); setAccountStatus("ALL"); setAccountSort("newest");
     setLifecycle(undefined);
@@ -185,7 +200,8 @@ export function SettingsWorkspace({
       profile.schoolName ||
       calendar.effectiveFrom ||
       calendar.holidays.length ||
-       financePolicy.effectiveFrom || financePolicy.dueDaysAfterIssue || financePolicy.reason ||
+        financePolicy.effectiveFrom || financePolicy.dueDaysAfterIssue || financePolicy.reason ||
+        attendancePolicy.effectiveFrom || attendancePolicy.photoEvidenceMode !== "REQUIRED" || attendancePolicy.reason || handoverPolicy.effectiveFrom || handoverPolicy.photoEvidenceMode !== "REQUIRED" || handoverPolicy.reason || dailyJournalPolicy.effectiveFrom || dailyJournalPolicy.reason ||
        bankAccount.receivingBank || bankAccount.accountNumber || bankAccount.accountHolderName ||
        lifecycle?.reason,
   );
@@ -205,7 +221,7 @@ export function SettingsWorkspace({
   const post = async (
     path: string,
     body: object,
-    scope: "profile" | "calendar" | "financePolicy" | "bankAccount",
+    scope: "profile" | "calendar" | "financePolicy" | "attendancePolicy" | "handoverPolicy" | "dailyJournalPolicy" | "bankAccount",
   ) => {
     if (pending) return false;
     const operation = { id: crypto.randomUUID(), schoolId };
@@ -281,10 +297,12 @@ export function SettingsWorkspace({
       setCalendar({ effectiveFrom: "", holidays: [] });
   };
   const saveFinancePolicy = async (event: FormEvent) => { event.preventDefault(); if (!financePolicy.dueDaysAfterIssue.trim()) { setErrorScope("financePolicy"); setErrors({ dueDaysAfterIssue: "Cần nhập số ngày hạn thanh toán." }); setMessage("Dữ liệu không hợp lệ."); return; } if (await post(`/api/app/schools/${schoolId}/settings/finance-policy-versions`, { ...financePolicy, dueDaysAfterIssue: Number(financePolicy.dueDaysAfterIssue) }, "financePolicy")) setFinancePolicy({ effectiveFrom: "", dueDaysAfterIssue: "", taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", reason: "" }); };
+  const saveEvidencePolicy = (kind: "attendance" | "handover", event: FormEvent) => { event.preventDefault(); const policy = kind === "attendance" ? attendancePolicy : handoverPolicy; const scope = kind === "attendance" ? "attendancePolicy" : "handoverPolicy"; return post(`/api/app/schools/${schoolId}/settings/${kind}-policy-versions`, policy, scope).then((saved) => { if (saved) (kind === "attendance" ? setAttendancePolicy : setHandoverPolicy)({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" }); }); };
+  const saveDailyJournalPolicy = (event: FormEvent) => { event.preventDefault(); return post(`/api/app/schools/${schoolId}/settings/daily-journal-policy-versions`, dailyJournalPolicy, "dailyJournalPolicy").then((saved) => { if (saved) setDailyJournalPolicy({ effectiveFrom: "", reason: "" }); }); };
   const saveBankAccount = async (event: FormEvent) => { event.preventDefault(); if (await post(`/api/app/schools/${schoolId}/settings/bank-accounts`, bankAccount, "bankAccount")) setBankAccount({ receivingBank: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" }); };
   const transitionBankAccount = async (event: FormEvent) => { event.preventDefault(); if (!lifecycle) return; if (await post(`/api/app/schools/${schoolId}/settings/bank-accounts/${lifecycle.account.id}/lifecycle`, { status: lifecycle.status, reason: lifecycle.reason }, "bankAccount")) setLifecycle(undefined); };
   const visibleAccounts = (data?.bankAccounts ?? []).filter((account) => (accountStatus === "ALL" || account.status === accountStatus) && `${account.receivingBank} ${account.accountNumber} ${account.accountHolderName}`.toLocaleLowerCase("vi").includes(accountQuery.trim().toLocaleLowerCase("vi"))).sort((a, b) => accountSort === "bank" ? a.receivingBank.localeCompare(b.receivingBank, "vi") : 0);
-  const field = (scope: "profile" | "calendar" | "financePolicy" | "bankAccount", name: string) =>
+  const field = (scope: "profile" | "calendar" | "financePolicy" | "attendancePolicy" | "handoverPolicy" | "dailyJournalPolicy" | "bankAccount", name: string) =>
     errorScope === scope && errors[name]
       ? { "aria-invalid": true, "aria-describedby": `${scope}-${name}-error` }
       : {};
@@ -358,6 +376,12 @@ export function SettingsWorkspace({
           </label>
           <button disabled={Boolean(pending)}>Tạo phiên bản hồ sơ</button>
         </form>
+      </section>
+      <section>
+        <h3>Điểm danh và bàn giao</h3>
+        <p>Policy đang áp dụng: ảnh cho PRESENT {data?.attendancePolicy?.photoEvidenceMode === "REQUIRED" ? "bắt buộc" : data?.attendancePolicy ? "tùy chọn" : "chưa có phiên bản"}; ảnh cho pickedUpAt {data?.handoverPolicy?.photoEvidenceMode === "REQUIRED" ? "bắt buộc" : data?.handoverPolicy ? "tùy chọn" : "chưa có phiên bản"}.</p>
+        {(["attendance", "handover"] as const).map((kind) => { const policy = kind === "attendance" ? attendancePolicy : handoverPolicy; const setPolicy = kind === "attendance" ? setAttendancePolicy : setHandoverPolicy; const scope = kind === "attendance" ? "attendancePolicy" : "handoverPolicy"; const label = kind === "attendance" ? "PRESENT" : "pickedUpAt"; const versions = kind === "attendance" ? data?.attendancePolicyVersions : data?.handoverPolicyVersions; return <form key={kind} onSubmit={(event) => void saveEvidencePolicy(kind, event)}><h4>Ảnh bằng chứng {label}</h4><label>Ngày hiệu lực<input type="date" value={policy.effectiveFrom} onChange={(event) => setPolicy({ ...policy, effectiveFrom: event.target.value })} {...field(scope, "effectiveFrom")} /></label>{errorScope === scope && errors.effectiveFrom && <small id={`${scope}-effectiveFrom-error`}>{errors.effectiveFrom}</small>}<label>Yêu cầu ảnh<select value={policy.photoEvidenceMode} onChange={(event) => setPolicy({ ...policy, photoEvidenceMode: event.target.value as "REQUIRED" | "OPTIONAL" })} {...field(scope, "photoEvidenceMode")}><option value="REQUIRED">Bắt buộc</option><option value="OPTIONAL">Tùy chọn</option></select></label>{errorScope === scope && errors.photoEvidenceMode && <small id={`${scope}-photoEvidenceMode-error`}>{errors.photoEvidenceMode}</small>}<label>Lý do<input value={policy.reason} onChange={(event) => setPolicy({ ...policy, reason: event.target.value })} {...field(scope, "reason")} /></label>{errorScope === scope && errors.reason && <small id={`${scope}-reason-error`}>{errors.reason}</small>}<button disabled={Boolean(pending)}>Tạo phiên bản policy</button><table><caption>Lịch sử policy ảnh {label}</caption><thead><tr><th>Hiệu lực</th><th>Yêu cầu ảnh</th><th>Lý do</th></tr></thead><tbody>{(versions ?? []).map((version) => <tr key={version.id}><td>{version.effectiveFrom}</td><td>{version.photoEvidenceMode === "REQUIRED" ? "Bắt buộc" : "Tùy chọn"}</td><td>{version.reason}</td></tr>)}</tbody></table></form>; })}
+        <form onSubmit={(event) => void saveDailyJournalPolicy(event)}><h4>Daily Journal và media</h4><p>Parent xem tối đa 30 ngày lịch sau ngày kết thúc enrollment. Chỉ JPEG, PNG hoặc WEBP, tối đa 10 MB mỗi ảnh; không giới hạn số ảnh mỗi journal.</p><label>Ngày hiệu lực<input type="date" value={dailyJournalPolicy.effectiveFrom} onChange={(event) => setDailyJournalPolicy({ ...dailyJournalPolicy, effectiveFrom: event.target.value })} {...field("dailyJournalPolicy", "effectiveFrom")} /></label>{errorScope === "dailyJournalPolicy" && errors.effectiveFrom && <small id="dailyJournalPolicy-effectiveFrom-error">{errors.effectiveFrom}</small>}<label>Lý do<input value={dailyJournalPolicy.reason} onChange={(event) => setDailyJournalPolicy({ ...dailyJournalPolicy, reason: event.target.value })} {...field("dailyJournalPolicy", "reason")} /></label>{errorScope === "dailyJournalPolicy" && errors.reason && <small id="dailyJournalPolicy-reason-error">{errors.reason}</small>}<button disabled={Boolean(pending)}>Xác nhận policy Daily Journal</button><table><caption>Lịch sử policy Daily Journal</caption><thead><tr><th>Hiệu lực</th><th>Retention</th><th>Media</th><th>Lý do</th></tr></thead><tbody>{(data?.dailyJournalPolicyVersions ?? []).map((version) => <tr key={version.id}><td>{version.effectiveFrom}</td><td>{version.parentRetentionDaysAfterEnrollmentEnded} ngày</td><td>{version.acceptedImageMimeTypes.join(", ")}, {version.maxImageSizeBytes / 1024 / 1024} MB, không giới hạn</td><td>{version.reason}</td></tr>)}</tbody></table></form>
       </section>
       <section>
         <h3>Tài chính và thanh toán</h3>

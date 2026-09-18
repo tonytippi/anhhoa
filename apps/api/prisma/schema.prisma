@@ -32,6 +32,9 @@ model School {
   profileVersions SchoolProfileVersion[]
   calendarVersions SchoolCalendarVersion[]
   financePolicies FinancePolicy[]
+  attendancePolicies AttendancePolicy[]
+  handoverPolicies HandoverPolicy[]
+  dailyJournalPolicies DailyJournalPolicy[]
   bankAccounts BankAccount[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
@@ -245,6 +248,17 @@ enum BankAccountStatus {
   INACTIVE
 }
 
+enum PhotoEvidenceMode {
+  REQUIRED
+  OPTIONAL
+}
+
+enum DailyJournalImageMimeType {
+  JPEG
+  PNG
+  WEBP
+}
+
 enum MembershipStatus {
   ACTIVE
   REVOKED
@@ -354,6 +368,9 @@ model SchoolMembership {
   audits         AuditRecord[]      @relation("AuditMembership")
   operations     Operation[]        @relation("OperationMembership")
   financePolicies FinancePolicy[]
+  attendancePolicies AttendancePolicy[]
+  handoverPolicies HandoverPolicy[]
+  dailyJournalPolicies DailyJournalPolicy[]
   bankAccounts BankAccount[]
   bankAccountLifecycleTransitions BankAccountLifecycleTransition[]
 
@@ -483,6 +500,60 @@ model FinancePolicy {
   createdAt         DateTime            @default(now())
   school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership        SchoolMembership    @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, effectiveFrom])
+  @@unique([schoolId, id])
+  @@index([schoolId, effectiveFrom])
+}
+
+model AttendancePolicy {
+  id                String            @id @default(uuid()) @db.Uuid
+  schoolId          String            @db.Uuid
+  effectiveFrom     DateTime          @db.Date
+  photoEvidenceMode PhotoEvidenceMode
+  reason            String
+  actorIdentityId   String            @db.Uuid
+  membershipId      String            @db.Uuid
+  createdAt         DateTime          @default(now())
+  school            School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership        SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, effectiveFrom])
+  @@unique([schoolId, id])
+  @@index([schoolId, effectiveFrom])
+}
+
+model HandoverPolicy {
+  id                String            @id @default(uuid()) @db.Uuid
+  schoolId          String            @db.Uuid
+  effectiveFrom     DateTime          @db.Date
+  photoEvidenceMode PhotoEvidenceMode
+  reason            String
+  actorIdentityId   String            @db.Uuid
+  membershipId      String            @db.Uuid
+  createdAt         DateTime          @default(now())
+  school            School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership        SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, effectiveFrom])
+  @@unique([schoolId, id])
+  @@index([schoolId, effectiveFrom])
+}
+
+model DailyJournalPolicy {
+  id                String            @id @default(uuid()) @db.Uuid
+  schoolId          String            @db.Uuid
+  effectiveFrom     DateTime          @db.Date
+  parentRetentionDaysAfterEnrollmentEnded Int
+  acceptedImageMimeTypes DailyJournalImageMimeType[]
+  maxImageSizeBytes Int
+  imageCountLimit   Int?
+  reason            String
+  actorIdentityId   String            @db.Uuid
+  membershipId      String            @db.Uuid
+  createdAt         DateTime          @default(now())
+  school            School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership        SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, effectiveFrom])
   @@unique([schoolId, id])
