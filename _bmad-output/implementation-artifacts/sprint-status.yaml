@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-18 # Story 2.4 implementation completed.
+last_updated: 2026-09-18 # Story 2.5 transition and close-year implementation completed.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -28,7 +28,7 @@ development_status:
   2-2-tao-hoc-sinh-va-enrollment-co-vong-doi-bao-toan-lich-su: done
   2-3-lien-ket-parent-pending-va-revoke-theo-tung-hoc-sinh: done
   2-4-quan-ly-staff-profile-va-phan-cong-theo-effective-date: done
-  2-5-chuyen-lop-chuyen-nam-va-close-year-bang-preview-co-doi-soat: backlog
+  2-5-chuyen-lop-chuyen-nam-va-close-year-bang-preview-co-doi-soat: done
   epic-2-retrospective: optional
 
   epic-3: backlog

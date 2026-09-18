@@ -42,8 +42,10 @@ async function createStudent(input: Awaited<ReturnType<typeof graph>>, overrides
 
 afterEach(async () => {
   await prisma.auditRecord.deleteMany({ where: { schoolId: { in: schools } } });
+  await prisma.schoolYear.updateMany({ where: { schoolId: { in: schools } }, data: { closeOperationId: null } });
   await prisma.operation.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.studentEnrollmentLifecycleTransition.deleteMany({ where: { schoolId: { in: schools } } });
+  await prisma.enrollmentClassAssignment.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.staffClassAssignment.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.staffProfile.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.studentParent.deleteMany({ where: { schoolId: { in: schools } } });
@@ -289,5 +291,112 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const pastClass = await roster.createClass(current.admin.id, current.current.id, (past.outcome as { id: string }).id, uuid(), uuid(), { name: 'Lớp cũ' });
     await roster.createAssignment(current.admin.id, current.current.id, staff.id, uuid(), uuid(), { schoolYearId: (past.outcome as { id: string }).id, classId: (pastClass.outcome as { id: string }).id, effectiveFrom: '2025-01-01', effectiveTo: '2025-06-01', reason: 'Lịch sử' });
     expect(await roster.assignments(current.admin.id, current.current.id, (past.outcome as { id: string }).id)).toMatchObject([{ schoolYear: { name: 'Năm 2025' }, classroom: { name: 'Lớp cũ' }, effectiveTo: '2025-06-01' }]);
+  });
+
+  it('uses authoritative temporal placement for transfer, excludes duplicate destination enrollment, and rejects stale or changed replay', async () => {
+    const current = await graph();
+    const secondClass = await roster.createClass(current.admin.id, current.current.id, current.year.id, uuid(), uuid(), { name: 'Chồi' });
+    const nextYear = await roster.createSchoolYear(current.admin.id, current.current.id, uuid(), uuid(), { name: 'Năm 2027', startsOn: '2027-01-01', endsOn: '2028-01-01' });
+    const nextClass = await roster.createClass(current.admin.id, current.current.id, (nextYear.outcome as { id: string }).id, uuid(), uuid(), { name: 'Lá' });
+    const created = await createStudent(current); const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    const classInput = { kind: 'CLASS_TRANSFER', sourceSchoolYearId: current.year.id, sourceClassId: current.classroom.id, destinationSchoolYearId: current.year.id, destinationClassId: (secondClass.outcome as { id: string }).id, effectiveFrom: '2026-06-01', reason: 'Điều lớp' };
+    const preview = await roster.previewTransition(current.admin.id, current.current.id, classInput);
+    const key = uuid(); const command = { ...classInput, selectedEnrollmentIds: [enrollmentId], previewFingerprint: preview.fingerprint, confirmation: 'CHUYỂN DANH BỘ' };
+    const moved = await roster.transitionEnrollments(current.admin.id, current.current.id, key, uuid(), command);
+    expect(await roster.students(current.admin.id, current.current.id, current.year.id, current.classroom.id)).toEqual([]);
+    expect(await roster.students(current.admin.id, current.current.id, current.year.id, (secondClass.outcome as { id: string }).id)).toMatchObject([{ id: (created.outcome as { id: string }).id }]);
+    expect(await roster.transitionEnrollments(current.admin.id, current.current.id, key, uuid(), command)).toEqual(moved);
+    await expect(roster.transitionEnrollments(current.admin.id, current.current.id, key, uuid(), { ...command, reason: 'Khác' })).rejects.toMatchObject({ status: 409, response: { code: 'IDEMPOTENCY_CONFLICT' } });
+    expect(await prisma.enrollmentClassAssignment.findMany({ where: { schoolId: current.current.id, enrollmentId }, orderBy: { effectiveFrom: 'asc' } })).toMatchObject([{ classId: current.classroom.id, effectiveTo: new Date('2026-06-01T00:00:00.000Z') }, { classId: (secondClass.outcome as { id: string }).id, effectiveTo: null }]);
+    const yearInput = { kind: 'YEAR_TRANSITION', sourceSchoolYearId: current.year.id, sourceClassId: (secondClass.outcome as { id: string }).id, destinationSchoolYearId: (nextYear.outcome as { id: string }).id, destinationClassId: (nextClass.outcome as { id: string }).id, effectiveFrom: '2027-01-01', reason: 'Lên năm' };
+    const yearPreview = await roster.previewTransition(current.admin.id, current.current.id, yearInput);
+    await roster.transitionEnrollments(current.admin.id, current.current.id, uuid(), uuid(), { ...yearInput, selectedEnrollmentIds: [enrollmentId], previewFingerprint: yearPreview.fingerprint, confirmation: 'CHUYỂN DANH BỘ' });
+    expect(await prisma.enrollmentClassAssignment.findFirstOrThrow({ where: { schoolId: current.current.id, enrollmentId, classId: (secondClass.outcome as { id: string }).id } })).toMatchObject({ effectiveTo: new Date('2027-01-01T00:00:00.000Z') });
+    expect((await roster.previewTransition(current.admin.id, current.current.id, yearInput)).movable).toEqual([]);
+  });
+
+  it('closes a year atomically without graduating enrollment and allows only one concurrent close', async () => {
+    const current = await graph(); const created = await createStudent(current); const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    const preview = await roster.previewCloseYear(current.admin.id, current.current.id, { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' });
+    const input = { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: preview.fingerprint, confirmation: 'ĐÓNG NĂM HỌC' };
+    const results = await Promise.allSettled([roster.closeYear(current.admin.id, current.current.id, uuid(), uuid(), input), roster.closeYear(current.admin.id, current.current.id, uuid(), uuid(), input)]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(await prisma.studentEnrollment.findUniqueOrThrow({ where: { id: enrollmentId } })).toMatchObject({ lifecycle: 'ENROLLED', endedOn: null });
+    expect(await prisma.enrollmentClassAssignment.findFirstOrThrow({ where: { schoolId: current.current.id, enrollmentId } })).toMatchObject({ effectiveTo: new Date('2026-12-31T00:00:00.000Z') });
+    expect(await prisma.schoolYear.findUniqueOrThrow({ where: { id: current.year.id } })).toMatchObject({ closedAt: expect.any(Date) });
+  });
+
+  it('keeps closed-year history readable, closes terminal placements, and rejects later roster writes', async () => {
+    const current = await graph(); const created = await createStudent(current); const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    await roster.changeLifecycle(current.admin.id, current.current.id, enrollmentId, uuid(), uuid(), { lifecycle: 'WITHDRAWN', endedOn: '2026-06-01' });
+    expect(await prisma.enrollmentClassAssignment.findFirstOrThrow({ where: { schoolId: current.current.id, enrollmentId } })).toMatchObject({ effectiveTo: new Date('2026-06-01T00:00:00.000Z') });
+    const preview = await roster.previewCloseYear(current.admin.id, current.current.id, { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' });
+    await roster.closeYear(current.admin.id, current.current.id, uuid(), uuid(), { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: preview.fingerprint, confirmation: 'ĐÓNG NĂM HỌC' });
+    expect(await roster.students(current.admin.id, current.current.id, current.year.id)).toMatchObject([{ id: (created.outcome as { id: string }).id, enrollments: [{ id: enrollmentId, classAssignmentHistory: [{ effectiveTo: '2026-06-01' }] }] }]);
+    await expect(roster.renameClass(current.admin.id, current.current.id, current.classroom.id, uuid(), uuid(), { name: 'Không được' })).rejects.toMatchObject({ status: 409, response: { code: 'SCHOOL_YEAR_CLOSED' } });
+    expect(await prisma.class.findUniqueOrThrow({ where: { id: current.classroom.id } })).toMatchObject({ name: 'Mầm' });
+  });
+
+  it('rejects transition dates outside source placement and non-successor destination years', async () => {
+    const current = await graph(); const created = await createStudent(current); const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    const destination = await roster.createClass(current.admin.id, current.current.id, current.year.id, uuid(), uuid(), { name: 'Chồi' });
+    const invalid = { kind: 'CLASS_TRANSFER', sourceSchoolYearId: current.year.id, sourceClassId: current.classroom.id, destinationSchoolYearId: current.year.id, destinationClassId: (destination.outcome as { id: string }).id, effectiveFrom: '2026-01-01', reason: 'Sai ngày' };
+    await expect(roster.previewTransition(current.admin.id, current.current.id, invalid)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveFrom: expect.any(String) } } });
+    const prior = await roster.createSchoolYear(current.admin.id, current.current.id, uuid(), uuid(), { name: 'Năm cũ', startsOn: '2025-01-01', endsOn: '2026-01-01' });
+    const priorClass = await roster.createClass(current.admin.id, current.current.id, (prior.outcome as { id: string }).id, uuid(), uuid(), { name: 'Cũ' });
+    await expect(roster.previewTransition(current.admin.id, current.current.id, { ...invalid, kind: 'YEAR_TRANSITION', destinationSchoolYearId: (prior.outcome as { id: string }).id, destinationClassId: (priorClass.outcome as { id: string }).id, effectiveFrom: '2026-01-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveFrom: expect.any(String) } } });
+    expect(await prisma.enrollmentClassAssignment.count({ where: { schoolId: current.current.id, enrollmentId, effectiveTo: null } })).toBe(1);
+  });
+
+  it('serializes transition against close-year without a partial destination or open source placement', async () => {
+    const current = await graph(); const destination = await roster.createSchoolYear(current.admin.id, current.current.id, uuid(), uuid(), { name: 'Năm 2027', startsOn: '2027-01-01', endsOn: '2028-01-01' });
+    const destinationClass = await roster.createClass(current.admin.id, current.current.id, (destination.outcome as { id: string }).id, uuid(), uuid(), { name: 'Lá' });
+    const created = await createStudent(current); const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    const transitionInput = { kind: 'YEAR_TRANSITION', sourceSchoolYearId: current.year.id, sourceClassId: current.classroom.id, destinationSchoolYearId: (destination.outcome as { id: string }).id, destinationClassId: (destinationClass.outcome as { id: string }).id, effectiveFrom: '2027-01-01', reason: 'Lên năm' };
+    const transitionPreview = await roster.previewTransition(current.admin.id, current.current.id, transitionInput);
+    const closePreview = await roster.previewCloseYear(current.admin.id, current.current.id, { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' });
+    const results = await Promise.allSettled([
+      roster.transitionEnrollments(current.admin.id, current.current.id, uuid(), uuid(), { ...transitionInput, selectedEnrollmentIds: [enrollmentId], previewFingerprint: transitionPreview.fingerprint, confirmation: 'CHUYỂN DANH BỘ' }),
+      roster.closeYear(current.admin.id, current.current.id, uuid(), uuid(), { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: closePreview.fingerprint, confirmation: 'ĐÓNG NĂM HỌC' }),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const source = await prisma.enrollmentClassAssignment.findFirstOrThrow({ where: { schoolId: current.current.id, enrollmentId, schoolYearId: current.year.id } });
+    expect(source.effectiveTo).not.toBeNull();
+    const destinationEnrollment = await prisma.studentEnrollment.findMany({ where: { schoolId: current.current.id, studentId: (created.outcome as { id: string }).id, schoolYearId: (destination.outcome as { id: string }).id } });
+    if (destinationEnrollment.length) expect(source.effectiveTo).toEqual(new Date('2027-01-01T00:00:00.000Z'));
+    else expect(await prisma.schoolYear.findUniqueOrThrow({ where: { id: current.year.id } })).toMatchObject({ closedAt: expect.any(Date) });
+  });
+
+  it('rejects closed-year lifecycle, assignment, archive, and transition mutations without durable changes', async () => {
+    const current = await graph(); const created = await createStudent(current); const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const staffAssignment = await roster.createAssignment(current.admin.id, current.current.id, (staff.outcome as { id: string }).id, uuid(), uuid(), { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-01-01', reason: 'Đầu năm' });
+    const preview = await roster.previewCloseYear(current.admin.id, current.current.id, { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' });
+    await roster.closeYear(current.admin.id, current.current.id, uuid(), uuid(), { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: preview.fingerprint, confirmation: 'ĐÓNG NĂM HỌC' });
+    await expect(roster.changeLifecycle(current.admin.id, current.current.id, enrollmentId, uuid(), uuid(), { lifecycle: 'WITHDRAWN', endedOn: '2026-12-31' })).rejects.toMatchObject({ status: 409, response: { code: 'SCHOOL_YEAR_CLOSED' } });
+    await expect(roster.changeAssignment(current.admin.id, current.current.id, (staffAssignment.outcome as { id: string }).id, uuid(), uuid(), { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-01-01', reason: 'Sửa' })).rejects.toMatchObject({ status: 409, response: { code: 'SCHOOL_YEAR_CLOSED' } });
+    await expect(roster.archiveClass(current.admin.id, current.current.id, current.classroom.id, uuid(), uuid())).rejects.toMatchObject({ status: 409, response: { code: 'SCHOOL_YEAR_CLOSED' } });
+    await expect(roster.previewTransition(current.admin.id, current.current.id, { kind: 'CLASS_TRANSFER', sourceSchoolYearId: current.year.id, sourceClassId: current.classroom.id, destinationSchoolYearId: current.year.id, destinationClassId: current.classroom.id, effectiveFrom: '2026-12-31', reason: 'Không được' })).rejects.toMatchObject({ status: 409, response: { code: 'SCHOOL_YEAR_CLOSED' } });
+    expect(await prisma.studentEnrollment.findUniqueOrThrow({ where: { id: enrollmentId } })).toMatchObject({ lifecycle: 'ENROLLED' });
+    expect(await prisma.class.findUniqueOrThrow({ where: { id: current.classroom.id } })).toMatchObject({ status: 'ACTIVE' });
+  });
+
+  it('serializes createStudent and endAssignment against close-year and rejects the losing write', async () => {
+    const current = await graph();
+    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const assignment = await roster.createAssignment(current.admin.id, current.current.id, (staff.outcome as { id: string }).id, uuid(), uuid(), { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-01-01', reason: 'Đầu năm' });
+    const preview = await roster.previewCloseYear(current.admin.id, current.current.id, { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' });
+    const [create, close] = await Promise.allSettled([
+      createStudent(current, { fullName: 'Bé Mới' }),
+      roster.closeYear(current.admin.id, current.current.id, uuid(), uuid(), { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: preview.fingerprint, confirmation: 'ĐÓNG NĂM HỌC' }),
+    ]);
+    expect([create, close].filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    if (close.status === 'fulfilled') await expect(roster.endAssignment(current.admin.id, current.current.id, (assignment.outcome as { id: string }).id, uuid(), uuid(), { effectiveTo: '2026-12-31', reason: 'Không được' })).rejects.toMatchObject({ status: 409, response: { code: 'SCHOOL_YEAR_CLOSED' } });
+  });
+
+  it('rejects direct cross-school closeOperation provenance', async () => {
+    const a = await graph(); const b = await graph();
+    const operation = await prisma.operation.create({ data: { schoolId: b.current.id, membershipId: (await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: b.current.id } })).id, actorIdentityId: b.admin.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: (await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: b.current.id } })).id, route: 'test', fingerprint: 'test', idempotencyKey: uuid() } });
+    await expect(prisma.schoolYear.update({ where: { id: a.year.id }, data: { closeOperationId: operation.id } })).rejects.toMatchObject({ code: 'P2003' });
   });
 });

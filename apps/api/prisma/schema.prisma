@@ -26,6 +26,7 @@ model School {
   staffProfiles StaffProfile[]
   staffClassAssignments StaffClassAssignment[]
   enrollments StudentEnrollment[]
+  enrollmentClassAssignments EnrollmentClassAssignment[]
   studentParents StudentParent[]
   enrollmentLifecycleTransitions StudentEnrollmentLifecycleTransition[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
@@ -58,6 +59,11 @@ model SchoolYear {
   classes   Class[]
   enrollments StudentEnrollment[]
   staffClassAssignments StaffClassAssignment[]
+  enrollmentClassAssignments EnrollmentClassAssignment[]
+  closedAt DateTime?
+  closedByMembershipId String? @db.Uuid
+  closeOperationId String? @unique @db.Uuid
+  closeOperation Operation? @relation("SchoolYearCloseOperation", fields: [schoolId, closeOperationId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@index([schoolId, startsOn])
@@ -75,6 +81,7 @@ model Class {
   schoolYear   SchoolYear  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
   enrollments  StudentEnrollment[]
   staffClassAssignments StaffClassAssignment[]
+  enrollmentClassAssignments EnrollmentClassAssignment[]
 
   @@index([schoolId, schoolYearId])
   @@unique([schoolId, id])
@@ -161,11 +168,33 @@ model StudentEnrollment {
   schoolYear       SchoolYear                 @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
   classroom        Class                      @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
   lifecycleTransitions StudentEnrollmentLifecycleTransition[]
+  classAssignments EnrollmentClassAssignment[]
 
   @@unique([schoolId, studentId, schoolYearId])
   @@unique([schoolId, id])
   @@index([schoolId, classId, lifecycle])
   @@index([schoolId, studentId, createdAt])
+}
+
+model EnrollmentClassAssignment {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  enrollmentId String @db.Uuid
+  schoolYearId String @db.Uuid
+  classId String @db.Uuid
+  effectiveFrom DateTime @db.Date
+  effectiveTo DateTime? @db.Date
+  reason String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  enrollment StudentEnrollment @relation(fields: [schoolId, enrollmentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  classroom Class @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, enrollmentId, effectiveFrom])
+  @@index([schoolId, classId, effectiveFrom])
 }
 
 model StudentEnrollmentLifecycleTransition {
@@ -356,10 +385,12 @@ model Operation {
   membership      SchoolMembership?  @relation("OperationMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   platformOperatorGrant PlatformOperatorGrant? @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
   actorIdentity   UserIdentity?      @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
+  closedSchoolYears SchoolYear[]     @relation("SchoolYearCloseOperation")
 
   // PostgreSQL partial unique indexes below are migration-owned because Prisma cannot express predicates.
   @@index([schoolId, actorType, actorReference, route, idempotencyKey])
   @@index([platformOperatorGrantId, actorType, actorReference, route, idempotencyKey])
   @@index([platformOperatorGrantId, createdAt])
   @@index([schoolId, route])
+  @@unique([schoolId, id])
 }
