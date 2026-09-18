@@ -25,7 +25,7 @@ describe('SchoolContext', () => {
   });
   it('keeps a timeout reconcile scoped to the selected School and disables switch actions', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }))).mockRejectedValueOnce(new TypeError('timeout'));
-    vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={vi.fn()} />); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'staff@example.com' } }); fireEvent.submit(screen.getByRole('button', { name: 'Cấp quyền' }).closest('form')!); await waitFor(() => expect(screen.getByLabelText('Chọn trường')).toHaveProperty('disabled', true)); expect(sessionStorage.getItem('passionedu.app.pending-membership-operation')).toContain('schoolId');
+    vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={vi.fn()} />); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'staff@example.com' } }); fireEvent.submit(screen.getByRole('button', { name: 'Cấp quyền' }).closest('form')!); await waitFor(() => expect(screen.getByLabelText('Chọn trường')).toHaveProperty('disabled', true)); expect(screen.getByRole('button', { name: 'Đang đối soát...' })).toHaveProperty('disabled', true); expect(sessionStorage.getItem('passionedu.app.pending-membership-operation')).toContain('schoolId');
     expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('staff@example.com'); expect((screen.getByLabelText('CLASS_TEACHER') as HTMLInputElement).checked).toBe(true);
   });
   it('does not let delayed success or denial for A overwrite selected School B', async () => {
@@ -45,5 +45,22 @@ describe('SchoolContext', () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: rosterContext }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: [] })));
     vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={vi.fn()} />); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); fireEvent.click(await screen.findByRole('button', { name: 'Danh bộ' })); await screen.findByRole('heading', { name: 'Danh bộ' }); fireEvent.change(screen.getByLabelText('Tên năm học'), { target: { value: 'Năm 2026' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } });
     expect((await screen.findByRole('dialog')).textContent).toContain('Biểu mẫu đang có nội dung chưa gửi'); expect((screen.getByLabelText('Tên năm học') as HTMLInputElement).value).toBe('Năm 2026');
+  });
+  it('integrates Settings navigation and guards a dirty Settings form before switching School', async () => {
+    const settingsContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'SETTINGS_MANAGE'] as const, navigation: [{ id: 'settings', label: 'Cấu hình trường' }] };
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: settingsContext })));
+      if (url.endsWith('/settings')) return Promise.resolve(new Response(JSON.stringify({ data: { asOf: '2026-01-01', timezone: 'Asia/Ho_Chi_Minh', profile: null, calendar: null } })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Cấu hình trường' }));
+    await screen.findByRole('heading', { name: 'Cấu hình trường' });
+    fireEvent.change(screen.getByLabelText('Tên trường'), { target: { value: 'Trường mới' } });
+    fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } });
+    expect((await screen.findByRole('dialog')).textContent).toContain('Biểu mẫu đang có nội dung chưa gửi');
+    expect((screen.getByLabelText('Tên trường') as HTMLInputElement).value).toBe('Trường mới');
   });
 });

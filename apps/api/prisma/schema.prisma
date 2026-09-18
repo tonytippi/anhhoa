@@ -29,6 +29,8 @@ model School {
   enrollmentClassAssignments EnrollmentClassAssignment[]
   studentParents StudentParent[]
   enrollmentLifecycleTransitions StudentEnrollmentLifecycleTransition[]
+  profileVersions SchoolProfileVersion[]
+  calendarVersions SchoolCalendarVersion[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
@@ -393,4 +395,50 @@ model Operation {
   @@index([platformOperatorGrantId, createdAt])
   @@index([schoolId, route])
   @@unique([schoolId, id])
+}
+
+model SchoolProfileVersion {
+  id                String   @id @default(uuid()) @db.Uuid
+  schoolId          String   @db.Uuid
+  effectiveFrom     DateTime @db.Date
+  schoolName        String
+  address           String?
+  phone             String?
+  actorIdentityId   String   @db.Uuid
+  membershipId      String   @db.Uuid
+  createdAt         DateTime @default(now())
+  school            School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, effectiveFrom])
+  @@unique([schoolId, id])
+  @@index([schoolId, effectiveFrom])
+}
+
+model SchoolCalendarVersion {
+  id                String                  @id @default(uuid()) @db.Uuid
+  schoolId          String                  @db.Uuid
+  effectiveFrom     DateTime                @db.Date
+  actorIdentityId   String                  @db.Uuid
+  membershipId      String                  @db.Uuid
+  createdAt         DateTime                @default(now())
+  school            School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  holidays          SchoolCalendarHoliday[]
+
+  @@unique([schoolId, effectiveFrom])
+  @@unique([schoolId, id])
+  @@index([schoolId, effectiveFrom])
+}
+
+model SchoolCalendarHoliday {
+  id                String                @id @default(uuid()) @db.Uuid
+  schoolId          String                @db.Uuid
+  calendarVersionId String                @db.Uuid
+  name              String
+  startsOn          DateTime              @db.Date
+  endsOn            DateTime              @db.Date
+  createdAt         DateTime              @default(now())
+  calendarVersion   SchoolCalendarVersion @relation(fields: [schoolId, calendarVersionId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, calendarVersionId, startsOn])
 }
