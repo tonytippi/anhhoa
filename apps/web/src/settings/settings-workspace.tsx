@@ -95,7 +95,10 @@ export function SettingsWorkspace({
       `${apiUrl}/api/app/schools/${schoolId}/settings`,
       { credentials: "include" },
     );
-    if ([401, 403, 404].includes(response.status)) return denied();
+    if ([401, 403, 404].includes(response.status)) {
+      if (activeSchool.current === schoolId) denied();
+      return;
+    }
     if (!response.ok) throw new Error("Không thể tải cấu hình trường.");
     if (activeSchool.current === schoolId)
       setData(((await response.json()) as { data: Settings }).data);
@@ -178,7 +181,9 @@ export function SettingsWorkspace({
     setErrorScope("profile");
     setMessage("");
     setPending(undefined);
-    void load().catch((error: Error) => setMessage(error.message));
+    void load().catch((error: Error) => {
+      if (activeSchool.current === schoolId) setMessage(error.message);
+    });
     const raw = sessionStorage.getItem(pendingKey);
     if (raw) {
       try {

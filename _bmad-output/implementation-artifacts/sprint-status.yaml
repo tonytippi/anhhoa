@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-18 # Story 3.3 typed Attendance/Handover/DailyJournal policy implementation completed.
+last_updated: 2026-09-18 # Story 3.4 policy isolation/versioning audit and verification completed.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -35,7 +35,7 @@ development_status:
   3-1-quan-ly-school-profile-va-calendar-co-version: done
   3-2-cau-hinh-financepolicy-va-tai-khoan-nhan-tien-co-lich-su: done
   3-3-cau-hinh-attendance-handover-va-parent-access-theo-policy-typed: done
-  3-4-audit-va-verification-cho-policy-isolation-versioning: backlog
+  3-4-audit-va-verification-cho-policy-isolation-versioning: done
   epic-3-retrospective: optional
 
   epic-4: backlog

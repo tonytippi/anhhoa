@@ -60,4 +60,11 @@ describe('SettingsService validation and read scope', () => {
     expect(tx.schoolProfileVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: 'school', effectiveFrom: { lt: new Date('2026-03-01T00:00:00.000Z') } } }));
     expect(tx.auditRecord.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ provenance: expect.objectContaining({ oldValue: expect.objectContaining({ schoolName: 'Cũ' }) }) }) }));
   });
+  it('rejects malformed idempotency input before any Settings write can start', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new SettingsService(prisma as never, authorization as never);
+    await expect(service.createProfile('identity', 'school', 'not-a-uuid', crypto.randomUUID(), { effectiveFrom: '2026-01-01', schoolName: 'A' })).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
+    expect(prisma.operation.findFirst).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 });

@@ -51,6 +51,29 @@ describe('SettingsWorkspace', () => {
     await waitFor(() => expect(sessionStorage.getItem('passionedu.app.pending-settings-operation')).toBeNull());
     expect((screen.getByLabelText('Tên trường') as HTMLInputElement).value).toBe('');
   });
+  it('does not render a late School A response after switching to School B', async () => {
+    let resolveA: ((value: Response) => void) | undefined;
+    const schoolA = new Promise<Response>((resolve) => { resolveA = resolve; });
+    vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/schools/school-a/') ? schoolA : Promise.resolve(response({ ...settings, profile: { effectiveFrom: '2026-01-01', schoolName: 'Trường B xác nhận', address: null, phone: null } }))));
+    const view = render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    view.rerender(<SettingsWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
+    expect(await screen.findByText(/Trường B xác nhận/)).toBeTruthy();
+    resolveA!(response({ ...settings, profile: { effectiveFrom: '2026-01-01', schoolName: 'Trường A cũ', address: null, phone: null } }));
+    await waitFor(() => expect(screen.queryByText(/Trường A cũ/)).toBeNull());
+  });
+  it('keeps School B data and errors clear when a delayed School A GET fails after the switch', async () => {
+    let rejectA: ((reason?: unknown) => void) | undefined;
+    const schoolA = new Promise<Response>((_resolve, reject) => { rejectA = reject; });
+    const denied = vi.fn();
+    vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/schools/school-a/') ? schoolA : Promise.resolve(response({ ...settings, profile: { effectiveFrom: '2026-01-01', schoolName: 'Trường B xác nhận', address: null, phone: null } }))));
+    const view = render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={denied} />);
+    view.rerender(<SettingsWorkspace schoolId="school-b" schoolName="Trường B" denied={denied} />);
+    expect(await screen.findByText(/Trường B xác nhận/)).toBeTruthy();
+    rejectA!(new Error('Không thể tải cấu hình trường.'));
+    await waitFor(() => expect(screen.getByText(/Trường B xác nhận/)).toBeTruthy());
+    expect(screen.queryByText('Không thể tải cấu hình trường.')).toBeNull();
+    expect(denied).not.toHaveBeenCalled();
+  });
   it('submits fixed Finance settings input and retains server-confirmed account status', async () => {
     const finance = { ...settings, bankAccounts: [{ id: 'account-a', receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}', status: 'ACTIVE' as const, lifecycleReason: null }] };
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? response({}) : response(finance)));
