@@ -2,7 +2,8 @@
 title: 'Cấu hình FinancePolicy và tài khoản nhận tiền có lịch sử'
 type: 'feature'
 created: '2026-09-18'
-status: 'draft'
+status: 'done'
+baseline_commit: 'cd6efe8a457b439dca2355eda6e4e403f958f4fc'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -10,7 +11,8 @@ context:
   - '_bmad-output/planning-artifacts/architecture/architecture-passionedu-2026-09-04/ARCHITECTURE-SPINE.md'
   - '_bmad-output/implementation-artifacts/decision-story-3-2-finance-policy-bank-account-2026-09-18.md'
 warnings: []
-deferred: []
+deferred:
+  - 'Epic 5 Finance must authorize active same-School BankAccount selection at Invoice issue; Story 3.2 intentionally provides configuration history only and its Never boundary excludes a downstream Finance selection API.'
 ---
 
 <intent-contract>
@@ -43,14 +45,14 @@ deferred: []
 
 ## Code Map
 
-- `apps/api/prisma/schema.prisma` -- Story 3.1 hiện chỉ có `SchoolProfileVersion`/`SchoolCalendarVersion`; cần thêm typed FinancePolicy và School BankAccount graph sau khi field contract được chốt.
-- `apps/api/prisma/migrations/20260918000006_school_settings_versioned/migration.sql` -- mẫu composite tenant FK, unique `(schoolId, effectiveFrom)`, append-only trigger và cleanup-safe history rule.
-- `apps/api/src/modules/settings/settings.service.ts` -- owner cho Settings read/as-of, typed validation, transactional reauthorization, Operation replay và audit predecessor; mở rộng thay vì tạo security path song song.
-- `apps/api/src/modules/settings/settings.controller.ts` -- REST app boundary dùng `assertCookieMutation`; thêm endpoint chỉ sau khi request/response contract rõ ràng.
+- `apps/api/prisma/schema.prisma` -- `School` (9-35) nhận relation FinancePolicy/BankAccount; model versioned tại 400-444 là mẫu unique `(schoolId,effectiveFrom)` và composite tenant identity.
+- `apps/api/prisma/migrations/20260918000006_school_settings_versioned/migration.sql` -- mẫu append-only trigger/cleanup-safe history; migration mới bảo vệ FinancePolicy và lifecycle history, đồng thời chỉ cho phép update lifecycle columns trên BankAccount.
+- `apps/api/src/modules/settings/settings.service.ts` -- `read()` (20-24), version/audit predecessor (25-34) và `mutate()` (37-40) là owner cho typed validation, reauthorization, Operation replay và audit.
+- `apps/api/src/modules/settings/settings.controller.ts` -- REST app boundary cookie session và `assertCookieMutation`; thêm ba POST Settings-owned routes.
 - `apps/api/src/modules/common/{audit,mutation-protection,operation-idempotency}.ts` -- bắt buộc reuse audit provenance, CSRF/origin/fingerprint và Operation collision semantics.
 - `apps/api/src/modules/memberships/memberships.{controller,service}.ts` -- current canonical `GET /api/app/schools/:schoolId/operations/:operationId`; không tạo Settings reconciliation endpoint yếu hơn.
-- `apps/api/src/modules/settings/{settings.service,settings.controller}.test.ts` và `apps/api/src/integration/settings.integration.test.ts` -- mở rộng proof validation, as-of, append-only, tenant isolation, account lifecycle/audit và idempotency sau khi contract rõ.
-- `apps/web/src/settings/settings-workspace.tsx` -- REST-only Settings UI đã có server error, pending Operation reconciliation và school-switch guard; Finance tab phải reuse các state này.
+- `apps/api/src/modules/settings/{settings.service,settings.controller}.test.ts` và `apps/api/src/integration/settings.integration.test.ts` -- validation/as-of/append-only/tenant/lifecycle/audit/idempotency; integration cleanup transition trước account.
+- `apps/web/src/settings/settings-workspace.tsx` -- `load`, `reconcile`, `post` và dirty/switch states (75-242) là REST-only reuse point cho Finance tab.
 - `apps/web/src/settings/settings-workspace.test.tsx` và `apps/web/src/school-context.test.tsx` -- kiểm chứng confirmed state, field error/focus, timeout không repeat POST và stale School clearing.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/school-settings.html` -- Finance tab yêu cầu table-first policy history và BankAccount search/status/sort; mockup không thay thế API contract.
 
@@ -58,11 +60,11 @@ deferred: []
 
 **Execution:**
 - [x] `_bmad-output/implementation-artifacts/decision-story-3-2-finance-policy-bank-account-2026-09-18.md` -- chốt typed field/enums, template fixed và lifecycle -- ngăn schema/API khác nghĩa.
-- [ ] `apps/api/prisma/schema.prisma` và migration mới -- thêm FinancePolicy immutable effective-dated và BankAccount historical School-scoped cùng composite integrity/append-only rule phù hợp -- bảo toàn tenant và history.
-- [ ] `apps/api/src/modules/settings/{settings.service,settings.controller}.ts` -- thêm Settings read/write/lifecycle API, server validation, audit và Operation -- API giữ authorization/policy state.
-- [ ] `apps/api/src/modules/settings/*.test.ts` và `apps/api/src/integration/settings.integration.test.ts` -- proof matrix cho as-of, lifecycle, audit, idempotency, append-only và cross-School deny -- khóa finance configuration contract.
-- [ ] `apps/web/src/settings/settings-workspace.tsx` cùng tests -- render Finance tab server-confirmed, accessible error, dirty-switch guard và timeout reconciliation -- client không tự tính eligibility hay retry POST.
-- [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- chỉ đánh dấu 3.2 done sau full verification pass.
+- [x] `apps/api/prisma/schema.prisma` và migration mới -- thêm enum/model FinancePolicy, BankAccount và append-only lifecycle composite School graph; database cấm identity mutation/delete -- bảo toàn tenant/history.
+- [x] `apps/api/src/modules/settings/{settings.service,settings.controller}.ts` -- thêm aggregate read, policy version/create account/lifecycle POST và typed server validation/audit/Operation -- API giữ authorization/policy state.
+- [x] `apps/api/src/modules/settings/*.test.ts` và `apps/api/src/integration/settings.integration.test.ts` -- proof range/enum/template/as-of/lifecycle/audit/idempotency/append-only/cross-School deny -- khóa finance configuration contract.
+- [x] `apps/web/src/settings/settings-workspace.tsx` cùng tests -- render Finance table/form và immutable template, server error, dirty-switch guard/timeout reconcile -- client không tự tính eligibility hay retry POST.
+- [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- chỉ đánh dấu 3.2 done sau full verification pass.
 
 **Acceptance Criteria:**
 - Given School Admin tạo FinancePolicy version với `dueDaysAfterIssue` 0..365, tax/reversal enum và debt scope current-SchoolYear, when server persist, then aggregate đúng School-scoped, immutable, audit actor/old/new và Operation outcome.
@@ -74,8 +76,51 @@ deferred: []
 
 FinancePolicy dùng unique `effectiveFrom` và resolver latest-prior như Story 3.1; interval `[effectiveFrom, effectiveTo)` được derive khi đọc thay vì update version cũ, vì history phải append-only. BankAccount là historical configuration: immutable financial identity, create active và lifecycle transition có reason. Template lưu canonical fixed form; Invoice domain sau này render source facts snapshot rồi normalize Vietnamese without diacritics.
 
+## Verification
+
+**Commands:**
+- `pnpm --filter @passionedu/api prisma:generate` -- Prisma schema hợp lệ.
+- `pnpm --filter @passionedu/api test` -- Settings API unit/controller tests pass.
+- `pnpm --filter @passionedu/admin-web test` -- Finance Settings UI tests pass.
+- `set -a && . apps/api/.env && set +a && pnpm --filter @passionedu/api test:integration` -- PostgreSQL Settings isolation/history suite pass khi local DB configured.
+- `pnpm lint && pnpm typecheck && pnpm test && pnpm build` -- toàn workspace pass.
+- `git diff --check` -- không whitespace error.
+
 ## Auto Run Result
 
-Status: draft
+### 2026-09-18 - Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10 (high 8, medium 2)
+- defer: 1 (medium 1)
+- reject: 6
+- addressed_findings:
+  - `[high] [patch]` Lưu lifecycle transition append-only có composite tenant graph và `sequence` monotonic per account, thay vì overwrite status hoặc dựa vào transaction-start timestamp.
+  - `[high] [patch]` Thêm FinancePolicy/BankAccount history DTO và table-first Admin surface, cùng as-of policy/account lifecycle resolution.
+  - `[high] [patch]` Bảo toàn Finance draft, accessible lifecycle confirmation/error state, empty filter status và blank due-day rejection.
+  - `[high] [patch]` Mở rộng proof PostgreSQL và UI cho audit, immutable history, tenant deny, Operation reconciliation và state server-confirmed.
 
-Blocking condition resolved by `decision-story-3-2-finance-policy-bank-account-2026-09-18.md`. The decision supersedes the earlier `studentCode + className` transfer-content rule for Story 3.2 and downstream Finance/Invoice implementation.
+Status: done
+
+Đã triển khai Settings-owned FinancePolicy versioned và BankAccount history: Prisma/PostgreSQL migration có typed enums, composite School/Membership/Operation graph, immutable identity/policy/lifecycle trigger và lifecycle sequence chống race. API thêm resolved/history GET cùng idempotent policy/account/lifecycle mutation; Admin Settings hiển thị table-first history, validation accessible, switch guard và reconciliation không retry POST.
+
+Files changed:
+
+- `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260918000007_finance_policy_bank_accounts/migration.sql` -- typed persistence, temporal/lifecycle integrity.
+- `apps/api/src/modules/settings/{settings.service,settings.controller}.ts` -- REST aggregate, validation, audit và Operation workflow.
+- `apps/api/src/modules/settings/*.test.ts`, `apps/api/src/integration/settings.integration.test.ts` -- unit/PostgreSQL proof.
+- `apps/web/src/settings/settings-workspace.tsx` và test -- Finance Settings surface server-confirmed.
+- `sprint-status.yaml` -- Story 3.2 complete.
+
+Review findings: 10 patches applied (8 high, 2 medium), 1 deferred downstream Epic 5 account-selection contract, 6 rejected. Follow-up review recommendation: `true` (score 26 from patched findings).
+
+Verification passed:
+
+- `pnpm --filter @passionedu/api prisma:generate`
+- `pnpm --filter @passionedu/api test` -- 13 files, 51 tests
+- `pnpm --filter @passionedu/admin-web test` -- 5 files, 49 tests
+- `set -a && . apps/api/.env && set +a && pnpm --filter @passionedu/api test:integration` -- migration deployed; 7 files, 61 tests
+- `pnpm lint && pnpm typecheck && pnpm test && pnpm build`
+- `git diff --check`
+
+Residual risk: Epic 5 must enforce active same-School BankAccount selection at Invoice issue; it is recorded in `deferred` and intentionally not implemented by Settings.

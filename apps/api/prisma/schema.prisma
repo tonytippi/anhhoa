@@ -31,6 +31,8 @@ model School {
   enrollmentLifecycleTransitions StudentEnrollmentLifecycleTransition[]
   profileVersions SchoolProfileVersion[]
   calendarVersions SchoolCalendarVersion[]
+  financePolicies FinancePolicy[]
+  bankAccounts BankAccount[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
@@ -223,6 +225,26 @@ enum SchoolStatus {
   SUSPENDED
 }
 
+enum FinanceTaxTreatment {
+  NOT_APPLICABLE
+  TAX_INCLUDED
+  TAX_EXCLUDED
+}
+
+enum FinanceDebtScope {
+  CURRENT_SCHOOL_YEAR_ONLY
+}
+
+enum FinanceReversalMode {
+  DIRECT
+  SCHOOL_ADMIN_APPROVAL
+}
+
+enum BankAccountStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum MembershipStatus {
   ACTIVE
   REVOKED
@@ -331,6 +353,9 @@ model SchoolMembership {
   roleGrants     SchoolRoleGrant[]
   audits         AuditRecord[]      @relation("AuditMembership")
   operations     Operation[]        @relation("OperationMembership")
+  financePolicies FinancePolicy[]
+  bankAccounts BankAccount[]
+  bankAccountLifecycleTransitions BankAccountLifecycleTransition[]
 
   @@unique([schoolId, userIdentityId])
   @@unique([schoolId, id])
@@ -388,6 +413,7 @@ model Operation {
   platformOperatorGrant PlatformOperatorGrant? @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
   actorIdentity   UserIdentity?      @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
   closedSchoolYears SchoolYear[]     @relation("SchoolYearCloseOperation")
+  bankAccountLifecycleTransitions BankAccountLifecycleTransition[] @relation("BankAccountLifecycleOperation")
 
   // PostgreSQL partial unique indexes below are migration-owned because Prisma cannot express predicates.
   @@index([schoolId, actorType, actorReference, route, idempotencyKey])
@@ -441,4 +467,64 @@ model SchoolCalendarHoliday {
 
   @@unique([schoolId, id])
   @@index([schoolId, calendarVersionId, startsOn])
+}
+
+model FinancePolicy {
+  id                String              @id @default(uuid()) @db.Uuid
+  schoolId          String              @db.Uuid
+  effectiveFrom     DateTime            @db.Date
+  dueDaysAfterIssue Int
+  taxTreatment      FinanceTaxTreatment
+  debtScope         FinanceDebtScope
+  reversalMode      FinanceReversalMode
+  reason            String?
+  actorIdentityId   String              @db.Uuid
+  membershipId      String              @db.Uuid
+  createdAt         DateTime            @default(now())
+  school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership        SchoolMembership    @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, effectiveFrom])
+  @@unique([schoolId, id])
+  @@index([schoolId, effectiveFrom])
+}
+
+model BankAccount {
+  id                 String            @id @default(uuid()) @db.Uuid
+  schoolId           String            @db.Uuid
+  receivingBank      String
+  accountNumber      String
+  accountHolderName  String
+  transferTemplate   String
+  actorIdentityId    String            @db.Uuid
+  membershipId       String            @db.Uuid
+  createdAt          DateTime          @default(now())
+  school             School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership         SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  lifecycleTransitions BankAccountLifecycleTransition[]
+
+  @@unique([schoolId, id])
+  @@index([schoolId, createdAt])
+}
+
+model BankAccountLifecycleTransition {
+  id              String            @id @default(uuid()) @db.Uuid
+  schoolId        String            @db.Uuid
+  bankAccountId   String            @db.Uuid
+  previousStatus  BankAccountStatus?
+  status          BankAccountStatus
+  reason          String?
+  actorIdentityId String            @db.Uuid
+  membershipId    String            @db.Uuid
+  operationId     String            @db.Uuid
+  sequence        Int
+  changedAt       DateTime          @default(now())
+  bankAccount     BankAccount       @relation(fields: [schoolId, bankAccountId], references: [schoolId, id], onDelete: Restrict)
+  membership      SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation       Operation         @relation("BankAccountLifecycleOperation", fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, bankAccountId, sequence])
+  @@index([schoolId, bankAccountId, sequence])
+  @@index([schoolId, operationId])
 }

@@ -6,12 +6,19 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('SettingsController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const settings = { read: vi.fn(), createProfile: vi.fn(), createCalendar: vi.fn() };
+  const settings = { read: vi.fn(), createProfile: vi.fn(), createCalendar: vi.fn(), createFinancePolicy: vi.fn(), createBankAccount: vi.fn(), transitionBankAccount: vi.fn() };
   it('rejects missing mutation proof before profile or calendar service execution', async () => {
     const controller = new SettingsController(auth as never, settings as never);
     await expect(controller.profile(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
     await expect(controller.calendar(request({ ...valid, 'x-csrf-token': 'wrong' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
     expect(settings.createProfile).not.toHaveBeenCalled(); expect(settings.createCalendar).not.toHaveBeenCalled();
+  });
+  it('applies browser mutation proof to FinancePolicy and BankAccount writes', async () => {
+    const controller = new SettingsController(auth as never, settings as never);
+    settings.createFinancePolicy.mockResolvedValue({ id: 'policy-op' }); settings.createBankAccount.mockResolvedValue({ id: 'account-op' }); settings.transitionBankAccount.mockResolvedValue({ id: 'lifecycle-op' });
+    await expect(controller.financePolicy(request(valid), 'school', 'key', 'operation', {})).resolves.toEqual({ data: { id: 'policy-op' } });
+    await expect(controller.bankAccount(request(valid), 'school', 'key', 'operation', {})).resolves.toEqual({ data: { id: 'account-op' } });
+    await expect(controller.bankAccountLifecycle(request(valid), 'school', 'account', 'key', 'operation', {})).resolves.toEqual({ data: { id: 'lifecycle-op' } });
   });
   it('uses the session identity and browser mutation proof at both Settings writes', async () => {
     settings.createProfile.mockResolvedValue({ id: 'profile-op' }); settings.createCalendar.mockResolvedValue({ id: 'calendar-op' });

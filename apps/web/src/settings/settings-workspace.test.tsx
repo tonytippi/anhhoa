@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsWorkspace } from './settings-workspace';
 
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
-const settings = { asOf: '2026-01-01', timezone: 'Asia/Ho_Chi_Minh', profile: null, calendar: null };
+const settings = { asOf: '2026-01-01', timezone: 'Asia/Ho_Chi_Minh', profile: null, calendar: null, financePolicy: null, bankAccounts: [] };
 afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); });
 
 describe('SettingsWorkspace', () => {
@@ -36,11 +36,11 @@ describe('SettingsWorkspace', () => {
   it('keeps calendar input and marks its own field after a calendar validation error', async () => {
     vi.stubGlobal('fetch', vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? new Response(JSON.stringify({ error: { message: 'Dữ liệu không hợp lệ.', fieldErrors: { effectiveFrom: 'Đã có phiên bản tại ngày hiệu lực này.' } } }), { status: 400 }) : response(settings))));
     render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.change((await screen.findAllByLabelText('Ngày hiệu lực'))[1]!, { target: { value: '2026-01-01' } });
+    fireEvent.change((await screen.findAllByLabelText('Ngày hiệu lực'))[2]!, { target: { value: '2026-01-01' } });
     fireEvent.submit(screen.getByRole('button', { name: 'Tạo phiên bản lịch' }).closest('form')!);
     expect(await screen.findByText('Đã có phiên bản tại ngày hiệu lực này.')).toBeTruthy();
-    expect(screen.getAllByLabelText('Ngày hiệu lực')[1]!.getAttribute('aria-describedby')).toBe('calendar-effectiveFrom-error');
-    expect((screen.getAllByLabelText('Ngày hiệu lực')[1] as HTMLInputElement).value).toBe('2026-01-01');
+    expect(screen.getAllByLabelText('Ngày hiệu lực')[2]!.getAttribute('aria-describedby')).toBe('calendar-effectiveFrom-error');
+    expect((screen.getAllByLabelText('Ngày hiệu lực')[2] as HTMLInputElement).value).toBe('2026-01-01');
   });
   it('resets drafts and safely discards malformed persisted pending state on school change', async () => {
     sessionStorage.setItem('passionedu.app.pending-settings-operation', '{bad json');
@@ -50,5 +50,18 @@ describe('SettingsWorkspace', () => {
     view.rerender(<SettingsWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
     await waitFor(() => expect(sessionStorage.getItem('passionedu.app.pending-settings-operation')).toBeNull());
     expect((screen.getByLabelText('Tên trường') as HTMLInputElement).value).toBe('');
+  });
+  it('submits fixed Finance settings input and retains server-confirmed account status', async () => {
+    const finance = { ...settings, bankAccounts: [{ id: 'account-a', receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}', status: 'ACTIVE' as const, lifecycleReason: null }] };
+    const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? response({}) : response(finance)));
+    vi.stubGlobal('fetch', fetch); render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change((await screen.findAllByLabelText('Ngày hiệu lực'))[1]!, { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('Số ngày hạn thanh toán'), { target: { value: '30' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo phiên bản chính sách' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/finance-policy-versions', expect.objectContaining({ method: 'POST', body: expect.stringContaining('CURRENT_SCHOOL_YEAR_ONLY') })));
+    expect(screen.getAllByText('Đang hoạt động')).toHaveLength(2);
+    expect((screen.getByLabelText('Mẫu chuyển khoản') as HTMLInputElement).readOnly).toBe(true);
+    fireEvent.change(screen.getByLabelText('Trạng thái tài khoản'), { target: { value: 'INACTIVE' } });
+    expect(screen.queryByText('Ngân hàng A')).toBeNull();
   });
 });
