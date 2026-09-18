@@ -3,6 +3,7 @@ import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, 
 import type { Audience } from './auth.config.js';
 import { audienceConfig, authSecrets, superadminEmail } from './auth.config.js';
 import { PrismaService } from '../identity/prisma.service.js';
+import { ParentsService } from '../parents/parents.service.js';
 
 type IdToken = { iss: string; aud: string | string[]; azp?: string; sub: string; email: string; email_verified: boolean | string; nonce: string; exp: number };
 type Session = { aud: Audience; sub: string; email: string; exp: number };
@@ -15,7 +16,7 @@ const json = <T>(value: string): T => JSON.parse(Buffer.from(value, 'base64url')
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly parents?: ParentsService) {}
   private sign(value: string): string { return createHmac('sha256', authSecrets().sessionSecret).update(value).digest('base64url'); }
   private issue(payload: Session): string { const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url'); return `${encoded}.${this.sign(encoded)}`; }
 
@@ -43,6 +44,10 @@ export class AuthService {
       const subject = await tx.userIdentity.findUnique({ where: { googleSubject: google.sub } }); const email = await tx.userIdentity.findUnique({ where: { emailNormalized } });
       if (subject && subject.emailNormalized !== emailNormalized) throw new UnauthorizedException({ code: 'OAUTH_DENIED', message: 'Google subject không khớp email đã bind.' });
       if (email?.googleSubject && email.googleSubject !== google.sub) throw new UnauthorizedException({ code: 'OAUTH_DENIED', message: 'Email đã được bind với Google subject khác.' });
+      if (audience === 'parent') {
+        if (!this.parents) throw new UnauthorizedException({ code: 'PARENT_ACCESS_DENIED', message: 'Không có liên kết phụ huynh đang hiệu lực.' });
+        return this.parents.admit(tx, emailNormalized, google.sub);
+      }
       if (subject) return subject;
       if (email) {
         // A conditional write makes the first subject binding immutable under concurrent callbacks.
@@ -62,7 +67,6 @@ export class AuthService {
       if ((error as { code?: string }).code !== 'P2002') throw error;
       identity = await consumeAndBind();
     }
-    if (audience === 'parent') return { redirect: audienceConfig(audience).deniedRedirect };
     if (audience === 'ops') {
       if (identity.emailNormalized !== superadminEmail()) return { redirect: audienceConfig(audience).deniedRedirect };
       const existingGrant = await this.prisma.platformOperatorGrant.findUnique({ where: { userIdentityId: identity.id }, select: { revokedAt: true } });

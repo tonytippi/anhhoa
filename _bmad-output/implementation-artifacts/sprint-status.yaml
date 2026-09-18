@@ -26,7 +26,7 @@ development_status:
   epic-2: in-progress
   2-1-quan-ly-schoolyear-va-class-trong-tenant: done
   2-2-tao-hoc-sinh-va-enrollment-co-vong-doi-bao-toan-lich-su: done
-  2-3-lien-ket-parent-pending-va-revoke-theo-tung-hoc-sinh: backlog
+  2-3-lien-ket-parent-pending-va-revoke-theo-tung-hoc-sinh: done
   2-4-quan-ly-staff-profile-va-phan-cong-theo-effective-date: backlog
   2-5-chuyen-lop-chuyen-nam-va-close-year-bang-preview-co-doi-soat: backlog
   epic-2-retrospective: optional

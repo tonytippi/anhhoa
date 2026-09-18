@@ -1,4 +1,5 @@
-export type Session = { audience: 'parent'; userIdentityId: string; email: string };
+export type ParentContext = { schoolId: string; schoolName: string; student: { id: string; fullName: string } };
+export type Session = { audience: 'parent'; userIdentityId: string; email: string; schools: ParentContext[] };
 const apiUrl = typeof __API_URL__ === 'undefined' ? '' : __API_URL__;
 const csrfCookieName = typeof __CSRF_COOKIE_NAME__ === 'undefined' ? 'parent_csrf' : __CSRF_COOKIE_NAME__;
 export const googleLoginUrl = `${apiUrl}/api/parent/auth/google/start`;

@@ -24,6 +24,7 @@ model School {
   classes     Class[]
   students    Student[]
   enrollments StudentEnrollment[]
+  studentParents StudentParent[]
   enrollmentLifecycleTransitions StudentEnrollmentLifecycleTransition[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
@@ -86,6 +87,7 @@ model Student {
   updatedAt   DateTime @updatedAt
   school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   enrollments StudentEnrollment[]
+  parentLinks StudentParent[]
 
   @@unique([schoolId, id])
   @@index([schoolId, studentCode])
@@ -176,6 +178,43 @@ model UserIdentity {
   operations      Operation[]
   platformGrant   PlatformOperatorGrant?
   initiallyOwnedSchools School[] @relation("InitialSchoolOwner")
+  parentProfile ParentProfile?
+}
+
+enum StudentParentStatus {
+  ACTIVE
+  REVOKED
+}
+
+model ParentProfile {
+  id              String          @id @default(uuid()) @db.Uuid
+  emailNormalized String          @unique
+  fullName        String
+  phone           String
+  userIdentityId  String?         @unique @db.Uuid
+  boundAt         DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  userIdentity    UserIdentity?   @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
+  studentParents  StudentParent[]
+}
+
+model StudentParent {
+  id              String              @id @default(uuid()) @db.Uuid
+  schoolId        String              @db.Uuid
+  studentId       String              @db.Uuid
+  parentProfileId String              @db.Uuid
+  status          StudentParentStatus @default(ACTIVE)
+  createdAt       DateTime            @default(now())
+  revokedAt       DateTime?
+  school          School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  parentProfile   ParentProfile       @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, studentId, parentProfileId])
+  @@index([parentProfileId, status])
+  @@index([schoolId, studentId, status])
 }
 
 model OAuthTransaction {

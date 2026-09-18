@@ -102,7 +102,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('Epic 1 release ga
     expect((await fetch(`${baseUrl}/api/app/schools/${b.id}`, { headers: { cookie: actorSession.session! } })).status).toBe(200);
   });
 
-  it('proves every issued audience session is rejected by every other audience endpoint, keeps Parent fail-closed, enforces mutation origin, and suspends through Ops', async () => {
+  it('proves every issued audience session is rejected by every other audience endpoint, denies pending or no-link Parent admission, enforces mutation origin, and suspends through Ops', async () => {
     const appEmail = `audience-app-${uuid()}@example.com`; const teacherEmail = `audience-teacher-${uuid()}@example.com`; const operatorEmail = `audience-ops-${uuid()}@example.com`;
     process.env.SUPERADMIN_EMAIL = operatorEmail;
     const appSession = await login('app', appEmail); const teacherSession = await login('teacher', teacherEmail); const opsSession = await login('ops', operatorEmail);

@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { PrismaService } from '../identity/prisma.service.js';
-import { AuthorizationController } from './authorization.controller.js';
+import { AppAuthorizationController, TeacherAuthorizationController } from './authorization.controller.js';
 import { AuthorizationService } from './authorization.service.js';
-@Module({ imports: [AuthModule], controllers: [AuthorizationController], providers: [AuthorizationService, PrismaService], exports: [AuthorizationService] })
+@Module({ imports: [forwardRef(() => AuthModule)], controllers: [AppAuthorizationController, TeacherAuthorizationController], providers: [AuthorizationService, PrismaService], exports: [AuthorizationService] })
 export class AuthorizationModule {}

@@ -5,6 +5,7 @@ const users = {
   app: { email: 'release-gate-admin@example.com', subject: 'release-gate-admin' },
   teacher: { email: 'release-gate-teacher@example.com', subject: 'release-gate-teacher' },
   ops: { email: 'release-gate-operator@example.com', subject: 'release-gate-operator' },
+  parent: { email: 'release-gate-parent@example.com', subject: 'release-gate-parent' },
 } as const;
 
 async function login(context: import('@playwright/test').BrowserContext, audience: keyof typeof users) {
@@ -43,6 +44,20 @@ test('deterministic Parent callback redirects to the safe portal state', async (
   const parent = await context.request.get(`http://localhost:3000/api/parent/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(token)}`, { maxRedirects: 0 });
   expect(parent.status()).toBe(302); expect(parent.headers().location).toBe('http://localhost:5174');
   expect((await context.cookies(api)).some((cookie) => cookie.name === 'parent_session')).toBe(false);
+  await context.close();
+});
+
+test('Parent callback issues a session only for the seeded active links and renders the real chooser', async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, 'parent');
+  const session = await context.request.get(`${api}/api/parent/auth/session`);
+  expect(session.status()).toBe(200);
+  expect((await session.json()).data.schools).toHaveLength(2);
+  const page = await context.newPage();
+  await page.goto('http://localhost:5174');
+  await expect(page.getByRole('heading', { name: 'Chọn trường và học sinh' })).toBeVisible();
+  await expect(page.getByText('Release Gate A: Bé An')).toBeVisible();
+  await expect(page.getByText('Release Gate B: Bé Bình')).toBeVisible();
   await context.close();
 });
 

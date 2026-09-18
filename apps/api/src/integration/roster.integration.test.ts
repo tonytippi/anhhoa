@@ -2,10 +2,12 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
 import { PrismaService } from '../modules/identity/prisma.service.js';
 import { RosterService } from '../modules/roster/roster.service.js';
+import { ParentsService } from '../modules/parents/parents.service.js';
 
 const prisma = new PrismaService();
 const authorization = new AuthorizationService(prisma);
 const roster = new RosterService(prisma, authorization);
+const parents = new ParentsService(prisma, authorization);
 const schools: string[] = [];
 const uuid = () => crypto.randomUUID();
 const dates = { startsOn: '2026-01-01', endsOn: '2027-01-01' };
@@ -42,6 +44,9 @@ afterEach(async () => {
   await prisma.auditRecord.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.operation.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.studentEnrollmentLifecycleTransition.deleteMany({ where: { schoolId: { in: schools } } });
+  await prisma.studentParent.deleteMany({ where: { schoolId: { in: schools } } });
+  const profiles = await prisma.parentProfile.findMany({ where: { studentParents: { none: {} } }, select: { id: true } });
+  await prisma.parentProfile.deleteMany({ where: { id: { in: profiles.map((profile) => profile.id) } } });
   await prisma.studentEnrollment.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.student.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.class.deleteMany({ where: { schoolId: { in: schools } } });
@@ -160,5 +165,21 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const student = await prisma.student.create({ data: { schoolId: current.current.id, studentCode: 'CC-direct', fullName: 'Direct', dateOfBirth: new Date('2022-01-01T00:00:00Z') } });
     await expect(prisma.studentEnrollment.create({ data: { schoolId: current.current.id, studentId: student.id, schoolYearId: current.year.id, classId: current.classroom.id, lifecycle: 'ENROLLED', effectiveFrom: new Date('2025-12-31T00:00:00Z'), schoolYearName: 'Năm 2026', schoolYearStartsOn: new Date('2026-01-01T00:00:00Z'), schoolYearEndsOn: new Date('2027-01-01T00:00:00Z'), className: 'Mầm' } })).rejects.toBeTruthy();
     await expect(prisma.studentEnrollment.create({ data: { schoolId: current.current.id, studentId: student.id, schoolYearId: current.year.id, classId: current.classroom.id, lifecycle: 'WITHDRAWN', effectiveFrom: new Date('2026-01-01T00:00:00Z'), schoolYearName: 'Năm 2026', schoolYearStartsOn: new Date('2026-01-01T00:00:00Z'), schoolYearEndsOn: new Date('2027-01-01T00:00:00Z'), className: 'Mầm' } })).rejects.toBeTruthy();
+  });
+
+  it('persists normalized pending links, retains revoke history, and isolates foreign StudentParent IDs', async () => {
+    const current = await graph(); const foreign = await graph(); const created = await createStudent(current); const other = await createStudent(foreign); const studentId = (created.outcome as { id: string }).id; const otherStudentId = (other.outcome as { id: string }).id;
+    const key = uuid(); const linked = await parents.create(current.admin.id, current.current.id, studentId, key, uuid(), { fullName: 'Mai Trần', email: ' MAI@Example.com ', phone: '0900000000' });
+    const replay = await parents.create(current.admin.id, current.current.id, studentId, key, uuid(), { fullName: 'Mai Trần', email: ' MAI@Example.com ', phone: '0900000000' });
+    expect(linked).toEqual(replay); expect(linked.outcome).toMatchObject({ status: 'ACTIVE', parent: { email: 'mai@example.com', bound: false } });
+    expect(await prisma.userIdentity.count({ where: { emailNormalized: 'mai@example.com' } })).toBe(0);
+    const profile = await prisma.parentProfile.findUniqueOrThrow({ where: { emailNormalized: 'mai@example.com' } }); const linkId = (linked.outcome as { id: string }).id;
+    const foreignLink = await parents.create(foreign.admin.id, foreign.current.id, otherStudentId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai@example.com', phone: '0900000000' });
+    await expect(parents.revoke(current.admin.id, current.current.id, (foreignLink.outcome as { id: string }).id, uuid(), uuid())).rejects.toMatchObject({ status: 404 });
+    await parents.revoke(current.admin.id, current.current.id, linkId, uuid(), uuid());
+    expect(await prisma.studentParent.findUniqueOrThrow({ where: { id: linkId } })).toMatchObject({ status: 'REVOKED', revokedAt: expect.any(Date), parentProfileId: profile.id });
+    const reactivated = await parents.create(current.admin.id, current.current.id, studentId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai@example.com', phone: '0900000000' });
+    expect(reactivated.outcome).toMatchObject({ id: linkId, status: 'ACTIVE' });
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.current.id, action: { in: ['STUDENT_PARENT_CREATED', 'STUDENT_PARENT_REVOKED', 'STUDENT_PARENT_REACTIVATED'] } } })).toBe(3);
   });
 });

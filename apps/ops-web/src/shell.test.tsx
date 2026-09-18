@@ -5,6 +5,12 @@ import { OpsShell } from './main';
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.cookie = 'ops_csrf=; Max-Age=0'; });
 
 describe('OpsShell', () => {
+  it('keeps the authenticated portal visible after Strict Mode bootstrap remounts', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { audience: 'ops', userIdentityId: 'id', email: 'a@example.com', platformOperatorGrantId: 'grant' } }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }))));
+    render(<OpsShell />);
+    expect(await screen.findByRole('button', { name: 'Khởi tạo trường' })).toBeTruthy();
+  });
+
   it('keeps protected content hidden after a 401 startup response and exposes Google login', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     render(<OpsShell />);

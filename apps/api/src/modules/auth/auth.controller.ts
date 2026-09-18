@@ -3,6 +3,7 @@ import type { Audience } from './auth.config.js';
 import { audienceConfig } from './auth.config.js';
 import { AuthService } from './auth.service.js';
 import { assertCookieMutation } from '../common/mutation-protection.js';
+import { ParentsService } from '../parents/parents.service.js';
 
 const audiences = new Set<Audience>(['app', 'teacher', 'parent', 'ops']);
 const cookieSecure = process.env.NODE_ENV !== 'test';
@@ -13,7 +14,7 @@ function cookie(request: RequestLike, name: string): string | undefined { return
 
 @Controller('api/:audience/auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly auth: AuthService, private readonly parents?: ParentsService) {}
 
   @Get('google/start')
   async start(@Param('audience') value: string, @Query('redirect') redirect: string | undefined, @Res() response: ResponseLike): Promise<void> { const selected = audience(value); const result = await this.auth.start(selected, redirect); response.cookie(audienceConfig(selected).correlationCookieName, result.correlation, { httpOnly: true, secure: cookieSecure, sameSite: 'lax', path: '/' }); response.redirect(result.authorizationUrl); }
@@ -34,6 +35,7 @@ export class AuthController {
     const identity = this.auth.session(selected, cookie(request, config.cookieName));
     const grant = selected === 'ops' ? await this.auth.platformOperatorGrant(identity.userIdentityId) : undefined;
     if (selected === 'ops' && !grant) throw new UnauthorizedException({ code: 'OPS_ACCESS_DENIED', message: 'Bạn không có quyền vận hành nền tảng.' });
+    if (selected === 'parent') return { data: { audience: selected, ...identity, ...(await this.parents!.context(identity.userIdentityId)) } };
     return { data: { audience: selected, ...identity, ...(grant ? { platformOperatorGrantId: grant.id } : {}) } };
   }
 

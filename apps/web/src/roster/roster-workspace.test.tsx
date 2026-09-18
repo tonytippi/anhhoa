@@ -131,6 +131,24 @@ describe('RosterWorkspace', () => {
     expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe(' ');
   });
 
+  it('creates and displays a Parent link only after server confirmation', async () => {
+    const student = { id: 'student-a', studentCode: 'S1', fullName: 'Bé An', dateOfBirth: '2022-01-01', enrollments: [] };
+    let linkReads = 0;
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.resolve(response({ id: 'operation' }));
+      if (url.endsWith('/parents')) return Promise.resolve(response(linkReads++ ? [{ id: 'link-a', studentId: 'student-a', status: 'ACTIVE', parent: { fullName: 'Mai Trần', email: 'mai@example.com', phone: '0900000000', bound: false } }] : []));
+      return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [student] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Họ và tên phụ huynh Bé An'), { target: { value: 'Mai Trần' } });
+    fireEvent.change(screen.getByLabelText('Email phụ huynh Bé An'), { target: { value: 'Mai@example.com' } });
+    fireEvent.change(screen.getByLabelText('Số điện thoại phụ huynh Bé An'), { target: { value: '0900000000' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo liên kết' }).closest('form')!);
+    expect(await screen.findByText('Mai Trần (mai@example.com) - Đang chờ')).toBeTruthy();
+    expect(fetch.mock.calls.some(([url, options]) => url === '/api/app/schools/school-a/roster/students/student-a/parents' && (options as RequestInit)?.method === 'POST' && JSON.parse((options as RequestInit).body as string).email === 'Mai@example.com')).toBe(true);
+  });
+
   it('uses server activeStudentCount to archive a Class without optimistic state', async () => {
     let classReads = 0;
     const fetch = vi.fn((url: string, options?: RequestInit) => {
