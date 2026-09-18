@@ -23,6 +23,8 @@ model School {
   schoolYears SchoolYear[]
   classes     Class[]
   students    Student[]
+  staffProfiles StaffProfile[]
+  staffClassAssignments StaffClassAssignment[]
   enrollments StudentEnrollment[]
   studentParents StudentParent[]
   enrollmentLifecycleTransitions StudentEnrollmentLifecycleTransition[]
@@ -55,6 +57,7 @@ model SchoolYear {
   school    School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   classes   Class[]
   enrollments StudentEnrollment[]
+  staffClassAssignments StaffClassAssignment[]
 
   @@unique([schoolId, id])
   @@index([schoolId, startsOn])
@@ -71,10 +74,55 @@ model Class {
   school       School      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   schoolYear   SchoolYear  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
   enrollments  StudentEnrollment[]
+  staffClassAssignments StaffClassAssignment[]
 
   @@index([schoolId, schoolYearId])
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, id])
+}
+
+model StaffProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  schoolId    String   @db.Uuid
+  fullName    String
+  email       String
+  phone       String
+  dateOfBirth DateTime @db.Date
+  gender      String
+  address     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  assignments StaffClassAssignment[]
+
+  @@unique([schoolId, id])
+  @@index([schoolId, fullName])
+}
+
+model StaffClassAssignment {
+  id                  String       @id @default(uuid()) @db.Uuid
+  schoolId            String       @db.Uuid
+  staffProfileId      String       @db.Uuid
+  schoolYearId        String       @db.Uuid
+  classId             String       @db.Uuid
+  effectiveFrom       DateTime     @db.Date
+  effectiveTo         DateTime?    @db.Date
+   reason              String
+   endReason           String?
+  schoolYearName      String
+  schoolYearStartsOn  DateTime     @db.Date
+  schoolYearEndsOn    DateTime     @db.Date
+  className           String
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  school              School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  staffProfile        StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear          SchoolYear   @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  classroom           Class        @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, schoolYearId, effectiveFrom])
+  @@index([schoolId, staffProfileId, effectiveFrom])
 }
 
 model Student {

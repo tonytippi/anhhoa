@@ -8,14 +8,14 @@ const response = (data: unknown, status = 200) => new Response(JSON.stringify({ 
 const error = (fieldErrors: Record<string, string>) => new Response(JSON.stringify({ error: { message: 'Dữ liệu không hợp lệ.', fieldErrors } }), { status: 400 });
 const rosterFetch = (post = response({ id: 'operation' })) => vi.fn((url: string, options?: RequestInit) => {
   if (options?.method === 'POST') return Promise.resolve(post);
-  return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [] : [year]));
+  return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') || url.endsWith('/staff') || url.endsWith('/staff-assignments') ? [] : [year]));
 });
 
 afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); });
 
 describe('RosterWorkspace', () => {
   it('keeps invalid SchoolYear input, focuses the summary, and renders field errors', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(response([])).mockResolvedValueOnce(error({ name: 'Tên cần từ 1 đến 100 ký tự.' }));
+    const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? error({ name: 'Tên cần từ 1 đến 100 ký tự.' }) : response([])));
     vi.stubGlobal('fetch', fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText('Tên năm học'), { target: { value: '   ' } });
@@ -43,7 +43,7 @@ describe('RosterWorkspace', () => {
   });
 
   it('keeps class errors separate from SchoolYear errors and describes the invalid field', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(response([year])).mockResolvedValueOnce(response([classroom])).mockResolvedValueOnce(response([])).mockResolvedValueOnce(error({ name: 'Tên lớp là bắt buộc.' }));
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? error({ name: 'Tên lớp là bắt buộc.' }) : response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') || url.endsWith('/staff') || url.endsWith('/staff-assignments') ? [] : [year])));
     vi.stubGlobal('fetch', fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await screen.findByRole('heading', { name: 'Thêm lớp cho Năm 2026' });
@@ -81,7 +81,7 @@ describe('RosterWorkspace', () => {
       if (url.endsWith('/school-years')) return Promise.resolve(response([year, nextYear]));
       if (url.includes('/year-b/classes')) return nextClasses;
       if (url.includes('/year-b/students')) return nextStudents;
-      return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : [currentStudent]));
+      return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [currentStudent] : url.endsWith('/staff') || url.endsWith('/staff-assignments') ? [] : [year, nextYear]));
     });
     vi.stubGlobal('fetch', fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
@@ -95,7 +95,7 @@ describe('RosterWorkspace', () => {
     expect(screen.getByText('Năm học này chưa có học sinh.')).toBeTruthy();
     resolveClasses(response([nextClassroom]));
     resolveStudents(response([nextStudent]));
-    expect(await screen.findByText('Lớp Lá')).toBeTruthy();
+    expect((await screen.findAllByText('Lớp Lá')).length).toBeGreaterThan(0);
     expect(screen.getByText('Bé Bình')).toBeTruthy();
     expect(fetch.mock.calls.filter(([url]) => url.endsWith('/school-years'))).toHaveLength(1);
     expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/school-years/year-b/classes', expect.anything());
@@ -113,7 +113,7 @@ describe('RosterWorkspace', () => {
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
     fireEvent.change(screen.getByLabelText('Ngày sinh'), { target: { value: '2022-01-01' } });
-    fireEvent.change(screen.getByLabelText('Ngày hiệu lực'), { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('Ngày hiệu lực', { selector: 'input' }), { target: { value: '2026-01-01' } });
     fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
     await screen.findByText('S1');
     expect(screen.getAllByText('Đang nhập học').length).toBeGreaterThan(1);
@@ -206,13 +206,224 @@ describe('RosterWorkspace', () => {
   });
 
   it('reconciles an uncertain mutation without replaying its POST', async () => {
-    const fetch = rosterFetch();
-    fetch.mockImplementationOnce(() => Promise.resolve(response([year]))).mockImplementationOnce(() => Promise.resolve(response([classroom]))).mockImplementationOnce(() => Promise.resolve(response([]))).mockRejectedValueOnce(new TypeError('timeout')).mockResolvedValueOnce(response({ status: 'PENDING' }));
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.reject(new TypeError('timeout'));
+      if (url.includes('/operations/')) return Promise.resolve(response({ status: 'PENDING' }));
+      if (url.endsWith('/classes')) return Promise.resolve(response([classroom]));
+      if (url.endsWith('/students')) return Promise.reject(new TypeError('timeout'));
+      return Promise.resolve(response(url.endsWith('/staff') || url.endsWith('/staff-assignments') ? [] : [year]));
+    });
     vi.stubGlobal('fetch', fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
     fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
     await waitFor(() => expect(sessionStorage.getItem('passionedu.app.pending-roster-operation')).toContain('school-a'));
     expect(fetch.mock.calls.filter(([url, options]) => url.endsWith('/students') && options?.method === 'POST')).toHaveLength(1);
+  });
+
+  it('creates and edits a Staff profile only after server confirmation', async () => {
+    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const staffPath = '/api/app/schools/school-a/roster/staff';
+    const assignmentsPath = '/api/app/schools/school-a/roster/school-years/year-a/staff-assignments';
+    let staffReads = 0;
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.resolve(response({ id: 'operation' }));
+      if (url === staffPath) return Promise.resolve(response(staffReads++ ? [{ ...staff, fullName: staffReads === 2 ? staff.fullName : 'Cô Mai đã sửa' }] : []));
+      if (url === assignmentsPath) return Promise.resolve(response([]));
+      return Promise.resolve(response(url.endsWith('/classes') || url.endsWith('/students') ? [] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Họ và tên nhân sự'), { target: { value: 'Cô Mai' } });
+    fireEvent.change(screen.getByLabelText('Email nhân sự'), { target: { value: staff.email } });
+    fireEvent.change(screen.getByLabelText('Số điện thoại nhân sự'), { target: { value: staff.phone } });
+    fireEvent.change(screen.getByLabelText('Ngày sinh nhân sự'), { target: { value: staff.dateOfBirth } });
+    fireEvent.change(screen.getByLabelText('Giới tính'), { target: { value: staff.gender } });
+    fireEvent.change(screen.getByLabelText('Địa chỉ'), { target: { value: staff.address } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Lưu hồ sơ nhân sự' }).closest('form')!);
+    expect((await screen.findAllByText('Cô Mai')).length).toBeGreaterThan(0);
+    expect(fetch).toHaveBeenCalledWith(staffPath, expect.anything());
+    expect(fetch).toHaveBeenCalledWith(assignmentsPath, expect.anything());
+    fireEvent.click(screen.getByRole('button', { name: 'Sửa hồ sơ' }));
+    fireEvent.change(screen.getByLabelText('Họ và tên nhân sự'), { target: { value: 'Cô Mai đã sửa' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Lưu thay đổi hồ sơ' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/staff/staff-a', expect.objectContaining({ method: 'POST', body: JSON.stringify({ ...staff, fullName: 'Cô Mai đã sửa' }) })));
+    expect((await screen.findAllByText('Cô Mai đã sửa')).length).toBeGreaterThan(0);
+  });
+
+  it('retains Staff and assignment input and focuses the server validation summary', async () => {
+    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    let posts = 0;
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.resolve(posts++ ? error({ reason: 'Lý do phân công là bắt buộc.' }) : error({ email: 'Email không hợp lệ.' }));
+      return Promise.resolve(response(url.endsWith('/staff') ? [staff] : url.endsWith('/classes') ? [classroom] : url.endsWith('/students') || url.endsWith('/staff-assignments') ? [] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Email nhân sự'), { target: { value: 'invalid' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Lưu hồ sơ nhân sự' }).closest('form')!);
+    expect(await screen.findByText('Email không hợp lệ.')).toBeTruthy();
+    expect((screen.getByLabelText('Email nhân sự') as HTMLInputElement).value).toBe('invalid');
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+    fireEvent.change(screen.getByLabelText('Nhân sự'), { target: { value: staff.id } });
+    fireEvent.change(screen.getByLabelText('Lớp phân công'), { target: { value: classroom.id } });
+    fireEvent.change(screen.getByLabelText('Ngày hiệu lực phân công'), { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('Lý do phân công'), { target: { value: ' ' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Lưu phân công' }).closest('form')!);
+    expect(await screen.findByText('Lý do phân công là bắt buộc.')).toBeTruthy();
+    expect((screen.getByLabelText('Lý do phân công') as HTMLInputElement).value).toBe(' ');
+    expect(screen.getByLabelText('Lý do phân công').getAttribute('aria-describedby')).toBe('assignment-reason-error');
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+  });
+
+  it('reconciles a timed-out assignment mutation without replaying its POST', async () => {
+    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    let resolveOperation!: (value: Response) => void;
+    const operation = new Promise<Response>((resolve) => { resolveOperation = resolve; });
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.reject(new TypeError('timeout'));
+      if (url.includes('/operations/')) return operation;
+      return Promise.resolve(response(url.endsWith('/staff') ? [staff] : url.endsWith('/classes') ? [classroom] : url.endsWith('/students') || url.endsWith('/staff-assignments') ? [] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Thêm lớp cho Năm 2026' });
+    fireEvent.change(screen.getByLabelText('Nhân sự'), { target: { value: staff.id } });
+    fireEvent.change(screen.getByLabelText('Lớp phân công'), { target: { value: classroom.id } });
+    fireEvent.change(screen.getByLabelText('Ngày hiệu lực phân công'), { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('Lý do phân công'), { target: { value: 'Phân công' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Lưu phân công' }).closest('form')!);
+    const assignmentPath = '/api/app/schools/school-a/roster/staff/staff-a/assignments';
+    await waitFor(() => expect(fetch.mock.calls.filter(([url, options]) => url === assignmentPath && options?.method === 'POST')).toHaveLength(1));
+    const saved = JSON.parse(sessionStorage.getItem('passionedu.app.pending-roster-operation')!) as { id: string; schoolId: string; kind: string };
+    expect(saved).toMatchObject({ schoolId: 'school-a', kind: 'assignment' });
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(`/api/app/schools/school-a/operations/${saved.id}`, expect.objectContaining({ credentials: 'include' })));
+    resolveOperation(response({ status: 'COMPLETED' }));
+    await waitFor(() => expect(sessionStorage.getItem('passionedu.app.pending-roster-operation')).toBeNull());
+    expect(fetch.mock.calls.filter(([url, options]) => url === assignmentPath && options?.method === 'POST')).toHaveLength(1);
+  });
+
+  it('ignores stale Staff reads after a School switch', async () => {
+    let resolveStaff!: (value: Response) => void;
+    const delayedStaff = new Promise<Response>((resolve) => { resolveStaff = resolve; });
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools/school-a/roster/staff') return delayedStaff;
+      if (url.endsWith('/school-years')) return Promise.resolve(response([year]));
+      return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : []));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const view = render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    view.rerender(<RosterWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
+    resolveStaff(response([{ id: 'staff-a', fullName: 'Cô Cũ', email: 'cu@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' }]));
+    await screen.findByText('Năm học của Trường B');
+    expect(screen.queryByText('Cô Cũ')).toBeNull();
+  });
+
+  it('ignores stale assignment reads after a School switch', async () => {
+    let resolveAssignments!: (value: Response) => void;
+    const delayedAssignments = new Promise<Response>((resolve) => { resolveAssignments = resolve; });
+    const fetch = vi.fn((url: string) => {
+      if (url.includes('/school-a/roster/school-years/year-a/staff-assignments')) return delayedAssignments;
+      if (url.endsWith('/school-years')) return Promise.resolve(response([year]));
+      return Promise.resolve(response(url.endsWith('/staff') ? [] : url.endsWith('/classes') ? [classroom] : []));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const view = render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Thêm lớp cho Năm 2026' });
+    view.rerender(<RosterWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
+    resolveAssignments(response([{ id: 'assignment-a', staffProfileId: 'staff-a', effectiveFrom: '2026-01-01', effectiveTo: null, reason: 'Cũ', staff: { fullName: 'Cô Cũ' }, schoolYear: { id: year.id, name: year.name }, classroom: { id: classroom.id, name: classroom.name }, access: { status: 'NOT_PROVIDED' } }]));
+    await screen.findByText('Năm học của Trường B');
+    expect(screen.queryByText('Cũ')).toBeNull();
+  });
+
+  it('never renders a delayed old SchoolYear assignment after selecting another SchoolYear', async () => {
+    const nextYear = { id: 'year-b', name: 'Năm 2027', startsOn: '2027-01-01', endsOn: '2028-01-01', isActive: false };
+    let resolveOldAssignments!: (value: Response) => void;
+    const oldAssignments = new Promise<Response>((resolve) => { resolveOldAssignments = resolve; });
+    const fetch = vi.fn((url: string) => {
+      if (url.endsWith('/school-years')) return Promise.resolve(response([year, nextYear]));
+      if (url.includes('/school-years/year-a/staff-assignments')) return oldAssignments;
+      if (url.includes('/school-years/year-b/staff-assignments')) return Promise.resolve(response([]));
+      return Promise.resolve(response(url.endsWith('/staff') || url.endsWith('/students') ? [] : url.includes('/year-b/classes') ? [] : [classroom]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Thêm lớp cho Năm 2026' });
+    fireEvent.click(screen.getByRole('button', { name: 'Năm 2027' }));
+    await screen.findByRole('heading', { name: 'Thêm lớp cho Năm 2027' });
+    resolveOldAssignments(response([{ id: 'assignment-old', staffProfileId: 'staff-a', effectiveFrom: '2026-01-01', effectiveTo: null, reason: 'Phân công năm cũ', staff: { fullName: 'Cô Cũ' }, schoolYear: { id: year.id, name: year.name }, classroom: { id: classroom.id, name: classroom.name }, access: { status: 'NOT_PROVIDED' } }]));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/school-years/year-b/staff-assignments', expect.anything()));
+    expect(screen.queryByText('Phân công năm cũ')).toBeNull();
+    expect(screen.queryByText('Cô Cũ')).toBeNull();
+  });
+
+  it('creates and changes an assignment with distinct accessible labels', async () => {
+    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const assignment = { id: 'assignment-a', staffProfileId: staff.id, effectiveFrom: '2026-01-01', effectiveTo: null, reason: 'Phân công đầu năm', staff: { fullName: staff.fullName }, schoolYear: { id: year.id, name: year.name }, classroom: { id: classroom.id, name: classroom.name }, access: { status: 'NOT_PROVIDED' } };
+    const staffPath = '/api/app/schools/school-a/roster/staff';
+    const assignmentsPath = '/api/app/schools/school-a/roster/school-years/year-a/staff-assignments';
+    let assignmentReads = 0;
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.resolve(response({ id: 'operation' }));
+      if (url === staffPath) return Promise.resolve(response([staff]));
+      if (url === assignmentsPath) return Promise.resolve(response(assignmentReads++ ? [assignment] : []));
+      return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Nhân sự'), { target: { value: staff.id } });
+    fireEvent.change(screen.getByLabelText('Lớp phân công'), { target: { value: classroom.id } });
+    fireEvent.change(screen.getByLabelText('Ngày hiệu lực phân công'), { target: { value: assignment.effectiveFrom } });
+    fireEvent.change(screen.getByLabelText('Lý do phân công'), { target: { value: assignment.reason } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Lưu phân công' }).closest('form')!);
+    await screen.findByRole('button', { name: 'Sửa phân công Cô Mai tại Lớp Mầm' });
+    expect(fetch).toHaveBeenCalledWith(assignmentsPath, expect.anything());
+    fireEvent.click(screen.getByRole('button', { name: 'Sửa phân công Cô Mai tại Lớp Mầm' }));
+    fireEvent.change(screen.getByLabelText('Lý do phân công'), { target: { value: 'Điều chỉnh' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Lưu thay đổi phân công' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/staff-assignments/assignment-a/change', expect.objectContaining({ method: 'POST', body: JSON.stringify({ schoolYearId: year.id, classId: classroom.id, effectiveFrom: assignment.effectiveFrom, effectiveTo: null, reason: 'Điều chỉnh' }) })));
+  });
+
+  it('ends an open assignment in an accessible dialog and retains invalid input', async () => {
+    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const assignment = { id: 'assignment-a', staffProfileId: staff.id, effectiveFrom: '2026-01-01', effectiveTo: null, reason: 'Phân công đầu năm', endReason: null, staff: { fullName: staff.fullName }, schoolYear: { id: year.id, name: year.name }, classroom: { id: classroom.id, name: classroom.name }, access: { status: 'NOT_PROVIDED' } };
+    const assignmentsPath = '/api/app/schools/school-a/roster/school-years/year-a/staff-assignments';
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.resolve(error({ effectiveTo: 'Ngày kết thúc phải sau ngày hiệu lực.' }));
+      if (url.endsWith('/staff')) return Promise.resolve(response([staff]));
+      if (url === assignmentsPath) return Promise.resolve(response([assignment]));
+      return Promise.resolve(response(url.endsWith('/classes') || url.endsWith('/students') ? [] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Kết thúc phân công Cô Mai tại Lớp Mầm' }));
+    const dialog = screen.getByRole('dialog', { name: 'Kết thúc phân công' });
+    expect(dialog).toBeTruthy();
+    const endDate = dialog.querySelector('input[type="date"]') as HTMLInputElement;
+    const endReason = dialog.querySelector('input:not([type])') as HTMLInputElement;
+    fireEvent.change(endDate, { target: { value: '2026-01-01' } });
+    fireEvent.change(endReason, { target: { value: 'Điều chuyển' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Xác nhận kết thúc' }).closest('form')!);
+    await screen.findByText('Ngày kết thúc phải sau ngày hiệu lực.');
+    expect(endDate.value).toBe('2026-01-01');
+    expect(endReason.value).toBe('Điều chuyển');
+    expect(endDate.getAttribute('aria-describedby')).toBe('end-assignment-effectiveTo-error');
+  });
+
+  it('keeps focus inside the end dialog and restores its trigger on close', async () => {
+    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const assignment = { id: 'assignment-a', staffProfileId: staff.id, effectiveFrom: '2026-01-01', effectiveTo: null, reason: 'Phân công đầu năm', endReason: null, staff: { fullName: staff.fullName }, schoolYear: { id: year.id, name: year.name }, classroom: { id: classroom.id, name: classroom.name }, access: { status: 'NOT_PROVIDED' } };
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(response(url.endsWith('/staff') ? [staff] : url.endsWith('/staff-assignments') ? [assignment] : url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [] : [year]))));
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    const trigger = await screen.findByRole('button', { name: 'Kết thúc phân công Cô Mai tại Lớp Mầm' });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: 'Kết thúc phân công' });
+    const [date, reason, cancel, confirm] = Array.from(dialog.querySelectorAll<HTMLElement>('input, button')) as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+    await waitFor(() => expect(document.activeElement).toBe(date));
+    confirm.focus(); fireEvent.keyDown(confirm, { key: 'Tab' }); expect(document.activeElement).toBe(date);
+    date.focus(); fireEvent.keyDown(date, { key: 'Tab', shiftKey: true }); expect(document.activeElement).toBe(confirm);
+    fireEvent.click(cancel);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(reason).toBeTruthy();
   });
 });
