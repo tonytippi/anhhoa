@@ -725,6 +725,11 @@ So that trang thai lop hoc dang tin cay ma leave/calendar conflict khong bi ghi 
 **Then** server resolve capability tu Position, khong tu `staffType`, preset role, Position name hay browser state, va chi cho phep StaffProfile da bind audited voi SchoolMembership/UserIdentity active va Class assignment effective tai as-of date ghi trang thai trong School context, audit actor/time/provenance va tra updated server state
 **And** client khong the dung Class, Student hoac date tu School khac de bypass capability/assignment.
 
+**Given** attendance integration fixture da ghi thanh cong bang Staff co `ATTENDANCE_WRITE` va StaffClassAssignment hieu luc
+**When** Position bi inactive hoac grant `ATTENDANCE_WRITE` bi revoke
+**Then** request attendance ke tiep cua cung binding bi tu choi truoc domain lookup/write
+**And** PostgreSQL integration test cung prove cross-School Position/capability va assignment khac Class khong the doc/ghi attendance; khong co grant, audit hay Operation moi duoc tao cho request bi tu choi.
+
 **Given** selected date la holiday/non-operating hoac Student co leave request conflict
 **When** Staff co ghi attendance trai dieu kien
 **Then** server tu choi hoac tra conflict theo policy, dac biet `PRESENT` conflict voi leave duoc xac nhan

@@ -19,11 +19,11 @@ deferred: []
 
 **Problem:** School chua co domain leave server-authoritative. Parent can tao don nghi nhieu ngay cho tre duoc uy quyen; giao vien lop va actor co quyen phai xem/dinh doat dung School, Class, calendar va policy ma khong tin ID tu client.
 
-**Approach:** Tao versioned LeavePolicy va attendance leave domain, luu snapshot ngay van hanh/policy, bat buoc Operation idempotent cho moi mutation. Mo Parent write/read toi ownership cua ParentProfile, teacher read toi StaffProfile-membership binding va Class assignment hieu luc, va app approval/rejection cho School Admin/Finance Manager.
+**Approach:** Tao versioned LeavePolicy va attendance leave domain, luu snapshot ngay van hanh/policy, bat buoc Operation idempotent cho moi mutation. Mo Parent write/read toi ownership cua ParentProfile, teacher read toi active StaffProfile-membership binding, primary SchoolPosition cap `CLASS_LEAVE_READ` va Class assignment hieu luc, va app approval/rejection cho actor co `SETTINGS_MANAGE`.
 
 ## Boundaries & Constraints
 
-**Always:** Dung `Asia/Ho_Chi_Minh`; School la tenant root; route parameter chi la selector. Input la `startsOn`/`endsOn` inclusive va strict `YYYY-MM-DD`. Loai Sunday/holiday theo calendar version hieu luc tung ngay, tra excluded-date conflict facts, va reject neu khong con ngay van hanh. Snapshot LeavePolicy hieu luc tai luc create; chi so sanh deadline `HH:mm` inclusive voi ngay truoc ngay van hanh dau tien. Auto-approve chi khi moi ngay van hanh cua don chi la ngay van hanh ke tiep va request truoc/den deadline; con lai `PENDING`. Luu `PENDING`, `AUTO_APPROVED`, `APPROVED`, `REJECTED`; reject bat buoc reason. Create/approve/reject bat buoc UUID Idempotency-Key va Operation actor-scoped, audit va reconcile-safe replay. Parent chi tao/doc don cua ParentProfile qua StudentParent ACTIVE; giao vien chi doc Student thuoc Class assignment hieu luc cua StaffProfile da bind SchoolMembership active; School Admin/Finance Manager approve/reject.
+**Always:** Dung `Asia/Ho_Chi_Minh`; School la tenant root; route parameter chi la selector. Input la `startsOn`/`endsOn` inclusive va strict `YYYY-MM-DD`. Loai Sunday/holiday theo calendar version hieu luc tung ngay, tra excluded-date conflict facts, va reject neu khong con ngay van hanh. Snapshot LeavePolicy hieu luc tai luc create; chi so sanh deadline `HH:mm` inclusive voi ngay truoc ngay van hanh dau tien. Auto-approve chi khi moi ngay van hanh cua don chi la ngay van hanh ke tiep va request truoc/den deadline; con lai `PENDING`. Luu `PENDING`, `AUTO_APPROVED`, `APPROVED`, `REJECTED`; reject bat buoc reason. Create/approve/reject bat buoc UUID Idempotency-Key va Operation actor-scoped, audit va reconcile-safe replay. Parent chi tao/doc don cua ParentProfile qua StudentParent ACTIVE; giao vien chi doc Student thuoc Class assignment hieu luc cua active StaffProfile da bind SchoolMembership active va primary SchoolPosition cap `CLASS_LEAVE_READ`; actor co `SETTINGS_MANAGE` approve/reject.
 
 **Block If:** Contract da chot trong decision artifact; halt neu implementation phat hien xung dot voi no hoac khong the enforce School-scoped authorization trong database transaction.
 
@@ -68,18 +68,21 @@ deferred: []
 - Given ParentProfile co StudentParent ACTIVE trong School, when submit date range co policy va enrollment `ENROLLED`, then server chi luu cac ngay van hanh va tra state server-authoritative cung excluded conflict facts.
 - Given ngay van hanh dau tien la ngay ke tiep va submit den deadline HCM, when create, then state la `AUTO_APPROVED`; given request sau deadline hoac co ngay muon hon, then state la `PENDING`.
 - Given policy khong ton tai, range khong co ngay van hanh, cross-School student/link, hoac enrollment khong eligible, when Parent create, then server tu choi truoc khi tao leave/audit/Operation.
-- Given `PENDING` request, when School Admin hoac Finance Manager approve/reject voi UUID idempotency headers, then dung mot transition/audit/Operation duoc luu; reject can reason va terminal request khong the doi lai.
-- Given teacher session, when doc leave, then server chi tra Student cua Class assignment hieu luc bound voi active membership; Parent chi doc/reconcile request va Operation cua chinh ParentProfile.
+- Given `PENDING` request, when actor App co active binding va `SETTINGS_MANAGE` approve/reject voi UUID idempotency headers, then dung mot transition/audit/Operation duoc luu; reject can reason va terminal request khong the doi lai.
+- Given teacher session, when doc leave, then server chi tra Student cua Class assignment hieu luc cua active StaffProfile bound voi active membership va primary SchoolPosition cap `CLASS_LEAVE_READ`; Parent chi doc/reconcile request va Operation cua chinh ParentProfile.
 - Given retry cung actor/key/body, when mutation da hoan tat, then replay tra exact Operation outcome; given body khac, then server tra `IDEMPOTENCY_CONFLICT`.
 
 ## Spec Change Log
 
 ### 2026-09-19
-- User clarified that StaffProfile is the business source of truth: it owns employment status, teacher classification, and an audited optional login binding; class assignment selects StaffProfile only. This avoids the known-bad state where an unrelated active SchoolMembership can impersonate an assigned StaffProfile.
+- User clarified that StaffProfile is the business source of truth: it owns employment status and an audited optional login binding; class assignment selects StaffProfile only. This avoids the known-bad state where an unrelated active SchoolMembership can impersonate an assigned StaffProfile.
+
+### 2026-09-20
+- Story 2.4 completed the AD-20 clean-break migration. Leave authorization now resolves only from active StaffProfile, primary active SchoolPosition, active login binding and Position capability; removed `staffType` and preset roles are not authorization inputs.
 
 ## Design Notes
 
-`LeavePolicy` la policy cua thoi diem submit, khong phai policy tinh tung ngay cua range. Calendar van resolve tung requested day de immutable day facts giu dung ngay hoc thuc te. Parent Operation must use `PARENT_PROFILE` and never expose app-member operations. StaffProfile owns employment/type and an audited optional login binding; class assignment remains a StaffProfile relation.
+`LeavePolicy` la policy cua thoi diem submit, khong phai policy tinh tung ngay cua range. Calendar van resolve tung requested day de immutable day facts giu dung ngay hoc thuc te. Parent Operation must use `PARENT_PROFILE` and never expose app-member operations. StaffProfile owns employment status and an audited optional login binding; primary SchoolPosition owns operational capabilities, while class assignment remains a StaffProfile relation.
 
 ## Review Triage Log
 
@@ -99,7 +102,7 @@ deferred: []
 
 Status: done
 
-Summary: Da them LeavePolicy versioned, Parent leave create/read/reconcile, teacher/app operational read, approval/rejection idempotent, Staff-first teacher authorization va PostgreSQL tenant/provenance constraints.
+Summary: Da them LeavePolicy versioned, Parent leave create/read/reconcile, teacher/app operational read, approval/rejection idempotent, Staff-first teacher authorization resolved through SchoolPosition capability, va PostgreSQL tenant/provenance constraints.
 
 Files changed: `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260919000000_leave_domain/migration.sql`, `apps/api/src/modules/attendance/`, `apps/api/src/modules/roster/roster.service.ts`, `apps/api/src/modules/settings/`, `apps/api/src/app.module.ts`, va cac test Settings/attendance.
 
