@@ -2,7 +2,7 @@
 name: PassionEdu
 description: Calm multi-school operations system for kindergartens, balancing reassuring Parent moments with clear financial and operational workspaces.
 status: final
-updated: 2026-09-05
+updated: 2026-09-19
 sources:
   - ../../prds/prd-passionedu-2026-09-04/prd.md
   - ../../architecture/architecture-passionedu-2026-09-04/ARCHITECTURE-SPINE.md
@@ -174,6 +174,7 @@ Use {rounded.md} for inputs, buttons and operational cards; {rounded.lg} for Par
 - **Daily journal editor** — presents visible School/Class/date, per-Student text editor, accessible multi-image upload validation and server-confirmed version/update time. It never represents attendance evidence or an unconfirmed local save as Parent-visible.
 - **Daily journal card** — Parent reads only the current authorized journal text and protected image gallery for one child/date. It never displays Teacher identity, audit history, Class context or attendance evidence.
 - **Management list** — management surfaces default to `{components.data-table}` for records that need comparison, filtering or per-row actions. Use concise Vietnamese headers such as `Tên`, `Nhóm`, `Đơn giá`, `Trạng thái` and `Tùy chọn`; put the next action in a visible labeled row button/link. Reserve cards for one-line summaries, confirmations, exceptions and non-tabular decisions; do not use cards to repeat data that belongs in rows.
+- **Capability labels** — show short, server-returned Vietnamese capability labels as text in management tables and forms. Group catalog selection by area of operation; never expose raw JSON, API identifiers or a free-form permission input as a working control.
 
 Interactive controls use `{colors.focus-ring}` as a visible 3px focus ring on `{colors.surface}` and `{colors.canvas}`. Hover uses `{colors.hover-surface}` only with the same text label. Disabled controls use `{colors.disabled-surface}` and `{colors.disabled-ink}`, retain semantic disabled state, and do not become the only way to explain unavailable action. Status pairs are fixed: success `{colors.status-success-background}` / `{colors.status-success-foreground}`, warning `{colors.status-warning-background}` / `{colors.status-warning-foreground}`, danger `{colors.status-danger-background}` / `{colors.status-danger-foreground}`, info `{colors.status-info-background}` / `{colors.status-info-foreground}`. All normal text pairs, including `{colors.primary}` with `{colors.primary-foreground}`, meet 4.5:1; focus indicators meet 3:1 against adjacent surface.
 - **Illustration panel** — `{components.illustration-panel}` contains original, non-identifying child/school imagery only for Parent welcome, empty or signed-out surfaces.

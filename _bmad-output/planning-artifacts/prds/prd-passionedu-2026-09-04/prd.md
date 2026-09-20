@@ -2,7 +2,7 @@
 title: "PRD Initiative - PassionEdu: Nen tang van hanh da truong"
 status: final
 created: 2026-09-04
-updated: 2026-09-16
+updated: 2026-09-19
 supersedes:
   - prds/prd-anhhoa-2026-08-18/prd.md
   - prds/prd-anhhoa-parent-pwa-2026-08-22/prd.md
@@ -27,9 +27,9 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 ### 2.1 Cong viec can hoan thanh
 
 - Platform Operator can provision va suspend `School` ma khong mac dinh thay du lieu nghiep vu cua truong.
-- School Admin can quan ly nam hoc, danh bo, Parent, Staff, role va cau hinh cua rieng truong minh.
+- School Admin can quan ly nam hoc, danh bo, Parent, Staff, Chuc danh va cau hinh cua rieng truong minh.
 - Finance Manager can cau hinh khoan thu, xem preview, phat hanh nghia vu, ghi nhan thu tien, xu ly nộp truoc/cong no va bao cao dung so cai.
-- Teacher can dung portal rieng de ghi nhan van hanh lop hoc, bao gom nhan tre, tra tre va nhan xet hang ngay theo tung Student trong Class duoc phan cong.
+- Teacher can dung portal rieng de ghi nhan van hanh lop hoc, bao gom nhan tre va nhan xet hang ngay theo tung Student trong Class duoc phan cong; Staff co `HANDOVER_WRITE` co the ghi nhan tra tre cho Student bat ky trong School.
 - Parent can chon dung truong/con, xem nghia vu, nhan xet hang ngay va anh duoc uy quyen, gui don nghi va lay huong dan thanh toan ma khong xem du lieu noi bo hay cua tre khac.
 
 ### 2.2 Khong phai nguoi dung release dau
@@ -52,12 +52,12 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **School** - Tenant root; moi du lieu nghiep vu va policy thuoc mot School.
 - **UserIdentity** - Identity Google canonical toan platform, khong chua role hay `schoolId`.
 - **SchoolMembership** - Quyen truy cap active cua UserIdentity tai mot School.
-- **SchoolRoleGrant** - Role preset gan cho SchoolMembership de cap capability.
+- **SchoolPosition** - Chuc danh School-scoped co code/name, trang thai active/inactive va tap capability duoc chon tu catalog Platform gioi han; la nguon capability cua Staff, khong phai ten Chuc danh hay browser state.
 - **SchoolYear** - Ranh gioi du lieu nam hoc cua mot School; toi da mot SchoolYear active.
 - **StudentEnrollment** - Trang thai va lop cua Student trong mot SchoolYear.
 - **ParentProfile** - Persona Parent toan platform; school context suy ra tu lien ket Parent-Hoc sinh.
 - **StudentParent** - Lien ket active/revoked giua ParentProfile va Student; la nguon duy nhat cap Parent school context va quyen portal.
-- **Staff assignment** - Gan Staff vao mot hoac nhieu Class theo effective date; khong tu cap login, role hay phan biet giao vien chinh/phu. Staff chi la actor van hanh khi School Admin bind StaffProfile voi SchoolMembership/UserIdentity active va cap capability phu hop.
+- **Staff assignment** - Gan Staff vao mot hoac nhieu Class theo effective date; khong tu cap login hay quyen, va khong phan biet giao vien chinh/phu. Staff chi la actor van hanh khi co StaffProfile active, mot Chuc danh chinh active, binding active voi SchoolMembership/UserIdentity va capability phu hop.
 - **ReceivableGroup / Receivable** - Nhom va khoan thu scoped theo School; danh muc co the inactive nhung khong sua snapshot lich su.
 - **ChargeRule** - Rule scoped theo School, Class hoac Student trong CollectionRun; quantity chi `FIXED` hoac `MANUAL`.
 - **PromotionPolicy / PromotionPolicyVersion** - Chinh sach uu dai School-scoped va phien ban effective-dated, co target Receivable, don vi/so luong ap dung, dieu kien typed, giam VND/phan tram, fulfillment, stacking va snapshot.
@@ -72,7 +72,7 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **EmploymentContract** - Dieu khoan lao dong effective-dated cua Staff, bao gom luong co ban, luong thu viec, muc dong bao hiem doc lap va phu cap co dinh.
 - **StaffWorkdayRecord** - Ket qua ngay cong da ra soat tu event may cham cong va correction thu cong; la nguon tinh Payroll, khong phai raw event.
 - **PayrollRun** - Bang luong versioned cua mot ky; version da duyet/da chi la snapshot bat bien, sai sot sau chi dung correction run rieng.
-- **Ke toan (Accountant)** - Persona hien thi cua actor co active same-School `FINANCE_MANAGER` grant, Payroll entitlement va capability chuyen biet; khong phai preset role `ACCOUNTANT` moi.
+- **Ke toan (Accountant)** - Persona hien thi cua actor co capability finance same-School tu Chuc danh active, Payroll entitlement va capability chuyen biet; khong phai preset role `ACCOUNTANT` moi.
 
 ## 4. Tinh nang va yeu cau chuc nang
 
@@ -89,18 +89,19 @@ Platform Operator co the tao, suspend, reactivate School va bootstrap School Adm
 - School khong hard-delete.
 - Platform capability khong tu dong cap quyen doc/ghi du lieu School.
 - `SUPERADMIN_EMAIL` chi bootstrap `PlatformOperatorGrant` qua environment; Ops authorize bang audience `ops` va grant nay, khong tao OpsUser hay password mac dinh.
-- Provisioning tao/tai su dung UserIdentity pending theo normalized email cua owner va atomically tao SchoolMembership pending cung `SCHOOL_ADMIN` grant. Google subject chi bind khi owner dang nhap Google, sau do owner vao dung School shell; failure khong duoc de lai identity, membership hay grant partial.
+- Provisioning tao/tai su dung UserIdentity pending theo normalized email cua owner va atomically tao SchoolMembership pending, StaffProfile va Chuc danh chinh active co capability School Admin tu catalog Platform. Google subject chi bind khi owner dang nhap Google, sau do owner vao dung School shell; failure khong duoc de lai identity, membership, StaffProfile hay Chuc danh partial.
 - Provisioning la high-impact mutation dung `Idempotency-Key` va PlatformOperator-scoped Operation truoc khi School ton tai; identical retry replay outcome, changed fingerprint bi conflict va Ops phai reconcile `GET /operations/:operationId` truoc retry sau timeout.
 
-#### FR-2: Membership, role va school context
+#### FR-2: Membership, Chuc danh va school context
 
-UserIdentity co the co role khac nhau o nhieu School; Admin/Staff chon School qua chooser/switcher va URL giu school context. Server cap quyen theo SchoolMembership active va capability route tai thoi diem request.
+UserIdentity co the co Chuc danh khac nhau o nhieu School; Admin/Staff chon School qua chooser/switcher va URL giu school context. Moi StaffProfile active co dung mot Chuc danh chinh active trong School. Server resolve capability tai thoi diem request tu StaffProfile active, Chuc danh active, binding active voi SchoolMembership/UserIdentity va capability route; ten Chuc danh, client state va request input khong la bang chung authorization.
 
 **He qua kiem thu:**
 - Revoke membership o School A chan request tiep theo o A nhung giu quyen hop le o B.
 - Route, UUID, filter, header va local storage khong duoc thay the authorization server-side.
 - Chuyen School khong lam mat silently form hay mutation dang xu ly.
-- Preset release dau la `SCHOOL_ADMIN`, `FINANCE_MANAGER`, `CLASS_TEACHER`; capability attendance/handover chi duoc cap khi E4 phat hanh.
+- Provision tao bo Chuc danh seed School-scoped: Hieu truong, Quan ly truong, Ke toan, Giao vien, Nhan vien tuyen sinh, Bep va Y te. School Admin co the dung seed nay, tao moi, doi ten hoac inactive theo nhu cau School.
+- School Admin quan ly Chuc danh School-scoped, co the tao, doi ten hoac inactive Chuc danh va chi gan capability tu catalog Platform gioi han. School khong the tao capability, free-form permission, script, hay capability Platform/Parent/Ops trong SchoolPosition; thay doi Chuc danh/capability co audit va revoke/inactive chan request ke tiep nhung khong viet lai audit hay snapshot lich su.
 - E1 chot va test Parent portal callback, cookie, session audience va school-selection authorization contract; E7 chi them Parent finance UI/read model.
 
 #### FR-3: Tenant isolation va provenance
@@ -140,7 +141,7 @@ School Admin quan ly mot SchoolYear active, Class thuoc SchoolYear, Student va S
 
 #### FR-6: Parent va Staff records
 
-School Admin quan ly lien ket Parent-Hoc sinh va Staff profile/assignment theo effective date. Parent Profile dung chung toan platform; Staff profile khong tu tao login hay quyen. School Admin muon lam cong viec giao vien phai dung Teacher portal va thoa cung binding, capability va Class assignment nhu moi Teacher.
+School Admin quan ly lien ket Parent-Hoc sinh, Staff profile, Chuc danh chinh va assignment theo effective date. Parent Profile dung chung toan platform; Staff profile khong tu tao login hay quyen. School Admin muon lam cong viec giao vien phai dung Teacher portal va thoa cung binding, Chuc danh/capability va Class assignment nhu moi Teacher.
 
 **He qua kiem thu:**
 - Parent co the co nhieu tre/School, nhung chi nhan data theo link active tai request.
@@ -148,8 +149,8 @@ School Admin quan ly lien ket Parent-Hoc sinh va Staff profile/assignment theo e
 - Student, Parent, Staff va enrollment da phat sinh van hanh khong hard-delete.
 - School Admin co the tao Parent pending voi email normalized, ten va so dien thoai bat buoc truoc Google login; Parent chi tu sua so dien thoai co audit, khong sua identity, link hay quyen.
 - Khi Parent dang nhap Google verified, server atomically tim ParentProfile pending theo normalized email, bind dung UserIdentity/Google subject va chi cap Parent session neu ParentProfile co StudentParent active. Sub mismatch hay email reassigned bi tu choi den khi School Admin revoke va gan lai; session luon dai dien dung ParentProfile da bind.
-- Staff release dau gom ho ten, email, so dien thoai, ngay sinh, gioi tinh, dia chi; khong co HR/payroll/password hay phan loai giao vien chinh/phu.
-- StaffProfile khong tu cap login, membership hay role. School Admin co the bind StaffProfile voi mot SchoolMembership/UserIdentity cua cung School qua audit; chi binding active, capability route va class assignment effective tai as-of date moi cho phep Staff ghi attendance/handover trong Class duoc phan cong. Revoke binding, membership, capability hoac assignment chan request ke tiep.
+- Staff release dau gom ho ten, email, so dien thoai, ngay sinh, gioi tinh, dia chi va mot Chuc danh chinh; khong co HR/payroll/password hay phan loai giao vien chinh/phu.
+- StaffProfile khong tu cap login, membership hay quyen. School Admin co the bind StaffProfile voi mot SchoolMembership/UserIdentity cua cung School qua audit; StaffProfile active chi co mot Chuc danh chinh active. Server chi resolve capability tu Chuc danh active, StaffProfile active va binding active; revoke binding, membership, capability, Chuc danh hoac Staff chan request ke tiep va giu lich su/audit. Class assignment effective tai as-of date chi la dieu kien bo sung cho cac capability van hanh lop duoc quy dinh o FR-12, khong la nguon quyen.
 
 ### 4.3 Khoan thu, dot thu va nghia vu
 
@@ -163,7 +164,7 @@ Finance Manager hoac School Admin quan ly ReceivableGroup, Receivable, ChargeRul
 - School tu dinh nghia group, khoan, don vi, gia, hoan tra va rule; ma khoan la tuy chon va unique trong School neu co.
 - Precedence la `STUDENT` > `CLASS` > `SCHOOL`; conflict cung do dac hieu bi tu choi.
 - Thay doi danh muc/policy khong sua Invoice snapshot trong qua khu; sua policy tao version moi co effective period, reason va audit.
-- ChargeRule chi co quantity `FIXED` hoac `MANUAL`; Finance Manager/SCHOOL_ADMIN nhap/override quantity, gia hoac adjustment trong Invoice `DRAFT` co ghi chu/audit. Khong co auto-pricing tu attendance, handover hay service enrollment. Gia la gia mac dinh cua Receivable hoac override duoc audit trong Invoice `DRAFT`.
+- ChargeRule chi co quantity `FIXED` hoac `MANUAL`; actor co capability finance phu hop tu Chuc danh active nhap/override quantity, gia hoac adjustment trong Invoice `DRAFT` co ghi chu/audit. Khong co auto-pricing tu attendance, handover hay service enrollment. Gia la gia mac dinh cua Receivable hoac override duoc audit trong Invoice `DRAFT`.
 - `PromotionPolicy` co identity School-scoped va version effective-dated. Moi version co mot hoac nhieu target Receivable, don vi va so luong ap dung, dieu kien typed, giam phan tram hoac VND nguyen, fulfillment mode, priority, stacking/exclusivity va effective period. Target quantity vi du 12 thang la rule cua policy; yeu cau ky lien tiep, neu co, la business validation khi evaluate, khong phai unique constraint.
 - `StudentPromotionAssignment` gan mot policy version cho Student theo effective interval, reason va audit. Assignment la co che tong quat; he thong khong tu suy luan quan he gia dinh hoac thu tu con. Server evaluate policy khi tao/refresh Invoice `DRAFT` va evaluate lai truoc Issue; policy application snapshot version, target, ket qua, priority va assignment provenance neu co. Nhieu policy chi stack theo typed priority/exclusivity: fixed VND truoc percentage, tie-break deterministically, tong giam khong vuot gia goc target va khong tao dong am/credit vo danh.
 - `PREPAID_COVERAGE` la fulfillment mode cua policy trong dot thu thang, khong tao `PREPAID` CollectionRun rieng. Khi ra soat preview cua dot thu thang, Finance Manager hoac School Admin chon policy version va ap dung phuong an nop truoc cho mot hoac nhieu Student da co thoa thuan; thang bat dau luon la `billingMonth` cua dot thu. Preview cho phep chon theo lo; API van la nguon chan ly cho eligibility, muc giam va cac ky duoc bao phu, khong hien thi hay suy dien "du dieu kien" o tung Student truoc ket qua evaluate. API tao mot Invoice `DRAFT` duy nhat cua moi Student trong run: Invoice gom future receivable-period facts cua cac target duoc policy bao phu, dong thoi co the gom cac khoan thu khong nam trong coverage cua dung billingMonth dang mo; khong gom khoan ngoai coverage cua cac thang tuong lai. Invoice phai dong exact voi outcome `EXACT`; chi sau `CLOSED` exact server moi issue `StudentPromotionalCoverage` voi PromotionPolicyVersion/Invoice/Receipt provenance. Khong actor nao tao coverage truc tiep. Moi fact luu Receivable, period key, service interval `[serviceFrom, serviceTo)` nam tron ky, gia/discount, calendar version/timezone va paid-source snapshot bat bien. Coverage issued khong overlap cung Student/SchoolYear/Receivable/ky; fact khong co operating day eligible bi tu choi.
@@ -182,7 +183,7 @@ Finance Manager tao hoac mo dot thu `MONTHLY` cua tung thang trong SchoolYear, b
 - `billingMonth` la khoa van hanh de quan ly dot thu theo thang; khong co `ANNUAL`, `ONE_OFF`, `periodKey` tu do hay run bo sung trong release dau.
 - Generate transactional tra created/skipped; timeout phai doi soat operation truoc retry.
 - Lifecycle la `DRAFT -> READY -> GENERATED -> CLOSED`: rule sua o DRAFT, READY chi generate tu cau hinh hop le, GENERATED khoa rule/pham vi goc, CLOSED khong tao/sua Invoice. Generate phan loai toi thieu invoice ton tai, enrollment khong du dieu kien, khong co lop active va khong co rule.
-- Sau GENERATED, Finance Manager/SCHOOL_ADMIN chi co the them Student chua co Invoice, tao dung mot `DRAFT` tu rule snapshot. Invoice da issue khong nhan khoan thu moi; dung adjustment/refund co source neu can xu ly ngoai le.
+- Sau GENERATED, actor co capability finance phu hop tu Chuc danh active chi co the them Student chua co Invoice, tao dung mot `DRAFT` tu rule snapshot. Invoice da issue khong nhan khoan thu moi; dung adjustment/refund co source neu can xu ly ngoai le.
 - CollectionRun skip dung cap Student/Receivable/ky da duoc `StudentPromotionalCoverage` issued bao phu voi ly do `COVERED_BY_PROMOTIONAL_COVERAGE`; cac khoan thu eligible khac cua Student van duoc tao.
 
 #### FR-9: Issue va snapshot nghia vu
@@ -209,7 +210,7 @@ Finance Manager ghi so VND thuc nhan de dong mot Invoice `ISSUED` cua mot Studen
 **He qua kiem thu:**
 - Sai sot duoc xu ly bang void/reversal co ly do, audit va idempotency; khong sua tien goc da post.
 - Reversal tuan theo mode direct hoac phe duyet hai buoc cua School.
-- `DIRECT` cho School Admin/Finance Manager post reversal co ly do; `SCHOOL_ADMIN_APPROVAL` buoc Finance Manager tao request va School Admin khac identity phe duyet. Invoice `ISSUED` chi co the dong mot lan qua Receipt xac nhan hoac duoc `CANCELLED` bang revision workflow; khong co void/sua tai cho sau issue.
+- `DIRECT` cho actor co capability reversal tu Chuc danh active post reversal co ly do; `SCHOOL_ADMIN_APPROVAL` buoc actor co capability finance tao request va actor khac identity co capability approval tu Chuc danh active phe duyet. Invoice `ISSUED` chi co the dong mot lan qua Receipt xac nhan hoac duoc `CANCELLED` bang revision workflow; khong co void/sua tai cho sau issue.
 - Refund la ledger workflow append-only cho nghia vu da co source (vi du coverage da thanh toan, long leave/huy service): School Admin/Finance Manager tao refund request co amount, source, ly do va idempotency; post/refusal tuan theo reversal mode cua School, audit actor va Operation reconciliation. Refund khong sua Receipt hay Allocation goc.
 - Moi Receipt dong dung mot Invoice cua cung School, SchoolYear va Student, ghi actual amount da nhan va tao settlement outcome `EXACT`, `SHORTFALL` hoac `OVERPAYMENT` trong mot posting append-only. Khong co Receipt unallocated, mixed-Student hay client-side allocation. `SHORTFALL` tao `SettlementDifference` duong, `OVERPAYMENT` tao `SettlementDifference` am, deu immutable va source-linked toi Invoice/Receipt.
 - Server chi materialize SettlementDifference thanh adjustment `SHORTFALL_CARRY` duong hoac `OVERPAYMENT_CARRY` am tren Invoice `DRAFT` cua CollectionRun `MONTHLY` ke tiep du dieu kien, cung Student/School/SchoolYear. Adjustment am khong duoc lam tong Invoice am; phan con lai chua materialize giu o source difference va tiep tuc duoc carry voi cung provenance. Khong tao `StudentPrepayment`, generic credit/balance, cross-Student/cross-School/cross-SchoolYear application hay client-side carry.
@@ -237,11 +238,11 @@ He thong gop no mo trong cung SchoolYear vao Invoice moi bang `PRIOR_DEBT` truy 
 
 #### FR-12: Leave, attendance va service enrollment
 
-Parent chi co the gui leave request cho Student duoc uy quyen; Teacher co capability ghi attendance, handover va DailyJournal trong Class duoc phan cong; School Admin/Finance Manager quan ly approval/service enrollment theo policy.
+Parent chi co the gui leave request cho Student duoc uy quyen. `ATTENDANCE_WRITE`, `DAILY_JOURNAL_WRITE` va `CLASS_LEAVE_READ` chi co hieu luc khi Staff co capability tu Chuc danh chinh active va StaffClassAssignment hieu luc trong Class phu hop; School Admin/Finance Manager quan ly approval/service enrollment theo policy. `HANDOVER_WRITE` duoc quy dinh rieng tai FR-13.
 
 **He qua kiem thu:**
 - Calendar loai ngay nghi/le; `PRESENT` conflict voi leave request va loai ngay do khoi de xuat meal adjustment.
-- Leave truoc deadline auto-approve; sau deadline can role duoc cap phe duyet.
+- Leave truoc deadline auto-approve; sau deadline can capability phe duyet tu Chuc danh active.
 - Anh bang chung diem danh va tra tre tuan theo mode cua School, Parent khong xem evidence; retention la hai thang lich.
 - `AttendancePolicy.photoEvidenceMode` va `HandoverPolicy.photoEvidenceMode` chi la `REQUIRED` hoac `OPTIONAL`; REQUIRED tu choi tuong ung `PRESENT` hoac `pickedUpAt` khong co evidence. Evidence chi Staff co capability tuong ung hoac School Admin dung School scope xem, xoa blob/preview sau hai thang lich va giu audit metadata xoa.
 - Sau attendance hoac handover event, Parent chi nhan in-app notification event theo StudentParent link active; notification khong chua evidence anh va khong mo rong thanh SMS, email, Zalo hay chat.
@@ -253,11 +254,12 @@ Parent chi co the gui leave request cho Student duoc uy quyen; Teacher co capabi
 
 #### FR-13: Handover va late pickup reference
 
-Nhan vien duoc cap capability ghi picked-up time va anh evidence theo `HandoverPolicy.photoEvidenceMode`; handover la reference de Finance them dong `MANUAL` trong Invoice `DRAFT` khi can.
+Staff co `HANDOVER_WRITE` tu Chuc danh chinh active va binding active trong School duoc ghi picked-up time va anh evidence theo `HandoverPolicy.photoEvidenceMode` cho moi Student trong selected School, khong can StaffClassAssignment. Server re-authorize Staff, School, Student enrollment, ngay, HandoverPolicy va evidence tren moi request; handover la reference de Finance them dong `MANUAL` trong Invoice `DRAFT` khi can.
 
 **He qua kiem thu:**
 - He thong khong tu dong tinh late-pickup fee trong release nay.
 - Handover khong thay the pickup authorization, la domain deferred rieng.
+- `HANDOVER_WRITE` khong mo rong sang attendance, DailyJournal hay class leave; cac capability nay van can StaffClassAssignment hieu luc trong Class phu hop theo FR-12.
 - Reference snapshot va audit giu du thong tin de Finance giai thich dong thu thu cong; khong co cutoff/grace/block policy trong release nay.
 - Parent chi nhan thoi diem tra tre da xac nhan trong DTO/event toi thieu; khong nhan evidence, Staff identity hay ly do noi bo.
 
@@ -265,7 +267,7 @@ Nhan vien duoc cap capability ghi picked-up time va anh evidence theo `HandoverP
 
 **Mo ta:** Payroll la capability tuy chon cua tung School, tach biet voi so thu Student. Tai School duoc phep, Ke toan quan ly dieu khoan lao dong, nhap/ra soat cham cong va lap bang luong; School Admin duyet, reopen va phe duyet correction.
 
-`Ke toan` la persona cua active same-School `FINANCE_MANAGER`, khong phai preset role moi. Moi route/job/action can Payroll entitlement va capability chuyen biet; entitlement khong tu cap role/capability va UI khong thay server authorization.
+`Ke toan` la persona cua actor co capability finance same-School tu Chuc danh active, khong phai preset role moi. Moi route/job/action can Payroll entitlement va capability chuyen biet; entitlement khong tu cap role/capability va UI khong thay server authorization.
 
 #### FR-14: Payroll entitlement, workforce va timekeeping
 
@@ -273,7 +275,7 @@ Platform Operations chi cap Payroll cho School duoc chon thu nghiem/phan phoi; t
 
 **He qua kiem thu:**
 - Entitlement server-side theo School co lifecycle `NOT_ENTITLED`, `PILOT_ENABLED`, `ENABLED`, `SUSPENDED`, `RETIRED`; route, job, UUID hay cache client khong the vuot gate. Entitlement khong tu cap role/capability.
-- Actor thieu entitlement hoac capability bi tu choi truoc aggregate lookup; deep link, menu, job va API discovery khong lo Payroll record. `FINANCE_MANAGER` can capability prepare/reconcile/timekeeping tuong ung, con `SCHOOL_ADMIN` chi co action duyet/reopen khi duoc cap capability rieng.
+- Actor thieu entitlement hoac capability bi tu choi truoc aggregate lookup; deep link, menu, job va API discovery khong lo Payroll record. Actor co capability prepare/reconcile/timekeeping tuong ung tu Chuc danh active duoc thuc hien cac action nay; action duyet/reopen can capability rieng.
 - `SUSPENDED` chan import, calculate, approval, correction va payout moi nhung giu read-only lich su da duyet/da chi cho actor duoc cap quyen. `RETIRED` khong xoa data va re-enable can onboarding/audit explicit. Disable bi chan khi con payroll obligation, import dang xu ly hoac advance reservation chua resolve.
 - EmploymentContract/compensation terms effective-dated snapshot luong co ban, luong thu viec, muc dong BHXH doc lap va phu cap co dinh; khong overwrite term da duoc payroll snapshot.
 - File CSV/XLSX dung machine employee code va ten nguon de doi soat. Code duoc map effective-dated voi dung mot Staff tai mot thoi diem/source/School; ten chi la evidence. Raw `IN`/`OUT` event da commit append-only; correction thu cong co ly do/audit, khong sua event goc.
@@ -287,7 +289,7 @@ Ke toan lap/reconcile bang luong versioned cho ky thuong hoac ky luong thang 13;
 - API tinh VND integer tu typed, versioned policy co effective date va snapshot input/component: luong co ban/thu viec, nghi co/khong phep, thuong chuyen can, phu cap co dinh/trong muon, BHXH/BHYT/BHTN, TNCN, tam ung va dieu chinh co ly do. Khong cho user luu arbitrary Excel formula, script, SQL hay bieu thuc tu do.
 - `insuranceSalaryBase` doc lap voi luong thuc nhan. Tax/BHXH policy co rate/bracket/reduction schema-validated; Ke toan duoc doi soat va override co ly do, nhung he thong khong tu nop ho so hay tu nhan certified legal compliance.
 - Payroll run co draft/calculated version, approved snapshot va payout state. School Admin reopen approved unpaid run voi ly do de tao draft version moi; approved version cu van audit. Payroll da co payout khong reopen.
-- `FINANCE_MANAGER` co `PAYROLL_PREPARE`/`PAYROLL_RECONCILE` prepare, materially edit/reconcile va submit. Chi `SCHOOL_ADMIN` co `PAYROLL_APPROVE` va UserIdentity khac moi preparer/material editor cung submitter moi review/approve/refuse; server so sanh identity thuc, nen nhieu grant khong cho self-approve. `SCHOOL_ADMIN` co `PAYROLL_REOPEN` reopen run approved chua payout. Sau approve, chi `FINANCE_MANAGER` co `PAYROLL_PAYOUT_CONFIRM` xac nhan payout; School Admin khong ke thua action nay.
+- Actor co `PAYROLL_PREPARE`/`PAYROLL_RECONCILE` tu Chuc danh active prepare, materially edit/reconcile va submit. Chi actor co `PAYROLL_APPROVE` tu Chuc danh active va UserIdentity khac moi preparer/material editor cung submitter moi review/approve/refuse; server so sanh identity thuc, nen nhieu Chuc danh khong cho self-approve. Actor co `PAYROLL_REOPEN` tu Chuc danh active reopen run approved chua payout. Sau approve, chi actor co `PAYROLL_PAYOUT_CONFIRM` tu Chuc danh active xac nhan payout; actor co capability approval khong ke thua action nay.
 - Sai sot sau payout tao correction run rieng co source version, delta duong/am, audit va workflow Finance Manager prepare/submit -> School Admin khac identity approve/refuse -> Finance Manager xac nhan payout; payroll goc giu `PAID`.
 - SalaryAdvance reserve khi payroll duyet, release khi unpaid run reopen va giam `remainingAmount` atomically khi payout. Luong thang 13 la ky/run rieng, khong nhung vao payroll thang 12.
 - Bonus theo si so la extension point typed rule; chua duoc phat hanh cho den khi co policy School-approved ve cach dem, phan bo giao vien, transfer va thay doi phan cong giua ky.
@@ -325,7 +327,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding hoac Invoice `CLOSED` moi
 - Khong duy tri compatibility layer, dual schema, dual finance lifecycle hay migration production cho clean-break nay.
 - Khong co bank synchronization, webhook, virtual account hay Parent self-confirmation payment.
 - Khong co tax calculation/VAT invoice; tax treatment chi la label/snapshot.
-- Khong co custom-role checkbox UI, Organization hierarchy, custom school domain, support impersonation/JIT, shared catalog live giua School.
+- Khong co custom capability creation, custom script, free-form permission hay capability Platform/Parent/Ops trong SchoolPosition. School chi quan ly Chuc danh va chon capability tu catalog Platform gioi han, co audit; khong co Organization hierarchy, custom school domain, support impersonation/JIT hay shared catalog live giua School.
 - Khong co chat, SMS/Zalo/email, album tu do, meal journal, medical/medication, transport, pickup authorization hay import/onboarding tong quat trong release dau. Payroll chi la capability opt-in theo FR-14/FR-15; DailyJournal per Student/date voi text va anh la ngoai le da duoc dinh nghia o FR-12/FR-16.
 - Khong co automatic late-pickup fee, pricing engine tu attendance/handover, hay Parent mutation finance/service cancellation.
 
@@ -353,7 +355,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding hoac Invoice `CLOSED` moi
 - Moi mutation cookie-auth co origin validation va double-submit CSRF; mutation high-impact dung idempotency UUID va operation reconciliation.
 - Topology release nay co dinh: Admin `app.passionedu.org`, Teacher `teacher.passionedu.org`, Parent `parent.passionedu.org`, Platform Operations `ops.passionedu.org` va API `api.passionedu.org`. Moi portal dung OAuth callback, session audience, cookie host-only va allowlisted origin rieng; khong chia cookie `.passionedu.org` mac dinh va khong dung domain per-School.
 - Mo hinh du lieu tre em va Parent ap dung DTO toi thieu, server-side authorization, status/revoke thay hard delete, audit va retention policy.
-- Moi thay doi money, attendance, access, role, policy va settlement co actor, thoi diem, provenance va ly do khi yeu cau.
+- Moi thay doi money, attendance, access, Chuc danh/capability, policy va settlement co actor, thoi diem, provenance va ly do khi yeu cau.
 - Cross-tenant isolation, authorization/revoke, concurrency/idempotency, ledger va Parent cross-school E2E la release-blocking verification.
 - Idempotency Operation la bat buoc cho generate run, chuyen lop/chuyen nam/close-year batch, issue, receipt/allocation, prepaid-promotion selection, reversal/refund va approval. Sau timeout, client doi soat `GET /operations/:operationId` truoc retry.
 - Payroll high-impact mutation gom import commit, calculate, submit, approve/refuse, reopen, correction submit/approval/refusal va payout confirmation; deu dung transaction, idempotency UUID, Operation reconciliation va audit reason.

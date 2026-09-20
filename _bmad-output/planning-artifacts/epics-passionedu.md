@@ -535,28 +535,35 @@ So that Parent chi co the nhan dung school context va du lieu cua tre duoc uy qu
 **Then** server tu choi child/school data dua tren link do va portal xoa protected state ve chooser hoac signed-out safe state
 **And** audit giu lich su link/revoke; Parent van co the xem Student/School khac neu link khac con active.
 
-### Story 2.4: Quản lý Staff profile và phân công theo effective date
+### Story 2.4: Quản lý Staff, Chức danh và phân công theo capability/effective-date
 
 As a School Admin,
-I want to ghi nhan Staff profile va phan cong vao Class theo thoi gian hieu luc,
-So that lop hoc co nhan su phu hop ma ho so khong tu bien thanh quyen dang nhap.
+I want to cau hinh Staff profile, Chuc danh, login binding va phan cong theo capability/effective date,
+So that SchoolPosition tro thanh nguon quyen Staff duy nhat truoc khi cac write van hanh lop duoc phat hanh.
+
+**Prerequisite migration/configuration story:** Story nay phai hoan tat one-way migration tu `StaffType`/`staffType` va preset-role authorization sang SchoolPosition capability grants truoc khi build Story 4.2 hoac Story 4.4. Story 4.1 da hoan tat theo contract cu khong bi rollback; follow-up migration decision va verification cua no nam trong Story nay.
 
 **Acceptance Criteria:**
 
-**Given** School Admin tao hoac cap nhat Staff profile
-**When** luu thong tin
-**Then** he thong chi luu ho ten, email, so dien thoai, ngay sinh, gioi tinh va dia chi trong selected School
-**And** khong tao password, HR/payroll record, login grant hoac phan loai giao vien chinh/phu.
+**Given** School moi duoc provision hoac School Admin mo quan ly Chuc danh trong selected School
+**When** server tra SchoolPosition configuration
+**Then** co seed Hieu truong, Quan ly truong, Ke toan, Giao vien, Nhan vien tuyen sinh, Bep va Y te, moi Position School-scoped co code/name School-unique, lifecycle `ACTIVE | INACTIVE` va capability tu Platform catalog gioi han
+**And** School Admin chi co the tao, doi ten, inactivate Position hoac gan capability catalog duoc phep qua transaction, UUID `Idempotency-Key`, Operation reconciliation, audit reason; khong the tao free-form capability/script hoac gan capability Platform/Parent/Ops.
 
-**Given** Staff va Class thuoc selected SchoolYear
-**When** School Admin tao, thay doi hoac ket thuc class assignment
-**Then** assignment dung interval `[effectiveFrom, effectiveTo)`, timezone `Asia/Ho_Chi_Minh`, actor va ly do audit
-**And** server tu choi cross-School/Class hoac khoang thoi gian khong hop le.
+**Given** School Admin tao hoac cap nhat Staff profile va primary Position/login binding
+**When** luu thong tin trong selected School
+**Then** he thong chi luu ho ten, email, so dien thoai, ngay sinh, gioi tinh, dia chi, mot primary Position active va toi da mot audited active binding den SchoolMembership/UserIdentity cung School
+**And** StaffProfile khong tu tao password, HR/payroll record, membership hay quyen; server resolve operational capability tu StaffProfile active, primary SchoolPosition active, binding active va Position capability, khong tu Position name hay browser state.
 
-**Given** assignment ket thuc hay SchoolYear dong
-**When** danh bo duoc xem lai
-**Then** lich su assignment con doc duoc va khong bi ghi de boi current-state field
-**And** UI phan biet ro Staff record, assignment va login/role state.
+**Given** School Admin tao, thay doi hoac ket thuc StaffClassAssignment
+**When** Staff/Class thuoc selected SchoolYear duoc validate
+**Then** assignment dung interval `[effectiveFrom, effectiveTo)`, timezone `Asia/Ho_Chi_Minh`, actor va ly do audit, chi tham chieu StaffProfile, va chi duoc tao khi Staff active va Position cho capability van hanh lop tuong ung
+**And** server tu choi Staff/Position inactive, cross-School/Class, capability khong hop le hoac khoang thoi gian khong hop le; assignment khong la prerequisite cua `HANDOVER_WRITE`.
+
+**Given** `SCHOOL_ADMIN`, `FINANCE_MANAGER`, `CLASS_TEACHER` preset grants hoac `StaffType`/`staffType` ton tai tu implementation cu
+**When** one-way migration chay trong transaction
+**Then** server migrate effective access sang seeded/created Position capability grants, giu audit/Operation snapshot lich su va khong mat quyen trong migration
+**And** sau completion, `StaffType`/`staffType` va preset-role authorization bi loai bo, khong con dual authorization source; inactive Position, Staff, binding hoac capability revoke deny request ke tiep.
 
 ### Story 2.5: Chuyển lớp, chuyển năm và close-year bằng preview có đối soát
 
@@ -703,18 +710,20 @@ So that trang thai nghi hoc va eligibility van hanh duoc quan ly nhat quan.
 **Then** API tra state va conflict facts can thiet theo capability
 **And** Parent-facing status/internal approval mechanics, notification projection va Parent edit/cancel khong thuoc story nay.
 
-### Story 4.2: Teacher ghi attendance có conflict validation và evidence policy
+**Completed-history follow-up:** Story nay da hoan tat theo contract `staffType`/preset-role cu. Khong rewrite persistence, Parent boundary, idempotency hay Staff login binding da phat hanh. Truoc khi Story 4.2 hoac Story 4.4 duoc build, Story 2.4 phai quyet dinh va hoan tat migration de `CLASS_LEAVE_READ` duoc resolve tu active primary SchoolPosition capability va StaffClassAssignment effective trong Class phu hop; khong duoc gia dinh authorization cu van ton tai sau migration.
 
-As an attendance-capable Teacher,
+### Story 4.2: Staff ghi attendance có conflict validation và evidence policy
+
+As a Staff member with `ATTENDANCE_WRITE`,
 I want to ghi attendance theo Student/ngay voi evidence khi policy yeu cau,
 So that trang thai lop hoc dang tin cay ma leave/calendar conflict khong bi ghi de.
 
 **Acceptance Criteria:**
 
-**Given** Teacher dang dung teacher audience, co attendance capability, selected School/Class/date hop le va Student `ENROLLED`
+**Given** Staff dang dung teacher audience, co StaffProfile active, primary SchoolPosition active cap `ATTENDANCE_WRITE`, binding active, StaffClassAssignment effective, selected School/Class/date hop le va Student `ENROLLED`
 **When** Staff submit attendance status
-**Then** server chi cho phep StaffProfile da bind audited voi SchoolMembership/UserIdentity active, co capability va Class assignment effective tai as-of date ghi trang thai trong School context, audit actor/time/provenance va tra updated server state
-**And** client khong the dung Class, Student hoac date tu School khac de bypass capability.
+**Then** server resolve capability tu Position, khong tu `staffType`, preset role, Position name hay browser state, va chi cho phep StaffProfile da bind audited voi SchoolMembership/UserIdentity active va Class assignment effective tai as-of date ghi trang thai trong School context, audit actor/time/provenance va tra updated server state
+**And** client khong the dung Class, Student hoac date tu School khac de bypass capability/assignment.
 
 **Given** selected date la holiday/non-operating hoac Student co leave request conflict
 **When** Staff co ghi attendance trai dieu kien
@@ -749,18 +758,18 @@ So that anh tre em khong bi lo hay ton tai vo thoi han va Parent projection co n
 **Then** domain emit dung mot in-app notification source event co School/Student/date va, voi handover, chi confirmed picked-up time, nhung khong chua evidence hoac internal facts
 **And** delivery/read projection chi co the duoc Parent portal xu ly sau khi recheck active `StudentParent` o Epic 7.
 
-### Story 4.4: Teacher ghi handover như operational reference
+### Story 4.4: Staff ghi handover School-wide như operational reference
 
-As a handover-capable Teacher,
+As a Staff member with `HANDOVER_WRITE`,
 I want to ghi picked-up time cua mot Student theo ngay,
-So that lop co lich su ban giao ma khong tao mot khoan phi tu dong.
+So that School co lich su ban giao ma khong tao mot khoan phi tu dong.
 
 **Acceptance Criteria:**
 
-**Given** Teacher dang dung teacher audience, co handover capability, Student/Class/day thuoc selected School
+**Given** Staff dang dung teacher audience, co StaffProfile active, primary SchoolPosition active cap `HANDOVER_WRITE`, binding active, Student/enrollment/day thuoc selected School
 **When** Staff submit picked-up time
-**Then** server validate StaffProfile binding, membership, handover capability, Class assignment, state va `HandoverPolicy.photoEvidenceMode`; REQUIRED tu choi picked-up time khong co evidence hop le va snapshot evidence reference/audit vao confirmed operational record
-**And** missing capability, already-recorded state hoac validation error tra ly do server va UI refresh record.
+**Then** server resolve `HANDOVER_WRITE` tu Position, khong tu `staffType`, preset role, Position name hay browser state, va validate StaffProfile binding, membership, School, Student enrollment, date, state va `HandoverPolicy.photoEvidenceMode` ma khong yeu cau StaffClassAssignment; REQUIRED tu choi picked-up time khong co evidence hop le va snapshot evidence reference/audit vao confirmed operational record
+**And** Student/Class UUID School khac, missing/revoked capability, inactive Position/binding, already-recorded state hoac validation error tra ly do server va UI refresh record.
 
 **Given** Finance hoac Staff xem handover record
 **When** record duoc trinh bay
@@ -824,12 +833,12 @@ So that attendance/handover khong lam lo du lieu tre em hoac bien thanh pricing 
 **Given** PostgreSQL fixture co nhieu School, policy version, enrollment, leave, evidence va adjustment source
 **When** integration suite chay write/read/cleanup/adjustment scenarios
 **Then** cross-tenant/capability access, required-evidence violation, holiday/leave-`PRESENT` conflict, source/target mismatch va duplicate adjustment deu bi tu choi
-**And** test xac minh blob cleanup sau hai thang lich, audit retention va khong co Parent-accessible evidence field.
+**And** test xac minh cross-School Position/capability denial, inactive Position/Staff/binding/capability revoke denial, khong co authorization tu `staffType` hay preset role sau Story 2.4 migration, `ATTENDANCE_WRITE`/`CLASS_LEAVE_READ` class restriction, `HANDOVER_WRITE` cross-class trong cung School, blob cleanup sau hai thang lich, audit retention va khong co Parent-accessible evidence field.
 
 **Given** Admin/Staff portal E2E chay attendance/handover flows
 **When** user gap missing capability, conflict, validation error, timeout hoac School switch
 **Then** UI hien thi server-confirmed status/reason, accessible error/focus, switch guard va Operation reconciliation theo contract
-**And** khong co automatic fee UI, local status override hoac stale cross-School class data.
+**And** attendance chi available khi Position cap `ATTENDANCE_WRITE` va Class assignment effective, handover available cho `HANDOVER_WRITE` trong selected School khong suy dien/yeu cau Class assignment, va khong co automatic fee UI, local status override hoac stale cross-School class data.
 
 **Given** attendance write hoan tat nhieu lan do retry
 **When** notification source duoc kiem tra

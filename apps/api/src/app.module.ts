@@ -7,6 +7,7 @@ import { MembershipsModule } from './modules/memberships/memberships.module.js';
 import { RosterModule } from './modules/roster/roster.module.js';
 import { ParentsModule } from './modules/parents/parents.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
+import { AttendanceModule } from './modules/attendance/attendance.module.js';
 
-@Module({ imports: [HealthModule, AuthModule, OpsModule, AuthorizationModule, MembershipsModule, RosterModule, ParentsModule, SettingsModule] })
+@Module({ imports: [HealthModule, AuthModule, OpsModule, AuthorizationModule, MembershipsModule, RosterModule, ParentsModule, SettingsModule, AttendanceModule] })
 export class AppModule {}

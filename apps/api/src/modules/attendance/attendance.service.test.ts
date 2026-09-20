@@ -1,0 +1,79 @@
+import { describe, expect, it, vi } from 'vitest';
+import { AttendanceService } from './attendance.service.js';
+
+const school = '11111111-1111-4111-8111-111111111111';
+const student = '22222222-2222-4222-8222-222222222222';
+const operation = '33333333-3333-4333-8333-333333333333';
+const key = '44444444-4444-4444-8444-444444444444';
+const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
+
+function service(overrides: Record<string, unknown> = {}) {
+  const transaction = {
+    $queryRaw: vi.fn(),
+    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) },
+    school: { findFirst: vi.fn().mockResolvedValue({ id: school }) },
+    studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }) },
+    studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ id: 'enrollment' }) },
+    leavePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), nextDayDeadlineLocalTime: '15:00' }) },
+    schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) },
+    operation: { create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) },
+    leaveRequest: { create: vi.fn() },
+    auditRecord: { create: vi.fn() },
+  };
+  const prisma = {
+    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, $transaction: vi.fn(async (work) => work(transaction)), ...overrides,
+  };
+  return { prisma, attendance: new AttendanceService(prisma as never) };
+}
+
+describe('AttendanceService leave matrix', () => {
+  it('uses the HCM submission day policy, not the requested range start', async () => {
+    const { attendance } = service(); vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '15:00' });
+    const tx = { leavePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-02-01'), nextDayDeadlineLocalTime: '15:00' }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({}) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({}) }, schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) } };
+    await (attendance as any).leaveCreateFacts(tx, school, 'parent', student, '2026-01-01', '2026-01-02');
+    expect(tx.leavePolicy.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ effectiveFrom: { lte: day('2026-02-10') } }) }));
+  });
+
+  it('excludes Sunday and holiday facts and rejects a range with no operating date before an operation', async () => {
+    const { attendance } = service(); vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-06', time: '12:00' });
+    const tx = { leavePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), nextDayDeadlineLocalTime: '15:00' }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({}) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({}) }, schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [{ startsOn: day('2026-02-09'), endsOn: day('2026-02-09') }] }) } };
+    await expect((attendance as any).leaveCreateFacts(tx, school, 'parent', student, '2026-02-08', '2026-02-09')).rejects.toMatchObject({ response: { code: 'VALIDATION_ERROR' } });
+  });
+
+  it('denies missing policy and revoked or ineligible parent/student links before writes', async () => {
+    const { attendance } = service(); const tx = { studentParent: { findFirst: vi.fn().mockResolvedValue(null) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue(null) } };
+    await expect((attendance as any).leaveCreateFacts(tx, school, 'parent', student, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+    const noPolicy = { ...tx, studentParent: { findFirst: vi.fn().mockResolvedValue({}) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({}) }, leavePolicy: { findFirst: vi.fn().mockResolvedValue(null) } };
+    await expect((attendance as any).leaveCreateFacts(noPolicy, school, 'parent', student, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'LEAVE_POLICY_NOT_CONFIGURED' } });
+  });
+
+  it('returns only requests whose leave day overlaps both teacher assignment and student placement', async () => {
+    const visible = { id: 'visible', studentId: student, status: 'PENDING', createdAt: new Date(), rejectedReason: null, decidedAt: null, days: [{ operatingOn: day('2026-02-09') }], student: { enrollments: [{ effectiveFrom: day('2026-02-01'), endedOn: null, classAssignments: [{ classId: 'class-a', effectiveFrom: day('2026-02-01'), effectiveTo: null }] }] } };
+    const hidden = { ...visible, id: 'hidden', student: { enrollments: [{ classAssignments: [{ classId: 'class-b', effectiveFrom: day('2026-02-01'), effectiveTo: null }] }] } };
+    const { attendance } = service({ staffClassAssignment: { findMany: vi.fn().mockResolvedValue([{ classId: 'class-a', effectiveFrom: day('2026-02-01'), effectiveTo: null }]) }, leaveRequest: { findMany: vi.fn().mockResolvedValue([visible, hidden]) } });
+    await expect(attendance.teacherList('teacher', school)).resolves.toMatchObject([{ id: 'visible' }]);
+  });
+
+  it('reconciles only the parent actor operation while its StudentParent link remains active', async () => {
+    const { attendance, prisma } = service({ operation: { findFirst: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: { studentId: student } }) } });
+    await expect(attendance.parentOperation('parent-identity', school, operation)).resolves.toMatchObject({ id: operation, status: 'COMPLETED' });
+    expect(prisma.operation.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ actorType: 'PARENT_PROFILE', actorReference: 'parent' }) }));
+    (prisma.studentParent.findFirst as any).mockResolvedValueOnce(null);
+    await expect(attendance.parentOperation('parent-identity', school, operation)).rejects.toMatchObject({ response: { code: 'OPERATION_NOT_FOUND' } });
+  });
+
+  it('requires an active bound teacher profile, fails missing calendars, and bounds ranges', async () => {
+    const denied = service({ schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: null }) } }).attendance;
+    await expect(denied.teacherList('teacher', school)).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+    const { attendance } = service(); const tx = { studentParent: { findFirst: vi.fn().mockResolvedValue({}) }, leavePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), nextDayDeadlineLocalTime: '15:00' }) }, schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue(null) } };
+    await expect((attendance as any).leaveCreateFacts(tx, school, 'parent', student, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'SCHOOL_CALENDAR_NOT_CONFIGURED' } });
+    await expect(attendance.create('parent-identity', school, key, operation, { studentId: student, startsOn: '2026-01-01', endsOn: '2026-04-15' })).rejects.toMatchObject({ response: { fieldErrors: { endsOn: expect.any(String) } } });
+  });
+
+  it('rejects idempotency fingerprint changes and terminal decisions, requiring reject reasons', async () => {
+    const { attendance, prisma } = service({ operation: { findFirst: vi.fn().mockResolvedValue({ id: operation, fingerprint: 'other', status: 'COMPLETED', outcome: {} }) } });
+    await expect(attendance.create('parent-identity', school, key, operation, { studentId: student, startsOn: '2026-02-09', endsOn: '2026-02-09' })).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    await expect(attendance.decide('admin', school, operation, 'REJECTED', key, operation, {})).rejects.toMatchObject({ response: { code: 'VALIDATION_ERROR' } });
+  });
+});

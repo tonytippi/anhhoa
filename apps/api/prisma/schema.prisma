@@ -35,6 +35,8 @@ model School {
   attendancePolicies AttendancePolicy[]
   handoverPolicies HandoverPolicy[]
   dailyJournalPolicies DailyJournalPolicy[]
+  leavePolicies LeavePolicy[]
+  leaveRequests LeaveRequest[]
   bankAccounts BankAccount[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
@@ -104,13 +106,31 @@ model StaffProfile {
   dateOfBirth DateTime @db.Date
   gender      String
   address     String
+  employmentStatus StaffEmploymentStatus @default(ACTIVE)
+  staffType   StaffType @default(TEACHER)
+  schoolMembershipId String? @unique @db.Uuid
+  boundAt DateTime?
+  boundByMembershipId String? @db.Uuid
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  schoolMembership SchoolMembership? @relation("StaffProfileLoginBinding", fields: [schoolId, schoolMembershipId], references: [schoolId, id], onDelete: Restrict)
+  boundByMembership SchoolMembership? @relation("StaffProfileBindingAuditor", fields: [schoolId, boundByMembershipId], references: [schoolId, id], onDelete: Restrict)
   assignments StaffClassAssignment[]
 
   @@unique([schoolId, id])
+  @@unique([schoolId, schoolMembershipId])
   @@index([schoolId, fullName])
+}
+
+enum StaffEmploymentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum StaffType {
+  TEACHER
+  STAFF
 }
 
 model StaffClassAssignment {
@@ -137,6 +157,67 @@ model StaffClassAssignment {
   @@unique([schoolId, id])
   @@index([schoolId, schoolYearId, effectiveFrom])
   @@index([schoolId, staffProfileId, effectiveFrom])
+  @@index([schoolId, classId, effectiveFrom])
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  AUTO_APPROVED
+  APPROVED
+  REJECTED
+}
+
+model LeavePolicy {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  effectiveFrom DateTime @db.Date
+  nextDayDeadlineLocalTime String
+  actorIdentityId String @db.Uuid
+  membershipId String @db.Uuid
+  createdAt DateTime @default(now())
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  @@unique([schoolId, effectiveFrom])
+  @@unique([schoolId, id])
+  @@index([schoolId, effectiveFrom])
+}
+
+model LeaveRequest {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  studentId String @db.Uuid
+  parentProfileId String @db.Uuid
+  status LeaveRequestStatus
+  policyEffectiveFrom DateTime @db.Date
+  policyDeadlineLocalTime String
+  rejectedReason String?
+  decidedAt DateTime?
+  decidedByMembershipId String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student Student @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  parentProfile ParentProfile @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
+  studentParent StudentParent @relation(fields: [schoolId, studentId, parentProfileId], references: [schoolId, studentId, parentProfileId], onDelete: Restrict)
+  decidedByMembership SchoolMembership? @relation("LeaveRequestDecisionMembership", fields: [schoolId, decidedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  days LeaveRequestDay[]
+  @@unique([schoolId, id])
+  @@index([schoolId, studentId, createdAt])
+  @@index([schoolId, parentProfileId, createdAt])
+  @@index([schoolId, decidedByMembershipId, createdAt])
+}
+
+model LeaveRequestDay {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  leaveRequestId String @db.Uuid
+  operatingOn DateTime @db.Date
+  calendarEffectiveFrom DateTime @db.Date
+  createdAt DateTime @default(now())
+  leaveRequest LeaveRequest @relation(fields: [schoolId, leaveRequestId], references: [schoolId, id], onDelete: Restrict)
+  calendarVersion SchoolCalendarVersion @relation(fields: [schoolId, calendarEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  @@unique([schoolId, leaveRequestId, operatingOn])
+  @@index([schoolId, operatingOn])
 }
 
 model Student {
@@ -150,6 +231,7 @@ model Student {
   school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   enrollments StudentEnrollment[]
   parentLinks StudentParent[]
+  leaveRequests LeaveRequest[]
 
   @@unique([schoolId, id])
   @@index([schoolId, studentCode])
@@ -312,6 +394,7 @@ model ParentProfile {
   updatedAt       DateTime        @updatedAt
   userIdentity    UserIdentity?   @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   studentParents  StudentParent[]
+  leaveRequests LeaveRequest[]
 }
 
 model StudentParent {
@@ -325,6 +408,7 @@ model StudentParent {
   school          School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student         Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   parentProfile   ParentProfile       @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
+  leaveRequests   LeaveRequest[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, studentId, parentProfileId])
@@ -371,6 +455,10 @@ model SchoolMembership {
   attendancePolicies AttendancePolicy[]
   handoverPolicies HandoverPolicy[]
   dailyJournalPolicies DailyJournalPolicy[]
+  leavePolicies LeavePolicy[]
+  boundStaffProfile StaffProfile? @relation("StaffProfileLoginBinding")
+  auditedStaffProfileBindings StaffProfile[] @relation("StaffProfileBindingAuditor")
+  decidedLeaveRequests LeaveRequest[] @relation("LeaveRequestDecisionMembership")
   bankAccounts BankAccount[]
   bankAccountLifecycleTransitions BankAccountLifecycleTransition[]
 
@@ -466,6 +554,7 @@ model SchoolCalendarVersion {
   createdAt         DateTime                @default(now())
   school            School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   holidays          SchoolCalendarHoliday[]
+  leaveRequestDays  LeaveRequestDay[]
 
   @@unique([schoolId, effectiveFrom])
   @@unique([schoolId, id])

@@ -1,6 +1,6 @@
 type AuditActor = {
   identityId: string;
-  type: 'SCHOOL_MEMBERSHIP' | 'PLATFORM_OPERATOR_GRANT';
+  type: 'SCHOOL_MEMBERSHIP' | 'PLATFORM_OPERATOR_GRANT' | 'PARENT_PROFILE';
   reference: string;
   membershipId?: string;
 };

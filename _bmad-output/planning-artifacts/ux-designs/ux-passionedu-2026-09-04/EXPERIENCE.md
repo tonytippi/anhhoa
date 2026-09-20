@@ -1,7 +1,7 @@
 ---
 name: PassionEdu
 status: final
-updated: 2026-09-16
+updated: 2026-09-19
 sources:
   - ../../../specs/spec-passionedu/SPEC.md
   - ../../prds/prd-passionedu-2026-09-04/prd.md
@@ -23,6 +23,7 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | School chooser / switcher | Admin/Staff, Parent with multiple active Schools | Select an authorized School before scoped work. A Parent with one active School enters its home directly; a Parent with no active StudentParent link is denied a Parent session. |
 | Tổng quan | Admin | Tổng quan vận hành theo School/ngày, read-only: sĩ số/lớp, điểm danh do server trả về, trẻ đã được đón và đơn nghỉ; không là nơi mutation điểm danh, giờ đón hay nhật ký. |
 | Danh bộ | School Admin | SchoolYear, Class, Student enrollment, Parent links, Staff assignments. |
+| Chức danh | School Admin | Quản lý Chức danh School-scoped, capability catalog được phép và trạng thái; không tạo quyền tự do hay thay login binding/phân công Lớp. |
 | Cấu hình trường | School Admin | Typed School, fixed workweek/holiday calendar, finance and attendance policy. Parent authorization is a server-enforced baseline, not a School setting. |
 | Khoản thu / Đợt thu | Finance | Catalog, CollectionRun setup, preview, generate and issue review. |
 | Thu tiền / Công nợ / Báo cáo | Finance | Actual Receipt close, settlement carry, promotional coverage, debt, correction and school-scoped report. |
@@ -56,6 +57,8 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | School context switcher | Admin/Staff, Parent | Visible name is mandatory. On dirty form or pending/uncertain mutation, open switch guard: remain, discard, or reconcile Operation. No auto-save draft. |
 | Tổng quan theo ngày | Admin | Dải chỉ số ngắn và bảng theo lớp hiển thị sĩ số, đã có mặt, nghỉ có đơn, đã được đón và trạng thái chưa đến lớp. Count/nhãn/date context là dữ liệu server, không optimistic hay tự tính trên browser. Hôm nay chưa có `PRESENT`/`ABSENT` xác nhận là `Chưa đến lớp`; ngày quá khứ `ABSENT` xác nhận không có đơn duyệt là `Nghỉ không phép`, còn không có bản ghi là `Chưa ghi nhận`. Card nghỉ có đơn mở danh sách đơn với filter URL-backed. |
 | SchoolYear setup | School Admin | Creates one active SchoolYear through a named confirmation. Class, Student, pending Parent link and Staff assignment forms show effective date and server validation; Staff profile never implies a login grant. |
+| Chức danh | School Admin | Workspace desktop table-first luôn nêu rõ Trường đang chọn ở heading/caption. Bảng có `Tên chức danh`, `Mã`, `Trạng thái`, `Số nhân sự`, `Khả năng thao tác` và `Tùy chọn`; capability hiển thị bằng nhãn tiếng Việt ngắn do server trả về, không dùng raw JSON hay mã kỹ thuật. Có tìm kiếm/lọc trạng thái, phân trang và nút `Thêm chức danh`; card chỉ dùng cho tóm tắt, ngoại lệ hoặc xác nhận. Tạo/Sửa dùng tên, mã và checkbox capability từ catalog Platform được server cho phép, nhóm theo khu vực vận hành; không có ô nhập quyền tự do, tạo capability mới, hoặc capability Platform/Parent/Ops. Tên chức danh chỉ để nhận biết, không mô tả hay chứng minh quyền thực thi. |
+| Tạo, sửa và ngừng áp dụng Chức danh | School Admin | Form hiển thị Trường đang chọn, label/help/error cạnh từng trường và error summary được focus khi server từ chối; focus vào heading khi mở route và quay lại control khởi phát khi đóng dialog. Lưu là thao tác có thể đối soát: trong lúc chờ hoặc timeout khóa gửi lặp, nêu “Đang kiểm tra kết quả với hệ thống” và chỉ cho thử lại sau khi đối soát Operation. `Ngừng áp dụng` là xác nhận có tên Chức danh, bắt buộc lý do audit và nêu rõ Staff đang gán sẽ mất capability ở yêu cầu kế tiếp; không xóa Chức danh có Staff hoặc lịch sử. Thành công làm mới bảng theo dữ liệu server; lỗi giữ nguyên input và không hiển thị trạng thái local như đã lưu. |
 | Evidence setting | School Admin | Shows separate `Bắt buộc`/`Tùy chọn` settings for an image when Teacher records `PRESENT` and when Teacher confirms handover. Confirmation and Operation reconciliation refresh the server-confirmed setting; no cutoff, grace or free-form policy appears. |
 | School holiday calendar | School Admin | Default schedule is read-only: Monday through Saturday, with Sunday non-operating. Add a named inclusive holiday range only through a server-validated Operation; overlap/order errors retain input, and audit/history never rewrites calendar snapshots, attendance, leave or Finance facts. |
 | Roster transition wizard | School Admin | Preview -> confirm -> Operation reconciliation. Source history stays visible; records excluded by server cannot be force-moved. |
@@ -73,7 +76,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Payroll correction | Finance Manager Accountant, School Admin | Finance Manager prepares/submits from a paid source version; a different-identity School Admin approves/refuses; Finance Manager confirms resulting payout. Original paid Payroll remains read-only and every step uses Operation reconciliation. |
 | Management list | Admin/Staff, Ops, Finance | Default pattern for comparable records: concise Vietnamese column labels, search/filter/sort, explicit pagination, text status and labeled row actions in the final column. A compact summary may precede the table only when it helps prioritize work. Technical identifiers and verbose policy explanations remain outside the default row surface. |
 | Attendance entry | Teacher | Requires evidence before `PRESENT` when its setting requires it. Calendar/leave conflicts show server result and do not let the user override locally. |
-| Handover entry | Teacher | Records server-validated picked-up time for one Student and requires evidence when its setting requires it. Missing capability or effective Class assignment shows no action; correction/error refreshes server state. It is explicitly labeled operational reference, never automatic fee calculation. |
+| Handover entry | Staff có capability | Records server-validated picked-up time for one Student in the selected School and requires evidence when its setting requires it. `HANDOVER_WRITE` áp dụng toàn Trường: UI không đòi hoặc suy diễn phân công Lớp, nhưng mỗi submit vẫn để server xác nhận Staff/binding/Chức danh đang hiệu lực, School, Student enrollment, ngày, policy và evidence. Missing capability, binding/Chức danh bị thu hồi, correction/error shows no action or refreshes server state. It is explicitly labeled operational reference, never pickup authorization or automatic fee calculation. |
 | Daily journal editor | Teacher | One current journal per Student/date in an assigned Class. Same-day edits create audited versions. Multi-image upload accepts only JPEG/PNG/WebP up to 10 MB per file; UI does not set Parent-visible state until server confirms. |
 | Daily journal | Parent | Shows only the current authorized text and protected images of one child/date within retention. It never shows Teacher identity, journal versions/audit, Class facts or attendance evidence. |
 | Service and long leave | School Admin, Finance, Parent | Admin/Finance manage effective-dated service enrollment; Parent/Admin can start long leave, but only School Admin approves/rejects effective date. Parent sees request result, not finance internals. |
@@ -106,6 +109,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | No report data | Report retains School, period and filter context and says no ledger activity matches; it does not show zero as a confirmed collection result without an as-of context. |
 | Report/export unavailable | Giữ School/filter/as-of đang xem, nêu rõ không còn quyền, file đã hết hạn hoặc dữ liệu đã đổi sau `asOf`; không tạo CSV ở browser, không tự chuyển School hay thay kết quả bằng tổng live. |
 | Handover unavailable | Missing permission, required evidence, already-recorded state or validation error names the reason and refreshes the child/day record; no late-fee suggestion appears. |
+| Position unavailable | Khi Chức danh inactive, capability bị thu hồi hoặc Staff/binding không còn hiệu lực, xóa dữ liệu protected đang mở trước khi nêu trạng thái an toàn; không suy diễn quyền từ tên Chức danh, cache hoặc trạng thái browser. |
 | Daily Admin overview | Shows selected School/date and server-returned loading, error or no-authorized-data state; it never substitutes zero for an unresolved state or offers attendance/handover mutation. |
 | Parent inbox empty | Bell opens "Chưa có thông báo trong 30 ngày gần đây." |
 | Policy conflict | Form keeps active and proposed effective-dated values visible, focuses server validation, and does not claim policy changed until confirmed. |
@@ -143,6 +147,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 - A daily operational detail replaces its landing header/actions with a single contextual title and Back action. Do not leave create/configure actions visible when they cannot act on the selected record.
 - Keep table cells scannable: one primary value, short secondary context only where necessary, and a labeled button/link for the next task. Put long explanation, source provenance and audit identifiers behind a disclosure or destination view.
 - Dialogs trap focus, have one obvious dismiss path and never stack. Destructive, issue, settlement, reversal and discard actions require a named confirmation.
+- Trước khi đổi Trường từ form Chức danh chưa lưu, mở switch guard: `Ở lại để tiếp tục`, `Bỏ thay đổi` hoặc `Đối soát thao tác`. Khi mutation đã gửi hoặc chưa chắc kết quả, không cho bỏ thay đổi hay tự chuyển Trường; chỉ đối soát Operation hoặc hủy việc chuyển.
 - Date controls are keyboard reachable and announce selected day/calendar status. Status filters use text labels, not color-only chips.
 - Parent notification deep-links re-authorize child and School before rendering; if unavailable, show safe inbox context rather than stale detail.
 - Parent has no attendance edit affordance. Finance totals/statuses always display API-returned values.
@@ -217,6 +222,15 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 5. **Climax:** Danh bộ shows the new Student in the correct SchoolYear/Class with pending Parent status; the Staff assignment does not imply that Staff can sign in.
 6. Failure: another active SchoolYear or invalid effective date is returned by the server; the form explains the field conflict and does not create a local placeholder record.
 
+### Flow 1g - Quản lý Chức danh (Hoa, School Admin)
+
+1. Hoa mở `Chức danh` và thấy rõ Trường Ánh Hoa ở heading, caption bảng; mỗi dòng cho biết tên, mã, trạng thái, số Staff và các nhãn khả năng thao tác.
+2. Hoa chọn `Thêm chức danh`, nhập tên/mã và chọn capability từ catalog được phép, nhóm theo khu vực vận hành; không có quyền tự do hoặc capability ngoài School.
+3. Sau khi gửi, UI đối soát Operation rồi làm mới bảng bằng dữ liệu server; tên không được coi là bằng chứng quyền.
+4. Hoa muốn ngừng áp dụng một Chức danh đang có Staff. Hộp xác nhận nêu tên, số Staff bị ảnh hưởng, yêu cầu lý do audit và nói rõ yêu cầu tiếp theo của họ sẽ bị chặn theo capability bị mất.
+5. **Climax:** Bảng hiển thị trạng thái `Ngừng áp dụng` do server xác nhận và vẫn giữ dòng/lịch sử để đối soát.
+6. Failure: lỗi mã trùng hoặc catalog không hợp lệ focus error summary và giữ input. Nếu Hoa đổi Trường khi form bẩn, switch guard cho ở lại hoặc bỏ thay đổi; nếu mutation đang đối soát, chỉ cho ở lại để đối soát hoặc hủy đổi Trường.
+
 ### Flow 1f - School policy and holiday calendar (Hoa, School Admin)
 
 1. Hoa opens the read-only calendar schedule or a typed finance, attendance or handover policy.
@@ -286,13 +300,13 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 5. **Climax:** The class list refreshes with explicit text statuses; authorized Parent events are created without exposing An or evidence.
 6. Failure: leave/PRESENT conflict or timeout returns server state or Operation reconciliation; An cannot force a fee or edit Parent-facing history.
 
-### Flow 6 - Teacher records handover (An, 16:35)
+### Flow 6 - Staff records handover (An, 16:35)
 
-1. An opens the handover list for today and a selected Class in the visible School context.
+1. An opens the handover list for today in the visible School context. Anh có `HANDOVER_WRITE` từ Chức danh đang hiệu lực nên có thể chọn Student thuộc bất kỳ Lớp nào trong Trường; UI không yêu cầu phân công Lớp.
 2. He selects an authorized Student and enters the picked-up time.
-3. The server validates capability and state, then confirms the recorded handover.
+3. The server validates active Staff/binding/Chức danh capability, School, Student enrollment, date, policy, evidence and state, then confirms the recorded handover.
 4. **Climax:** The child row shows the recorded time as operational history; it does not display or calculate any late-pickup fee.
-5. Failure: An lacks handover capability or the record changed. The action is unavailable or refreshes with the server reason; An cannot infer or create a finance charge.
+5. Failure: An lacks handover capability, Position/binding is no longer active, Student belongs to another School or the record changed. The action is unavailable or refreshes with the server reason; An cannot infer or create a finance charge.
 
 ### Flow 7 - Teacher publishes daily journal (An, 16:45)
 
