@@ -41,6 +41,16 @@ describe('AttendanceService leave matrix', () => {
     await expect((attendance as any).attendanceFacts(tx, school, 'class', student, '2026-02-09', 'PRESENT', operation)).rejects.toMatchObject({ response: { fieldErrors: { evidenceId: expect.any(String) } } });
     await expect((attendance as any).attendanceFacts(tx, school, 'class', student, '2026-02-09', 'ABSENT', null)).resolves.toMatchObject({ policy: expect.anything() });
   });
+  it('requires valid handover evidence without reading a Class assignment and emits a minimal source payload', async () => {
+    const { attendance } = service();
+    const tx = { schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) }, handoverPolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), photoEvidenceMode: 'REQUIRED' }) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ id: 'enrollment' }) }, evidenceReference: { findFirst: vi.fn().mockResolvedValue(null) }, notificationSourceEvent: { create: vi.fn() } };
+    await expect((attendance as any).handoverFacts(tx, school, student, '2026-02-09', null, { id: 'member', staffProfileId: 'staff' })).rejects.toMatchObject({ response: { fieldErrors: { evidenceId: expect.any(String) } } });
+    tx.handoverPolicy.findFirst.mockResolvedValueOnce({ effectiveFrom: day('2026-01-01'), photoEvidenceMode: 'OPTIONAL' });
+    await expect((attendance as any).handoverFacts(tx, school, student, '2026-02-09', null, { id: 'member', staffProfileId: 'staff' })).resolves.toMatchObject({ policy: expect.anything() });
+    const pickedUpAt = new Date('2026-02-09T10:00:00.000Z');
+    await (attendance as any).writeHandoverNotificationSource(tx, school, operation, student, '2026-02-09', pickedUpAt);
+    expect(tx.notificationSourceEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ sourceType: 'HANDOVER', payload: { schoolId: school, studentId: student, handoverOn: '2026-02-09', pickedUpAt: pickedUpAt.toISOString() } }) });
+  });
 
   it('rejects non-operating attendance before a record or operation can be written', async () => {
     const { attendance } = service();

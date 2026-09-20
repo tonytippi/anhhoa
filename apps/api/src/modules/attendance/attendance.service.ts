@@ -21,6 +21,8 @@ const rejectRoute =
   "POST /api/app/schools/:schoolId/leave-requests/:leaveRequestId/reject";
 const attendanceRoute = "POST /api/teacher/schools/:schoolId/attendance";
 const evidenceUploadRoute = "POST /api/teacher/schools/:schoolId/attendance-evidence";
+const handoverRoute = "POST /api/teacher/schools/:schoolId/handovers";
+const handoverEvidenceUploadRoute = "POST /api/teacher/schools/:schoolId/handover-evidence";
 const expiredEvidenceMessage = "Tệp bằng chứng đã hết hạn";
 type Db =
   | PrismaService
@@ -68,6 +70,21 @@ export class AttendanceService {
       day: `${get("year")}-${get("month")}-${get("day")}`,
       time: `${get("hour")}:${get("minute")}`,
     };
+  }
+  private hcmDay(instant: Date) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(instant);
+    const get = (type: string) => parts.find((part) => part.type === type)!.value;
+    return `${get("year")}-${get("month")}-${get("day")}`;
+  }
+  private pickedUpAt(value: unknown) {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
+    const instant = new Date(value);
+    return Number.isNaN(instant.getTime()) ? null : instant;
   }
   private dto(
     request: {
@@ -430,12 +447,64 @@ export class AttendanceService {
   async teacherOperation(identityId: string, schoolId: string, operationId: string) {
     if (!uuid.test(operationId)) throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
     const actor = await this.teacher(identityId, schoolId);
-    const operation = await this.prisma.operation.findFirst({ where: { id: operationId, schoolId, actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, route: { in: [attendanceRoute, evidenceUploadRoute] } } });
+    const operation = await this.prisma.operation.findFirst({ where: { id: operationId, schoolId, actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, route: { in: [attendanceRoute, evidenceUploadRoute, handoverRoute, handoverEvidenceUploadRoute] } } });
     if (!operation) throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
     const outcome = operation.outcome as { classId?: unknown; attendanceOn?: unknown } | null;
-    if (typeof outcome?.classId !== "string" || typeof outcome.attendanceOn !== "string") throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
-    await this.teacher(identityId, schoolId, outcome.classId, outcome.attendanceOn);
+    if (operation.route === handoverRoute || operation.route === handoverEvidenceUploadRoute) await this.handoverTeacher(identityId, schoolId);
+    else {
+      if (typeof outcome?.classId !== "string" || typeof outcome.attendanceOn !== "string") throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
+      await this.teacher(identityId, schoolId, outcome.classId, outcome.attendanceOn);
+    }
     return { id: operation.id, status: operation.status, outcome: operation.outcome };
+  }
+  async handoverRoster(identityId: string, schoolId: string, handoverOn: string) {
+    this.date(handoverOn, "handoverOn");
+    await this.handoverTeacher(identityId, schoolId);
+    const on = this.day(handoverOn);
+    await this.operatingDay(this.prisma, schoolId, handoverOn, "Không thể bàn giao ngày không vận hành.");
+    const policy = await this.prisma.handoverPolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: on } }, orderBy: { effectiveFrom: "desc" } });
+    if (!policy) throw new ConflictException({ code: "HANDOVER_POLICY_NOT_CONFIGURED", message: "Trường chưa cấu hình chính sách bàn giao." });
+    const students = await this.prisma.studentEnrollment.findMany({ where: { schoolId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }] }, include: { student: { select: { id: true, fullName: true } } }, orderBy: [{ student: { fullName: "asc" } }, { studentId: "asc" }] });
+    const records = await this.prisma.handoverRecord.findMany({ where: { schoolId, handoverOn: on }, include: { evidence: { select: { deletedAt: true } } } });
+    const byStudent = new Map(records.map((record) => [record.studentId, record]));
+    return { handoverOn, photoEvidenceMode: policy.photoEvidenceMode, students: students.map(({ student }) => {
+      const record = byStudent.get(student.id);
+      return { studentId: student.id, fullName: student.fullName, pickedUpAt: record?.pickedUpAt.toISOString() ?? null, evidenceId: record?.evidenceId ?? null, evidenceAvailability: record?.evidenceId ? (record.evidence?.deletedAt ? "EXPIRED" : "AVAILABLE") : null, evidenceMessage: record?.evidence?.deletedAt ? expiredEvidenceMessage : null };
+    }) };
+  }
+  async recordHandover(identityId: string, schoolId: string, key: string, operationId: string, body: unknown) {
+    const input = body as { studentId?: unknown; handoverOn?: unknown; pickedUpAt?: unknown; evidenceId?: unknown };
+    const studentId = typeof input?.studentId === "string" ? input.studentId : "";
+    const handoverOn = this.date(input?.handoverOn, "handoverOn");
+    const pickedUpAt = this.pickedUpAt(input?.pickedUpAt);
+    const evidenceId = typeof input?.evidenceId === "string" ? input.evidenceId : null;
+    if (!uuid.test(studentId) || !pickedUpAt || this.hcmDay(pickedUpAt) !== handoverOn || pickedUpAt > new Date() || (evidenceId && !uuid.test(evidenceId))) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(!uuid.test(studentId) ? { studentId: "Học sinh không hợp lệ." } : {}), ...(!pickedUpAt || this.hcmDay(pickedUpAt) !== handoverOn || pickedUpAt > new Date() ? { pickedUpAt: "Giờ trả trẻ phải thuộc ngày bàn giao và không ở tương lai." } : {}), ...(evidenceId && !uuid.test(evidenceId) ? { evidenceId: "Bằng chứng không hợp lệ." } : {}) } });
+    const actor = await this.handoverTeacher(identityId, schoolId);
+    return this.mutate({ actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, membershipId: actor.id, route: handoverRoute, identityId, schoolId, key, operationId, body: { studentId, handoverOn, pickedUpAt: pickedUpAt.toISOString(), evidenceId }, valid: (tx) => this.handoverTeacher(identityId, schoolId, tx) }, async (tx, op) => {
+      const current = await this.handoverTeacher(identityId, schoolId, tx);
+      const facts = await this.handoverFacts(tx, schoolId, studentId, handoverOn, evidenceId, current);
+      const existing = await tx.handoverRecord.findFirst({ where: { schoolId, studentId, handoverOn: this.day(handoverOn) } });
+      if (existing) throw new ConflictException({ code: "HANDOVER_ALREADY_RECORDED", message: "Đã ghi nhận trả trẻ cho học sinh trong ngày này." });
+      const record = await tx.handoverRecord.create({ data: { schoolId, studentId, handoverOn: this.day(handoverOn), pickedUpAt, evidenceId, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId } });
+      if (evidenceId) await tx.evidenceReference.update({ where: { id: evidenceId }, data: { confirmedAt: new Date(), confirmedStudentId: studentId } });
+      await this.writeHandoverNotificationSource(tx, schoolId, record.id, studentId, handoverOn, pickedUpAt);
+      const outcome = { id: record.id, studentId, handoverOn, pickedUpAt: pickedUpAt.toISOString(), evidenceId, policyEffectiveFrom: facts.policy.effectiveFrom.toISOString().slice(0, 10) };
+      await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: "SCHOOL_MEMBERSHIP", reference: current.id, membershipId: current.id }, "HANDOVER_RECORDED", { operationId: op, handoverRecordId: record.id, studentId, handoverOn, pickedUpAt: outcome.pickedUpAt, evidenceId }) });
+      return outcome;
+    });
+  }
+  async uploadHandoverEvidence(identityId: string, schoolId: string, key: string, operationId: string, handoverOn: string, contentType: string | undefined, media: unknown) {
+    this.date(handoverOn, "handoverOn");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(contentType ?? "") || !Buffer.isBuffer(media) || !media.length || media.length > 5 * 1024 * 1024) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Tệp bằng chứng không hợp lệ." });
+    const actor = await this.handoverTeacher(identityId, schoolId);
+    const bytes = new Uint8Array(media);
+    return this.mutate({ actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, membershipId: actor.id, route: handoverEvidenceUploadRoute, identityId, schoolId, key, operationId, body: { handoverOn, contentType, size: bytes.byteLength }, valid: (tx) => this.handoverTeacher(identityId, schoolId, tx) }, async (tx, op) => {
+      const current = await this.handoverTeacher(identityId, schoolId, tx);
+      const evidence = await tx.evidenceReference.create({ data: { schoolId, contentType: contentType!, blob: bytes, preview: bytes, uploadedHandoverOn: this.day(handoverOn), uploadedMembershipId: current.id, uploadedStaffProfileId: current.staffProfileId } });
+      const outcome = { id: evidence.id, availability: "AVAILABLE", handoverOn };
+      await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: "SCHOOL_MEMBERSHIP", reference: current.id, membershipId: current.id }, "HANDOVER_EVIDENCE_UPLOADED", { operationId: op, evidenceId: evidence.id, handoverOn, contentType, size: bytes.byteLength }) });
+      return outcome;
+    });
   }
   async uploadEvidence(identityId: string, schoolId: string, key: string, operationId: string, classId: string, attendanceOn: string, contentType: string | undefined, media: unknown) {
     this.date(attendanceOn, "attendanceOn");
@@ -451,16 +520,22 @@ export class AttendanceService {
       return outcome;
     });
   }
-  async readEvidence(identityId: string, schoolId: string, evidenceId: string, audience: "teacher" | "app") {
+  async readAttendanceEvidence(identityId: string, schoolId: string, evidenceId: string) {
     if (!uuid.test(evidenceId)) throw new NotFoundException({ code: "EVIDENCE_NOT_FOUND", message: "Không tìm thấy bằng chứng." });
-    const evidence = await this.prisma.evidenceReference.findFirst({ where: { id: evidenceId, schoolId }, include: { attendanceRecords: { select: { classId: true, attendanceOn: true, evidenceId: true } } } });
+    const evidence = await this.prisma.evidenceReference.findFirst({ where: { id: evidenceId, schoolId }, include: { attendanceRecords: { select: { classId: true, attendanceOn: true } } } });
     if (!evidence) throw new NotFoundException({ code: "EVIDENCE_NOT_FOUND", message: "Không tìm thấy bằng chứng." });
-    if (audience === "app") await this.approver(identityId, schoolId);
-    else {
-      const record = evidence.attendanceRecords[0];
-      if (!record) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
-      await this.teacher(identityId, schoolId, record.classId, record.attendanceOn.toISOString().slice(0, 10));
-    }
+    const record = evidence.attendanceRecords[0];
+    if (!record) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
+    await this.teacher(identityId, schoolId, record.classId, record.attendanceOn.toISOString().slice(0, 10));
+    if (evidence.deletedAt || !evidence.blob) throw new ConflictException({ code: "EVIDENCE_EXPIRED", message: expiredEvidenceMessage });
+    return { contentType: evidence.contentType, blob: evidence.blob };
+  }
+  async readHandoverEvidence(identityId: string, schoolId: string, evidenceId: string, audience: "teacher" | "app") {
+    if (!uuid.test(evidenceId)) throw new NotFoundException({ code: "EVIDENCE_NOT_FOUND", message: "Không tìm thấy bằng chứng." });
+    const evidence = await this.prisma.evidenceReference.findFirst({ where: { id: evidenceId, schoolId }, include: { handoverRecord: { select: { id: true } } } });
+    if (!evidence?.handoverRecord) throw new NotFoundException({ code: "EVIDENCE_NOT_FOUND", message: "Không tìm thấy bằng chứng." });
+    if (audience === "app") await this.handoverAdmin(identityId, schoolId);
+    else await this.handoverTeacher(identityId, schoolId);
     if (evidence.deletedAt || !evidence.blob) throw new ConflictException({ code: "EVIDENCE_EXPIRED", message: expiredEvidenceMessage });
     return { contentType: evidence.contentType, blob: evidence.blob };
   }
@@ -492,6 +567,13 @@ export class AttendanceService {
   private async writeNotificationSource(tx: Db, schoolId: string, sourceType: "ATTENDANCE", sourceRecordId: string, studentId: string, attendanceOn: string, state: "PRESENT" | "ABSENT") {
     try {
       await tx.notificationSourceEvent.create({ data: { schoolId, sourceType, sourceRecordId, studentId, attendanceOn: this.day(attendanceOn), state, payload: { schoolId, studentId, attendanceOn, state } } });
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "P2002") throw error;
+    }
+  }
+  private async writeHandoverNotificationSource(tx: Db, schoolId: string, sourceRecordId: string, studentId: string, handoverOn: string, pickedUpAt: Date) {
+    try {
+      await tx.notificationSourceEvent.create({ data: { schoolId, sourceType: "HANDOVER", sourceRecordId, studentId, attendanceOn: this.day(handoverOn), pickedUpAt, payload: { schoolId, studentId, handoverOn, pickedUpAt: pickedUpAt.toISOString() } } });
     } catch (error) {
       if (!(error instanceof Error) || !("code" in error) || error.code !== "P2002") throw error;
     }
@@ -586,10 +668,30 @@ export class AttendanceService {
     }
     return { id: actor.id, staffProfileId: actor.boundStaffProfile.id };
   }
+  private async handoverTeacher(identityId: string, schoolId: string, tx: Db = this.prisma) {
+    const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "HANDOVER_WRITE" } } } } }, select: { id: true, boundStaffProfile: { select: { id: true } } } });
+    if (!actor?.boundStaffProfile) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
+    return { id: actor.id, staffProfileId: actor.boundStaffProfile.id };
+  }
+  private async handoverAdmin(identityId: string, schoolId: string, tx: Db = this.prisma) {
+    const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SETTINGS_MANAGE" } } } } }, select: { id: true } });
+    if (!actor) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
+    return actor;
+  }
+  private async handoverFacts(tx: Db, schoolId: string, studentId: string, handoverOn: string, evidenceId: string | null, actor: { id: string; staffProfileId: string }) {
+    const on = this.day(handoverOn);
+    await this.operatingDay(tx, schoolId, handoverOn, "Không thể bàn giao ngày không vận hành.");
+    const policy = await tx.handoverPolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: on } }, orderBy: { effectiveFrom: "desc" } });
+    if (!policy) throw new ConflictException({ code: "HANDOVER_POLICY_NOT_CONFIGURED", message: "Trường chưa cấu hình chính sách bàn giao." });
+    const enrollment = await tx.studentEnrollment.findFirst({ where: { schoolId, studentId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }] } });
+    if (!enrollment) throw new ConflictException({ code: "ROSTER_CONFLICT", message: "Học sinh không thuộc danh sách nhập học trong ngày này." });
+    if (policy.photoEvidenceMode === "REQUIRED" && !evidenceId) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { evidenceId: "Cần bằng chứng khi ghi trả trẻ." } });
+    if (evidenceId && !(await tx.evidenceReference.findFirst({ where: { id: evidenceId, schoolId, blob: { not: null }, deletedAt: null, uploadedHandoverOn: on, uploadedMembershipId: actor.id, uploadedStaffProfileId: actor.staffProfileId, confirmedAt: null }, select: { id: true } }))) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { evidenceId: "Bằng chứng không hợp lệ." } });
+    return { policy };
+  }
   private async attendanceFacts(tx: Db, schoolId: string, classId: string, studentId: string, attendanceOn: string, state: "PRESENT" | "ABSENT", evidenceId: string | null, actor?: { id: string; staffProfileId: string }, existingEvidenceId?: string | null) {
     const on = this.day(attendanceOn);
-    const calendar = await this.calendar(tx, schoolId, attendanceOn);
-    if (on.getUTCDay() === 0 || calendar.holidays.some((holiday: { startsOn: Date; endsOn: Date }) => holiday.startsOn <= on && holiday.endsOn >= on)) throw new ConflictException({ code: "NON_OPERATING_DAY", message: "Không thể điểm danh ngày không vận hành." });
+    await this.operatingDay(tx, schoolId, attendanceOn, "Không thể điểm danh ngày không vận hành.");
     const policy = await tx.attendancePolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: on } }, orderBy: { effectiveFrom: "desc" } });
     if (!policy) throw new ConflictException({ code: "ATTENDANCE_POLICY_NOT_CONFIGURED", message: "Trường chưa cấu hình chính sách điểm danh." });
     const enrollment = await tx.studentEnrollment.findFirst({ where: { schoolId, studentId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }], classAssignments: { some: { classId, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } } } });
@@ -610,6 +712,11 @@ export class AttendanceService {
         message: "Trường chưa cấu hình lịch vận hành.",
       });
     return calendar;
+  }
+  private async operatingDay(tx: Db, schoolId: string, day: string, message: string) {
+    const on = this.day(day);
+    const calendar = await this.calendar(tx, schoolId, day);
+    if (on.getUTCDay() === 0 || calendar.holidays.some((holiday: { startsOn: Date; endsOn: Date }) => holiday.startsOn <= on && holiday.endsOn >= on)) throw new ConflictException({ code: "NON_OPERATING_DAY", message });
   }
   private async nextOperating(tx: Db, schoolId: string, from: string) {
     for (const day of this.dates(

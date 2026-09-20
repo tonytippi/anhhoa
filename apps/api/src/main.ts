@@ -17,7 +17,7 @@ export function parsePort(value = process.env.PORT ?? '3000'): number {
 
 export async function createApi() {
   const app = await NestFactory.create(AppModule);
-  app.use('/api/teacher/schools/:schoolId/attendance-evidence', (request: { method?: string; headers: Record<string, string | undefined>; on(event: 'data', listener: (value: Buffer) => void): void; on(event: 'end' | 'aborted' | 'error', listener: () => void): void; body?: Buffer }, response: { status(code: number): { end(): void } }, next: () => void) => {
+  app.use(['/api/teacher/schools/:schoolId/attendance-evidence', '/api/teacher/schools/:schoolId/handover-evidence'], (request: { method?: string; headers: Record<string, string | undefined>; on(event: 'data', listener: (value: Buffer) => void): void; on(event: 'end' | 'aborted' | 'error', listener: () => void): void; body?: Buffer }, response: { status(code: number): { end(): void } }, next: () => void) => {
     if (request.method !== 'POST' || request.headers['content-type']?.split(';')[0] === 'application/json') return next();
     const chunks: Buffer[] = [];
     let size = 0;

@@ -26,6 +26,7 @@ export class AuthorizationService {
   private navigation(capabilities: Capability[]) {
     const navigation = [{ id: 'overview', label: 'Tổng quan' }];
     if (capabilities.includes('ATTENDANCE_WRITE')) navigation.push({ id: 'attendance', label: 'Điểm danh' });
+    if (capabilities.includes('HANDOVER_WRITE')) navigation.push({ id: 'handover', label: 'Bàn giao' });
     if (capabilities.includes('ACCESS_MANAGE')) navigation.push({ id: 'access', label: 'Quản lý truy cập' });
     if (capabilities.includes('ROSTER_MANAGE')) navigation.push({ id: 'roster', label: 'Danh bộ' });
     if (capabilities.includes('SETTINGS_MANAGE')) navigation.push({ id: 'settings', label: 'Cấu hình trường' });

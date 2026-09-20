@@ -16,4 +16,15 @@ describe('Teacher SchoolContext', () => {
     fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } });
     await screen.findByRole('heading', { name: 'PassionEdu - Giáo viên - Trường B' });
   });
+  it('shows the School-wide handover workspace only from server navigation', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { schoolId: 'a', schoolName: 'Trường A', navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'handover', label: 'Bàn giao' }] } })));
+    vi.stubGlobal('fetch', fetch);
+    render(<SchoolContext clear={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } });
+    await screen.findByRole('heading', { name: 'PassionEdu - Giáo viên - Trường A' });
+    expect(screen.getByRole('heading', { name: 'Bàn giao - tham chiếu vận hành' })).toBeTruthy();
+    expect(screen.queryByLabelText('Mã lớp')).toBeNull();
+  });
 });

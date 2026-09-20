@@ -40,8 +40,10 @@ afterEach(async () => {
     await tx.leaveRequestDay.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.leaveRequest.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.attendanceRecord.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.handoverRecord.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.evidenceReference.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.attendancePolicy.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.handoverPolicy.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.leavePolicy.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.schoolCalendarVersion.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.studentParent.deleteMany({ where: { schoolId: { in: ids } } });
@@ -129,5 +131,33 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     await expect(attendance.cleanupExpiredEvidence(new Date('2026-03-31T04:00:00.000Z'))).resolves.toEqual({ deleted: 1 });
     await expect(prisma.evidenceReference.findUniqueOrThrow({ where: { id: evidence.id } })).resolves.toMatchObject({ id: evidence.id, blob: null, preview: null, deletionReason: 'RETENTION_EXPIRED' });
     expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: 'EVIDENCE_EXPIRED' } })).toBe(1);
+  });
+  it('records handover without a Class assignment, replays once, and emits only the handover source payload', async () => {
+    const current = await graph();
+    const position = await prisma.schoolPosition.create({ data: { schoolId: current.school.id, code: `HANDOVER-${uuid()}`, name: `Bàn giao ${uuid()}` } });
+    await prisma.positionCapabilityGrant.create({ data: { schoolId: current.school.id, positionId: position.id, capability: 'HANDOVER_WRITE' } });
+    await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Cô Bàn giao', email: `${uuid()}@example.com`, phone: '0900000004', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    await prisma.handoverPolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date('2026-01-01'), photoEvidenceMode: 'OPTIONAL', reason: 'Bàn giao', actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+    const body = { studentId: current.student.id, handoverOn: '2026-02-09', pickedUpAt: '2026-02-09T10:00:00+07:00', evidenceId: null };
+    const key = uuid(); const operationId = uuid();
+    const first = await attendance.recordHandover(current.identity.id, current.school.id, key, operationId, body);
+    const replay = await attendance.recordHandover(current.identity.id, current.school.id, key, operationId, body);
+    expect(replay).toEqual(first);
+    const source = await prisma.notificationSourceEvent.findFirstOrThrow({ where: { schoolId: current.school.id, sourceType: 'HANDOVER' } });
+    expect(source.payload).toEqual({ schoolId: current.school.id, studentId: current.student.id, handoverOn: '2026-02-09', pickedUpAt: '2026-02-09T03:00:00.000Z' });
+    expect(source.state).toBeNull();
+    expect(source.pickedUpAt?.toISOString()).toBe('2026-02-09T03:00:00.000Z');
+    await expect(attendance.recordHandover(current.identity.id, current.school.id, uuid(), uuid(), body)).rejects.toMatchObject({ response: { code: 'HANDOVER_ALREADY_RECORDED' } });
+  });
+  it('denies a foreign Student and rejects missing required evidence before handover persistence', async () => {
+    const current = await graph(); const foreign = await graph();
+    const position = await prisma.schoolPosition.create({ data: { schoolId: current.school.id, code: `HANDOVER-${uuid()}`, name: `Bàn giao ${uuid()}` } });
+    await prisma.positionCapabilityGrant.create({ data: { schoolId: current.school.id, positionId: position.id, capability: 'HANDOVER_WRITE' } });
+    await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Cô Bàn giao', email: `${uuid()}@example.com`, phone: '0900000005', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    await prisma.handoverPolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date('2026-01-01'), photoEvidenceMode: 'REQUIRED', reason: 'Bàn giao', actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+    const shared = { handoverOn: '2026-02-09', pickedUpAt: '2026-02-09T10:00:00+07:00' };
+    await expect(attendance.recordHandover(current.identity.id, current.school.id, uuid(), uuid(), { ...shared, studentId: foreign.student.id, evidenceId: null })).rejects.toMatchObject({ response: { code: 'ROSTER_CONFLICT' } });
+    await expect(attendance.recordHandover(current.identity.id, current.school.id, uuid(), uuid(), { ...shared, studentId: current.student.id, evidenceId: null })).rejects.toMatchObject({ response: { fieldErrors: { evidenceId: expect.any(String) } } });
+    expect(await prisma.handoverRecord.count({ where: { schoolId: current.school.id } })).toBe(0);
   });
 });

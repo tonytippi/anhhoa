@@ -38,6 +38,7 @@ model School {
   leavePolicies LeavePolicy[]
   leaveRequests LeaveRequest[]
   attendanceRecords AttendanceRecord[]
+  handoverRecords HandoverRecord[]
   evidenceReferences EvidenceReference[]
   notificationSourceEvents NotificationSourceEvent[]
   bankAccounts BankAccount[]
@@ -124,6 +125,7 @@ model StaffProfile {
   boundByMembership SchoolMembership? @relation("StaffProfileBindingAuditor", fields: [schoolId, boundByMembershipId], references: [schoolId, id], onDelete: Restrict)
   assignments StaffClassAssignment[]
   attendanceRecords AttendanceRecord[]
+  handoverRecords HandoverRecord[]
   uploadedEvidenceReferences EvidenceReference[] @relation("EvidenceUploadedStaffProfile")
 
   @@unique([schoolId, id])
@@ -273,6 +275,7 @@ model Student {
   leaveRequests LeaveRequest[]
   attendanceRecords AttendanceRecord[]
   confirmedEvidenceReferences EvidenceReference[] @relation("EvidenceConfirmedStudent")
+  handoverRecords HandoverRecord[]
   notificationSourceEvents NotificationSourceEvent[]
 
   @@unique([schoolId, id])
@@ -490,6 +493,7 @@ model SchoolMembership {
   attendancePolicies AttendancePolicy[]
   attendanceRecords AttendanceRecord[]
   handoverPolicies HandoverPolicy[]
+  handoverRecords HandoverRecord[]
   dailyJournalPolicies DailyJournalPolicy[]
   leavePolicies LeavePolicy[]
   boundStaffProfile StaffProfile? @relation("StaffProfileLoginBinding")
@@ -649,6 +653,7 @@ model EvidenceReference {
   contentType         String
   uploadedClassId     String?  @db.Uuid
   uploadedAttendanceOn DateTime? @db.Date
+  uploadedHandoverOn DateTime? @db.Date
   uploadedMembershipId String? @db.Uuid
   uploadedStaffProfileId String? @db.Uuid
   blob                Bytes?
@@ -656,6 +661,7 @@ model EvidenceReference {
   confirmedAt         DateTime?
   confirmedStudentId  String?  @db.Uuid
   confirmedAttendanceOn DateTime? @db.Date
+  handoverRecord HandoverRecord? @relation("HandoverEvidence")
   deletedAt           DateTime?
   deletionReason      String?
   createdAt           DateTime @default(now())
@@ -668,6 +674,7 @@ model EvidenceReference {
 
   @@unique([schoolId, id])
   @@index([schoolId, uploadedClassId, uploadedAttendanceOn])
+  @@index([schoolId, uploadedHandoverOn, uploadedMembershipId, uploadedStaffProfileId])
 }
 
 model NotificationSourceEvent {
@@ -677,7 +684,8 @@ model NotificationSourceEvent {
   sourceRecordId     String   @db.Uuid
   studentId          String   @db.Uuid
   attendanceOn       DateTime @db.Date
-  state              AttendanceState
+  state              AttendanceState?
+  pickedUpAt         DateTime?
   payload            Json
   createdAt          DateTime @default(now())
   school             School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
@@ -690,6 +698,7 @@ model NotificationSourceEvent {
 
 enum NotificationSourceType {
   ATTENDANCE
+  HANDOVER
 }
 
 model AttendanceRecord {
@@ -732,10 +741,36 @@ model HandoverPolicy {
   createdAt         DateTime          @default(now())
   school            School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership        SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  handoverRecords   HandoverRecord[]
 
   @@unique([schoolId, effectiveFrom])
   @@unique([schoolId, id])
   @@index([schoolId, effectiveFrom])
+}
+
+model HandoverRecord {
+  id                  String   @id @default(uuid()) @db.Uuid
+  schoolId            String   @db.Uuid
+  studentId           String   @db.Uuid
+  handoverOn          DateTime @db.Date
+  pickedUpAt          DateTime
+  evidenceId          String?  @unique @db.Uuid
+  policyEffectiveFrom DateTime @db.Date
+  actorIdentityId     String   @db.Uuid
+  membershipId        String   @db.Uuid
+  staffProfileId      String   @db.Uuid
+  createdAt           DateTime @default(now())
+  school              School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student             Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  evidence            EvidenceReference? @relation("HandoverEvidence", fields: [schoolId, evidenceId], references: [schoolId, id], onDelete: Restrict)
+  policy              HandoverPolicy @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  membership          SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  staffProfile        StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, studentId, handoverOn])
+  @@unique([schoolId, evidenceId])
+  @@index([schoolId, handoverOn])
 }
 
 model DailyJournalPolicy {
