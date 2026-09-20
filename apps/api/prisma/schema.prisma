@@ -37,6 +37,8 @@ model School {
   dailyJournalPolicies DailyJournalPolicy[]
   leavePolicies LeavePolicy[]
   leaveRequests LeaveRequest[]
+  attendanceRecords AttendanceRecord[]
+  evidenceReferences EvidenceReference[]
   bankAccounts BankAccount[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
@@ -91,6 +93,7 @@ model Class {
   enrollments  StudentEnrollment[]
   staffClassAssignments StaffClassAssignment[]
   enrollmentClassAssignments EnrollmentClassAssignment[]
+  attendanceRecords AttendanceRecord[]
 
   @@index([schoolId, schoolYearId])
   @@unique([schoolId, id])
@@ -118,6 +121,7 @@ model StaffProfile {
   schoolMembership SchoolMembership? @relation("StaffProfileLoginBinding", fields: [schoolId, schoolMembershipId], references: [schoolId, id], onDelete: Restrict)
   boundByMembership SchoolMembership? @relation("StaffProfileBindingAuditor", fields: [schoolId, boundByMembershipId], references: [schoolId, id], onDelete: Restrict)
   assignments StaffClassAssignment[]
+  attendanceRecords AttendanceRecord[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, primaryPositionId, id])
@@ -264,6 +268,7 @@ model Student {
   enrollments StudentEnrollment[]
   parentLinks StudentParent[]
   leaveRequests LeaveRequest[]
+  attendanceRecords AttendanceRecord[]
 
   @@unique([schoolId, id])
   @@index([schoolId, studentCode])
@@ -478,6 +483,7 @@ model SchoolMembership {
   operations     Operation[]        @relation("OperationMembership")
   financePolicies FinancePolicy[]
   attendancePolicies AttendancePolicy[]
+  attendanceRecords AttendanceRecord[]
   handoverPolicies HandoverPolicy[]
   dailyJournalPolicies DailyJournalPolicy[]
   leavePolicies LeavePolicy[]
@@ -619,10 +625,54 @@ model AttendancePolicy {
   createdAt         DateTime          @default(now())
   school            School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership        SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  attendanceRecords AttendanceRecord[]
 
   @@unique([schoolId, effectiveFrom])
   @@unique([schoolId, id])
   @@index([schoolId, effectiveFrom])
+}
+
+enum AttendanceState {
+  PRESENT
+  ABSENT
+}
+
+// Lifecycle and media access are introduced by Story 4.3; this is only an opaque, tenant-scoped reference.
+model EvidenceReference {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  createdAt DateTime @default(now())
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([schoolId, id])
+}
+
+model AttendanceRecord {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  classId String @db.Uuid
+  studentId String @db.Uuid
+  attendanceOn DateTime @db.Date
+  state AttendanceState
+  evidenceId String? @db.Uuid
+  policyEffectiveFrom DateTime @db.Date
+  actorIdentityId String @db.Uuid
+  membershipId String @db.Uuid
+  staffProfileId String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classroom Class @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
+  student Student @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  evidence EvidenceReference? @relation(fields: [schoolId, evidenceId], references: [schoolId, id], onDelete: Restrict)
+  policy AttendancePolicy @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  membership SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  staffProfile StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, classId, studentId, attendanceOn])
+  @@index([schoolId, classId, attendanceOn])
+  @@index([schoolId, studentId, attendanceOn])
 }
 
 model HandoverPolicy {

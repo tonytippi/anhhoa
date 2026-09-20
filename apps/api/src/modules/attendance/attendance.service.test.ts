@@ -27,6 +27,34 @@ function service(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AttendanceService leave matrix', () => {
+  it('requires policy evidence for PRESENT, validates opaque School evidence, and permits ABSENT without it', async () => {
+    const { attendance } = service();
+    const tx = { schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) }, attendancePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), photoEvidenceMode: 'REQUIRED' }) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ id: 'enrollment' }) }, evidenceReference: { findFirst: vi.fn().mockResolvedValue(null) } };
+    await expect((attendance as any).attendanceFacts(tx, school, 'class', student, '2026-02-09', 'PRESENT', null)).rejects.toMatchObject({ response: { fieldErrors: { evidenceId: expect.any(String) } } });
+    await expect((attendance as any).attendanceFacts(tx, school, 'class', student, '2026-02-09', 'PRESENT', operation)).rejects.toMatchObject({ response: { fieldErrors: { evidenceId: expect.any(String) } } });
+    await expect((attendance as any).attendanceFacts(tx, school, 'class', student, '2026-02-09', 'ABSENT', null)).resolves.toMatchObject({ policy: expect.anything() });
+  });
+
+  it('rejects non-operating attendance before a record or operation can be written', async () => {
+    const { attendance } = service();
+    const tx = { schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) }, attendancePolicy: { findFirst: vi.fn() }, studentEnrollment: { findFirst: vi.fn() }, evidenceReference: { findFirst: vi.fn() } };
+    await expect((attendance as any).attendanceFacts(tx, school, 'class', student, '2026-02-08', 'ABSENT', null)).rejects.toMatchObject({ response: { code: 'NON_OPERATING_DAY' } });
+    expect(tx.attendancePolicy.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('projects actual attendance ahead of confirmed leave and only uses ON_LEAVE without a record', async () => {
+    const record = { studentId: student, state: 'PRESENT', evidenceId: null, updatedAt: day('2026-02-09') };
+    const { attendance } = service({
+      schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) },
+      staffClassAssignment: { findFirst: vi.fn().mockResolvedValue({ id: 'assignment' }) },
+      schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) },
+      attendancePolicy: { findFirst: vi.fn().mockResolvedValue({ photoEvidenceMode: 'OPTIONAL' }) },
+      studentEnrollment: { findMany: vi.fn().mockResolvedValue([{ studentId: student, student: { id: student, fullName: 'Bé An' } }]) },
+      attendanceRecord: { findMany: vi.fn().mockResolvedValue([record]) },
+      leaveRequestDay: { findMany: vi.fn().mockResolvedValue([{ leaveRequest: { studentId: student } }]) },
+    });
+    await expect(attendance.teacherRoster('teacher', school, 'class', '2026-02-09')).resolves.toMatchObject({ students: [{ studentId: student, state: 'PRESENT' }] });
+  });
   it('uses the HCM submission day policy, not the requested range start', async () => {
     const { attendance } = service(); vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '15:00' });
     const tx = { leavePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-02-01'), nextDayDeadlineLocalTime: '15:00' }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({}) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({}) }, schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) } };

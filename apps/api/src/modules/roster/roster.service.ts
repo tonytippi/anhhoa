@@ -1270,8 +1270,14 @@ export class RosterService {
             code: "ENROLLMENT_NOT_FOUND",
             message: "Không tìm thấy enrollment.",
           });
+        const classroom = await this.lockClass(tx, schoolId, enrollment.classId);
         await this.lockYear(tx, schoolId, enrollment.schoolYearId);
         this.openYear(await this.year(schoolId, enrollment.schoolYearId, tx));
+        if (lifecycle === "ENROLLED" && classroom.status === "ARCHIVED")
+          throw new ConflictException({
+            code: "CLASS_ARCHIVED",
+            message: "Lớp đã lưu trữ chỉ có thể xem.",
+          });
         this.lifecycleInterval(lifecycle, enrollment.effectiveFrom, endedOn);
         this.yearInterval(enrollment, enrollment.effectiveFrom, endedOn);
         const placement = await tx.enrollmentClassAssignment.findFirst({

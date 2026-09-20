@@ -19,6 +19,7 @@ const approveRoute =
   "POST /api/app/schools/:schoolId/leave-requests/:leaveRequestId/approve";
 const rejectRoute =
   "POST /api/app/schools/:schoolId/leave-requests/:leaveRequestId/reject";
+const attendanceRoute = "POST /api/teacher/schools/:schoolId/attendance";
 type Db =
   | PrismaService
   | { [key: string]: any; $queryRaw: PrismaService["$queryRaw"] };
@@ -382,6 +383,56 @@ export class AttendanceService {
       )
       .map((request) => this.dto(request));
   }
+  async teacherRoster(identityId: string, schoolId: string, classId: string, attendanceOn: string) {
+    this.date(attendanceOn, "attendanceOn");
+    const actor = await this.teacher(identityId, schoolId, classId, attendanceOn);
+    const on = this.day(attendanceOn);
+    const calendar = await this.calendar(this.prisma, schoolId, attendanceOn);
+    if (on.getUTCDay() === 0 || calendar.holidays.some((holiday: { startsOn: Date; endsOn: Date }) => holiday.startsOn <= on && holiday.endsOn >= on)) throw new ConflictException({ code: "NON_OPERATING_DAY", message: "Không thể điểm danh ngày không vận hành." });
+    const policy = await this.prisma.attendancePolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: on } }, orderBy: { effectiveFrom: "desc" } });
+    if (!policy) throw new ConflictException({ code: "ATTENDANCE_POLICY_NOT_CONFIGURED", message: "Trường chưa cấu hình chính sách điểm danh." });
+    const rows = await this.prisma.studentEnrollment.findMany({
+      where: { schoolId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }], classAssignments: { some: { classId, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } } },
+      include: { student: { select: { id: true, fullName: true } }, classAssignments: { where: { classId, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } } },
+    });
+    const records = await this.prisma.attendanceRecord.findMany({ where: { schoolId, classId, attendanceOn: on }, select: { studentId: true, state: true, evidenceId: true, updatedAt: true } });
+    const leaves = await this.prisma.leaveRequestDay.findMany({ where: { schoolId, operatingOn: on, leaveRequest: { status: { in: ["AUTO_APPROVED", "APPROVED"] } } }, select: { leaveRequest: { select: { studentId: true } } } });
+    const byStudent = new Map(records.map((record) => [record.studentId, record]));
+    const onLeave = new Set(leaves.map((leave) => leave.leaveRequest.studentId));
+    return { classId, attendanceOn, staffProfileId: actor.staffProfileId, photoEvidenceMode: policy.photoEvidenceMode, students: rows.map((row) => {
+      const record = byStudent.get(row.studentId);
+      return { studentId: row.studentId, fullName: row.student.fullName, state: record?.state ?? (onLeave.has(row.studentId) ? "ON_LEAVE" : "NOT_RECORDED"), evidenceId: record?.evidenceId ?? null, updatedAt: record?.updatedAt?.toISOString() ?? null };
+    }) };
+  }
+  async record(identityId: string, schoolId: string, key: string, operationId: string, body: unknown) {
+    const input = body as { classId?: unknown; studentId?: unknown; attendanceOn?: unknown; state?: unknown; evidenceId?: unknown };
+    const classId = typeof input?.classId === "string" ? input.classId : "";
+    const studentId = typeof input?.studentId === "string" ? input.studentId : "";
+    const attendanceOn = this.date(input?.attendanceOn, "attendanceOn");
+    const state = input?.state === "PRESENT" || input?.state === "ABSENT" ? input.state : null;
+    const evidenceId = typeof input?.evidenceId === "string" ? input.evidenceId : null;
+    if (!uuid.test(classId) || !uuid.test(studentId) || !state || (evidenceId && !uuid.test(evidenceId))) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(!uuid.test(classId) ? { classId: "Lớp không hợp lệ." } : {}), ...(!uuid.test(studentId) ? { studentId: "Học sinh không hợp lệ." } : {}), ...(!state ? { state: "Trạng thái điểm danh không hợp lệ." } : {}), ...(evidenceId && !uuid.test(evidenceId) ? { evidenceId: "Bằng chứng không hợp lệ." } : {}) } });
+    const actor = await this.teacher(identityId, schoolId, classId, attendanceOn);
+    return this.mutate({ actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, membershipId: actor.id, route: attendanceRoute, identityId, schoolId, key, operationId, body: { classId, studentId, attendanceOn, state, evidenceId }, valid: (tx) => this.teacher(identityId, schoolId, classId, attendanceOn, tx) }, async (tx, op) => {
+      const current = await this.teacher(identityId, schoolId, classId, attendanceOn, tx);
+      const facts = await this.attendanceFacts(tx, schoolId, classId, studentId, attendanceOn, state, evidenceId);
+      const previous = await tx.attendanceRecord.findUnique({ where: { schoolId_classId_studentId_attendanceOn: { schoolId, classId, studentId, attendanceOn: this.day(attendanceOn) } }, select: { state: true, evidenceId: true, policyEffectiveFrom: true, membershipId: true, staffProfileId: true } });
+      const record = await tx.attendanceRecord.upsert({ where: { schoolId_classId_studentId_attendanceOn: { schoolId, classId, studentId, attendanceOn: this.day(attendanceOn) } }, create: { schoolId, classId, studentId, attendanceOn: this.day(attendanceOn), state, evidenceId: state === "PRESENT" ? evidenceId : null, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId }, update: { state, evidenceId: state === "PRESENT" ? evidenceId : null, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId } });
+      const outcome = { id: record.id, classId, studentId, attendanceOn, state: record.state, evidenceId: record.evidenceId, policyEffectiveFrom: record.policyEffectiveFrom.toISOString().slice(0, 10), updatedAt: record.updatedAt.toISOString() };
+      await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: "SCHOOL_MEMBERSHIP", reference: current.id, membershipId: current.id }, "ATTENDANCE_RECORDED", { operationId: op, attendanceRecordId: record.id, classId, studentId, attendanceOn, state, evidenceId: record.evidenceId, policyEffectiveFrom: outcome.policyEffectiveFrom, previous }) });
+      return outcome;
+    });
+  }
+  async teacherOperation(identityId: string, schoolId: string, operationId: string) {
+    if (!uuid.test(operationId)) throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
+    const actor = await this.teacher(identityId, schoolId);
+    const operation = await this.prisma.operation.findFirst({ where: { id: operationId, schoolId, actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, route: attendanceRoute } });
+    if (!operation) throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
+    const outcome = operation.outcome as { classId?: unknown; attendanceOn?: unknown } | null;
+    if (typeof outcome?.classId !== "string" || typeof outcome.attendanceOn !== "string") throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
+    await this.teacher(identityId, schoolId, outcome.classId, outcome.attendanceOn);
+    return { id: operation.id, status: operation.status, outcome: operation.outcome };
+  }
   async decide(
     identityId: string,
     schoolId: string,
@@ -462,6 +513,27 @@ export class AttendanceService {
     )
       result.push(current.toISOString().slice(0, 10));
     return result;
+  }
+  private async teacher(identityId: string, schoolId: string, classId?: string, attendanceOn?: string, tx: Db = this.prisma) {
+    const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "ATTENDANCE_WRITE" } } } } }, select: { id: true, boundStaffProfile: { select: { id: true } } } });
+    if (!actor?.boundStaffProfile) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
+    if (classId && attendanceOn) {
+      const assignment = await tx.staffClassAssignment.findFirst({ where: { schoolId, staffProfileId: actor.boundStaffProfile.id, classId, effectiveFrom: { lte: this.day(attendanceOn) }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: this.day(attendanceOn) } }] } });
+      if (!assignment) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
+    }
+    return { id: actor.id, staffProfileId: actor.boundStaffProfile.id };
+  }
+  private async attendanceFacts(tx: Db, schoolId: string, classId: string, studentId: string, attendanceOn: string, state: "PRESENT" | "ABSENT", evidenceId: string | null) {
+    const on = this.day(attendanceOn);
+    const calendar = await this.calendar(tx, schoolId, attendanceOn);
+    if (on.getUTCDay() === 0 || calendar.holidays.some((holiday: { startsOn: Date; endsOn: Date }) => holiday.startsOn <= on && holiday.endsOn >= on)) throw new ConflictException({ code: "NON_OPERATING_DAY", message: "Không thể điểm danh ngày không vận hành." });
+    const policy = await tx.attendancePolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: on } }, orderBy: { effectiveFrom: "desc" } });
+    if (!policy) throw new ConflictException({ code: "ATTENDANCE_POLICY_NOT_CONFIGURED", message: "Trường chưa cấu hình chính sách điểm danh." });
+    const enrollment = await tx.studentEnrollment.findFirst({ where: { schoolId, studentId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }], classAssignments: { some: { classId, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } } } });
+    if (!enrollment) throw new ConflictException({ code: "ROSTER_CONFLICT", message: "Học sinh không thuộc danh sách lớp trong ngày này." });
+    if (state === "PRESENT" && policy.photoEvidenceMode === "REQUIRED" && !evidenceId) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { evidenceId: "Cần bằng chứng khi ghi có mặt." } });
+    if (state === "PRESENT" && evidenceId && !(await tx.evidenceReference.findFirst({ where: { id: evidenceId, schoolId }, select: { id: true } }))) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { evidenceId: "Bằng chứng không hợp lệ." } });
+    return { policy };
   }
   private async calendar(tx: Db, schoolId: string, day: string) {
     const calendar = await tx.schoolCalendarVersion.findFirst({
