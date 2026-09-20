@@ -39,6 +39,7 @@ model School {
   leaveRequests LeaveRequest[]
   attendanceRecords AttendanceRecord[]
   evidenceReferences EvidenceReference[]
+  notificationSourceEvents NotificationSourceEvent[]
   bankAccounts BankAccount[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
@@ -94,6 +95,7 @@ model Class {
   staffClassAssignments StaffClassAssignment[]
   enrollmentClassAssignments EnrollmentClassAssignment[]
   attendanceRecords AttendanceRecord[]
+  uploadedEvidenceReferences EvidenceReference[] @relation("EvidenceUploadedClass")
 
   @@index([schoolId, schoolYearId])
   @@unique([schoolId, id])
@@ -122,6 +124,7 @@ model StaffProfile {
   boundByMembership SchoolMembership? @relation("StaffProfileBindingAuditor", fields: [schoolId, boundByMembershipId], references: [schoolId, id], onDelete: Restrict)
   assignments StaffClassAssignment[]
   attendanceRecords AttendanceRecord[]
+  uploadedEvidenceReferences EvidenceReference[] @relation("EvidenceUploadedStaffProfile")
 
   @@unique([schoolId, id])
   @@unique([schoolId, primaryPositionId, id])
@@ -269,6 +272,8 @@ model Student {
   parentLinks StudentParent[]
   leaveRequests LeaveRequest[]
   attendanceRecords AttendanceRecord[]
+  confirmedEvidenceReferences EvidenceReference[] @relation("EvidenceConfirmedStudent")
+  notificationSourceEvents NotificationSourceEvent[]
 
   @@unique([schoolId, id])
   @@index([schoolId, studentCode])
@@ -492,6 +497,7 @@ model SchoolMembership {
   decidedLeaveRequests LeaveRequest[] @relation("LeaveRequestDecisionMembership")
   bankAccounts BankAccount[]
   bankAccountLifecycleTransitions BankAccountLifecycleTransition[]
+  uploadedEvidenceReferences EvidenceReference[] @relation("EvidenceUploadedMembership")
 
   @@unique([schoolId, userIdentityId])
   @@unique([schoolId, id])
@@ -637,15 +643,53 @@ enum AttendanceState {
   ABSENT
 }
 
-// Lifecycle and media access are introduced by Story 4.3; this is only an opaque, tenant-scoped reference.
 model EvidenceReference {
-  id String @id @default(uuid()) @db.Uuid
-  schoolId String @db.Uuid
-  createdAt DateTime @default(now())
-  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  id                  String   @id @default(uuid()) @db.Uuid
+  schoolId            String   @db.Uuid
+  contentType         String
+  uploadedClassId     String?  @db.Uuid
+  uploadedAttendanceOn DateTime? @db.Date
+  uploadedMembershipId String? @db.Uuid
+  uploadedStaffProfileId String? @db.Uuid
+  blob                Bytes?
+  preview             Bytes?
+  confirmedAt         DateTime?
+  confirmedStudentId  String?  @db.Uuid
+  confirmedAttendanceOn DateTime? @db.Date
+  deletedAt           DateTime?
+  deletionReason      String?
+  createdAt           DateTime @default(now())
+  school              School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  uploadedClass       Class?    @relation("EvidenceUploadedClass", fields: [schoolId, uploadedClassId], references: [schoolId, id], onDelete: Restrict)
+  uploadedMembership  SchoolMembership? @relation("EvidenceUploadedMembership", fields: [schoolId, uploadedMembershipId], references: [schoolId, id], onDelete: Restrict)
+  uploadedStaffProfile StaffProfile? @relation("EvidenceUploadedStaffProfile", fields: [schoolId, uploadedStaffProfileId], references: [schoolId, id], onDelete: Restrict)
+  confirmedStudent    Student? @relation("EvidenceConfirmedStudent", fields: [schoolId, confirmedStudentId], references: [schoolId, id], onDelete: Restrict)
   attendanceRecords AttendanceRecord[]
 
   @@unique([schoolId, id])
+  @@index([schoolId, uploadedClassId, uploadedAttendanceOn])
+}
+
+model NotificationSourceEvent {
+  id                 String   @id @default(uuid()) @db.Uuid
+  schoolId           String   @db.Uuid
+  sourceType         NotificationSourceType
+  sourceRecordId     String   @db.Uuid
+  studentId          String   @db.Uuid
+  attendanceOn       DateTime @db.Date
+  state              AttendanceState
+  payload            Json
+  createdAt          DateTime @default(now())
+  school             School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student            Student @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, sourceType, sourceRecordId])
+  @@index([schoolId, studentId, attendanceOn])
+}
+
+enum NotificationSourceType {
+  ATTENDANCE
 }
 
 model AttendanceRecord {
@@ -671,6 +715,8 @@ model AttendanceRecord {
   staffProfile StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, classId, studentId, attendanceOn])
+  @@unique([schoolId, id])
+  @@unique([schoolId, evidenceId])
   @@index([schoolId, classId, attendanceOn])
   @@index([schoolId, studentId, attendanceOn])
 }

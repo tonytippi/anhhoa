@@ -36,6 +36,7 @@ afterEach(async () => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.auditRecord.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.operation.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.notificationSourceEvent.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.leaveRequestDay.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.leaveRequest.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.attendanceRecord.deleteMany({ where: { schoolId: { in: ids } } });
@@ -115,7 +116,18 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     const replay = await attendance.record(current.identity.id, current.school.id, key, operationId, body);
     expect(replay).toEqual(first);
     expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: 'ATTENDANCE_RECORDED' } })).toBe(1);
+    const source = await prisma.notificationSourceEvent.findUniqueOrThrow({ where: { schoolId_sourceType_sourceRecordId: { schoolId: current.school.id, sourceType: 'ATTENDANCE', sourceRecordId: (first.outcome as { id: string }).id } } });
+    expect(source.payload).toEqual({ schoolId: current.school.id, studentId: current.student.id, attendanceOn: '2026-02-09', state: 'PRESENT' });
+    expect(await prisma.notificationSourceEvent.count({ where: { schoolId: current.school.id } })).toBe(1);
     await expect(attendance.record(current.identity.id, current.school.id, key, uuid(), { ...body, state: 'ABSENT' })).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
     await expect(attendance.teacherRoster(current.identity.id, current.school.id, current.classroom.id, '2026-02-09')).resolves.toMatchObject({ students: [{ studentId: current.student.id, state: 'PRESENT' }] });
+  });
+  it('expires confirmed evidence after two calendar months while retaining its audit handle and source fact', async () => {
+    const current = await graph();
+    const evidence = await prisma.evidenceReference.create({ data: { schoolId: current.school.id, contentType: 'image/jpeg', blob: new Uint8Array([1]), preview: new Uint8Array([1]), confirmedAt: new Date('2026-01-31T04:00:00.000Z'), confirmedStudentId: current.student.id, confirmedAttendanceOn: date('2026-01-30') } });
+    await expect(attendance.cleanupExpiredEvidence(new Date('2026-03-30T04:00:00.000Z'))).resolves.toEqual({ deleted: 0 });
+    await expect(attendance.cleanupExpiredEvidence(new Date('2026-03-31T04:00:00.000Z'))).resolves.toEqual({ deleted: 1 });
+    await expect(prisma.evidenceReference.findUniqueOrThrow({ where: { id: evidence.id } })).resolves.toMatchObject({ id: evidence.id, blob: null, preview: null, deletionReason: 'RETENTION_EXPIRED' });
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: 'EVIDENCE_EXPIRED' } })).toBe(1);
   });
 });

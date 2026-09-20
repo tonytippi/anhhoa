@@ -19,14 +19,21 @@ function service(overrides: Record<string, unknown> = {}) {
     operation: { create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) },
     leaveRequest: { create: vi.fn() },
     auditRecord: { create: vi.fn() },
+    evidenceReference: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
   };
   const prisma = {
-    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, $transaction: vi.fn(async (work) => work(transaction)), ...overrides,
+    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, evidenceReference: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, $transaction: vi.fn(async (work) => work(transaction)), ...overrides,
   };
   return { prisma, attendance: new AttendanceService(prisma as never) };
 }
 
 describe('AttendanceService leave matrix', () => {
+  it('expires each eligible evidence once at the two-calendar-month boundary', async () => {
+    const { attendance, prisma } = service({ evidenceReference: { findMany: vi.fn().mockResolvedValue([{ id: operation, schoolId: school, confirmedAt: day('2026-01-31') }]), updateMany: vi.fn().mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 0 }) }, auditRecord: { create: vi.fn() } });
+    await expect(attendance.cleanupExpiredEvidence(day('2026-03-31'))).resolves.toEqual({ deleted: 1 });
+    expect((prisma as any).$transaction).toHaveBeenCalled();
+    await expect(attendance.cleanupExpiredEvidence(day('2026-03-30'))).resolves.toEqual({ deleted: 0 });
+  });
   it('requires policy evidence for PRESENT, validates opaque School evidence, and permits ABSENT without it', async () => {
     const { attendance } = service();
     const tx = { schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) }, attendancePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), photoEvidenceMode: 'REQUIRED' }) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ id: 'enrollment' }) }, evidenceReference: { findFirst: vi.fn().mockResolvedValue(null) } };
