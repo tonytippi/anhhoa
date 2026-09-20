@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-19 # Approved SchoolPosition/HANDOVER_WRITE planning change: Story 2.4 reopened as prerequisite migration; Story 4.1 recorded as completed under the prior contract.
+last_updated: 2026-09-20 # Story 2.4 SchoolPosition clean-break migration completed and verified.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -27,7 +27,7 @@ development_status:
   2-1-quan-ly-schoolyear-va-class-trong-tenant: done
   2-2-tao-hoc-sinh-va-enrollment-co-vong-doi-bao-toan-lich-su: done
   2-3-lien-ket-parent-pending-va-revoke-theo-tung-hoc-sinh: done
-  2-4-quan-ly-staff-chuc-danh-va-phan-cong-theo-capability-effective-date: ready-for-dev
+  2-4-quan-ly-staff-chuc-danh-va-phan-cong-theo-capability-effective-date: done
   2-5-chuyen-lop-chuyen-nam-va-close-year-bang-preview-co-doi-soat: done
   epic-2-retrospective: optional
 
@@ -107,6 +107,4 @@ development_status:
 
   epic-12: backlog
   epic-12-retrospective: optional
-action_items:
-  - "Story 2.4 is the required one-way SchoolPosition configuration/migration from staffType and preset-role authorization; complete and verify it before Story 4.2 or Story 4.4 begins."
-  - "Story 4.1 remains done under the prior staffType/preset-role contract. Do not rewrite its history; decide and implement its CLASS_LEAVE_READ migration follow-up in Story 2.4 before later Story 4 work assumes SchoolPosition authorization."
+action_items: []

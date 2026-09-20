@@ -21,16 +21,19 @@ async function school(prefix = 'S') {
 async function actor(schoolId: string, role: 'SCHOOL_ADMIN' | 'FINANCE_MANAGER' = 'SCHOOL_ADMIN') {
   const identity = await prisma.userIdentity.create({ data: { emailNormalized: `${uuid()}@example.com` } });
   const membership = await prisma.schoolMembership.create({ data: { schoolId, userIdentityId: identity.id } });
-  await prisma.schoolRoleGrant.create({ data: { schoolId, membershipId: membership.id, role } });
+  const position = await prisma.schoolPosition.create({ data: { schoolId, code: `TEST_${uuid().replaceAll('-', '').slice(0, 12)}`, name: `Test ${role} ${uuid()}` } });
+  await prisma.positionCapabilityGrant.createMany({ data: (role === 'SCHOOL_ADMIN' ? ['SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAGE', 'SETTINGS_MANAGE', 'CLASS_LEAVE_READ'] : ['SCHOOL_CONTEXT_READ', 'SETTINGS_MANAGE']).map((capability) => ({ schoolId, positionId: position.id, capability })) });
+  await prisma.staffProfile.create({ data: { schoolId, fullName: 'Test actor', email: identity.emailNormalized, phone: '0900000000', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Test', primaryPositionId: position.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
   return identity;
 }
 
 async function graph(prefix = 'S') {
   const current = await school(prefix);
   const admin = await actor(current.id);
+  const position = await prisma.schoolPosition.findFirstOrThrow({ where: { schoolId: current.id, status: 'ACTIVE', grants: { some: { capability: 'CLASS_LEAVE_READ' } } } });
   const year = await roster.createSchoolYear(admin.id, current.id, uuid(), uuid(), { name: 'Năm 2026', ...dates });
   const classroom = await roster.createClass(admin.id, current.id, (year.outcome as { id: string }).id, uuid(), uuid(), { name: 'Mầm' });
-  return { current, admin, year: year.outcome as { id: string }, classroom: classroom.outcome as { id: string } };
+  return { current, admin, position, year: year.outcome as { id: string }, classroom: classroom.outcome as { id: string } };
 }
 
 async function createStudent(input: Awaited<ReturnType<typeof graph>>, overrides: object = {}) {
@@ -48,6 +51,8 @@ afterEach(async () => {
   await prisma.enrollmentClassAssignment.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.staffClassAssignment.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.staffProfile.deleteMany({ where: { schoolId: { in: schools } } });
+  await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: { in: schools } } });
+  await prisma.schoolPosition.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.studentParent.deleteMany({ where: { schoolId: { in: schools } } });
   const profiles = await prisma.parentProfile.findMany({ where: { studentParents: { none: {} } }, select: { id: true } });
   await prisma.parentProfile.deleteMany({ where: { id: { in: profiles.map((profile) => profile.id) } } });
@@ -55,7 +60,6 @@ afterEach(async () => {
   await prisma.student.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.class.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.schoolYear.deleteMany({ where: { schoolId: { in: schools } } });
-  await prisma.schoolRoleGrant.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.schoolMembership.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.school.deleteMany({ where: { id: { in: schools.splice(0) } } });
 });
@@ -71,6 +75,26 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const key = uuid(); const created = await roster.createClass(admin.id, a.id, (first.outcome as { id: string }).id, key, uuid(), { name: 'Mầm' });
     await expect(roster.createClass(admin.id, a.id, (first.outcome as { id: string }).id, key, uuid(), { name: 'Khác' })).rejects.toMatchObject({ status: 409 });
     expect(await roster.createClass(admin.id, a.id, (first.outcome as { id: string }).id, key, uuid(), { name: 'Mầm' })).toEqual(created);
+  });
+
+  it('re-authorizes replay and reconciliation reads and scopes an Operation to its actor', async () => {
+    const current = await graph(); const other = await actor(current.current.id);
+    const key = uuid(); const created = await roster.createSchoolYear(current.admin.id, current.current.id, key, uuid(), { name: 'Năm 2027', startsOn: '2027-01-01', endsOn: '2028-01-01' });
+    await expect(roster.operation(current.admin.id, current.current.id, created.id)).resolves.toMatchObject({ id: created.id, status: 'COMPLETED' });
+    await expect(roster.operation(other.id, current.current.id, created.id)).rejects.toMatchObject({ status: 404 });
+    const membership = await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: current.current.id, userIdentityId: current.admin.id } });
+    await prisma.schoolMembership.update({ where: { id: membership.id }, data: { status: 'REVOKED' } });
+    await expect(roster.createSchoolYear(current.admin.id, current.current.id, key, uuid(), { name: 'Năm 2027', startsOn: '2027-01-01', endsOn: '2028-01-01' })).rejects.toMatchObject({ status: 404 });
+    await expect(roster.operation(current.admin.id, current.current.id, created.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuses to remove the last active bound roster manager but permits replacement coverage', async () => {
+    const current = await graph();
+    const manager = await prisma.schoolPosition.findFirstOrThrow({ where: { schoolId: current.current.id, grants: { some: { capability: 'ROSTER_MANAGE' } } } });
+    await expect(roster.revokePositionCapability(current.admin.id, current.current.id, manager.id, 'ROSTER_MANAGE', uuid(), uuid(), { reason: 'Sai' })).rejects.toMatchObject({ status: 409, response: { code: 'LAST_ROSTER_MANAGER' } });
+    await expect(roster.inactivatePosition(current.admin.id, current.current.id, manager.id, uuid(), uuid(), { reason: 'Sai' })).rejects.toMatchObject({ status: 409, response: { code: 'LAST_ROSTER_MANAGER' } });
+    await actor(current.current.id);
+    await expect(roster.revokePositionCapability(current.admin.id, current.current.id, manager.id, 'ROSTER_MANAGE', uuid(), uuid(), { reason: 'Bàn giao' })).resolves.toMatchObject({ status: 'COMPLETED' });
   });
 
   it('generates immutable School-scoped codes, persists snapshots, and replays an identical student command', async () => {
@@ -189,7 +213,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('persists only Staff profile fields and retains School-scoped assignment history with audit and replay', async () => {
     const current = await graph();
-    const profile = { fullName: 'Cô Mai', email: ' MAI@Example.com ', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const profile = { fullName: 'Cô Mai', email: ' MAI@Example.com ', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id };
     const key = uuid(); const created = await roster.createStaff(current.admin.id, current.current.id, key, uuid(), profile);
     expect(await roster.createStaff(current.admin.id, current.current.id, key, uuid(), profile)).toEqual(created);
     expect(created.outcome).toMatchObject({ fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
@@ -206,7 +230,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
   it('enforces Staff assignment tenant graph and half-open overlap while allowing adjacent and distinct Class intervals', async () => {
     const current = await graph(); const foreign = await graph();
     const second = await roster.createClass(current.admin.id, current.current.id, current.year.id, uuid(), uuid(), { name: 'Chồi' });
-    const created = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const created = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id });
     const staffId = (created.outcome as { id: string }).id;
     const input = { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-01-01', effectiveTo: '2026-06-01', reason: 'Đầu năm' };
     await roster.createAssignment(current.admin.id, current.current.id, staffId, uuid(), uuid(), input);
@@ -224,7 +248,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('keeps ended assignments read-only with a separate end reason and validates stable UUIDs', async () => {
     const current = await graph();
-    const created = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const created = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id });
     const staffId = (created.outcome as { id: string }).id;
     await expect(roster.updateStaff(current.admin.id, current.current.id, 'not-a-uuid', uuid(), uuid(), {})).rejects.toMatchObject({ status: 404, response: { code: 'STAFF_NOT_FOUND' } });
     await expect(roster.createAssignment(current.admin.id, current.current.id, 'not-a-uuid', uuid(), uuid(), {})).rejects.toMatchObject({ status: 404, response: { code: 'STAFF_NOT_FOUND' } });
@@ -238,9 +262,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('persists Staff updates with a separate audit record', async () => {
     const current = await graph();
-    const created = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const created = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id });
     const staffId = (created.outcome as { id: string }).id;
-    const updated = await roster.updateStaff(current.admin.id, current.current.id, staffId, uuid(), uuid(), { fullName: 'Cô Mai mới', email: 'MOI@example.com', phone: '0900000001', dateOfBirth: '1991-01-01', gender: 'Khác', address: 'Đà Nẵng' });
+    const updated = await roster.updateStaff(current.admin.id, current.current.id, staffId, uuid(), uuid(), { fullName: 'Cô Mai mới', email: 'MOI@example.com', phone: '0900000001', dateOfBirth: '1991-01-01', gender: 'Khác', address: 'Đà Nẵng', primaryPositionId: current.position.id });
     expect(updated.outcome).toMatchObject({ id: staffId, fullName: 'Cô Mai mới', email: 'moi@example.com', phone: '0900000001', dateOfBirth: '1991-01-01', gender: 'Khác', address: 'Đà Nẵng' });
     expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STAFF_PROFILE_UPDATED' } })).toMatchObject({ provenance: { staffProfileId: staffId } });
   });
@@ -248,7 +272,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
   it('validates every open assignment change before writing', async () => {
     const current = await graph(); const foreign = await graph();
     const otherYear = await roster.createSchoolYear(current.admin.id, current.current.id, uuid(), uuid(), { name: 'Năm 2027', startsOn: '2027-01-01', endsOn: '2028-01-01' });
-    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id });
     const staffId = (staff.outcome as { id: string }).id;
     const first = await roster.createAssignment(current.admin.id, current.current.id, staffId, uuid(), uuid(), { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-01-01', effectiveTo: '2026-03-01', reason: 'Đợt một' });
     const second = await roster.createAssignment(current.admin.id, current.current.id, staffId, uuid(), uuid(), { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-03-01', reason: 'Đợt hai' });
@@ -260,7 +284,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     await expect(roster.changeAssignment(current.admin.id, current.current.id, assignmentId, uuid(), uuid(), { ...base, effectiveTo: '2026-04-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveTo: expect.any(String) } } });
     await prisma.class.update({ where: { id: current.classroom.id }, data: { status: 'ARCHIVED' } });
     await expect(roster.changeAssignment(current.admin.id, current.current.id, assignmentId, uuid(), uuid(), { ...base, effectiveFrom: '2026-03-01' })).rejects.toMatchObject({ status: 409, response: { code: 'CLASS_ARCHIVED' } });
-    const foreignStaff = await roster.createStaff(foreign.admin.id, foreign.current.id, uuid(), uuid(), { fullName: 'Cô Ngoại', email: 'ngoai@example.com', phone: '0900000002', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Huế' });
+    const foreignStaff = await roster.createStaff(foreign.admin.id, foreign.current.id, uuid(), uuid(), { fullName: 'Cô Ngoại', email: 'ngoai@example.com', phone: '0900000002', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Huế', primaryPositionId: foreign.position.id });
     const foreignAssignment = await roster.createAssignment(foreign.admin.id, foreign.current.id, (foreignStaff.outcome as { id: string }).id, uuid(), uuid(), { schoolYearId: foreign.year.id, classId: foreign.classroom.id, effectiveFrom: '2026-01-01', reason: 'Ngoại trường' });
     await expect(roster.changeAssignment(current.admin.id, current.current.id, (foreignAssignment.outcome as { id: string }).id, uuid(), uuid(), base)).rejects.toMatchObject({ status: 404 });
     await expect(roster.endAssignment(current.admin.id, current.current.id, (foreignAssignment.outcome as { id: string }).id, uuid(), uuid(), { effectiveTo: '2026-06-01', reason: 'Không được' })).rejects.toMatchObject({ status: 404 });
@@ -269,7 +293,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('lets exactly one concurrent overlapping assignment succeed and returns the stable conflict to the loser', async () => {
     const current = await graph();
-    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id });
     const staffId = (staff.outcome as { id: string }).id;
     const input = { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-01-01', reason: 'Phân công đồng thời' };
     const results = await Promise.allSettled([roster.createAssignment(current.admin.id, current.current.id, staffId, uuid(), uuid(), input), roster.createAssignment(current.admin.id, current.current.id, staffId, uuid(), uuid(), input)]);
@@ -281,9 +305,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('rejects direct Staff assignment composite graph violations and retains closed-year history', async () => {
     const current = await graph(); const foreign = await graph();
-    const staff = await prisma.staffProfile.create({ data: { schoolId: current.current.id, fullName: 'Direct', email: 'direct@example.com', phone: '0900000000', dateOfBirth: new Date('1990-01-01T00:00:00Z'), gender: 'Nữ', address: 'Hà Nội' } });
+    const position = await prisma.schoolPosition.findFirstOrThrow({ where: { schoolId: current.current.id } });
+    const staff = await prisma.staffProfile.create({ data: { schoolId: current.current.id, primaryPositionId: position.id, fullName: 'Direct', email: 'direct@example.com', phone: '0900000000', dateOfBirth: new Date('1990-01-01T00:00:00Z'), gender: 'Nữ', address: 'Hà Nội' } });
     const data = { schoolId: current.current.id, staffProfileId: staff.id, schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: new Date('2026-01-01T00:00:00Z'), reason: 'Direct', schoolYearName: 'Năm 2026', schoolYearStartsOn: new Date('2026-01-01T00:00:00Z'), schoolYearEndsOn: new Date('2027-01-01T00:00:00Z'), className: 'Mầm' };
-    await expect(prisma.staffClassAssignment.create({ data: { ...data, staffProfileId: (await prisma.staffProfile.create({ data: { schoolId: foreign.current.id, fullName: 'Foreign', email: 'foreign@example.com', phone: '0900000001', dateOfBirth: new Date('1990-01-01T00:00:00Z'), gender: 'Nữ', address: 'Huế' } })).id } })).rejects.toMatchObject({ code: 'P2003' });
+    const foreignPosition = await prisma.schoolPosition.findFirstOrThrow({ where: { schoolId: foreign.current.id } });
+    await expect(prisma.staffClassAssignment.create({ data: { ...data, staffProfileId: (await prisma.staffProfile.create({ data: { schoolId: foreign.current.id, primaryPositionId: foreignPosition.id, fullName: 'Foreign', email: 'foreign@example.com', phone: '0900000001', dateOfBirth: new Date('1990-01-01T00:00:00Z'), gender: 'Nữ', address: 'Huế' } })).id } })).rejects.toMatchObject({ code: 'P2003' });
     await expect(prisma.staffClassAssignment.create({ data: { ...data, classId: foreign.classroom.id } })).rejects.toMatchObject({ code: 'P2003' });
     const otherYear = await roster.createSchoolYear(current.admin.id, current.current.id, uuid(), uuid(), { name: 'Năm 2027', startsOn: '2027-01-01', endsOn: '2028-01-01' });
     await expect(prisma.staffClassAssignment.create({ data: { ...data, schoolYearId: (otherYear.outcome as { id: string }).id } })).rejects.toMatchObject({ code: 'P2003' });
@@ -369,7 +395,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('rejects closed-year lifecycle, assignment, archive, and transition mutations without durable changes', async () => {
     const current = await graph(); const created = await createStudent(current); const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
-    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id });
     const staffAssignment = await roster.createAssignment(current.admin.id, current.current.id, (staff.outcome as { id: string }).id, uuid(), uuid(), { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-01-01', reason: 'Đầu năm' });
     const preview = await roster.previewCloseYear(current.admin.id, current.current.id, { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' });
     await roster.closeYear(current.admin.id, current.current.id, uuid(), uuid(), { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: preview.fingerprint, confirmation: 'ĐÓNG NĂM HỌC' });
@@ -383,7 +409,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('serializes createStudent and endAssignment against close-year and rejects the losing write', async () => {
     const current = await graph();
-    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' });
+    const staff = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id });
     const assignment = await roster.createAssignment(current.admin.id, current.current.id, (staff.outcome as { id: string }).id, uuid(), uuid(), { schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: '2026-01-01', reason: 'Đầu năm' });
     const preview = await roster.previewCloseYear(current.admin.id, current.current.id, { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' });
     const [create, close] = await Promise.allSettled([

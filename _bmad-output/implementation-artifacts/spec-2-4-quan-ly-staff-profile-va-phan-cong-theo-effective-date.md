@@ -1,14 +1,16 @@
 ---
-title: 'Story 2.4: Quản lý Staff profile và phân công theo effective date'
+title: 'Story 2.4: Quản lý Staff, Chức danh và phân công theo capability/effective-date'
 type: 'feature'
-created: '2026-09-18'
+created: '2026-09-20'
 status: 'done'
-baseline_revision: '0e6e733da259e4cf124f29983a9662d3d9ab2f9e'
-review_loop_iteration: 0
-followup_review_recommended: false
+baseline_revision: 'a5cefc3bf011ee219354792ea1d2407382bbc429'
+review_loop_iteration: 1
+followup_review_recommended: true
 context:
-  - '_bmad-output/implementation-artifacts/epic-2-context.md'
-  - '_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/roster/staff-assignments.html'
+  - '../epic-2-context.md'
+  - '../../planning-artifacts/architecture/architecture-passionedu-2026-09-04/ARCHITECTURE-SPINE.md'
+  - '../../planning-artifacts/epics-passionedu.md'
+  - '../../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/roster/staff-assignments.html'
 warnings: []
 deferred: []
 ---
@@ -17,107 +19,123 @@ deferred: []
 
 ## Intent
 
-**Problem:** Danh bộ chưa có hồ sơ Staff hoặc lịch sử phân công lớp, nên School Admin không thể ghi nhận nhân sự mà vẫn giữ ranh giới rõ ràng giữa dữ liệu roster và quyền đăng nhập.
+**Problem:** Staff authorization vẫn dựa vào `staffType` và preset `SchoolRoleGrant`, không thể biểu diễn chức danh School-configurable và trái clean-break contract AD-20. Điều này chặn các write attendance, daily journal, leave và handover được cấp quyền đúng tenant.
 
-**Approach:** Bổ sung aggregate StaffProfile School-scoped và StaffClassAssignment temporal, rồi expose chúng qua roster API và Admin workspace với kết quả do server xác nhận, audit và Operation idempotent.
+**Approach:** Thay một chiều các nguồn quyền cũ bằng `SchoolPosition` School-scoped, capability catalog giới hạn, primary Position và login binding audited trên StaffProfile. API resolve capability từ Staff ACTIVE, Position ACTIVE, binding ACTIVE và grant Position trên mỗi request; Admin quản lý Chức danh, Staff và phân công được server xác nhận.
 
 ## Boundaries & Constraints
 
-**Always:** Resolve `ROSTER_MANAGE` của School Admin trước mọi lookup; School là tenant root cho query, write, FK, audit và Operation. StaffProfile chỉ lưu `fullName`, `email`, `phone`, `dateOfBirth`, `gender`, `address`; không có password, identity, membership, role, HR/payroll hoặc phân loại giáo viên. Assignment thuộc Staff, SchoolYear và Class cùng School, dùng ngày business `Asia/Ho_Chi_Minh` với interval `[effectiveFrom, effectiveTo)`, reason bắt buộc, audit actor/reason/provenance, không overlap cùng Staff/Class và không hard-delete. Cookie mutation phải exact Origin, double-submit CSRF, UUID `Idempotency-Key`/`X-Operation-Id`, replay cùng fingerprint và reconcile sau timeout.
+**Always:** School scope toàn bộ Position, grant, Staff, binding, query, audit và Operation; capability catalog là code-owned, không nhận capability/name từ client; seed Hiệu trưởng, Quản lý trường, Kế toán, Giáo viên, Nhân viên tuyển sinh, Bếp, Y tế khi provision. Mỗi Staff ACTIVE có đúng một Position primary ACTIVE; binding same-School optional, tối đa một và active/audited. Position/capability/binding mutation dùng origin, CSRF, UUID idempotency, Operation reconciliation, transaction và reason. `CLASS_LEAVE_READ` chỉ có khi Position grant + assignment hiệu lực; `HANDOVER_WRITE` không cần assignment. Inactive/revoke Staff/Position/binding/grant từ chối request kế tiếp.
 
-**Block If:** Migration PostgreSQL không thể bảo đảm composite tenant graph và temporal overlap invariant mà không làm yếu các contract roster đã duyệt.
+**Block If:** Migration không thể chuyển tất cả grant preset hiện hữu sang Position capability grants trong transaction mà vẫn loại bỏ `SchoolRoleGrant` và `staffType` làm authorization source.
 
-**Never:** Không tạo Staff login/binding/capability/Teacher audience, không suy diễn quyền từ Staff profile hoặc assignment, không tạo current-assignment mutable field, không auto-replay mutation, không đưa dữ liệu HR/payroll hay operational Teacher authorization vào story.
+**Never:** Không giữ dual authorization source, preset-role UI/API, StaffType/staffType, free-form capability/script, Position hard-delete, tự tạo membership/password/HR/payroll, hoặc dùng Position name/browser state làm bằng chứng quyền. Không thay đổi semantics nghiệp vụ leave ngoài thay authorization resolver.
 
 ## I/O & Edge-Case Matrix
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|---------------|----------------------------|----------------|
-| Lưu Staff profile | School Admin và sáu trường profile hợp lệ | Profile School-scoped, audit và completed Operation do server trả về | Không tạo identity, membership, role hay record ngoài profile |
-| Tạo/thay đổi/kết thúc assignment | Staff, active Class và SchoolYear cùng School; dates/reason hợp lệ | Lưu hoặc cập nhật interval lịch sử `[from,to)`, audit reason và trả DTO server-confirmed | Invalid date/reason, Class archived, graph foreign hoặc overlap trả validation/conflict ổn định, không có write thành công |
-| Xem lịch sử | Assignment đã kết thúc hoặc SchoolYear không active | Danh bộ trả toàn bộ lịch sử theo School/SchoolYear, tách profile, assignment và access state | Không lộ record School khác hoặc suy ra access từ assignment |
-| Timeout/switch context | Kết quả POST chưa rõ hoặc School/SchoolYear đổi khi request còn chờ | Browser chỉ reconcile Operation và bỏ response stale | Không POST lại, không render row của School/SchoolYear cũ |
+| Provision School | School mới với owner pending | Có bảy Position seed, owner Staff active, Position primary, binding audited và capability quản trị | Transaction rollback toàn bộ nếu seed/binding lỗi |
+| Position mutation | Admin, catalog capability hợp lệ, reason và UUID | Create/rename/inactivate/grant tạo audit và completed Operation, replay cùng fingerprint | Capability ngoài catalog, foreign Position hoặc reused key khác fingerprint bị từ chối trước success |
+| Staff mutation | Profile hợp lệ, Position active cùng School, binding membership active cùng School | Persist sáu field, status, Position primary và binding; không tạo identity/membership | Position/binding foreign hoặc inactive trả validation/conflict, không durable write |
+| Operational resolver | Staff/Position/binding/grant active | Resolve capability theo Position, class capability còn yêu cầu assignment as-of | Staff/Position/binding inactive hoặc grant revoked bị từ chối request kế tiếp |
+| Assignment | Staff active có Position class capability, Class/Year same School | Persist interval history và audit reason | Không có capability class, interval invalid, class foreign/archived/overlap bị từ chối |
 
 </intent-contract>
 
 ## Code Map
 
-- `apps/api/prisma/schema.prisma` -- `School`, `SchoolYear`, `Class` và StudentEnrollment đã có composite tenant graph; thêm StaffProfile/StaffClassAssignment relations và only-approved profile fields.
-- `apps/api/prisma/migrations/20260917000001_student_enrollment_history/migration.sql` -- mẫu DATE snapshot/check, composite FK và historical indexes; migration mới tái dùng exclusion `daterange(..., '[)')` từ migration SchoolYear cho assignment overlap.
-- `apps/api/src/modules/roster/roster.service.ts` -- owner roster: tái dùng `actor()`, `date()`, `year()`, `lockClass()`, `audit()` và `mutate()`; thêm DTO/read/command Staff, validation và stable overlap conflict.
-- `apps/api/src/modules/roster/roster.controller.ts` -- giữ boundary roster app cùng `mutation()` cho Staff reads/writes; không tạo authorization surface mới.
-- `apps/api/src/modules/roster/roster.controller.test.ts` -- bổ sung Staff POST vào proof Origin/CSRF/idempotency bị chặn trước service.
-- `apps/api/src/integration/roster.integration.test.ts` -- fixture PostgreSQL và cleanup roster; mở rộng proof tenant graph, interval, history, audit và idempotency/concurrency.
-- `apps/web/src/roster/roster-workspace.tsx` -- workspace đang có generation guard, field-error/focus, pending Operation reconciliation và School switch guard; thêm separate Staff profile/assignment state, forms and tables without optimistic state.
-- `apps/web/src/roster/roster-workspace.test.tsx` -- test contract accessible roster UI, stale response và no-replay; mở rộng Staff profile/assignment coverage.
-- `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/roster/staff-assignments.html` -- read-only UX evidence: profile, assignment history and access information must be distinct.
+- `apps/api/prisma/schema.prisma` -- bỏ `StaffType`/`SchoolRoleGrant`, thêm SchoolPosition, PositionCapabilityGrant, primary Position và binding lifecycle composite tenant graph.
+- `apps/api/prisma/migrations/` -- migration lịch sử hiện chứa StaffType và role grants; thêm migration one-way, tạo Position seeds/grants từ dữ liệu cũ, rồi drop source cũ.
+- `apps/api/src/modules/authorization/authorization.service.ts` -- resolver hiện derive capability từ preset roles; thay bằng active Staff/Position/binding/grants, chooser/navigation capability-based.
+- `apps/api/src/modules/ops/ops.service.ts` -- provision hiện tạo `SCHOOL_ADMIN` preset grant; seed Position, Staff và binding thay thế.
+- `apps/api/src/modules/roster/roster.service.ts` -- owner Staff/assignment command; thay DTO/input/binding/assignment eligibility, thêm Position CRUD và audited mutations.
+- `apps/api/src/modules/roster/roster.controller.ts` -- thêm REST Position endpoints, giữ cookie-mutation boundary.
+- `apps/api/src/modules/attendance/attendance.service.ts` -- đổi teacher list và approver authorization sang Position capability resolver, giữ leave lifecycle.
+- `apps/web/src/roster/roster-workspace.tsx` -- bề mặt roster hiện chỉ quản lý profile/assignment; thêm Position table/form capability catalog và Staff Position/binding state.
+- `apps/api/src/integration/*.integration.test.ts`, `apps/api/src/modules/*/*.test.ts`, `apps/web/src/roster/roster-workspace.test.tsx` -- proof migration, tenant graph, revoke, idempotency, class-vs-school capability và accessible Admin workflow.
 
 ## Tasks & Acceptance
 
 **Execution:**
-- `apps/api/prisma/schema.prisma` và migration PostgreSQL mới -- thêm StaffProfile/StaffClassAssignment với composite School graph, immutable SchoolYear display/date snapshot, interval check/exclusion and history indexes -- database chặn graph sai/overlap và present state không ghi đè history.
-- `apps/api/src/modules/roster/roster.service.ts` và `roster.controller.ts` -- thêm School-scoped list/create/update profile plus list/create/change/end assignment -- tái dùng authorization, mutation protection, transaction, audit/Operation; validate six profile fields, active Class, SchoolYear interval/reason và map raw exclusion collision thành lỗi ổn định.
-- `apps/api/src/modules/roster/roster.controller.test.ts` và `apps/api/src/integration/roster.integration.test.ts` -- test Cookie mutation boundary và PostgreSQL tenant/time history matrix -- chứng minh profile không tạo access artifacts, foreign graph/archived Class/invalid interval/reason/overlap fail, adjacent/different-Class intervals pass, closed-year history/audit/idempotency remain correct.
-- `apps/web/src/roster/roster-workspace.tsx` và `roster-workspace.test.tsx` -- thêm accessible Staff profile and assignment surfaces với labels/caption/status tiếng Việt, field errors/input retention, active-Class select và reconciliation/stale guards -- UI tách Staff record, assignment history, login/role state và chỉ cập nhật sau server confirmation.
+- `apps/api/prisma/schema.prisma` và migration mới -- model Position/grant/binding và migration one-way từ preset/staffType; composite graph, unique/lifecycle và no-dual-source enforcement.
+- `apps/api/src/modules/authorization/authorization.service.ts`, `ops/ops.service.ts`, `roster/roster.service.ts`, `roster/roster.controller.ts` -- capability catalog, provisioning seed, Position/Staff/binding commands và server resolver.
+- `apps/api/src/modules/attendance/attendance.service.ts` -- thay legacy teacher/approver checks bằng capability resolver với assignment only cho `CLASS_LEAVE_READ`.
+- `apps/web/src/roster/roster-workspace.tsx` và test -- quản lý Chức danh Vietnamese, catalog grouped/labeled, Staff primary Position/binding, server confirmation, errors, switch/reconcile guards.
+- `apps/api/src/**/*.test.ts` và `apps/api/src/integration/*.test.ts` -- cover mọi hàng Matrix, migration/revoke/cross-tenant/legacy-removal proof và authorization paths.
 
 **Acceptance Criteria:**
-- Given an authorized School Admin in a selected School, when a valid Staff profile is created or updated, then only the approved six roster fields persist in that School with audit/Operation and no login, password, membership, role, HR/payroll or teacher-type artifact exists.
-- Given Staff, SchoolYear and active Class belong to the resolved School, when the Admin creates, changes or ends an assignment with a reason, then the server persists/revises `[effectiveFrom,effectiveTo)` under `Asia/Ho_Chi_Minh`, audits actor/reason and rejects foreign graph, archived Class, invalid SchoolYear date, invalid reason or same Staff/Class overlap before durable success.
-- Given adjacent intervals or concurrent assignments for one Staff to distinct Classes, when they are persisted, then adjacent intervals and distinct-Class assignments remain valid while only overlapping same-Class rows are rejected.
-- Given an assignment is ended or its SchoolYear is no longer active, when Admin reads the roster later, then original assignment history remains readable and no current-state field replaces it.
-- Given a Staff form has server validation errors, a mutation times out, or School/SchoolYear changes during a request, when the UI responds, then it retains input and focuses accessible errors, reconciles the saved Operation without replay, and never renders stale prior-context Staff data.
+- Given a newly provisioned School, when its first Admin accesses the app, then seven seeded SchoolPositions and a primary active Staff/binding exist and all access is derived from Position capabilities rather than role presets.
+- Given a School Admin manages Positions and Staff, when mutations use permitted catalog capabilities, same-School active Position/binding and reason, then the API creates audited idempotent Operations and the Admin UI reflects only server-confirmed state.
+- Given legacy role grants and staffType exist before migration, when migration completes, then effective capabilities are represented by Position grants, historical audit/Operation rows remain readable, and no schema/query/resolver accepts the legacy authorization source.
+- Given a Staff or Position capability/binding is deactivated or revoked, when a protected route is requested next, then it is denied before domain lookup; class leave additionally requires an effective assignment, while handover authorization does not.
+- Given an invalid Position, capability, binding, Class graph or assignment interval, when an Admin submits it, then no successful Operation or partial write is created and accessible field errors preserve entered input.
 
 ## Spec Change Log
 
+### 2026-09-20 -- Rebased after review
+- Trigger: prior spec implemented the obsolete roster-only contract and explicitly excluded authorization migration.
+- Amendment: replaced it with canonical AD-20 one-way SchoolPosition capability contract.
+- Avoids: retaining `staffType` and preset-role authorization after a claimed clean-break completion.
+- KEEP: preserve existing Staff temporal history, composite tenant graph, cookie mutation protection, audited Operations, and no optimistic roster state.
+
 ## Review Triage Log
 
-### 2026-09-18 — Review pass
+### 2026-09-20 -- Review pass
 - intent_gap: 0
-- bad_spec: 0
-- patch: 8: (high 2, medium 5, low 1)
+- bad_spec: 1: (high 1)
+- patch: 0
 - defer: 0
 - reject: 0
 - addressed_findings:
-  - `[high] [patch]` Bảo vệ lịch sử assignment đã kết thúc, tách `endReason`, chặn archive Class còn phân công mở và bổ sung tenant/temporal proof PostgreSQL.
-  - `[medium] [patch]` Thay prompt kết thúc bằng dialog accessible có focus trap/restore, error retention và labels/action IDs riêng.
-  - `[medium] [patch]` Bổ sung proof update/change/end, race overlap, direct composite-FK graph, closed-year history, Staff/assignment timeout no-replay và stale School/SchoolYear response.
+  - `[high] [bad_spec]` Rebased Story 2.4 from obsolete roster-only scope to canonical SchoolPosition clean-break contract.
+
+### 2026-09-20 -- Implementation review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 7)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - `[high] [patch]` Re-authorized idempotency replay and restored actor-scoped Operation reconciliation after Position/binding/grant revoke.
+  - `[high] [patch]` Made legacy migration deterministic, prevented capability escalation for ungranted Staff, and preserved the legacy School Admin precedence.
+  - `[high] [patch]` Prevented removal of the final active bound `ROSTER_MANAGE` administrator and cleared stale Position state on School switch.
 
 ## Design Notes
 
-Persist SchoolYear name and date bounds on each assignment, matching enrollment's historical snapshot strategy. Staff name is projected from the current StaffProfile rather than snapshot. Assignment change updates only an open historical row after revalidating the full temporal graph; `effectiveTo` is read-only outside the end command. Ending sets its exclusive `effectiveTo` and separate `endReason` while retaining the original `reason`, so a later assignment can begin on that same date without overlap. An archived Class cannot retain an open-ended StaffClassAssignment; correcting a completed end is a future workflow outside this story.
+`SchoolPosition` is configuration, not a role label. The one authorization resolver joins membership identity to its active bound StaffProfile, active primary Position and Position grants. Existing generic Operations/Audit preserve their historical snapshots; migration removes live legacy authorization inputs instead of translating them at read time.
 
 ## Verification
 
 **Commands:**
-- `pnpm --filter @passionedu/api prisma:generate` -- expected: Prisma client generates from Staff roster schema.
-- `pnpm --filter @passionedu/api test` -- expected: roster controller/unit suites pass.
-- `pnpm --filter @passionedu/admin-web test` -- expected: accessible Staff roster UI tests pass.
-- `set -a && . apps/api/.env && set +a && pnpm --filter @passionedu/api test:integration` -- expected: PostgreSQL Staff tenant/temporal invariant suite passes when target database is configured.
-- `pnpm lint && pnpm typecheck && pnpm test && pnpm build` -- expected: workspace quality gates pass.
+- `pnpm --filter @passionedu/api prisma:generate` -- expected: target schema generates.
+- `pnpm --filter @passionedu/api test` -- expected: authorization, roster, Ops and attendance unit/controller suites pass.
+- `pnpm --filter @passionedu/admin-web test` -- expected: accessible Position/Staff roster UI tests pass.
+- `set -a && . apps/api/.env && set +a && pnpm --filter @passionedu/api test:integration` -- expected: PostgreSQL migration, tenant, revoke, class and idempotency proofs pass.
+- `pnpm lint && pnpm typecheck && pnpm test && pnpm build` -- expected: workspace gates pass.
 - `git diff --check` -- expected: no whitespace errors.
 
 ## Auto Run Result
 
 Status: done
 
-Đã triển khai StaffProfile School-scoped và StaffClassAssignment effective-dated, bao gồm composite tenant graph, PostgreSQL exclusion constraint, API roster có authorization/audit/Operation idempotent và Admin workspace tách profile, assignment, access state. Assignment đã kết thúc chỉ đọc; `endReason` riêng giữ nguyên lý do phân công gốc; archive Class bị chặn khi còn phân công mở.
+Đã thay thế clean-break `StaffType`/preset `SchoolRoleGrant` bằng School-scoped `SchoolPosition` và capability catalog server-owned. Migration tạo bảy Position seed, chuyển grant legacy một chiều với mapping deterministic và không nâng quyền Staff không có grant. Runtime chỉ resolve capability từ active Staff, primary Position, active binding và Position grant.
 
 Files changed:
 
-- `apps/api/prisma/schema.prisma` và hai migration Staff -- aggregate, tenant FK, interval/exclusion invariant và `endReason`.
-- `apps/api/src/modules/roster/*` -- REST commands/reads, validation, audit, Operation và archive guard.
-- `apps/api/src/integration/roster.integration.test.ts` -- PostgreSQL tenant, graph, history, conflict, concurrency và replay proofs.
-- `apps/web/src/roster/*` -- accessible Staff and assignment management, dialog end assignment, reconciliation and stale guards.
-- `_bmad-output/implementation-artifacts/sprint-status.yaml` -- tracker Story 2.4.
+- `apps/api/prisma/schema.prisma` và `apps/api/prisma/migrations/20260920000000_school_positions_capabilities/migration.sql` -- Position/grant graph, one-way migration và legacy-source removal.
+- `apps/api/src/modules/authorization/*`, `ops/*`, `roster/*`, `settings/*`, `parents/*`, `attendance/*` -- active Position authorization, Operations reconciliation, Position lifecycle và class-capability checks.
+- `apps/web/src/roster/*` -- accessible Position catalog, create/rename/grant/revoke/inactivate flows, Staff primary Position, stale-context and reconciliation guards.
+- `apps/api/src/integration/*`, module tests và `apps/web/src/roster/roster-workspace.test.tsx` -- tenant/revoke/lockout/migration/UI proof.
 
-Review findings: 8 patches applied (high 2, medium 5, low 1); deferred 0; rejected 0. Follow-up review recommendation: true (2 high patches).
+Review findings: 7 high-severity patches applied; deferred 0; rejected 0. Follow-up review recommendation: true (7 high patches, score 7).
 
 Verification passed:
 
 - `pnpm --filter @passionedu/api prisma:generate`
 - `pnpm lint && pnpm typecheck && pnpm test && pnpm build`
-- `set -a && . apps/api/.env && set +a && pnpm --filter @passionedu/api test:integration` -- 6 files, 50 tests.
-- `pnpm --filter @passionedu/admin-web test` -- 4 files, 36 tests.
+- `set -a && . apps/api/.env && set +a && pnpm --filter @passionedu/api test:integration` -- 7 files, 51 tests.
+- `pnpm --filter @passionedu/admin-web test` -- 5 files, 52 tests.
 - `git diff --check`
 
-Finalization completed after the unrelated `compose.yaml` was removed from the worktree.
+Residual risk: Staff login-binding selection intentionally remains server-validated input without a new membership-discovery endpoint; this avoids recreating a role-management surface. Existing binding changes remain audit/Operation-protected.

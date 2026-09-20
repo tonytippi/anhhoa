@@ -4,6 +4,8 @@ import { RosterWorkspace } from './roster-workspace';
 
 const year = { id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true };
 const classroom = { id: 'class-a', schoolYearId: 'year-a', name: 'Lớp Mầm', status: 'ACTIVE', activeStudentCount: 0 };
+const position = { id: 'position-a', code: 'GIAO_VIEN', name: 'Giáo viên', status: 'ACTIVE', capabilities: ['ROSTER_MANAGE'] };
+const staffProfile = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', employmentStatus: 'ACTIVE', primaryPositionId: position.id, primaryPosition: { id: position.id, code: position.code, name: position.name, status: position.status }, schoolMembershipId: null };
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
 const error = (fieldErrors: Record<string, string>) => new Response(JSON.stringify({ error: { message: 'Dữ liệu không hợp lệ.', fieldErrors } }), { status: 400 });
 const rosterFetch = (post = response({ id: 'operation' })) => vi.fn((url: string, options?: RequestInit) => {
@@ -366,7 +368,7 @@ describe('RosterWorkspace', () => {
   });
 
   it('creates and edits a Staff profile only after server confirmation', async () => {
-    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const staff = staffProfile;
     const staffPath = '/api/app/schools/school-a/roster/staff';
     const assignmentsPath = '/api/app/schools/school-a/roster/school-years/year-a/staff-assignments';
     let staffReads = 0;
@@ -374,7 +376,7 @@ describe('RosterWorkspace', () => {
       if (options?.method === 'POST') return Promise.resolve(response({ id: 'operation' }));
       if (url === staffPath) return Promise.resolve(response(staffReads++ ? [{ ...staff, fullName: staffReads === 2 ? staff.fullName : 'Cô Mai đã sửa' }] : []));
       if (url === assignmentsPath) return Promise.resolve(response([]));
-      return Promise.resolve(response(url.endsWith('/classes') || url.endsWith('/students') ? [] : [year]));
+      return Promise.resolve(response(url.endsWith('/positions') ? [position] : url.endsWith('/classes') || url.endsWith('/students') ? [] : [year]));
     });
     vi.stubGlobal('fetch', fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
@@ -384,6 +386,7 @@ describe('RosterWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Ngày sinh nhân sự'), { target: { value: staff.dateOfBirth } });
     fireEvent.change(screen.getByLabelText('Giới tính'), { target: { value: staff.gender } });
     fireEvent.change(screen.getByLabelText('Địa chỉ'), { target: { value: staff.address } });
+    fireEvent.change(screen.getByLabelText('Chức danh chính'), { target: { value: position.id } });
     fireEvent.submit(screen.getByRole('button', { name: 'Lưu hồ sơ nhân sự' }).closest('form')!);
     expect((await screen.findAllByText('Cô Mai')).length).toBeGreaterThan(0);
     expect(fetch).toHaveBeenCalledWith(staffPath, expect.anything());
@@ -391,12 +394,51 @@ describe('RosterWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sửa hồ sơ' }));
     fireEvent.change(screen.getByLabelText('Họ và tên nhân sự'), { target: { value: 'Cô Mai đã sửa' } });
     fireEvent.submit(screen.getByRole('button', { name: 'Lưu thay đổi hồ sơ' }).closest('form')!);
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/staff/staff-a', expect.objectContaining({ method: 'POST', body: JSON.stringify({ ...staff, fullName: 'Cô Mai đã sửa' }) })));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/staff/staff-a', expect.objectContaining({ method: 'POST', body: JSON.stringify({ fullName: 'Cô Mai đã sửa', email: staff.email, phone: staff.phone, dateOfBirth: staff.dateOfBirth, gender: staff.gender, address: staff.address, employmentStatus: staff.employmentStatus, primaryPositionId: staff.primaryPositionId, schoolMembershipId: null }) })));
     expect((await screen.findAllByText('Cô Mai đã sửa')).length).toBeGreaterThan(0);
   });
 
+  it('renames, changes capabilities, and inactivates a Position only after server reconciliation', async () => {
+    let currentPosition = position;
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return Promise.resolve(response({ id: 'operation' }));
+      if (url.endsWith('/positions')) return Promise.resolve(response([currentPosition]));
+      return Promise.resolve(response(url.endsWith('/classes') || url.endsWith('/students') || url.endsWith('/staff') || url.endsWith('/staff-assignments') ? [] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Đổi tên Giáo viên' });
+    fireEvent.click(screen.getByRole('button', { name: 'Đổi tên Giáo viên' }));
+    fireEvent.change(screen.getByLabelText('Tên chức danh mới'), { target: { value: 'Giáo viên chủ nhiệm' } });
+    fireEvent.change(screen.getByLabelText('Lý do đổi tên chức danh'), { target: { value: 'Chuẩn hóa' } });
+    currentPosition = { ...currentPosition, name: 'Giáo viên chủ nhiệm' };
+    fireEvent.submit(screen.getByRole('button', { name: 'Lưu tên chức danh' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/positions/position-a/name', expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: 'Giáo viên chủ nhiệm', reason: 'Chuẩn hóa' }) })));
+    await screen.findByRole('button', { name: 'Cấp capability cho Giáo viên chủ nhiệm' });
+    fireEvent.click(screen.getByRole('button', { name: 'Cấp capability cho Giáo viên chủ nhiệm' }));
+    fireEvent.change(screen.getByLabelText('Capability cần cấp'), { target: { value: 'ATTENDANCE_WRITE' } });
+    fireEvent.change(screen.getByLabelText('Lý do cấp capability'), { target: { value: 'Điểm danh' } });
+    currentPosition = { ...currentPosition, capabilities: [...currentPosition.capabilities, 'ATTENDANCE_WRITE'] };
+    fireEvent.submit(screen.getByRole('button', { name: 'Cấp capability' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/positions/position-a/grants', expect.objectContaining({ body: JSON.stringify({ capability: 'ATTENDANCE_WRITE', reason: 'Điểm danh' }) })));
+    await screen.findByRole('button', { name: 'Thu hồi Điểm danh của Giáo viên chủ nhiệm' });
+    fireEvent.click(screen.getByRole('button', { name: 'Thu hồi Điểm danh của Giáo viên chủ nhiệm' }));
+    fireEvent.change(screen.getByLabelText('Lý do thu hồi capability'), { target: { value: 'Không còn cần' } });
+    currentPosition = { ...currentPosition, capabilities: ['ROSTER_MANAGE'] };
+    fireEvent.submit(screen.getByRole('button', { name: 'Xác nhận thu hồi capability' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/positions/position-a/grants/ATTENDANCE_WRITE/revoke', expect.objectContaining({ body: JSON.stringify({ reason: 'Không còn cần' }) })));
+    await screen.findByRole('button', { name: 'Ngừng hiệu lực Giáo viên chủ nhiệm' });
+    fireEvent.click(screen.getByRole('button', { name: 'Ngừng hiệu lực Giáo viên chủ nhiệm' }));
+    fireEvent.change(screen.getByLabelText('Lý do ngừng hiệu lực chức danh'), { target: { value: 'Ngừng dùng' } });
+    fireEvent.change(screen.getByLabelText('Nhập NGỪNG HIỆU LỰC để xác nhận'), { target: { value: 'NGỪNG HIỆU LỰC' } });
+    currentPosition = { ...currentPosition, status: 'INACTIVE' };
+    fireEvent.submit(screen.getByRole('button', { name: 'Xác nhận ngừng hiệu lực' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/positions/position-a/inactivate', expect.objectContaining({ body: JSON.stringify({ reason: 'Ngừng dùng' }) })));
+    expect((await screen.findAllByText('Không hiệu lực')).length).toBeGreaterThan(0);
+  });
+
   it('retains Staff and assignment input and focuses the server validation summary', async () => {
-    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const staff = staffProfile;
     let posts = 0;
     const fetch = vi.fn((url: string, options?: RequestInit) => {
       if (options?.method === 'POST') return Promise.resolve(posts++ ? error({ reason: 'Lý do phân công là bắt buộc.' }) : error({ email: 'Email không hợp lệ.' }));
@@ -421,7 +463,7 @@ describe('RosterWorkspace', () => {
   });
 
   it('reconciles a timed-out assignment mutation without replaying its POST', async () => {
-    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const staff = staffProfile;
     let resolveOperation!: (value: Response) => void;
     const operation = new Promise<Response>((resolve) => { resolveOperation = resolve; });
     const fetch = vi.fn((url: string, options?: RequestInit) => {
@@ -463,6 +505,22 @@ describe('RosterWorkspace', () => {
     expect(screen.queryByText('Cô Cũ')).toBeNull();
   });
 
+  it('clears Positions immediately and ignores a stale Position response after a School switch', async () => {
+    let resolvePositions!: (value: Response) => void;
+    const delayedPositions = new Promise<Response>((resolve) => { resolvePositions = resolve; });
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools/school-a/roster/positions') return delayedPositions;
+      if (url.endsWith('/school-years')) return Promise.resolve(response([year]));
+      return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : []));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const view = render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    view.rerender(<RosterWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
+    resolvePositions(response([{ ...position, name: 'Chức danh cũ' }]));
+    await screen.findByText('Năm học của Trường B');
+    expect(screen.queryByText('Chức danh cũ')).toBeNull();
+  });
+
   it('ignores stale assignment reads after a School switch', async () => {
     let resolveAssignments!: (value: Response) => void;
     const delayedAssignments = new Promise<Response>((resolve) => { resolveAssignments = resolve; });
@@ -502,7 +560,7 @@ describe('RosterWorkspace', () => {
   });
 
   it('creates and changes an assignment with distinct accessible labels', async () => {
-    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const staff = staffProfile;
     const assignment = { id: 'assignment-a', staffProfileId: staff.id, effectiveFrom: '2026-01-01', effectiveTo: null, reason: 'Phân công đầu năm', staff: { fullName: staff.fullName }, schoolYear: { id: year.id, name: year.name }, classroom: { id: classroom.id, name: classroom.name }, access: { status: 'NOT_PROVIDED' } };
     const staffPath = '/api/app/schools/school-a/roster/staff';
     const assignmentsPath = '/api/app/schools/school-a/roster/school-years/year-a/staff-assignments';
@@ -529,7 +587,7 @@ describe('RosterWorkspace', () => {
   });
 
   it('ends an open assignment in an accessible dialog and retains invalid input', async () => {
-    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const staff = staffProfile;
     const assignment = { id: 'assignment-a', staffProfileId: staff.id, effectiveFrom: '2026-01-01', effectiveTo: null, reason: 'Phân công đầu năm', endReason: null, staff: { fullName: staff.fullName }, schoolYear: { id: year.id, name: year.name }, classroom: { id: classroom.id, name: classroom.name }, access: { status: 'NOT_PROVIDED' } };
     const assignmentsPath = '/api/app/schools/school-a/roster/school-years/year-a/staff-assignments';
     const fetch = vi.fn((url: string, options?: RequestInit) => {
@@ -555,7 +613,7 @@ describe('RosterWorkspace', () => {
   });
 
   it('keeps focus inside the end dialog and restores its trigger on close', async () => {
-    const staff = { id: 'staff-a', fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội' };
+    const staff = staffProfile;
     const assignment = { id: 'assignment-a', staffProfileId: staff.id, effectiveFrom: '2026-01-01', effectiveTo: null, reason: 'Phân công đầu năm', endReason: null, staff: { fullName: staff.fullName }, schoolYear: { id: year.id, name: year.name }, classroom: { id: classroom.id, name: classroom.name }, access: { status: 'NOT_PROVIDED' } };
     vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(response(url.endsWith('/staff') ? [staff] : url.endsWith('/staff-assignments') ? [assignment] : url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [] : [year]))));
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);

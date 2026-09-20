@@ -17,7 +17,9 @@ try {
     await tx.studentParent.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.student.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.parentProfile.deleteMany({ where: { emailNormalized: emails[3] } });
-    await tx.schoolRoleGrant.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.staffProfile.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.positionCapabilityGrant.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.schoolPosition.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.schoolMembership.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.school.deleteMany({ where: { id: { in: schoolIds } } });
     await tx.platformOperatorGrant.deleteMany({ where: { userIdentityId: { in: identityIds } } });
@@ -31,9 +33,12 @@ try {
     await tx.platformOperatorGrant.create({ data: { userIdentityId: operator.id } });
     for (const [index, [name, slug]] of [['Release Gate A', slugs[0]], ['Release Gate B', slugs[1]] as const].entries()) {
       const school = await tx.school.create({ data: { name, slug, studentCodePrefix: `RG${index + 1}` } });
-      for (const [userIdentityId, role] of [[admin.id, 'SCHOOL_ADMIN'], [teacher.id, 'CLASS_TEACHER']] as const) {
+      for (const [userIdentityId, code, capability] of [[admin.id, 'ADMIN', 'ROSTER_MANAGE'], [teacher.id, 'GIAO_VIEN', 'CLASS_LEAVE_READ']] as const) {
         const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId } });
-        await tx.schoolRoleGrant.create({ data: { schoolId: school.id, membershipId: membership.id, role } });
+        const position = await tx.schoolPosition.create({ data: { schoolId: school.id, code, name: code === 'ADMIN' ? 'Quản lý trường' : 'Giáo viên' } });
+        await tx.positionCapabilityGrant.createMany({ data: ['SCHOOL_CONTEXT_READ', capability].map((value) => ({ schoolId: school.id, positionId: position.id, capability: value })) });
+        const identity = userIdentityId === admin.id ? admin : teacher;
+        await tx.staffProfile.create({ data: { schoolId: school.id, fullName: identity.emailNormalized, email: identity.emailNormalized, phone: '0900000000', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Release fixture', primaryPositionId: position.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
       }
       const student = await tx.student.create({ data: { schoolId: school.id, studentCode: `RG${index + 1}-1`, fullName: index ? 'Bé Bình' : 'Bé An', dateOfBirth: new Date('2022-01-01T00:00:00.000Z') } });
       await tx.studentParent.create({ data: { schoolId: school.id, studentId: student.id, parentProfileId: parentProfile.id } });

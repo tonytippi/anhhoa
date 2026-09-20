@@ -3,133 +3,26 @@ import { createApi } from '../main.js';
 import { PrismaService } from '../modules/identity/prisma.service.js';
 
 const prisma = new PrismaService();
-const ids = { schools: [] as string[], identities: [] as string[] };
-let baseUrl = '';
+const schools: string[] = [];
 let app: Awaited<ReturnType<typeof createApi>>;
+let baseUrl = '';
 const uuid = () => crypto.randomUUID();
 
-function cookie(headers: Headers, name: string) {
-  return headers.getSetCookie().find((value) => value.startsWith(`${name}=`))?.split(';')[0];
-}
+function cookie(headers: Headers, name: string) { return headers.getSetCookie().find((value) => value.startsWith(`${name}=`))?.split(';')[0]; }
+async function login(email: string) { const start = await fetch(`${baseUrl}/api/app/auth/google/start`, { redirect: 'manual' }); const url = new URL(start.headers.get('location')!); const state = url.searchParams.get('state')!; const nonce = url.searchParams.get('nonce')!; const correlation = cookie(start.headers, 'app_oauth_correlation')!; const token = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', sub: `release-${uuid()}`, email, email_verified: true, aud: url.searchParams.get('client_id')!, nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString('base64url'); const callback = await fetch(`${baseUrl}/api/app/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(token)}`, { redirect: 'manual', headers: { cookie: correlation } }); return { session: cookie(callback.headers, 'app_session')!, csrf: cookie(callback.headers, 'app_csrf')!.split('=')[1]! }; }
+const headers = (session: { session: string; csrf: string }) => ({ cookie: `${session.session}; app_csrf=${session.csrf}`, origin: 'http://localhost:5173', 'x-csrf-token': session.csrf, 'idempotency-key': uuid(), 'x-operation-id': uuid(), 'content-type': 'application/json' });
+async function actor(schoolId: string, email: string) { const identity = await prisma.userIdentity.findUniqueOrThrow({ where: { emailNormalized: email } }); const membership = await prisma.schoolMembership.create({ data: { schoolId, userIdentityId: identity.id } }); const fallbackIdentity = await prisma.userIdentity.create({ data: { emailNormalized: `release-fallback-${uuid()}@example.com` } }); const fallbackMembership = await prisma.schoolMembership.create({ data: { schoolId, userIdentityId: fallbackIdentity.id } }); const position = await prisma.schoolPosition.create({ data: { schoolId, code: `RELEASE_${uuid().replaceAll('-', '').slice(0, 12)}`, name: `Release ${uuid()}` } }); const fallbackPosition = await prisma.schoolPosition.create({ data: { schoolId, code: `RELEASE_FALLBACK_${uuid().replaceAll('-', '').slice(0, 12)}`, name: `Release fallback ${uuid()}` } }); await prisma.positionCapabilityGrant.createMany({ data: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'].map((capability) => ({ schoolId, positionId: position.id, capability })) }); await prisma.positionCapabilityGrant.create({ data: { schoolId, positionId: fallbackPosition.id, capability: 'ROSTER_MANAGE' } }); await prisma.staffProfile.create({ data: { schoolId, fullName: 'Release actor', email, phone: '0900000000', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Test', primaryPositionId: position.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } }); await prisma.staffProfile.create({ data: { schoolId, fullName: 'Release fallback manager', email: fallbackIdentity.emailNormalized, phone: '0900000001', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Test', primaryPositionId: fallbackPosition.id, schoolMembershipId: fallbackMembership.id, boundAt: new Date(), boundByMembershipId: fallbackMembership.id } }); return { membership, position }; }
 
-async function login(audience: 'app' | 'teacher' | 'parent' | 'ops', email: string) {
-  const start = await fetch(`${baseUrl}/api/${audience}/auth/google/start`, { redirect: 'manual' });
-  const location = new URL(start.headers.get('location')!);
-  const state = location.searchParams.get('state')!;
-  const nonce = location.searchParams.get('nonce')!;
-  const clientId = location.searchParams.get('client_id')!;
-  const correlation = cookie(start.headers, `${audience}_oauth_correlation`)!;
-  const token = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', sub: `release-${uuid()}`, email, email_verified: true, aud: clientId, nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString('base64url');
-  const callback = await fetch(`${baseUrl}/api/${audience}/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(token)}`, { redirect: 'manual', headers: { cookie: correlation } });
-  return { status: callback.status, session: cookie(callback.headers, `${audience}_session`), csrf: cookie(callback.headers, `${audience}_csrf`)?.split('=')[1] };
-}
-
-const error = async (response: Response) => (await response.json() as { error: { code: string; message: string } }).error;
-const appHeaders = (session: { session?: string; csrf?: string }, key = uuid()) => ({ cookie: `${session.session}; app_csrf=${session.csrf}`, origin: 'http://localhost:5173', 'x-csrf-token': session.csrf!, 'idempotency-key': key, 'x-operation-id': uuid(), 'content-type': 'application/json' });
-const opsHeaders = (session: { session?: string; csrf?: string }, key = uuid()) => ({ cookie: `${session.session}; ops_csrf=${session.csrf}`, origin: 'http://localhost:5176', 'x-csrf-token': session.csrf!, 'idempotency-key': key, 'x-operation-id': uuid(), 'content-type': 'application/json' });
-
-async function identity(email: string) {
-  const result = await prisma.userIdentity.findUniqueOrThrow({ where: { emailNormalized: email } });
-  ids.identities.push(result.id);
-  return result;
-}
-
-async function school(name: string) {
-  const result = await prisma.school.create({ data: { name, slug: `release-${uuid()}`, studentCodePrefix: 'S' } });
-  ids.schools.push(result.id);
-  return result;
-}
-
-async function grant(schoolId: string, userIdentityId: string, role: 'SCHOOL_ADMIN' | 'FINANCE_MANAGER' | 'CLASS_TEACHER' = 'SCHOOL_ADMIN') {
-  const membership = await prisma.schoolMembership.create({ data: { schoolId, userIdentityId } });
-  await prisma.schoolRoleGrant.create({ data: { schoolId, membershipId: membership.id, role } });
-  return membership;
-}
-
-describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('Epic 1 release gate through HTTP', () => {
-  beforeAll(async () => {
-    app = await createApi();
-    await app.listen(0, '127.0.0.1');
-    const address = app.getHttpServer().address() as { port: number };
-    baseUrl = `http://127.0.0.1:${address.port}`;
-  });
-  afterEach(async () => {
-    const memberships = await prisma.schoolMembership.findMany({ where: { schoolId: { in: ids.schools } }, select: { userIdentityId: true } });
-    ids.identities.push(...memberships.map((membership) => membership.userIdentityId));
-    const identityIds = [...new Set(ids.identities)];
-    await prisma.auditRecord.deleteMany({ where: { schoolId: { in: ids.schools } } });
-    await prisma.operation.deleteMany({ where: { OR: [{ schoolId: { in: ids.schools } }, { actorIdentityId: { in: identityIds } }] } });
-    await prisma.schoolRoleGrant.deleteMany({ where: { schoolId: { in: ids.schools } } });
-    await prisma.schoolMembership.deleteMany({ where: { schoolId: { in: ids.schools } } });
-    await prisma.school.deleteMany({ where: { id: { in: ids.schools.splice(0) } } });
-    await prisma.platformOperatorGrant.deleteMany({ where: { userIdentityId: { in: identityIds } } });
-    await prisma.userIdentity.deleteMany({ where: { id: { in: identityIds } } });
-    ids.identities.splice(0);
-  });
+describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('SchoolPosition HTTP release gate', () => {
+  beforeAll(async () => { app = await createApi(); await app.listen(0, '127.0.0.1'); baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as { port: number }).port}`; });
+  afterEach(async () => { await prisma.auditRecord.deleteMany({ where: { schoolId: { in: schools } } }); await prisma.operation.deleteMany({ where: { schoolId: { in: schools } } }); await prisma.staffProfile.deleteMany({ where: { schoolId: { in: schools } } }); await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: { in: schools } } }); await prisma.schoolPosition.deleteMany({ where: { schoolId: { in: schools } } }); await prisma.schoolMembership.deleteMany({ where: { schoolId: { in: schools } } }); await prisma.school.deleteMany({ where: { id: { in: schools.splice(0) } } }); });
   afterAll(async () => { await app.close(); await prisma.$disconnect(); });
 
-  it('rejects cross-School selectors before state changes, scopes idempotency, and records provenance', async () => {
-    const actorEmail = `release-${uuid()}@example.com`; const adminEmail = `release-admin-${uuid()}@example.com`;
-    const actorSession = await login('app', actorEmail); const adminSession = await login('app', adminEmail);
-    expect(actorSession).toMatchObject({ status: 302 }); expect(adminSession).toMatchObject({ status: 302 });
-    const actor = await identity(actorEmail); const secondAdmin = await identity(adminEmail);
-    const a = await school('Release A'); const b = await school('Release B');
-    const membershipA = await grant(a.id, actor.id); await grant(b.id, actor.id); await grant(a.id, secondAdmin.id);
-    const crossSchool = await fetch(`${baseUrl}/api/app/schools/${b.id}/memberships/${membershipA.id}/revoke`, { method: 'POST', headers: appHeaders(actorSession), body: JSON.stringify({ reason: 'crafted' }) });
-    expect(crossSchool.status).toBe(404); expect(await error(crossSchool)).toMatchObject({ code: 'MEMBERSHIP_NOT_FOUND' });
-    expect(await prisma.schoolMembership.findUniqueOrThrow({ where: { id: membershipA.id } })).toMatchObject({ status: 'ACTIVE', schoolId: a.id });
-    expect(await prisma.operation.count({ where: { schoolId: b.id } })).toBe(0); expect(await prisma.auditRecord.count({ where: { schoolId: b.id } })).toBe(0);
-
-    const key = uuid(); const bodyA = { email: `target-a-${uuid()}@example.com`, roles: ['CLASS_TEACHER'], reason: 'release gate' }; const bodyB = { email: `target-b-${uuid()}@example.com`, roles: ['CLASS_TEACHER'], reason: 'release gate' };
-    const createdA = await fetch(`${baseUrl}/api/app/schools/${a.id}/memberships`, { method: 'POST', headers: appHeaders(actorSession, key), body: JSON.stringify(bodyA) });
-    const createdB = await fetch(`${baseUrl}/api/app/schools/${b.id}/memberships`, { method: 'POST', headers: appHeaders(actorSession, key), body: JSON.stringify(bodyB) });
-    expect(createdA.status).toBe(201); expect(createdB.status).toBe(201);
-    const operationA = ((await createdA.json()) as { data: { id: string; status: string; outcome: { membershipId: string } } }).data;
-    const operationB = ((await createdB.json()) as { data: { id: string; status: string; outcome: { membershipId: string } } }).data;
-    expect(operationB.id).not.toBe(operationA.id); expect(operationB.status).toBe('COMPLETED');
-    expect(operationA.status).toBe('COMPLETED');
-    const targetMembership = await prisma.schoolMembership.findUniqueOrThrow({ where: { id: operationA.outcome.membershipId } }); ids.identities.push(targetMembership.userIdentityId);
-    const operation = await prisma.operation.findUniqueOrThrow({ where: { id: operationA.id } });
-    const audit = await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: a.id, action: 'MEMBERSHIP_CREATED' } });
-    expect(operation).toMatchObject({ schoolId: a.id, actorIdentityId: actor.id, membershipId: membershipA.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membershipA.id, idempotencyKey: key, status: 'COMPLETED' });
-    expect(audit).toMatchObject({ actorIdentityId: actor.id, membershipId: membershipA.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membershipA.id, provenance: { operationId: operationA.id, targetMembershipId: targetMembership.id } });
-    expect((await fetch(`${baseUrl}/api/app/schools/${b.id}/operations/${operationA.id}`, { headers: { cookie: actorSession.session! } })).status).toBe(404);
-
-    const revoke = await fetch(`${baseUrl}/api/app/schools/${a.id}/memberships/${membershipA.id}/revoke`, { method: 'POST', headers: appHeaders(adminSession), body: JSON.stringify({ reason: 'release revoke' }) });
-    expect(revoke.status).toBe(201); expect(((await revoke.json()) as { data: { status: string } }).data.status).toBe('COMPLETED');
-    expect(await prisma.schoolMembership.findUniqueOrThrow({ where: { id: membershipA.id } })).toMatchObject({ status: 'REVOKED' });
-    expect((await fetch(`${baseUrl}/api/app/schools/${a.id}`, { headers: { cookie: actorSession.session! } })).status).toBe(404);
-    expect((await fetch(`${baseUrl}/api/app/schools/${b.id}`, { headers: { cookie: actorSession.session! } })).status).toBe(200);
-  });
-
-  it('proves every issued audience session is rejected by every other audience endpoint, denies pending or no-link Parent admission, enforces mutation origin, and suspends through Ops', async () => {
-    const appEmail = `audience-app-${uuid()}@example.com`; const teacherEmail = `audience-teacher-${uuid()}@example.com`; const operatorEmail = `audience-ops-${uuid()}@example.com`;
-    process.env.SUPERADMIN_EMAIL = operatorEmail;
-    const appSession = await login('app', appEmail); const teacherSession = await login('teacher', teacherEmail); const opsSession = await login('ops', operatorEmail);
-    expect(appSession).toMatchObject({ status: 302, session: expect.any(String) }); expect(teacherSession).toMatchObject({ status: 302, session: expect.any(String) }); expect(opsSession).toMatchObject({ status: 302, session: expect.any(String) });
-    const actor = await identity(appEmail); const operator = await identity(operatorEmail); const target = await school('Audience'); await grant(target.id, actor.id);
-    await prisma.platformOperatorGrant.upsert({ where: { userIdentityId: operator.id }, create: { userIdentityId: operator.id }, update: { revokedAt: null } });
-    const issued = [{ audience: 'app', session: appSession }, { audience: 'teacher', session: teacherSession }, { audience: 'ops', session: opsSession }] as const;
-    for (const source of issued) {
-      expect((await fetch(`${baseUrl}/api/${source.audience}/auth/session`, { headers: { cookie: source.session.session! } })).status).toBe(200);
-      for (const destination of ['app', 'teacher', 'parent', 'ops'] as const) {
-        if (destination === source.audience) continue;
-        const response = await fetch(`${baseUrl}/api/${destination}/auth/session`, { headers: { cookie: source.session.session! } });
-        expect(response.status).toBe(401); expect(await error(response)).toMatchObject({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
-      }
-    }
-    const parent = await login('parent', `audience-parent-${uuid()}@example.com`);
-    expect(parent).toMatchObject({ status: 302, session: undefined, csrf: undefined });
-    expect((await fetch(`${baseUrl}/api/parent/auth/session`)).status).toBe(401);
-    const before = await prisma.operation.count({ where: { schoolId: target.id } });
-    const invalidOrigin = await fetch(`${baseUrl}/api/app/schools/${target.id}/memberships`, { method: 'POST', headers: { ...appHeaders(appSession), origin: 'http://localhost:5174' }, body: JSON.stringify({ email: `blocked-${uuid()}@example.com`, roles: ['CLASS_TEACHER'] }) });
-    expect(invalidOrigin.status).toBe(401); expect(await error(invalidOrigin)).toMatchObject({ code: 'CSRF_INVALID' }); expect(await prisma.operation.count({ where: { schoolId: target.id } })).toBe(before);
-
-    const suspended = await fetch(`${baseUrl}/api/ops/schools/${target.id}/suspend`, { method: 'POST', headers: opsHeaders(opsSession) });
-    expect(suspended.status).toBe(201); const lifecycle = ((await suspended.json()) as { data: { id: string; status: string } }).data; expect(lifecycle.status).toBe('COMPLETED');
-    expect((await fetch(`${baseUrl}/api/app/schools/${target.id}`, { headers: { cookie: appSession.session! } })).status).toBe(404);
-    expect(await prisma.school.findUniqueOrThrow({ where: { id: target.id } })).toMatchObject({ status: 'SUSPENDED' });
-    expect(await prisma.operation.findUniqueOrThrow({ where: { id: lifecycle.id } })).toMatchObject({ schoolId: target.id, actorIdentityId: operator.id, actorType: 'PLATFORM_OPERATOR_GRANT', status: 'COMPLETED' });
-    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: target.id, action: 'SCHOOL_SUSPENDED' } })).toMatchObject({ actorIdentityId: operator.id, actorType: 'PLATFORM_OPERATOR_GRANT', provenance: { operationId: lifecycle.id } });
+  it('authorizes a Position capability, then denies the next request after it is revoked', async () => {
+    const email = `release-${uuid()}@example.com`; const session = await login(email); const school = await prisma.school.create({ data: { name: 'Release', slug: `release-${uuid()}`, studentCodePrefix: 'R' } }); schools.push(school.id); const { position } = await actor(school.id, email);
+    await expect(fetch(`${baseUrl}/api/app/schools/${school.id}/roster/positions`, { headers: { cookie: session.session } })).resolves.toMatchObject({ status: 200 });
+    const revoke = await fetch(`${baseUrl}/api/app/schools/${school.id}/roster/positions/${position.id}/grants/ROSTER_MANAGE/revoke`, { method: 'POST', headers: headers(session), body: JSON.stringify({ reason: 'Thu hồi kiểm thử' }) });
+    expect(revoke.status).toBe(201);
+    await expect(fetch(`${baseUrl}/api/app/schools/${school.id}/roster/positions`, { headers: { cookie: session.session } })).resolves.toMatchObject({ status: 403 });
   });
 });

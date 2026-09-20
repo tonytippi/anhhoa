@@ -17,7 +17,7 @@ model School {
   studentCodePrefix String
   studentCodeSequence Int @default(0)
   memberships SchoolMembership[]
-  roleGrants  SchoolRoleGrant[]
+  positions SchoolPosition[]
   audits      AuditRecord[]
   operations  Operation[]
   schoolYears SchoolYear[]
@@ -107,18 +107,20 @@ model StaffProfile {
   gender      String
   address     String
   employmentStatus StaffEmploymentStatus @default(ACTIVE)
-  staffType   StaffType @default(TEACHER)
+  primaryPositionId String @db.Uuid
   schoolMembershipId String? @unique @db.Uuid
   boundAt DateTime?
   boundByMembershipId String? @db.Uuid
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  primaryPosition SchoolPosition @relation(fields: [schoolId, primaryPositionId], references: [schoolId, id], onDelete: Restrict)
   schoolMembership SchoolMembership? @relation("StaffProfileLoginBinding", fields: [schoolId, schoolMembershipId], references: [schoolId, id], onDelete: Restrict)
   boundByMembership SchoolMembership? @relation("StaffProfileBindingAuditor", fields: [schoolId, boundByMembershipId], references: [schoolId, id], onDelete: Restrict)
   assignments StaffClassAssignment[]
 
   @@unique([schoolId, id])
+  @@unique([schoolId, primaryPositionId, id])
   @@unique([schoolId, schoolMembershipId])
   @@index([schoolId, fullName])
 }
@@ -128,9 +130,39 @@ enum StaffEmploymentStatus {
   INACTIVE
 }
 
-enum StaffType {
-  TEACHER
-  STAFF
+enum SchoolPositionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model SchoolPosition {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  code String
+  name String
+  status SchoolPositionStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  grants PositionCapabilityGrant[]
+  staffProfiles StaffProfile[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, code])
+  @@unique([schoolId, name])
+  @@index([schoolId, status])
+}
+
+model PositionCapabilityGrant {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  positionId String @db.Uuid
+  capability String
+  createdAt DateTime @default(now())
+  position SchoolPosition @relation(fields: [schoolId, positionId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, positionId, capability])
+  @@index([schoolId, capability])
 }
 
 model StaffClassAssignment {
@@ -346,12 +378,6 @@ enum MembershipStatus {
   REVOKED
 }
 
-enum SchoolRole {
-  SCHOOL_ADMIN
-  FINANCE_MANAGER
-  CLASS_TEACHER
-}
-
 enum OperationActorType {
   SCHOOL_MEMBERSHIP
   PLATFORM_OPERATOR_GRANT
@@ -448,7 +474,6 @@ model SchoolMembership {
   updatedAt      DateTime         @updatedAt
   school         School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   userIdentity   UserIdentity     @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
-  roleGrants     SchoolRoleGrant[]
   audits         AuditRecord[]      @relation("AuditMembership")
   operations     Operation[]        @relation("OperationMembership")
   financePolicies FinancePolicy[]
@@ -467,18 +492,6 @@ model SchoolMembership {
   @@index([schoolId, status])
 }
 
-model SchoolRoleGrant {
-  id             String           @id @default(uuid()) @db.Uuid
-  schoolId       String           @db.Uuid
-  membershipId   String           @db.Uuid
-  role           SchoolRole
-  createdAt      DateTime         @default(now())
-  school         School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  membership     SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
-
-  @@unique([schoolId, membershipId, role])
-  @@index([schoolId, membershipId])
-}
 
 model AuditRecord {
   id             String           @id @default(uuid()) @db.Uuid
