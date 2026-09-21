@@ -157,7 +157,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
         settingsStatus.dirty ||
         settingsStatus.pending ||
         leaveReviewStatus.dirty ||
-        leaveReviewStatus.pending || financeStatus.pending
+        leaveReviewStatus.pending || financeStatus.dirty || financeStatus.pending
     )
       setSwitchTo(schoolId);
     else void load(schoolId).catch((cause: Error) => setError(cause.message));
@@ -191,7 +191,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
           aria-label="Chọn trường"
           value={context?.schoolId ?? ""}
           disabled={Boolean(
-            rosterStatus.pending || settingsStatus.pending || leaveReviewStatus.pending || financeStatus.pending,
+            rosterStatus.pending || settingsStatus.pending || leaveReviewStatus.pending || financeStatus.dirty || financeStatus.pending,
           )}
           onChange={(event) => requestSwitch(event.target.value)}
         >

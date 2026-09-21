@@ -7,6 +7,7 @@ const prisma = new PrismaService();
 const finance = new FinanceService(prisma, new AuthorizationService(prisma));
 const schools: string[] = [];
 const uuid = () => crypto.randomUUID();
+const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
 
 async function graph() {
   const school = await prisma.school.create({ data: { name: 'Finance', slug: `finance-${uuid()}`, studentCodePrefix: 'FI' } });
@@ -23,6 +24,27 @@ async function group(input: Awaited<ReturnType<typeof graph>>, name = 'Học ph�
   return finance.createGroup(input.identity.id, input.school.id, uuid(), uuid(), { name });
 }
 
+async function roster(input: Awaited<ReturnType<typeof graph>>) {
+  const year = await prisma.schoolYear.create({ data: { schoolId: input.school.id, name: 'Năm học 2026', startsOn: date('2026-01-01'), endsOn: date('2027-01-01') } });
+  const activeClass = await prisma.class.create({ data: { schoolId: input.school.id, schoolYearId: year.id, name: 'Mầm Active' } });
+  const archivedClass = await prisma.class.create({ data: { schoolId: input.school.id, schoolYearId: year.id, name: 'Mầm Archived', status: 'ARCHIVED' } });
+  return { ...input, year, activeClass, archivedClass };
+}
+
+async function enrolled(input: Awaited<ReturnType<typeof roster>>, options: { lifecycle?: 'ENROLLED' | 'TRIAL'; classId?: string; assignment?: boolean; effectiveFrom?: string; effectiveTo?: string } = {}) {
+  const student = await prisma.student.create({ data: { schoolId: input.school.id, studentCode: `HS-${uuid()}`, fullName: 'Học sinh Finance', dateOfBirth: date('2022-01-01') } });
+  const classId = options.classId ?? input.activeClass.id;
+  const enrollment = await prisma.studentEnrollment.create({ data: { schoolId: input.school.id, studentId: student.id, schoolYearId: input.year.id, classId, lifecycle: options.lifecycle ?? 'ENROLLED', effectiveFrom: date('2026-01-01'), schoolYearName: input.year.name, schoolYearStartsOn: input.year.startsOn, schoolYearEndsOn: input.year.endsOn, className: classId === input.archivedClass.id ? input.archivedClass.name : input.activeClass.name } });
+  if (options.assignment !== false) await prisma.enrollmentClassAssignment.create({ data: { schoolId: input.school.id, enrollmentId: enrollment.id, schoolYearId: input.year.id, classId, effectiveFrom: date(options.effectiveFrom ?? '2026-01-01'), effectiveTo: options.effectiveTo ? date(options.effectiveTo) : null, reason: 'Finance test' } });
+  return { student, enrollment };
+}
+
+async function open(input: Awaited<ReturnType<typeof roster>>, billingMonth = '2026-09') {
+  return finance.openRun(input.identity.id, input.school.id, uuid(), uuid(), { schoolYearId: input.year.id, billingMonth });
+}
+
+const outcomeId = (value: { outcome: unknown }) => (value.outcome as { id: string }).id;
+
 afterEach(async () => {
   const ids = schools.splice(0);
   if (!ids.length) return;
@@ -33,6 +55,15 @@ afterEach(async () => {
     await tx.receivableGroupLifecycleTransition.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.receivable.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.receivableGroup.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.collectionRunSelection.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.collectionRunLifecycleTransition.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.collectionRun.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.enrollmentClassAssignment.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.studentEnrollmentLifecycleTransition.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.studentEnrollment.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.student.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.class.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.schoolYear.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.operation.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.staffProfile.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.positionCapabilityGrant.deleteMany({ where: { schoolId: { in: ids } } });
@@ -98,4 +129,116 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('finance PostgreSQ
     await expect(finance.read(current.identity.id, current.school.id)).rejects.toMatchObject({ status: 403, response: { code: 'CAPABILITY_DENIED' } });
     await expect(finance.createGroup(current.identity.id, current.school.id, key, uuid(), body)).rejects.toMatchObject({ status: 403, response: { code: 'CAPABILITY_DENIED' } });
   });
+
+  it('validates monthly open, returns the existing run, and serializes concurrent opens to one database row', async () => {
+    const current = await roster(await graph());
+    await expect(finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: '2026-13' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { billingMonth: expect.any(String) } } });
+    await expect(finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: '2027-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { billingMonth: expect.any(String) } } });
+
+    const first = await open(current);
+    const existing = await open(current);
+    expect(outcomeId(existing)).toBe(outcomeId(first));
+
+    const concurrent = await Promise.all(Array.from({ length: 4 }, () => finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: '2026-10' })));
+    expect(new Set(concurrent.map(outcomeId)).size).toBe(1);
+    expect(await prisma.collectionRun.count({ where: { schoolId: current.school.id } })).toBe(2);
+    await expect(prisma.collectionRun.create({ data: { schoolId: current.school.id, schoolYearId: current.year.id, billingMonth: 'not-a-month' } })).rejects.toMatchObject({ code: 'P2039' });
+  });
+
+  it('canonicalizes selected IDs and replays only an identical selection command and Operation', async () => {
+    const current = await roster(await graph());
+    const firstStudent = await enrolled(current); const secondStudent = await enrolled(current);
+    const runId = outcomeId(await open(current));
+    const key = uuid(); const operationId = uuid();
+    const body = { studentIds: [secondStudent.student.id, firstStudent.student.id, secondStudent.student.id] };
+    const saved = await finance.replaceSelection(current.identity.id, current.school.id, runId, key, operationId, body);
+    expect(saved).toMatchObject({ status: 'COMPLETED', outcome: { id: runId, version: 2, selectedStudentIds: [firstStudent.student.id, secondStudent.student.id].sort() } });
+    expect(await finance.replaceSelection(current.identity.id, current.school.id, runId, key, uuid(), { studentIds: [firstStudent.student.id, secondStudent.student.id] })).toEqual(saved);
+    await expect(finance.replaceSelection(current.identity.id, current.school.id, runId, key, uuid(), { studentIds: [firstStudent.student.id] })).rejects.toMatchObject({ status: 409, response: { code: 'IDEMPOTENCY_CONFLICT' } });
+    expect(await prisma.collectionRunSelection.count({ where: { schoolId: current.school.id, collectionRunId: runId } })).toBe(2);
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: 'COLLECTION_RUN_SELECTION_REPLACED' } })).toBe(1);
+    await expect(finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [uuid()] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { studentIds: expect.any(String) } } });
+  });
+
+  it('uses roster lifecycle, enrollment effective interval, and class status for authoritative eligible and categorized skip rows', async () => {
+    const current = await roster(await graph());
+    const eligible = await enrolled(current);
+    const trial = await enrolled(current, { lifecycle: 'TRIAL' });
+    const missingAssignment = await enrolled(current, { assignment: false });
+    const futureAssignment = await enrolled(current, { effectiveFrom: '2026-10-01' });
+    const archived = await enrolled(current, { classId: current.archivedClass.id });
+    const ended = await enrolled(current);
+    await prisma.studentEnrollment.update({ where: { id: ended.enrollment.id }, data: { lifecycle: 'WITHDRAWN', endedOn: date('2026-09-01') } });
+    const runId = outcomeId(await open(current));
+    await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [eligible.student.id, trial.student.id, missingAssignment.student.id, futureAssignment.student.id, archived.student.id, ended.student.id] });
+
+    const preview = await finance.preview(current.identity.id, current.school.id, runId);
+    expect(preview.eligible).toEqual([expect.objectContaining({ studentId: eligible.student.id, classId: current.activeClass.id })]);
+    expect(preview.skips).toEqual(expect.arrayContaining([
+      { studentId: trial.student.id, reason: 'NOT_ENROLLED' },
+      { studentId: missingAssignment.student.id, reason: 'NO_CLASS_ASSIGNMENT' },
+      { studentId: futureAssignment.student.id, reason: 'NO_CLASS_ASSIGNMENT' },
+      { studentId: archived.student.id, reason: 'CLASS_INACTIVE' },
+      { studentId: ended.student.id, reason: 'ENROLLMENT_NOT_EFFECTIVE' },
+    ]));
+    expect(preview).not.toHaveProperty('total');
+  });
+
+  it('rejects stale preview fingerprints after roster and SchoolYear facts change without partial lifecycle writes', async () => {
+    const current = await roster(await graph());
+    const student = await enrolled(current);
+    const runId = outcomeId(await open(current));
+    await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
+    const rosterPreview = await finance.preview(current.identity.id, current.school.id, runId);
+    await prisma.class.update({ where: { id: current.activeClass.id }, data: { status: 'ARCHIVED' } });
+    await expect(finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: rosterPreview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: 'PREVIEW_STALE' } });
+    expect((await finance.run(current.identity.id, current.school.id, runId)).status).toBe('DRAFT');
+
+    const enrollmentPreview = await finance.preview(current.identity.id, current.school.id, runId);
+    await prisma.studentEnrollment.update({ where: { id: student.enrollment.id }, data: { lifecycle: 'WITHDRAWN', endedOn: date('2026-09-01') } });
+    await expect(finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: enrollmentPreview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: 'PREVIEW_STALE' } });
+
+    const yearPreview = await finance.preview(current.identity.id, current.school.id, runId);
+    await prisma.schoolYear.update({ where: { id: current.year.id }, data: { endsOn: date('2026-12-31') } });
+    await expect(finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: yearPreview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: 'PREVIEW_STALE' } });
+    expect((await finance.run(current.identity.id, current.school.id, runId)).status).toBe('DRAFT');
+  });
+
+  it('enforces tenant and capability boundaries, DRAFT lifecycle, and Operation reconciliation for a ready run', async () => {
+    const current = await roster(await graph()); const foreign = await roster(await graph());
+    const student = await enrolled(current);
+    const runId = outcomeId(await open(current));
+    await expect(finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [foreign.school.id] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { studentIds: expect.any(String) } } });
+    await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
+    await expect(finance.run(foreign.identity.id, foreign.school.id, runId)).rejects.toMatchObject({ status: 404, response: { code: 'COLLECTION_RUN_NOT_FOUND' } });
+
+    const preview = await finance.preview(current.identity.id, current.school.id, runId);
+    const key = uuid(); const operationId = uuid();
+    const ready = await finance.readyRun(current.identity.id, current.school.id, runId, key, operationId, { previewFingerprint: preview.fingerprint });
+    expect(ready).toMatchObject({ id: operationId, status: 'COMPLETED', outcome: { id: runId, status: 'READY', version: 3 } });
+    expect(await finance.readyRun(current.identity.id, current.school.id, runId, key, uuid(), { previewFingerprint: preview.fingerprint })).toEqual(ready);
+    await expect(finance.preview(current.identity.id, current.school.id, runId)).rejects.toMatchObject({ status: 409, response: { code: 'COLLECTION_RUN_NOT_DRAFT' } });
+    await expect(finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] })).rejects.toMatchObject({ status: 409, response: { code: 'COLLECTION_RUN_NOT_DRAFT' } });
+    await expect(finance.operation(foreign.identity.id, foreign.school.id, operationId)).rejects.toMatchObject({ status: 404, response: { code: 'OPERATION_NOT_FOUND' } });
+    expect(await finance.operation(current.identity.id, current.school.id, operationId)).toEqual({ id: operationId, status: 'COMPLETED', outcome: ready.outcome });
+    expect(await prisma.collectionRunLifecycleTransition.findMany({ where: { schoolId: current.school.id, collectionRunId: runId }, orderBy: { sequence: 'asc' } })).toMatchObject([{ previousStatus: null, status: 'DRAFT', membershipId: current.membership.id, sequence: 1 }, { previousStatus: 'DRAFT', status: 'READY', membershipId: current.membership.id, operationId, sequence: 2 }]);
+    await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: current.school.id, positionId: current.position.id, capability: 'FINANCE_MANAGE' } });
+    await expect(finance.run(current.identity.id, current.school.id, runId)).rejects.toMatchObject({ status: 403, response: { code: 'CAPABILITY_DENIED' } });
+  });
+
+  it('returns a 1,000-student authoritative preview within three seconds', async () => {
+    const current = await roster(await graph());
+    const students = Array.from({ length: 1000 }, () => ({ id: uuid(), schoolId: current.school.id, studentCode: `HS-${uuid()}`, fullName: 'Học sinh tải', dateOfBirth: date('2022-01-01') }));
+    const enrollments = students.map((student) => ({ id: uuid(), schoolId: current.school.id, studentId: student.id, schoolYearId: current.year.id, classId: current.activeClass.id, lifecycle: 'ENROLLED' as const, effectiveFrom: date('2026-01-01'), schoolYearName: current.year.name, schoolYearStartsOn: current.year.startsOn, schoolYearEndsOn: current.year.endsOn, className: current.activeClass.name }));
+    await prisma.student.createMany({ data: students });
+    await prisma.studentEnrollment.createMany({ data: enrollments });
+    await prisma.enrollmentClassAssignment.createMany({ data: enrollments.map((enrollment) => ({ schoolId: current.school.id, enrollmentId: enrollment.id, schoolYearId: current.year.id, classId: current.activeClass.id, effectiveFrom: date('2026-01-01'), reason: 'Performance test' })) });
+    const runId = outcomeId(await open(current));
+    await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: students.map((student) => student.id) });
+    const started = performance.now();
+    const preview = await finance.preview(current.identity.id, current.school.id, runId);
+    expect(performance.now() - started).toBeLessThanOrEqual(3000);
+    expect(preview.eligible).toHaveLength(1000);
+    expect(preview.skips).toHaveLength(0);
+  }, 15000);
 });
