@@ -79,7 +79,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Handover entry | Staff có capability | Records server-validated picked-up time for one Student in the selected School and requires evidence when its setting requires it. `HANDOVER_WRITE` áp dụng toàn Trường: UI không đòi hoặc suy diễn phân công Lớp, nhưng mỗi submit vẫn để server xác nhận Staff/binding/Chức danh đang hiệu lực, School, Student enrollment, ngày, policy và evidence. Missing capability, binding/Chức danh bị thu hồi, correction/error shows no action or refreshes server state. It is explicitly labeled operational reference, never pickup authorization or automatic fee calculation. |
 | Daily journal editor | Teacher | One current journal per Student/date in an assigned Class. Same-day edits create audited versions. Multi-image upload accepts only JPEG/PNG/WebP up to 10 MB per file; UI does not set Parent-visible state until server confirms. |
 | Daily journal | Parent | Shows only the current authorized text and protected images of one child/date within retention. It never shows Teacher identity, journal versions/audit, Class facts or attendance evidence. |
-| Service and long leave | School Admin, Finance, Parent | Admin/Finance manage effective-dated service enrollment; Parent/Admin can start long leave, but only School Admin approves/rejects effective date. Parent sees request result, not finance internals. |
+| Service, short leave and preservation | School Admin, Finance, Parent | Admin/Finance manage effective-dated service enrollment. Parent creates short leave for an authorized child; School Admin/Finance Manager with capability decides pending late leave and Parent sees only its own result. Only School Admin uses the roster preservation transition after direct agreement; there is no Parent long-leave form or automatic fee/reduction UI. |
 | Adjustment, carry and promotional refund review | Finance | Shows immutable source, target DRAFT Invoice or no/issued/cancelled target outcome, server-returned negative amount and refund path. A settlement difference shows the closed source Invoice/Receipt, remaining amount and the next-run carry adjustment outcome; Finance cannot alter or manually reapply it. Promotional withdrawal/transfer refund shows coverage fact/Invoice/Receipt, service interval, calendar version, operating days used/remaining, calculated amount and remaining paid-source limit; editable approved amount is non-negative, cannot exceed that limit and needs a reason when overridden. |
 | Suspend/reactivate dialog | Platform Operator | Names School, current status and result of the next-request block. Requires confirmation, uses Operation reconciliation on timeout, and never offers business-data access after completion. |
 | Today card | Parent | One per authorized child. Opens child attendance and daily journal for today. Status text is always explicit; `NOT_RECORDED` is neutral. |
@@ -266,13 +266,15 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 5. **Climax:** The ledger detail and report refresh show actual Receipt, settlement outcome, SettlementDifference/carry, promotional coverage and outstanding as separate server-derived values with an as-of time.
 6. Failure: a concurrent close or carry materialization changes state. The form refreshes the server outcome and prevents a duplicate close or manual reapplication.
 
-### Flow 2d - Service, long leave and meal adjustment (Hoa and Minh)
+### Flow 2d - Service, short leave source and Finance review (Hoa and Minh)
 
 1. Hoa or Minh creates an effective-dated StudentServiceEnrollment; Parent cannot cancel it directly.
-2. Mai or Hoa starts long leave; only Hoa as School Admin approves/rejects and confirms an effective date.
-3. Approval excludes future CollectionRun eligibility. Finance opens the immutable source and sees the server-selected next DRAFT target, or an issued/cancelled/no-target outcome.
-4. **Climax:** Minh posts the source-linked negative adjustment or refund path; the original source and outcome remain traceable.
-5. Failure: there is no eligible DRAFT target. The UI names that outcome and does not invent a manual credit or automatic charge.
+2. Mai creates a short leave request from child detail; Hoa or Minh only decides a pending late request when the server grants `LEAVE_REQUEST_DECIDE`.
+3. Approval creates a meal-eligibility source only; it does not change future CollectionRun eligibility. Finance opens the immutable source and sees the server-selected next DRAFT target, or an issued/cancelled/no-target outcome.
+4. **Climax:** Minh reviews the immutable leave-day source and, only on an eligible Invoice `DRAFT`, posts the source-linked negative meal adjustment; the original source and outcome remain traceable.
+
+5. Bao luu sau thoa thuan truc tiep la action danh bo rieng cua Hoa; UI giai thich rang Finance policy/manual adjustment, khong lifecycle, xu ly bat ky giam hoc phi hoac phi khoi phuc nao.
+6. Failure: there is no eligible DRAFT target. The UI names that outcome and does not invent a manual credit or automatic charge.
 
 ### Flow 3 - Parent checks today's attendance (Mai, Parent, 08:40)
 

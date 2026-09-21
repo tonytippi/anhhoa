@@ -84,7 +84,7 @@ FR-10: Finance Manager ghi actual Receipt de dong mot Invoice, tao carry shortfa
 
 FR-11: He thong gop prior debt trong cung SchoolYear mot cach truy vet, settlement year-end va bon workspace bao cao ledger `asOf` theo gross, promotion discount/refund, actual receipt, SettlementDifference/carry, revision/cancellation, coverage va outstanding; Finance Manager/School Admin export CSV server-authorized cua dung result.
 
-FR-12: Parent gui leave request cho Student duoc uy quyen; Teacher co capability ghi attendance, handover va DailyJournal trong Class duoc phan cong; Admin/Finance quan ly service enrollment; Finance chi tao meal adjustment source-linked, khong tu dong tinh fee.
+FR-12: Parent gui leave request ngan theo ngay cho Student duoc uy quyen; Teacher co capability ghi attendance, handover va DailyJournal trong Class duoc phan cong; Admin/Finance quan ly service enrollment va duyet leave PENDING theo capability; Finance chi materialize meal adjustment source-linked, khong tu dong tinh fee hay giam hoc phi tu leave.
 
 FR-13: Authorized Staff ghi handover picked-up time theo policy lam operational reference co audit, khong tu dong tao late-pickup fee hoac pickup authorization.
 
@@ -146,7 +146,7 @@ UX-DR7: Build Finance catalog, CollectionRun configure/scope/preview/generate wi
 
 UX-DR8: Build settlement, promotion coverage, debt, correction/refund and four report workspaces with immutable source facts, server-returned limits/as-of time/filter/version, authorized CSV export, explicit two-step approval and no client-computed authority.
 
-UX-DR9: Build attendance/handover/service/long-leave flows with required evidence, calendar/leave conflicts, source-linked adjustment outcome and no automatic fee affordance.
+UX-DR9: Build attendance/handover/service/short-leave va roster-preservation flows with required evidence, calendar/leave conflicts, source-linked adjustment outcome and no automatic fee, tuition-reduction or return-fee affordance.
 
 UX-DR10: Build Parent Today cards, child date history, leave request and inbox with exact safe copy, `NOT_RECORDED` neutral treatment, authorized re-check deep links and protected-state clearing.
 
@@ -216,7 +216,7 @@ School Admin thiet lap profile, calendar va typed policy theo effective date, au
 
 ### Epic 4: Vận hành lớp học có kiểm soát
 
-Teacher co capability ghi attendance/handover/DailyJournal trong Class duoc phan cong; School Admin/Finance quan ly service va long leave; leave state, evidence, conflict va Finance adjustment source duoc bao toan ma khong tu dong tinh fee.
+Teacher co capability ghi attendance/handover/DailyJournal trong Class duoc phan cong; School Admin/Finance quan ly service enrollment va duyet leave ngan theo capability; School Admin quan ly bao luu qua StudentEnrollment lifecycle. Leave state, evidence, conflict va immutable operational source facts duoc bao toan ma khong tu dong tinh fee, giam hoc phi hay CollectionRun outcome.
 
 **FRs covered:** FR-12 (domain operations), FR-13.
 
@@ -781,11 +781,11 @@ So that School co lich su ban giao ma khong tao mot khoan phi tu dong.
 **Then** UI label no la operational reference voi School/date/Student context va Finance co the doc immutable audit-safe handover snapshot de giai thich dong `MANUAL`
 **And** khong tinh, goi y, tao hoac tu dong post late-pickup fee; khong bien no thanh pickup authorization.
 
-### Story 4.5: Service enrollment và long leave làm nguồn Finance có kiểm soát
+### Story 4.5: Service enrollment và nguồn leave ngắn cho Finance có kiểm soát
 
 As a School Admin or Finance Manager,
-I want to quan ly service enrollment va long leave source theo effective date,
-So that CollectionRun eligibility va adjustment/refund tuong lai dua tren nguon co audit thay vi credit thu cong.
+I want to quan ly service enrollment theo effective date va cong bo source fact tu leave ngan da xac nhan,
+So that Finance co du lieu audit-safe cho meal adjustment sau nay ma khong tu suy dien giam hoc phi, bao luu hoac credit.
 
 **Acceptance Criteria:**
 
@@ -794,15 +794,20 @@ So that CollectionRun eligibility va adjustment/refund tuong lai dua tren nguon 
 **Then** server luu status, effective dates, actor/audit va chi cho record thuoc selected School/Student
 **And** Parent khong co service-cancel action hoac endpoint.
 
-**Given** Parent hoac School Admin khoi tao long leave source
-**When** School Admin duyet/tu choi va chon effective date
-**Then** effective date khong truoc request date, approval loai Student khoi future CollectionRun eligibility
-**And** approval/rejection bat buoc `Idempotency-Key`, persist actor-scoped `Operation`, replay identical outcome, reject changed fingerprint va reconcile truoc retry; Invoice da issue khong bi sua va Finance nhan source hop le cho adjustment/refund path.
+**Given** leave ngan sau deadline dang `PENDING` va School Admin hoac Finance Manager co `LEAVE_REQUEST_DECIDE` trong selected School
+**When** actor approve/reject voi `Idempotency-Key`
+**Then** API re-authorize capability, persist actor-scoped `Operation`/audit, replay identical outcome va reject changed fingerprint
+**And** leave chi la source meal theo ngay, khong thay doi StudentEnrollment, future CollectionRun eligibility, Invoice da issue hay hoc phi.
 
-**Given** approved leave/long leave du dieu kien meal adjustment
+**Given** `LeaveRequest` `AUTO_APPROVED`/`APPROVED` co ngay van hanh
 **When** Finance chuan bi tao/issue CollectionRun o Epic 5
-**Then** API tra immutable adjustment eligibility source theo School/Student/day/receivable voi provenance
-**And** Epic 4 khong tao hoac tim Invoice DRAFT; Epic 5 finance-only command moi materialize negative line idempotent va luu no-target, issued/voided target hoac retry outcome.
+**Then** API tra immutable source fact theo School/Student/day/leave provenance va trang thai eligibility, loai tru ngay co `PRESENT` da xac nhan
+**And** source khong co `receivableId`, amount, Invoice hay CollectionRun lookup; Epic 5 sau khi co Receivable catalog moi map va materialize negative DRAFT adjustment idempotent, luu no-target, issued/voided target hoac retry outcome.
+
+**Given** School Admin co `ROSTER_MANAGE` bao luu/resume `StudentEnrollment`
+**When** transition `ENROLLED -> ON_LEAVE` hoac `ON_LEAVE -> ENROLLED` co effective date va reason
+**Then** roster luu lifecycle transition, Operation va audit theo contract Epic 2
+**And** transition khong tu tao giam hoc phi, phi khoi phuc, mien phi co so vat chat, Invoice mutation hay Finance policy application.
 
 ### Story 4.6: Hàng đợi vận hành buổi sáng
 
@@ -835,9 +840,9 @@ So that attendance/handover khong lam lo du lieu tre em hoac bien thanh pricing 
 
 **Acceptance Criteria:**
 
-**Given** PostgreSQL fixture co nhieu School, policy version, enrollment, leave, evidence va adjustment source
+**Given** PostgreSQL fixture co nhieu School, policy version, enrollment, leave, evidence va immutable source fact
 **When** integration suite chay write/read/cleanup/adjustment scenarios
-**Then** cross-tenant/capability access, required-evidence violation, holiday/leave-`PRESENT` conflict, source/target mismatch va duplicate adjustment deu bi tu choi
+**Then** cross-tenant/capability access, `LEAVE_REQUEST_DECIDE` Admin/Finance grant va revoke, Parent khong co decision/service-cancel/bao luu route, required-evidence violation, holiday/leave-`PRESENT` conflict, source/target mismatch va duplicate adjustment deu bi tu choi
 **And** test xac minh cross-School Position/capability denial, inactive Position/Staff/binding/capability revoke denial, khong co authorization tu `staffType` hay preset role sau Story 2.4 migration, `ATTENDANCE_WRITE`/`CLASS_LEAVE_READ` class restriction, `HANDOVER_WRITE` cross-class trong cung School, blob cleanup sau hai thang lich, audit retention va khong co Parent-accessible evidence field.
 
 **Given** Admin/Staff portal E2E chay attendance/handover flows
@@ -951,10 +956,15 @@ So that exception duoc giai thich/audit truoc khi obligation bi khoa.
 **Then** server validate authority, whole-VND integer, rule/discount constraints va bat buoc note/reason audit
 **And** client khong duoc set total, outstanding hoac settlement status; server tra amount composition va total authoritative.
 
-**Given** adjustment dua tren attendance/long leave source
+**Given** adjustment dua tren immutable approved-leave-day source hoac source Finance hop le
 **When** Finance Manager xem hoac request outcome
 **Then** UI hien thi immutable source, target DRAFT Invoice hoac no-target/issued/voided result va negative amount tu server
 **And** khong the tao duplicate/non-source-linked automatic adjustment hoac bien attendance/handover thanh auto-pricing.
+
+**Given** Finance Manager ap dung giam hoc phi theo thoa thuan hoac phi khoi phuc
+**When** actor them manual adjustment hoac ap dung Finance policy tren Invoice `DRAFT`
+**Then** server validate whole-VND, School/Student/Invoice state va reason/audit bat buoc
+**And** server khong suy luan percentage, amount hay fee tu so ngay LeaveRequest, enrollment transition hay client state.
 
 **Given** Epic 4 tra immutable adjustment eligibility source
 **When** Finance materialize adjustment trong Invoice `DRAFT`
