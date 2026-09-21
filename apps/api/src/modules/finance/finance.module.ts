@@ -4,6 +4,7 @@ import { AuthorizationModule } from '../authorization/authorization.module.js';
 import { PrismaService } from '../identity/prisma.service.js';
 import { FinanceController } from './finance.controller.js';
 import { FinanceService } from './finance.service.js';
+import { CollectionRunGenerationWorker } from './collection-run-generation.worker.js';
 
-@Module({ imports: [AuthModule, AuthorizationModule], controllers: [FinanceController], providers: [FinanceService, PrismaService] })
+@Module({ imports: [AuthModule, AuthorizationModule], controllers: [FinanceController], providers: [FinanceService, CollectionRunGenerationWorker, PrismaService] })
 export class FinanceModule {}

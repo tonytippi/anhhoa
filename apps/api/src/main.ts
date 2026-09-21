@@ -36,7 +36,7 @@ export async function createApi() {
       response.setHeader('Access-Control-Allow-Credentials', 'true');
       response.setHeader('Vary', 'Origin');
       if (request.method === 'OPTIONS') {
-        response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+        response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
         response.setHeader('Access-Control-Allow-Headers', 'content-type,x-csrf-token,idempotency-key,x-operation-id');
         response.status(204).end();
         return;

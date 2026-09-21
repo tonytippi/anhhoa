@@ -166,7 +166,7 @@ async function issueFixture() {
   await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
   const preview = await finance.preview(current.identity.id, current.school.id, runId);
   await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
-  await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+  await generate(current, runId);
   const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
   await finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId, quantity: "1" });
   const operationId = uuid();
@@ -180,12 +180,20 @@ async function issueFixture() {
 const outcomeId = (value: { outcome: unknown }) =>
   (value.outcome as { id: string }).id;
 
+async function generate(input: Awaited<ReturnType<typeof roster>>, runId: string, key = uuid(), operationId = uuid()) {
+  const queued = await finance.generateRun(input.identity.id, input.school.id, runId, key, operationId);
+  while ((await finance.operation(input.identity.id, input.school.id, queued.id)).status === "PENDING") await finance.processNextGeneration();
+  return finance.operation(input.identity.id, input.school.id, queued.id);
+}
+
 afterEach(async () => {
   const ids = schools.splice(0);
   if (!ids.length) return;
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.auditRecord.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.collectionRunGenerationItem.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.collectionRunGeneration.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.invoiceLine.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.invoice.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.bankAccountLifecycleTransition.deleteMany({ where: { schoolId: { in: ids } } });
@@ -897,6 +905,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         id: operationId,
         status: "COMPLETED",
         outcome: ready.outcome,
+        progress: null,
       });
       expect(
         await prisma.collectionRunLifecycleTransition.findMany({
@@ -961,13 +970,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       );
       const key = uuid();
       const operationId = uuid();
-      const generated = await finance.generateRun(
-        current.identity.id,
-        current.school.id,
-        runId,
-        key,
-        operationId,
-      );
+      const generated = await generate(current, runId, key, operationId);
       expect(generated).toMatchObject({
         id: operationId,
         status: "COMPLETED",
@@ -1009,13 +1012,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
           .studentNameSnapshot,
       ).toBe("Học sinh Finance");
       expect(
-        await finance.generateRun(
-          current.identity.id,
-          current.school.id,
-          runId,
-          key,
-          uuid(),
-        ),
+        await generate(current, runId, key, uuid()),
       ).toEqual(generated);
       expect(
         await prisma.invoice.count({
@@ -1023,13 +1020,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         }),
       ).toBe(1);
       await expect(
-        finance.generateRun(
-          current.identity.id,
-          current.school.id,
-          runId,
-          uuid(),
-          uuid(),
-        ),
+        generate(current, runId),
       ).rejects.toMatchObject({
         status: 409,
         response: { code: "COLLECTION_RUN_STATE_CONFLICT" },
@@ -1082,7 +1073,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         data: { lifecycle: "WITHDRAWN", endedOn: date("2026-09-01") },
       });
 
-      const generated = await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+      const generated = await generate(current, runId);
       expect(generated.outcome).toMatchObject({
         created: [],
         skipped: [{ studentId: student.student.id, studentCode: student.student.studentCode, fullName: student.student.fullName, reason: "ENROLLMENT_NOT_EFFECTIVE" }],
@@ -1108,7 +1099,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         classAssignmentEffectiveFromSnapshot: assignment.effectiveFrom, classIdSnapshot: current.activeClass.id,
         classNameSnapshot: current.activeClass.name, selectionProvenance: { legacy: true },
       } });
-      const generated = await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+      const generated = await generate(current, runId);
       expect(generated.outcome).toMatchObject({ created: [{ studentId: remaining.student.id }], skipped: [{ studentId: existing.student.id, reason: "INVOICE_EXISTS" }] });
       const outcome = generated.outcome as { created: unknown[]; skipped: unknown[] };
       expect(outcome.created).toHaveLength(1);
@@ -1124,8 +1115,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const preview = await finance.preview(current.identity.id, current.school.id, runId);
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
       const results = await Promise.allSettled([
-        finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid()),
-        finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid()),
+        generate(current, runId),
+        generate(current, runId),
       ]);
       expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
       expect(results.filter((result) => result.status === "rejected")[0]).toMatchObject({
@@ -1161,7 +1152,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [generatedStudent.student.id] });
       const preview = await finance.preview(current.identity.id, current.school.id, runId);
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
-      await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+      await generate(current, runId);
       const original = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, studentId: generatedStudent.student.id, collectionRunId: runId } });
       const key = uuid();
       const operationId = uuid();
@@ -1186,7 +1177,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [first.student.id] });
       const preview = await finance.preview(current.identity.id, current.school.id, runId);
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
-      await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+      await generate(current, runId);
        const results = await Promise.all([
          finance.addGeneratedStudent(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentId: later.student.id }),
          finance.addGeneratedStudent(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentId: later.student.id }),
@@ -1205,7 +1196,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [first.student.id] });
       const preview = await finance.preview(current.identity.id, current.school.id, runId);
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
-      await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+      await generate(current, runId);
       await expect(finance.addGeneratedStudent(foreign.identity.id, foreign.school.id, runId, uuid(), uuid(), { studentId: later.student.id })).rejects.toMatchObject({ status: 404, response: { code: "COLLECTION_RUN_NOT_FOUND" } });
       await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: current.school.id, positionId: current.position.id, capability: "FINANCE_MANAGE" } });
       await expect(finance.addGeneratedStudent(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentId: later.student.id })).rejects.toMatchObject({ status: 403, response: { code: "CAPABILITY_DENIED" } });
@@ -1325,13 +1316,13 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         { previewFingerprint: preview.fingerprint },
       );
       const started = performance.now();
-      const generated = await finance.generateRun(
-        current.identity.id,
-        current.school.id,
-        runId,
-        uuid(),
-        uuid(),
-      );
+      const queued = await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+      expect(queued).toMatchObject({ status: "PENDING", outcome: null, progress: { total: 1000, processed: 0, eligible: 0, skipped: 0 } });
+      await finance.processNextGeneration();
+      const progress = await finance.operation(current.identity.id, current.school.id, queued.id);
+      expect(progress).toMatchObject({ status: "PENDING", progress: { status: "RUNNING", processed: 50, eligible: 50, skipped: 0 } });
+      while ((await finance.operation(current.identity.id, current.school.id, queued.id)).status === "PENDING") await finance.processNextGeneration();
+      const generated = await finance.operation(current.identity.id, current.school.id, queued.id);
       expect(performance.now() - started).toBeLessThanOrEqual(60000);
       expect(
         (generated.outcome as { created: unknown[] }).created,
@@ -1355,7 +1346,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
       const preview = await finance.preview(current.identity.id, current.school.id, runId);
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
-      await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+      await generate(current, runId);
       const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
       const key = uuid(); const operationId = uuid();
       const body = { receivableId, quantity: "2", unitPrice: "120000", overrideReason: "Điều chỉnh học phí", source: { serviceDate: "2026-09-01", attendanceState: "PRESENT", pickedUpAt: "17:30", lateCareMinutes: 30 }, sourceReason: "Nhập tay từ bảng theo dõi" };
@@ -1408,7 +1399,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
       const preview = await finance.preview(current.identity.id, current.school.id, runId);
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
-      await finance.generateRun(current.identity.id, current.school.id, runId, uuid(), uuid());
+      await generate(current, runId);
       const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
       const results = await Promise.all([finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId: outcomeId(catalog), quantity: "1" }), finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId: outcomeId(catalog), quantity: "2" })]);
       expect(results).toHaveLength(2);
@@ -1427,7 +1418,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const otherBank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng B", accountNumber: "987", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
       await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: otherBank.id, status: "ACTIVE", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId: fixtureOperationId, sequence: 1 } });
       await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, uuid(), { bankAccountId: otherBank.id })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
-      expect(await finance.operation(current.identity.id, current.school.id, operationId)).toEqual({ id: operationId, status: "COMPLETED", outcome: issued.outcome });
+      expect(await finance.operation(current.identity.id, current.school.id, operationId)).toEqual({ id: operationId, status: "COMPLETED", outcome: issued.outcome, progress: null });
       expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "INVOICE_ISSUED" } })).toBe(1);
       const stored = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
       expect(stored).toMatchObject({ status: "ISSUED", obligationTotalSnapshot: 9007199254740991n, bankAccountIdSnapshot: bank.id, transferContentSnapshot: "Hoc sinh Finance Mam Active", dueDaysAfterIssueSnapshot: 7 });

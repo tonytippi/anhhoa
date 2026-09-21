@@ -302,6 +302,26 @@ describe("FinanceWorkspace", () => {
     expect(await screen.findByText("HS001 / Bé An")).toBeTruthy();
     expect(screen.getByText("HS002 / Bé Bình: Học sinh không ở trạng thái đang theo học.")).toBeTruthy();
   });
+  it("renders only server-returned generate progress while reconciliation remains pending", async () => {
+    const readyRun = { ...run, status: "READY" as const };
+    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => Promise.resolve(
+      options?.method === "POST"
+        ? response({ status: "PENDING", outcome: null, progress: { status: "QUEUED", total: 1000, processed: 0, eligible: 0, skipped: 0, lastError: null } })
+        : url.includes("/operations/")
+          ? response({ status: "PENDING", progress: { status: "RUNNING", total: 1000, processed: 50, eligible: 50, skipped: 0, lastError: null } })
+          : url.includes("collection-run-candidates")
+            ? response(candidates)
+            : url.includes("collection-runs")
+              ? response({ runs: [readyRun] })
+              : response(catalog),
+    )));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tạo hóa đơn nháp" }));
+    fireEvent.change(screen.getByLabelText("Nhập chính xác tháng thu 2026-09 để xác nhận"), { target: { value: "2026-09" } });
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận tạo hóa đơn nháp" }));
+    expect(await screen.findByText("RUNNING: đã xử lý 50/1000; đủ điều kiện 50; bỏ qua 0.")).toBeTruthy();
+  });
   it("requires the Student name, calls the generated-student command, and ignores a stale School response", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const };
     const outcome = { run: generatedRun, created: [{ studentId: run.selectedStudentIds[0], studentCode: "HS001", fullName: "Bé An", className: "Lá 1" }], skipped: [] };

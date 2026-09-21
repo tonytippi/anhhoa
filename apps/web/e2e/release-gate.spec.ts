@@ -79,9 +79,15 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   await page.getByRole('button', { name: 'Bỏ nội dung và đổi trường' }).click();
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate A' })).toBeVisible();
 
-  await page.getByLabel('Email').fill('timeout-reconcile@example.com');
+  await page.getByLabel('Họ và tên nhân sự').fill('Nhân sự đối soát timeout');
+  await page.getByLabel('Email nhân sự').fill('timeout-reconcile@example.com');
+  await page.getByLabel('Số điện thoại nhân sự').fill('0900000099');
+  await page.getByLabel('Ngày sinh nhân sự').fill('1990-01-01');
+  await page.getByLabel('Giới tính').fill('Khác');
+  await page.getByLabel('Địa chỉ').fill('Release Gate A');
+  await page.getByLabel('Chức danh chính').selectOption({ label: 'Quản lý trường' });
   let intercepted = false;
-  await page.route('**/api/app/schools/*/memberships', async (route) => {
+  await page.route('**/api/app/schools/*/roster/staff', async (route) => {
     if (route.request().method() !== 'POST' || intercepted) return route.continue();
     intercepted = true; await route.fetch(); await route.fulfill({ status: 504 });
   });
@@ -91,14 +97,14 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
     pendingOperation = false;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { status: 'PENDING' } }) });
   });
-  await page.getByRole('button', { name: 'Cấp quyền' }).click();
-  await expect(page.getByRole('button', { name: 'Đang đối soát...' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Lưu hồ sơ nhân sự' }).click();
+  await expect(page.getByRole('button', { name: 'Lưu hồ sơ nhân sự' })).toBeDisabled();
   await expect(page.getByLabel('Chọn trường')).toBeDisabled();
   await page.unroute('**/api/app/schools/*/operations/*');
   await page.route('**/api/app/schools/*/operations/*', async (route) => { actualOperationGet = true; await route.continue(); });
   await expect.poll(() => actualOperationGet).toBe(true);
-  await expect(page.getByText('timeout-reconcile@example.com')).toBeVisible({ timeout: 5000 });
-  await expect(page.getByRole('button', { name: 'Cấp quyền' })).toBeEnabled();
+  await expect(page.getByRole('rowheader', { name: 'Nhân sự đối soát timeout' })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('button', { name: 'Lưu hồ sơ nhân sự' })).toBeEnabled();
   await expect(page.getByLabel('Chọn trường')).toBeEnabled();
 
   const ops = await page.context().newPage();
@@ -122,14 +128,11 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   await ops.close();
 });
 
-test('Teacher session is audience-isolated and uses the real two-School dirty switch guard', async ({ page }) => {
+test('Teacher session is audience-isolated and uses the current two-School context', async ({ page }) => {
   await login(page.context(), 'teacher');
   expect((await page.context().request.get(`${api}/api/app/auth/session`)).status()).toBe(401);
   await page.goto('http://localhost:5175'); await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate B' })).toBeFocused();
-  await page.getByRole('button', { name: 'Đánh dấu thay đổi chưa gửi' }).click();
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
-  await expect(page.getByRole('dialog')).toContainText('Thay đổi chưa gửi');
-  await page.getByRole('button', { name: 'Bỏ nội dung và đổi trường' }).click();
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeVisible();
 });

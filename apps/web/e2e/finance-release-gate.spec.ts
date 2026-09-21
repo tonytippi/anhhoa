@@ -1,0 +1,74 @@
+import { expect, test } from '@playwright/test';
+
+const api = 'http://localhost:3000';
+
+async function login(context: import('@playwright/test').BrowserContext) {
+  const start = await context.request.get(`${api}/api/app/auth/google/start`, { maxRedirects: 0 });
+  expect(start.status()).toBe(302);
+  const authorizationUrl = new URL(start.headers().location!);
+  const state = authorizationUrl.searchParams.get('state')!;
+  const nonce = authorizationUrl.searchParams.get('nonce')!;
+  const clientId = authorizationUrl.searchParams.get('client_id')!;
+  const code = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', sub: 'release-gate-admin', email: 'release-gate-admin@example.com', email_verified: true, aud: clientId, nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString('base64url');
+  const callback = await context.request.get(`${api}/api/app/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { maxRedirects: 0 });
+  expect(callback.status()).toBe(302);
+}
+
+test.describe.configure({ mode: 'serial' });
+
+test('Admin Finance uses server values from preview through named issue and clears the other School context', async ({ page }) => {
+  await login(page.context());
+  await page.goto('http://localhost:5173');
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
+  await page.getByRole('button', { name: 'Khoản thu' }).click();
+  await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
+  await expect(page.getByText('Học phí Release 1')).toBeVisible();
+
+  await page.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
+  await page.getByLabel('Tháng thu').fill('2026-09');
+  await page.getByRole('button', { name: 'Mở hoặc vào đợt thu' }).click();
+  await expect(page.getByRole('heading', { name: 'Đợt thu 2026-09 / DRAFT' })).toBeVisible();
+  await page.getByLabel('Chọn RG1-1 Bé An').check();
+  await page.getByRole('button', { name: 'Lưu danh sách đã chọn' }).click();
+  const previewResponse = page.waitForResponse((response) =>
+    response.url().includes('/finance/collection-runs/') &&
+    response.url().endsWith('/preview') &&
+    response.request().method() === 'GET',
+  );
+  await page.getByRole('button', { name: 'Xem trước từ máy chủ' }).click();
+  await expect((await previewResponse).status()).toBe(200);
+  await expect(page.getByRole('heading', { name: 'Xem trước authoritative' })).toBeVisible();
+  await expect(page.getByText('RG1-1 / Bé An')).toBeVisible();
+  await expect(page.getByText('Mầm Release 1')).toBeVisible();
+  await page.getByRole('button', { name: 'Xác nhận preview và chuyển READY' }).click();
+  await expect(page.getByRole('button', { name: 'Tạo hóa đơn nháp' })).toBeVisible();
+  await page.getByRole('button', { name: 'Tạo hóa đơn nháp' }).click();
+  await page.getByRole('dialog').getByRole('textbox').fill('2026-09');
+  await page.getByRole('button', { name: 'Xác nhận tạo hóa đơn nháp' }).click();
+  await expect(page.getByRole('region', { name: 'Tiến độ tạo hóa đơn từ máy chủ' })).toContainText(/(QUEUED|RUNNING|COMPLETED): đã xử lý \d+\/1/);
+  await expect(page.getByRole('heading', { name: 'Kết quả tạo hóa đơn từ máy chủ' })).toBeVisible({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Rà soát hóa đơn' }).click();
+  await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
+  await expect(page.getByText('trạng thái DRAFT')).toBeVisible();
+
+  const invoiceReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-1/ });
+  await invoiceReview.getByLabel('Khoản thu').selectOption({ label: 'Học phí Release 1' });
+  await invoiceReview.getByLabel('Số lượng').fill('1');
+  await invoiceReview.getByRole('button', { name: 'Thêm dòng' }).click();
+  await expect(invoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('150.000');
+
+  await page.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
+  await expect(page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé An' })).toBeVisible();
+  await page.getByLabel('Nhập chính xác tên học sinh Bé An để xác nhận').fill('Bé An');
+  await page.getByRole('button', { name: 'Xác nhận phát hành' }).click();
+  await expect(page.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Ngân hàng Release 1 / 100000001 / Release Gate 1');
+  await expect(page.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 150.000 VND');
+  await expect(page.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Chính sách 2026-01-01: 7 ngày; NOT_APPLICABLE; CURRENT_SCHOOL_YEAR_ONLY; DIRECT');
+
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+  await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeFocused();
+  await page.getByRole('button', { name: 'Khoản thu' }).click();
+  await expect(page.getByText('Học phí Release 2')).toBeVisible();
+  await expect(page.getByText('Học phí Release 1')).toHaveCount(0);
+  await expect(page.getByText('RG1-1 / Bé An')).toHaveCount(0);
+});

@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), issueInvoice: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), addGeneratedStudent: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn() };
+  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), issueInvoice: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn() };
   it('requires browser mutation proof before Finance writes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     await expect(controller.group(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
@@ -28,6 +28,14 @@ describe('FinanceController mutation boundary', () => {
     finance.generateRun.mockClear();
     await expect(controller.generate(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'run', 'key', 'operation')).rejects.toMatchObject({ status: 401 });
     expect(finance.generateRun).not.toHaveBeenCalled();
+  });
+  it('passes browser mutation proof to pause and resume generation', async () => {
+    const controller = new FinanceController(auth as never, finance as never);
+    finance.pauseGeneration.mockResolvedValue({ id: 'pause' }); finance.resumeGeneration.mockResolvedValue({ id: 'resume' });
+    await expect(controller.pauseGeneration(request(valid), 'school', 'run', 'key', 'operation')).resolves.toEqual({ data: { id: 'pause' } });
+    await expect(controller.resumeGeneration(request(valid), 'school', 'run', 'key', 'operation')).resolves.toEqual({ data: { id: 'resume' } });
+    expect(finance.pauseGeneration).toHaveBeenCalledWith('actor-id', 'school', 'run', 'key', 'operation');
+    expect(finance.resumeGeneration).toHaveBeenCalledWith('actor-id', 'school', 'run', 'key', 'operation');
   });
   it('passes one requested Student to the generated-run addition command', async () => {
     const controller = new FinanceController(auth as never, finance as never); finance.addGeneratedStudent.mockResolvedValue({ id: 'operation' });

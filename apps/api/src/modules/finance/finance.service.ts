@@ -178,11 +178,39 @@ export class FinanceService {
         code: "OPERATION_NOT_FOUND",
         message: "Không tìm thấy thao tác.",
       });
+    const generation = await this.prisma.collectionRunGeneration.findFirst({ where: { schoolId, operationId } });
     return {
       id: operation.id,
       status: operation.status,
       outcome: operation.outcome,
+      progress: generation ? this.generationDto(generation) : null,
     };
+  }
+  private generationDto(generation: any) {
+    return {
+      generationId: generation.id, status: generation.status, total: generation.totalCount,
+      processed: generation.processedCount, eligible: generation.eligibleCount,
+      skipped: generation.skippedCount,
+      percent: generation.totalCount ? Math.floor(generation.processedCount * 100 / generation.totalCount) : 100,
+      resumable: generation.status === "PAUSED" || generation.status === "QUEUED" || generation.status === "RUNNING",
+      lastError: generation.status === "FAILED" ? { code: generation.lastErrorCode, message: generation.lastErrorMessage } : null,
+    };
+  }
+  private async transactionActor(tx: any, schoolId: string, identityId: string, membershipId: string) {
+    const membership = await tx.schoolMembership.findFirst({
+      where: {
+        id: membershipId,
+        schoolId,
+        userIdentityId: identityId,
+        status: "ACTIVE",
+        school: { status: "ACTIVE" },
+        boundStaffProfile: {
+          employmentStatus: "ACTIVE",
+          primaryPosition: { status: "ACTIVE", grants: { some: { capability: "FINANCE_MANAGE" } } },
+        },
+      },
+    });
+    if (!membership) throw new NotFoundException({ code: "FINANCE_CONTEXT_DENIED", message: "Không thể truy cập catalog khoản thu." });
   }
   private lineDto(line: any) {
     return {
@@ -791,7 +819,6 @@ export class FinanceService {
       },
       include: {
         student: true,
-        classAssignments: { include: { classroom: true } },
       },
     });
     const byStudent = new Map(
@@ -802,17 +829,22 @@ export class FinanceService {
     const sources: any[] = [];
     for (const studentId of [...studentIds].sort()) {
       const enrollment: any = byStudent.get(studentId);
-      const assignments = enrollment?.classAssignments
-        .filter(
+      const assignments = enrollment
+        ? (await client.enrollmentClassAssignment.findMany({
+            where: { schoolId, enrollmentId: enrollment.id },
+            include: { classroom: true },
+          }))
+            .filter(
           (item: any) =>
             item.effectiveFrom <= asOf &&
             (!item.effectiveTo || item.effectiveTo > asOf),
-        )
-        .sort(
+            )
+            .sort(
           (a: any, b: any) =>
             b.effectiveFrom.getTime() - a.effectiveFrom.getTime() ||
             a.id.localeCompare(b.id),
-        );
+            )
+        : [];
       const assignment = assignments?.[0];
       const skipped = (reason: string) =>
         skips.push({
@@ -853,8 +885,8 @@ export class FinanceService {
             enrollment.endedOn?.toISOString() ?? null,
           ],
           assignmentId: assignment?.id ?? null,
-          assignmentInterval: assignment
-            ? [
+            assignmentInterval: assignment
+              ? [
                 assignment.effectiveFrom.toISOString(),
                 assignment.effectiveTo?.toISOString() ?? null,
               ]
@@ -1004,15 +1036,18 @@ export class FinanceService {
     schoolId = this.school(schoolId);
     const actor = await this.actor(identityId, schoolId);
     this.identifier(runId, "runId");
-    return this.mutate(
-      actor,
-      identityId,
-      schoolId,
-      routes.generate,
-      key,
-      operationId,
-      { runId },
-      async (tx, operation) => {
+    if (!uuid.test(key) || !uuid.test(operationId)) throw new UnauthorizedException({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Cần Idempotency-Key và X-Operation-Id UUID." });
+    const fingerprint = requestFingerprint({ runId });
+    const existing = await this.prisma.operation.findFirst({ where: { schoolId, actorReference: actor.membershipId, actorType: "SCHOOL_MEMBERSHIP", route: routes.generate, idempotencyKey: key } });
+    if (existing) {
+      if (existing.fingerprint !== fingerprint) throw new ConflictException({ code: "IDEMPOTENCY_CONFLICT", message: "Idempotency-Key đã dùng cho yêu cầu khác." });
+      const generation = await this.prisma.collectionRunGeneration.findFirst({ where: { schoolId, operationId: existing.id } });
+      return { id: existing.id, status: existing.status, outcome: existing.outcome, progress: generation ? this.generationDto(generation) : null };
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`;
+      await this.transactionActor(tx, schoolId, identityId, actor.membershipId);
+      const operation = await tx.operation.create({ data: { id: operationId, schoolId, membershipId: actor.membershipId, actorIdentityId: identityId, actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.membershipId, route: routes.generate, idempotencyKey: key, fingerprint } });
         const locked = await this.lockRun(tx, schoolId, runId);
         const year = await this.lockYear(tx, schoolId, locked.schoolYearId);
         if (year.closedAt)
@@ -1037,76 +1072,102 @@ export class FinanceService {
         // One authoritative roster read supplies both eligibility and immutable snapshots.
         const roster = await this.selectionPreview(tx, schoolId, run);
         const snapshots = roster.snapshots as any[];
-        const existingInvoices = await tx.invoice.findMany({
-          where: {
-            schoolId,
-            collectionRunId: run.id,
-            studentId: { in: snapshots.map((item: any) => item.studentId) },
-          },
-          select: { studentId: true },
-        });
-        const existingStudentIds = new Set(
-          existingInvoices.map((item: { studentId: string }) => item.studentId),
-        );
-        const pending = snapshots.filter(
-          (item: any) => !existingStudentIds.has(item.studentId),
-        );
-        // RETURNING distinguishes rows this command inserted from rows that lost a
-        // uniqueness race without putting the transaction into an error state.
-        const insertedStudentIds = await this.insertInvoices(
-          tx,
-          pending.map((item: any) => this.invoiceData(schoolId, run, item)),
-        );
-        const created = pending
-          .filter((item: any) => insertedStudentIds.has(item.studentId))
-          .map(({ enrollment, assignment, ...item }: any) => item);
-        const createdInvoices = await tx.invoice.findMany({ where: { schoolId, collectionRunId: run.id, studentId: { in: created.map((item: any) => item.studentId) } }, select: { id: true, studentId: true } });
-        const invoiceByStudent = new Map(createdInvoices.map((item: any) => [item.studentId, item.id]));
-        for (const item of created) item.invoiceId = invoiceByStudent.get(item.studentId);
-        const invoiceExists = snapshots
-          .filter((item: any) => !insertedStudentIds.has(item.studentId))
-          .map(({ enrollment, assignment, ...item }: any) => ({
-            ...item,
-            reason: "INVOICE_EXISTS",
-          }));
-        const updated = await tx.collectionRun.update({
-          where: { id: run.id },
-          data: { status: "GENERATED", version: { increment: 1 } },
-        });
-        const transition = await tx.collectionRunLifecycleTransition.create({
-          data: {
-            schoolId,
-            collectionRunId: run.id,
-            previousStatus: "READY",
-            status: "GENERATED",
-            actorIdentityId: identityId,
-            membershipId: actor.membershipId,
-            operationId: operation,
-            sequence: 3,
-          },
-        });
-        const outcome = {
-          run: this.runDto({
-            ...updated,
-            selections: run.selections,
-            lifecycleTransitions: [transition],
-          }),
-          created,
-          skipped: [...roster.skips, ...invoiceExists],
-        };
-        await this.audit(
-          tx,
-          schoolId,
-          identityId,
-          actor.membershipId,
-          "COLLECTION_RUN_GENERATED",
-          operation,
-          { runId },
-          outcome,
-        );
-        return outcome;
-      },
-    );
+        const generation = await tx.collectionRunGeneration.create({ data: { schoolId, collectionRunId: run.id, operationId: operation.id, actorIdentityId: identityId, membershipId: actor.membershipId, totalCount: snapshots.length + roster.skips.length, processedCount: roster.skips.length, eligibleCount: 0, skippedCount: roster.skips.length } });
+        await tx.collectionRunGenerationItem.createMany({ data: [
+          ...snapshots.map((item: any, ordinal: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal, snapshot: this.invoiceData(schoolId, run, item) })),
+          ...roster.skips.map((item: any, index: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal: snapshots.length + index, status: "SKIPPED" as const, skip: item })),
+        ] });
+        return { id: operation.id, status: operation.status, outcome: null, progress: this.generationDto(generation) };
+    }).catch(async (error) => {
+      if ((error as any)?.code === "P2002") {
+        const replay = await this.prisma.operation.findFirst({ where: { schoolId, actorReference: actor.membershipId, actorType: "SCHOOL_MEMBERSHIP", route: routes.generate, idempotencyKey: key } });
+        if (replay?.fingerprint === fingerprint) {
+          const generation = await this.prisma.collectionRunGeneration.findFirst({ where: { schoolId, operationId: replay.id } });
+          return { id: replay.id, status: replay.status, outcome: replay.outcome, progress: generation ? this.generationDto(generation) : null };
+        }
+        const generation = await this.prisma.collectionRunGeneration.findFirst({ where: { schoolId, collectionRunId: runId } });
+        if (generation) throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Đợt thu đang được tạo hóa đơn hoặc đã thay đổi trạng thái." });
+      }
+      throw error;
+    });
+  }
+  async pauseGeneration(identityId: string, schoolId: string, runId: string, key: string, operationId: string) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, "runId");
+    return this.mutate(actor, identityId, schoolId, `${routes.generate}/pause`, key, operationId, { runId }, async (tx, operation) => {
+      const generation = await tx.collectionRunGeneration.findFirst({ where: { schoolId, collectionRunId: runId } });
+      if (!generation || !["QUEUED", "RUNNING"].includes(generation.status)) throw new ConflictException({ code: "GENERATION_NOT_PAUSABLE", message: "Không thể dừng lượt tạo hiện tại." });
+      const updated = await tx.collectionRunGeneration.update({ where: { id: generation.id }, data: { status: "PAUSED", leaseExpiresAt: null } });
+      const outcome = { runId, progress: this.generationDto(updated) };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_GENERATION_PAUSED", operation, { generationId: generation.id }, outcome);
+      return outcome;
+    });
+  }
+  async resumeGeneration(identityId: string, schoolId: string, runId: string, key: string, operationId: string) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, "runId");
+    return this.mutate(actor, identityId, schoolId, `${routes.generate}/resume`, key, operationId, { runId }, async (tx, operation) => {
+      const generation = await tx.collectionRunGeneration.findFirst({ where: { schoolId, collectionRunId: runId } });
+      if (!generation || generation.status !== "PAUSED") throw new ConflictException({ code: "GENERATION_NOT_RESUMABLE", message: "Không thể tiếp tục lượt tạo hiện tại." });
+      const updated = await tx.collectionRunGeneration.update({ where: { id: generation.id }, data: { status: "QUEUED", leaseExpiresAt: null } });
+      const outcome = { runId, progress: this.generationDto(updated) };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_GENERATION_RESUMED", operation, { generationId: generation.id }, outcome);
+      return outcome;
+    });
+  }
+  async processNextGeneration() {
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<any[]>(Prisma.sql`WITH candidate AS (SELECT "id" FROM "CollectionRunGeneration" WHERE "status" = 'QUEUED' OR ("status" = 'RUNNING' AND "leaseExpiresAt" < CURRENT_TIMESTAMP) ORDER BY "createdAt" FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE "CollectionRunGeneration" AS job SET "status" = 'RUNNING', "leaseExpiresAt" = CURRENT_TIMESTAMP + interval '30 seconds', "updatedAt" = CURRENT_TIMESTAMP FROM candidate WHERE job."id" = candidate."id" RETURNING job.*`);
+      return rows[0] ?? null;
+    });
+    if (!claimed) return false;
+    try {
+      const batch = await this.prisma.$transaction(async (tx) => {
+        const generation = await tx.collectionRunGeneration.findUnique({ where: { id: claimed.id } });
+        if (!generation || generation.status !== "RUNNING") return [];
+        const items = await tx.collectionRunGenerationItem.findMany({ where: { schoolId: generation.schoolId, generationId: generation.id, status: "PENDING" }, orderBy: { ordinal: "asc" }, take: 50 });
+        if (items.length) {
+          await tx.collectionRunGenerationItem.updateMany({ where: { id: { in: items.map((item) => item.id) }, status: "PENDING" }, data: { status: "STAGED" } });
+          await tx.collectionRunGeneration.update({ where: { id: generation.id }, data: { processedCount: { increment: items.length }, eligibleCount: { increment: items.length }, leaseExpiresAt: new Date(Date.now() + 30_000) } });
+        }
+        return items;
+      });
+      if (batch.length) return true;
+      await this.publishGeneration(claimed.id);
+      return true;
+    } catch (error) {
+      await this.prisma.$transaction(async (tx) => {
+        const generation = await tx.collectionRunGeneration.findUnique({ where: { id: claimed.id } });
+        if (!generation || generation.status !== "RUNNING") return;
+        const message = error instanceof Error ? error.message : "Không thể tạo hóa đơn.";
+        await tx.collectionRunGeneration.update({ where: { id: generation.id }, data: { status: "FAILED", leaseExpiresAt: null, lastErrorCode: "GENERATION_FAILED", lastErrorMessage: message } });
+        const outcome = { code: "GENERATION_FAILED", message };
+        await tx.operation.update({ where: { id: generation.operationId }, data: { status: "FAILED", outcome } });
+        await this.audit(tx, generation.schoolId, generation.actorIdentityId, generation.membershipId, "COLLECTION_RUN_GENERATION_FAILED", generation.operationId, { generationId: generation.id }, outcome);
+      });
+      return true;
+    }
+  }
+  private async publishGeneration(generationId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const generation = await tx.collectionRunGeneration.findUnique({ where: { id: generationId } });
+      if (!generation || generation.status !== "RUNNING") return;
+      const pending = await tx.collectionRunGenerationItem.count({ where: { schoolId: generation.schoolId, generationId, status: "PENDING" } });
+      if (pending) return;
+      const run = await this.lockRun(tx, generation.schoolId, generation.collectionRunId);
+      const year = await this.lockYear(tx, generation.schoolId, run.schoolYearId);
+      await this.transactionActor(tx, generation.schoolId, generation.actorIdentityId, generation.membershipId);
+      if (year.closedAt || run.status !== "READY") throw new ConflictException({ code: "GENERATION_PUBLISH_CONFLICT", message: "Đợt thu không còn sẵn sàng để phát hành hóa đơn." });
+      const items = await tx.collectionRunGenerationItem.findMany({ where: { schoolId: generation.schoolId, generationId, status: "STAGED" }, orderBy: { ordinal: "asc" } });
+      const insertedStudentIds = await this.insertInvoices(tx, items.map((item) => item.snapshot));
+      const created = items.filter((item) => insertedStudentIds.has(item.studentId)).map((item) => item.snapshot);
+      const existing = items.filter((item) => !insertedStudentIds.has(item.studentId)).map((item) => ({ ...(item.snapshot as any), reason: "INVOICE_EXISTS" }));
+      const skipped = await tx.collectionRunGenerationItem.findMany({ where: { schoolId: generation.schoolId, generationId, status: "SKIPPED" }, orderBy: { ordinal: "asc" } });
+      const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { status: "GENERATED", version: { increment: 1 } } });
+      const transition = await tx.collectionRunLifecycleTransition.create({ data: { schoolId: generation.schoolId, collectionRunId: run.id, previousStatus: "READY", status: "GENERATED", actorIdentityId: generation.actorIdentityId, membershipId: generation.membershipId, operationId: generation.operationId, sequence: 3 } });
+      const outcome = { run: this.runDto({ ...updated, selections: [], invoices: [], lifecycleTransitions: [transition] }), created, skipped: [...skipped.map((item) => item.skip), ...existing] };
+      await tx.collectionRunGeneration.update({ where: { id: generation.id }, data: { status: "COMPLETED", leaseExpiresAt: null } });
+      await tx.operation.update({ where: { id: generation.operationId }, data: { status: "COMPLETED", outcome } });
+      await this.audit(tx, generation.schoolId, generation.actorIdentityId, generation.membershipId, "COLLECTION_RUN_GENERATED", generation.operationId, { runId: run.id }, outcome);
+    });
   }
   async addGeneratedStudent(
     identityId: string,
@@ -1414,27 +1475,7 @@ export class FinanceService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`;
-        const membership = await tx.schoolMembership.findFirst({
-          where: {
-            id: actor.membershipId,
-            schoolId,
-            userIdentityId: identityId,
-            status: "ACTIVE",
-            school: { status: "ACTIVE" },
-            boundStaffProfile: {
-              employmentStatus: "ACTIVE",
-              primaryPosition: {
-                status: "ACTIVE",
-                grants: { some: { capability: "FINANCE_MANAGE" } },
-              },
-            },
-          },
-        });
-        if (!membership)
-          throw new NotFoundException({
-            code: "FINANCE_CONTEXT_DENIED",
-            message: "Không thể truy cập catalog khoản thu.",
-          });
+        await this.transactionActor(tx, schoolId, identityId, actor.membershipId);
         const operation = await tx.operation.create({
           data: {
             id: operationId,

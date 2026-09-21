@@ -47,6 +47,7 @@ model School {
   receivableGroups                  ReceivableGroup[]
   receivables                       Receivable[]
   collectionRuns                    CollectionRun[]
+  collectionRunGenerations          CollectionRunGeneration[]
   collectionRunLifecycleTransitions CollectionRunLifecycleTransition[]
   invoices                          Invoice[]
   invoiceLines                      InvoiceLine[]
@@ -603,6 +604,7 @@ model Operation {
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
   collectionRunLifecycleTransitions   CollectionRunLifecycleTransition[]
+  collectionRunGeneration             CollectionRunGeneration?
 
   @@unique([schoolId, id])
   // PostgreSQL partial unique indexes below are migration-owned because Prisma cannot express predicates.
@@ -665,11 +667,72 @@ model CollectionRun {
   selections           CollectionRunSelection[]
   lifecycleTransitions CollectionRunLifecycleTransition[]
   invoices             Invoice[]
+  generation           CollectionRunGeneration?
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, billingMonth])
   @@unique([schoolId, id, schoolYearId, billingMonth])
   @@index([schoolId, schoolYearId, billingMonth])
+}
+
+enum CollectionRunGenerationStatus {
+  QUEUED
+  RUNNING
+  PAUSED
+  FAILED
+  COMPLETED
+}
+
+enum CollectionRunGenerationItemStatus {
+  PENDING
+  STAGED
+  SKIPPED
+}
+
+model CollectionRunGeneration {
+  id                String                        @id @default(uuid()) @db.Uuid
+  schoolId          String                        @db.Uuid
+  collectionRunId   String                        @db.Uuid
+  operationId       String                        @db.Uuid
+  actorIdentityId   String                        @db.Uuid
+  membershipId      String                        @db.Uuid
+  status            CollectionRunGenerationStatus @default(QUEUED)
+  totalCount        Int
+  processedCount    Int                           @default(0)
+  eligibleCount     Int                           @default(0)
+  skippedCount      Int                           @default(0)
+  leaseExpiresAt    DateTime?
+  lastErrorCode     String?
+  lastErrorMessage  String?
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
+  school            School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  collectionRun     CollectionRun                 @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
+  operation         Operation                     @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+  items             CollectionRunGenerationItem[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, collectionRunId])
+  @@unique([schoolId, operationId])
+  @@index([status, leaseExpiresAt, createdAt])
+}
+
+model CollectionRunGenerationItem {
+  id            String                                 @id @default(uuid()) @db.Uuid
+  schoolId      String                                 @db.Uuid
+  generationId  String                                 @db.Uuid
+  studentId     String                                 @db.Uuid
+  ordinal       Int
+  status        CollectionRunGenerationItemStatus      @default(PENDING)
+  snapshot      Json?
+  skip          Json?
+  createdAt     DateTime                               @default(now())
+  generation    CollectionRunGeneration                @relation(fields: [schoolId, generationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, generationId, studentId])
+  @@unique([schoolId, generationId, ordinal])
+  @@index([schoolId, generationId, status, ordinal])
 }
 
 enum InvoiceStatus {

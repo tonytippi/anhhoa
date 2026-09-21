@@ -67,6 +67,15 @@ type Source = { serviceDate: string | null; attendanceState: "PRESENT" | "ABSENT
 type BankAccount = { id: string; receivingBank: string; accountNumber: string; accountHolderName: string };
 type Invoice = { id: string; status: string; total: string; billingMonth: string; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
 type Pending = { id: string; schoolId: string };
+type GenerationProgress = {
+  status: "QUEUED" | "RUNNING" | "PAUSED" | "FAILED" | "COMPLETED";
+  total: number;
+  processed: number;
+  eligible: number;
+  skipped: number;
+  lastError: { code: string | null; message: string | null } | null;
+};
+type OperationResult = { status: string; outcome?: unknown; progress?: GenerationProgress | null };
 type Lifecycle = {
   kind: "receivable-groups" | "receivables";
   id: string;
@@ -152,6 +161,7 @@ export function FinanceWorkspace({
     "group",
   );
   const [pending, setPending] = useState<Pending>();
+  const [generationProgress, setGenerationProgress] = useState<GenerationProgress>();
   const activeSchool = useRef(schoolId);
   const summary = useRef<HTMLDivElement>(null);
   const removeDialog = useRef<HTMLDivElement>(null);
@@ -212,7 +222,7 @@ export function FinanceWorkspace({
     const token = ++request.current;
     setPending(operation);
     try {
-      const result = await get<{ status: string; outcome?: unknown }>(
+      const result = await get<OperationResult>(
         `/api/app/schools/${operation.schoolId}/finance/operations/${operation.id}`,
       );
       if (
@@ -221,6 +231,7 @@ export function FinanceWorkspace({
       )
         return;
       if (result.status === "PENDING") {
+        if (result.progress) setGenerationProgress(result.progress);
         reconciliationTimer.current = window.setTimeout(
           () => void reconcile(operation),
           750,
@@ -229,6 +240,7 @@ export function FinanceWorkspace({
       }
       sessionStorage.removeItem(pendingKey);
       setPending(undefined);
+      setGenerationProgress(result.progress ?? undefined);
       submitting.current = false;
       if (result.status === "COMPLETED") {
         if ((result.outcome as GenerateOutcome | undefined)?.created)
@@ -289,6 +301,7 @@ export function FinanceWorkspace({
     setLifecycle(undefined);
     setErrors({});
     setMessage("");
+    setGenerationProgress(undefined);
     void load().catch(
       (error: Error) =>
         activeSchool.current === schoolId && setMessage(error.message),
@@ -312,10 +325,15 @@ export function FinanceWorkspace({
         window.clearTimeout(reconciliationTimer.current);
     };
   }, [schoolId]);
+  const selectionDirty = Boolean(
+    run &&
+      (selectedStudentIds.length !== run.selectedStudentIds.length ||
+        selectedStudentIds.some((id) => !run.selectedStudentIds.includes(id))),
+  );
   const dirty = Boolean(
     open.schoolYearId ||
     open.billingMonth ||
-    selectedStudentIds.length ||
+    selectionDirty ||
     group.name ||
     receivable.groupId ||
     receivable.code ||
@@ -400,11 +418,18 @@ export function FinanceWorkspace({
         }
         return undefined;
       }
-      const outcome = ((await response.json()) as { data: { outcome: any } })
-        .data.outcome;
+      const result = ((await response.json()) as { data: OperationResult }).data;
       if (activeSchool.current !== schoolId || token !== request.current)
         return undefined;
-      return outcome;
+      if (result.status === "PENDING") {
+        sessionStorage.setItem(pendingKey, JSON.stringify(operation));
+        setPending(operation);
+        setGenerationProgress(result.progress ?? undefined);
+        setMessage("Máy chủ đang tạo hóa đơn nháp. Đang đối soát tiến độ Operation.");
+        void reconcile(operation);
+        return undefined;
+      }
+      return result.status === "FAILED" ? undefined : result.outcome;
     } catch {
       sessionStorage.setItem(pendingKey, JSON.stringify(operation));
       if (activeSchool.current === schoolId && token === request.current) {
@@ -1065,6 +1090,16 @@ export function FinanceWorkspace({
         >
           Tạo hóa đơn nháp
         </button>
+      )}
+      {generationProgress && (
+        <section aria-live="polite" aria-label="Tiến độ tạo hóa đơn từ máy chủ">
+          <h3>Tiến độ tạo hóa đơn từ máy chủ</h3>
+          <p>
+            {generationProgress.status}: đã xử lý {generationProgress.processed}/{generationProgress.total};
+            đủ điều kiện {generationProgress.eligible}; bỏ qua {generationProgress.skipped}.
+          </p>
+          {generationProgress.lastError && <p role="alert">{generationProgress.lastError.message ?? "Máy chủ không thể tạo hóa đơn."}</p>}
+        </section>
       )}
       {run?.status === "GENERATED" && (
         <section aria-labelledby="generated-student-addition-title">
