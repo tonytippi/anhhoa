@@ -34,4 +34,16 @@ describe('FinanceService validation', () => {
     prisma.operation.findFirst.mockReset().mockResolvedValueOnce({ ...operation, fingerprint: requestFingerprint(input) });
     await expect(new FinanceService(prisma as never, authorization as never).createGroup('identity', crypto.randomUUID(), key, crypto.randomUUID(), input)).resolves.toMatchObject({ id: operation.id, outcome: { id: 'group' } });
   });
+  it('returns issued BIGINT snapshots as JSON-safe strings without using live account data', async () => {
+    const issuedAt = new Date('2026-09-21T00:00:00.000Z');
+    const prisma = { invoice: { findFirst: vi.fn().mockResolvedValue({ id: 'invoice', schoolId: crypto.randomUUID(), status: 'ISSUED', total: 9007199254740991n, billingMonth: '2026-09', studentCodeSnapshot: 'HS001', studentNameSnapshot: 'Bé Đỗ', classNameSnapshot: 'Lá 1', lines: [], issuedAt, obligationTotalSnapshot: 9007199254740991n, obligationLinesSnapshot: [{ amount: '9007199254740991' }], bankAccountIdSnapshot: 'bank', receivingBankSnapshot: 'Ngân hàng A', accountNumberSnapshot: '123', accountHolderNameSnapshot: 'Bé Đỗ', transferContentSnapshot: 'Be Do La 1', financePolicyEffectiveFrom: issuedAt, dueDaysAfterIssueSnapshot: 7, taxTreatmentSnapshot: 'NOT_APPLICABLE', debtScopeSnapshot: 'CURRENT_SCHOOL_YEAR_ONLY', reversalModeSnapshot: 'DIRECT', dueOn: new Date('2026-09-28T00:00:00.000Z') }) } };
+    const result = await new FinanceService(prisma as never, authorization as never).invoice('identity', crypto.randomUUID(), '11111111-1111-4111-8111-111111111111');
+    expect(result).toMatchObject({ status: 'ISSUED', total: '9007199254740991', issue: { obligationTotal: '9007199254740991', transferContent: 'Be Do La 1', bankAccount: { accountNumber: '123' }, policy: { dueDaysAfterIssue: 7 } } });
+  });
+  it('only projects active same-School bank accounts', async () => {
+    const prisma = { bankAccount: { findMany: vi.fn().mockResolvedValue([{ id: 'active', receivingBank: 'A', accountNumber: '1', accountHolderName: 'Holder', lifecycleTransitions: [{ status: 'ACTIVE' }] }, { id: 'inactive', receivingBank: 'B', accountNumber: '2', accountHolderName: 'Old', lifecycleTransitions: [{ status: 'INACTIVE' }] }]) } };
+    const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).bankAccounts('identity', school);
+    expect(result).toEqual({ accounts: [{ id: 'active', receivingBank: 'A', accountNumber: '1', accountHolderName: 'Holder' }] });
+    expect(prisma.bankAccount.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
+  });
 });

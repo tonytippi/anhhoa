@@ -64,7 +64,8 @@ type GenerateOutcome = {
   }>;
 };
 type Source = { serviceDate: string | null; attendanceState: "PRESENT" | "ABSENT" | null; pickedUpAt: string | null; lateCareMinutes: number | null };
-type Invoice = { id: string; status: string; total: string; billingMonth: string; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }> };
+type BankAccount = { id: string; receivingBank: string; accountNumber: string; accountHolderName: string };
+type Invoice = { id: string; status: string; total: string; billingMonth: string; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
 type Pending = { id: string; schoolId: string };
 type Lifecycle = {
   kind: "receivable-groups" | "receivables";
@@ -126,6 +127,10 @@ export function FinanceWorkspace({
   const [additionConfirmationName, setAdditionConfirmationName] = useState("");
   const [generatedOutcome, setGeneratedOutcome] = useState<GenerateOutcome>();
   const [invoice, setInvoice] = useState<Invoice>();
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [issueConfirmation, setIssueConfirmation] = useState(false);
+  const [issueConfirmationName, setIssueConfirmationName] = useState("");
+  const [issueBankAccountId, setIssueBankAccountId] = useState("");
   const [line, setLine] = useState({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" });
   const [editingLineId, setEditingLineId] = useState<string>();
   const [editingSource, setEditingSource] = useState(false);
@@ -151,6 +156,8 @@ export function FinanceWorkspace({
   const summary = useRef<HTMLDivElement>(null);
   const removeDialog = useRef<HTMLDivElement>(null);
   const removeTrigger = useRef<HTMLButtonElement>(null);
+  const issueDialog = useRef<HTMLDivElement>(null);
+  const issueTrigger = useRef<HTMLButtonElement>(null);
   const status = useRef(onStatusChange);
   const submitting = useRef(false);
   const request = useRef(0);
@@ -187,6 +194,11 @@ export function FinanceWorkspace({
     setCandidates(nextCandidates);
     if (run) setRun(nextRuns.runs.find((item) => item.id === run.id));
   };
+  const loadBankAccounts = async () => {
+    const next = await get<{ accounts: BankAccount[] }>(`/api/app/schools/${schoolId}/finance/bank-accounts`);
+    if (activeSchool.current === schoolId) setBankAccounts(next.accounts);
+    return next.accounts;
+  };
   const loadCandidates = async (yearId: string) => {
     const token = ++request.current;
     const next = await get<Candidates>(
@@ -222,7 +234,7 @@ export function FinanceWorkspace({
         if ((result.outcome as GenerateOutcome | undefined)?.created)
           setGeneratedOutcome(result.outcome as GenerateOutcome);
         if ((result.outcome as Invoice | undefined)?.lines) applyInvoice(result.outcome as Invoice);
-        await load();
+        try { await load(); } catch { setMessage("Thao tác đã hoàn tất; chưa thể tải lại dữ liệu mới nhất."); }
       } else setMessage("Thao tác không thành công.");
     } catch {
       if (
@@ -257,6 +269,10 @@ export function FinanceWorkspace({
     setAdditionConfirmationName("");
     setGeneratedOutcome(undefined);
     setInvoice(undefined);
+    setBankAccounts([]);
+    setIssueConfirmation(false);
+    setIssueConfirmationName("");
+    setIssueBankAccountId("");
     setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" });
     setEditingLineId(undefined);
     setEditingSource(false);
@@ -277,6 +293,9 @@ export function FinanceWorkspace({
       (error: Error) =>
         activeSchool.current === schoolId && setMessage(error.message),
     );
+    void loadBankAccounts().catch(() => {
+      if (activeSchool.current === schoolId) setBankAccounts([]);
+    });
     const saved = sessionStorage.getItem(pendingKey);
     if (saved)
       try {
@@ -325,6 +344,10 @@ export function FinanceWorkspace({
     if (removeConfirmation) removeDialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
     else removeTrigger.current?.focus();
   }, [removeConfirmation]);
+  useEffect(() => {
+    if (issueConfirmation) issueDialog.current?.querySelector<HTMLElement>("select")?.focus();
+    else issueTrigger.current?.focus();
+  }, [issueConfirmation]);
   const command = async (
     path: string,
     method: "POST" | "PUT" | "DELETE",
@@ -576,9 +599,31 @@ export function FinanceWorkspace({
     if (outcome) applyInvoice(outcome as Invoice);
     setRemoveConfirmation(undefined);
   };
+  const issueInvoice = async () => {
+    if (!invoice || !issueBankAccountId) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/issue`, "POST", { bankAccountId: issueBankAccountId }, "invoice");
+    if (outcome) { applyInvoice(outcome as Invoice); setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); try { await load(); } catch { setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất."); } }
+  };
+  const openIssueConfirmation = async () => {
+    if (!invoice) return;
+    setMessage("");
+    try {
+      const accounts = await loadBankAccounts();
+      if (!accounts.length) { setMessage("Máy chủ không có tài khoản nhận đang hoạt động để phát hành hóa đơn."); return; }
+      setIssueBankAccountId(accounts[0]!.id); setIssueConfirmationName(""); setIssueConfirmation(true);
+    } catch { setMessage("Không thể tải tài khoản nhận đang hoạt động từ máy chủ."); }
+  };
   const trapRemoveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Tab") return;
     const items = [...(removeDialog.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+    const first = items[0], last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  const trapIssueFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const items = [...(issueDialog.current?.querySelectorAll<HTMLElement>("input, select, button") ?? [])].filter((item) => !item.hasAttribute("disabled"));
     const first = items[0], last = items.at(-1);
     if (!first || !last) return;
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -1085,11 +1130,14 @@ export function FinanceWorkspace({
         <section aria-labelledby="invoice-review-title">
           <h3 id="invoice-review-title">Rà soát hóa đơn {invoice.student.code} / {invoice.student.name}</h3>
           <p>Đợt {invoice.billingMonth}, lớp {invoice.student.className}, trạng thái {invoice.status}.</p>
+          {invoice.status === "DRAFT" && <button ref={issueTrigger} type="button" disabled={Boolean(pending) || !invoice.lines.length || invoice.total === "0"} onClick={() => void openIssueConfirmation()}>Phát hành hóa đơn</button>}
+          {invoice.status === "ISSUED" && <section aria-label="Snapshot phát hành"><h4>Hướng dẫn thanh toán đã phát hành</h4><p>Tổng nghĩa vụ: {vnd(invoice.issue?.obligationTotal ?? invoice.total)} VND. Hạn thanh toán: {invoice.issue?.dueOn}.</p><p>{invoice.issue?.bankAccount.receivingBank} / {invoice.issue?.bankAccount.accountNumber} / {invoice.issue?.bankAccount.accountHolderName}</p><p>Nội dung chuyển khoản: {invoice.issue?.transferContent}</p><p>Chính sách {invoice.issue?.policy.effectiveFrom}: {invoice.issue?.policy.dueDaysAfterIssue} ngày; {invoice.issue?.policy.taxTreatment}; {invoice.issue?.policy.debtScope}; {invoice.issue?.policy.reversalMode}.</p><p>Settlement chưa được ghi nhận.</p></section>}
           <table><caption>Dòng hóa đơn do máy chủ tính</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Số tiền VND</th><th>Thao tác</th></tr></thead><tbody>{invoice.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.source && <small> Nguồn: {item.source.serviceDate ?? ""} {item.source.attendanceState ?? ""} {item.source.pickedUpAt ?? ""} {item.source.lateCareMinutes ?? ""}; {item.sourceReason}; ghi lúc {item.sourceRecordedAt ?? ""}; actor {item.sourceAudit?.actorIdentityId ?? ""}; membership {item.sourceAudit?.membershipId ?? ""}; provenance {JSON.stringify(item.sourceProvenance)}</small>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{invoice.status === "DRAFT" && <><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId, quantity: item.quantity, unitPrice: item.unitPrice, overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={3}>Tổng cần thu</th><th style={{ textAlign: "right" }}>{vnd(invoice.total)}</th><td /></tr></tbody></table>
           {invoice.status === "DRAFT" ? <form onSubmit={saveLine}><h4>{editingLineId ? "Sửa dòng" : "Thêm dòng"}</h4><label>Khoản thu<select disabled={Boolean(editingLineId)} value={line.receivableId} onChange={(event) => setLine({ ...line, receivableId: event.target.value })} {...invoiceField("receivableId")}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>{scope === "invoice" && errors.receivableId && <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>}<label>Số lượng<input inputMode="numeric" value={line.quantity} onChange={(event) => setLine({ ...line, quantity: event.target.value })} {...invoiceField("quantity")} /></label>{scope === "invoice" && errors.quantity && <small id="invoice-invoice-quantity-error">{errors.quantity}</small>}<label>Đơn giá override VND (không bắt buộc)<input inputMode="numeric" value={line.unitPrice} onChange={(event) => setLine({ ...line, unitPrice: event.target.value })} {...invoiceField("unitPrice")} /></label>{scope === "invoice" && errors.unitPrice && <small id="invoice-invoice-unitPrice-error">{errors.unitPrice}</small>}<label>Lý do override<input value={line.overrideReason} onChange={(event) => setLine({ ...line, overrideReason: event.target.value })} {...invoiceField("overrideReason")} /></label>{scope === "invoice" && errors.overrideReason && <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>}<fieldset><legend>Nguồn giải thích thủ công</legend><label>Ngày dịch vụ<input type="date" value={line.serviceDate} onChange={(event) => setLine({ ...line, serviceDate: event.target.value })} /></label><label>Điểm danh<select value={line.attendanceState} onChange={(event) => setLine({ ...line, attendanceState: event.target.value })}><option value="">Không có</option><option value="PRESENT">Có mặt</option><option value="ABSENT">Vắng mặt</option></select></label><label>Giờ đón (HH:MM)<input value={line.pickedUpAt} onChange={(event) => setLine({ ...line, pickedUpAt: event.target.value })} /></label><label>Số phút trông muộn<input inputMode="numeric" value={line.lateCareMinutes} onChange={(event) => setLine({ ...line, lateCareMinutes: event.target.value })} /></label><label>Lý do nguồn giải thích<input value={line.sourceReason} onChange={(event) => setLine({ ...line, sourceReason: event.target.value })} /></label></fieldset><button disabled={Boolean(pending)}>{editingLineId ? "Lưu dòng" : "Thêm dòng"}</button>{editingLineId && <button type="button" onClick={() => { setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }}>Hủy sửa</button>}</form> : <p>Hóa đơn {invoice.status} chỉ đọc; dòng hóa đơn không thể thay đổi.</p>}
         </section>
       )}
       {removeConfirmation && <div ref={removeDialog} role="dialog" aria-modal="true" aria-labelledby="finance-remove-line-title" onKeyDown={trapRemoveFocus}><h3 id="finance-remove-line-title">Xóa dòng {removeConfirmation.name}</h3><p>Dòng này sẽ không còn áp dụng cho hóa đơn nháp.</p><button type="button" disabled={Boolean(pending)} onClick={() => void removeLine(removeConfirmation.id)}>Xác nhận xóa dòng</button><button type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation(undefined)}>Hủy</button></div>}
+      {issueConfirmation && invoice && <div ref={issueDialog} role="dialog" aria-modal="true" aria-labelledby="finance-issue-title" onKeyDown={trapIssueFocus}><h3 id="finance-issue-title">Phát hành hóa đơn cho {invoice.student.name}</h3><p>Chỉ snapshot tài khoản đang hoạt động từ máy chủ được dùng. Không thể chỉnh sửa sau phát hành.</p><label>Tài khoản nhận<select value={issueBankAccountId} onChange={(event) => setIssueBankAccountId(event.target.value)}><option value="">Chọn tài khoản</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.receivingBank} / {account.accountNumber} / {account.accountHolderName}</option>)}</select></label><label>Nhập chính xác tên học sinh {invoice.student.name} để xác nhận<input value={issueConfirmationName} onChange={(event) => setIssueConfirmationName(event.target.value)} /></label><button type="button" disabled={Boolean(pending) || !issueBankAccountId || issueConfirmationName !== invoice.student.name} onClick={() => void issueInvoice()}>Xác nhận phát hành</button><button type="button" disabled={Boolean(pending)} onClick={() => { setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); }}>Hủy</button></div>}
       {generateConfirmation && run && (
         <div
           role="dialog"

@@ -674,6 +674,7 @@ model CollectionRun {
 
 enum InvoiceStatus {
   DRAFT
+  ISSUED
 }
 
 model Invoice {
@@ -699,6 +700,20 @@ model Invoice {
   selectionProvenance       Json
   status                    InvoiceStatus @default(DRAFT)
   total                     BigInt    @default(0) @db.BigInt
+  issuedAt                  DateTime?
+  bankAccountIdSnapshot     String?   @db.Uuid
+  receivingBankSnapshot     String?
+  accountNumberSnapshot     String?
+  accountHolderNameSnapshot String?
+  transferContentSnapshot   String?
+  obligationLinesSnapshot   Json?
+  obligationTotalSnapshot   BigInt?   @db.BigInt
+  financePolicyEffectiveFrom DateTime? @db.Date
+  dueDaysAfterIssueSnapshot Int?
+  taxTreatmentSnapshot      FinanceTaxTreatment?
+  debtScopeSnapshot         FinanceDebtScope?
+  reversalModeSnapshot      FinanceReversalMode?
+  dueOn                     DateTime? @db.Date
   createdAt                 DateTime  @default(now())
   school                    School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student                   Student   @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
@@ -709,6 +724,7 @@ model Invoice {
   @@unique([schoolId, id])
   @@unique([schoolId, studentId, collectionRunId])
   @@index([schoolId, collectionRunId])
+  @@index([schoolId, status])
 }
 
 model InvoiceLine {

@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), addGeneratedStudent: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn() };
+  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), issueInvoice: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), addGeneratedStudent: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn() };
   it('requires browser mutation proof before Finance writes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     await expect(controller.group(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
@@ -59,5 +59,18 @@ describe('FinanceController mutation boundary', () => {
     const controller = new FinanceController(auth as never, finance as never); finance.invoice.mockResolvedValue({ id: 'invoice' });
     await expect(controller.invoice(request({}), 'school', 'invoice')).resolves.toEqual({ data: { id: 'invoice' } });
     expect(finance.invoice).toHaveBeenCalledWith('actor-id', 'school', 'invoice');
+  });
+  it('projects active bank accounts and passes only the protected issue command through', async () => {
+    const controller = new FinanceController(auth as never, finance as never);
+    finance.bankAccounts.mockResolvedValue({ accounts: [{ id: 'bank' }] }); finance.issueInvoice.mockResolvedValue({ id: 'operation' });
+    await expect(controller.bankAccounts(request({}), 'school')).resolves.toEqual({ data: { accounts: [{ id: 'bank' }] } });
+    await expect(controller.issueInvoice(request(valid), 'school', 'invoice', 'key', 'operation', { bankAccountId: 'bank', total: '1' })).resolves.toEqual({ data: { id: 'operation' } });
+    expect(finance.bankAccounts).toHaveBeenCalledWith('actor-id', 'school');
+    expect(finance.issueInvoice).toHaveBeenCalledWith('actor-id', 'school', 'invoice', 'key', 'operation', { bankAccountId: 'bank', total: '1' });
+  });
+  it('rejects issue before Finance when origin or CSRF proof is absent', async () => {
+    const controller = new FinanceController(auth as never, finance as never); finance.issueInvoice.mockClear();
+    await expect(controller.issueInvoice(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'invoice', 'key', 'operation', { bankAccountId: 'bank' })).rejects.toMatchObject({ status: 401 });
+    expect(finance.issueInvoice).not.toHaveBeenCalled();
   });
 });
