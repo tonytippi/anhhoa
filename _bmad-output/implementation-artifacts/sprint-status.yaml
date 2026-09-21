@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-21 # Approved correction: Story 4.5 scopes service enrollment and short-leave Finance sources; preservation remains roster-owned.
+last_updated: 2026-09-21 # Approved correction: Story 4.5 owns short-leave decision/source; service enrollment moves to Finance catalog Story 5.1.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -43,7 +43,7 @@ development_status:
   4-2-ghi-attendance-co-conflict-validation-va-evidence-policy: done
   4-3-evidence-lifecycle-va-notification-source-an-toan: done
   4-4-ghi-handover-nhu-operational-reference: done
-  4-5-service-enrollment-va-nguon-leave-ngan-cho-finance-co-kiem-soat: backlog
+  4-5-quyet-dinh-leave-ngan-va-nguon-immutable-cho-finance: ready-for-dev
   4-6-hang-doi-van-hanh-buoi-sang: backlog
   4-7-kiem-thu-release-gate-cho-van-hanh-lop: backlog
   4-8-teacher-ghi-dailyjournal-co-version-va-media-duoc-kiem-soat: backlog
@@ -52,7 +52,7 @@ development_status:
   epic-4-retrospective: optional
 
   epic-5: backlog
-  5-1-quan-ly-receivable-catalog-chargerule-va-chinh-sach-uu-dai-co-phien-ban: backlog
+  5-1-quan-ly-receivable-catalog-service-enrollment-chargerule-va-chinh-sach-uu-dai-co-phien-ban: backlog
   5-2-tao-collectionrun-va-server-authoritative-preview: backlog
   5-3-generate-invoice-draft-idempotent-theo-snapshot-roster-rule: backlog
   5-4-ra-soat-invoice-draft-adjustment-va-promotional-coverage-co-audit: backlog

@@ -268,7 +268,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 
 ### Flow 2d - Service, short leave source and Finance review (Hoa and Minh)
 
-1. Hoa or Minh creates an effective-dated StudentServiceEnrollment; Parent cannot cancel it directly.
+1. Sau khi Finance catalog duoc cau hinh, Hoa or Minh creates an effective-dated StudentServiceEnrollment cho service do catalog so huu; Parent cannot cancel it directly.
 2. Mai creates a short leave request from child detail; Hoa or Minh only decides a pending late request when the server grants `LEAVE_REQUEST_DECIDE`.
 3. Approval creates a meal-eligibility source only; it does not change future CollectionRun eligibility. Finance opens the immutable source and sees the server-selected next DRAFT target, or an issued/cancelled/no-target outcome.
 4. **Climax:** Minh reviews the immutable leave-day source and, only on an eligible Invoice `DRAFT`, posts the source-linked negative meal adjustment; the original source and outcome remain traceable.

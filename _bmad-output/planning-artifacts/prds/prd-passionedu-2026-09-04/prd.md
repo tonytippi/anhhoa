@@ -238,7 +238,7 @@ He thong gop no mo trong cung SchoolYear vao Invoice moi bang `PRIOR_DEBT` truy 
 
 #### FR-12: Leave, attendance va service enrollment
 
-Parent chi co the gui leave request ngan theo ngay cho Student duoc uy quyen. `ATTENDANCE_WRITE`, `DAILY_JOURNAL_WRITE` va `CLASS_LEAVE_READ` chi co hieu luc khi Staff co capability tu Chuc danh chinh active va StaffClassAssignment hieu luc trong Class phu hop; School Admin/Finance Manager co `LEAVE_REQUEST_DECIDE` quan ly approval leave PENDING va service enrollment theo capability. `HANDOVER_WRITE` duoc quy dinh rieng tai FR-13.
+Parent chi co the gui leave request ngan theo ngay cho Student duoc uy quyen. `ATTENDANCE_WRITE`, `DAILY_JOURNAL_WRITE` va `CLASS_LEAVE_READ` chi co hieu luc khi Staff co capability tu Chuc danh chinh active va StaffClassAssignment hieu luc trong Class phu hop; School Admin/Finance Manager co `LEAVE_REQUEST_DECIDE` quan ly approval leave PENDING. `HANDOVER_WRITE` duoc quy dinh rieng tai FR-13. Finance catalog so huu service va `StudentServiceEnrollment` theo effective date.
 
 **He qua kiem thu:**
 - Calendar loai ngay nghi/le; `PRESENT` conflict voi leave request va loai ngay do khoi de xuat meal adjustment.
@@ -246,7 +246,7 @@ Parent chi co the gui leave request ngan theo ngay cho Student duoc uy quyen. `A
 - Anh bang chung diem danh va tra tre tuan theo mode cua School, Parent khong xem evidence; retention la hai thang lich.
 - `AttendancePolicy.photoEvidenceMode` va `HandoverPolicy.photoEvidenceMode` chi la `REQUIRED` hoac `OPTIONAL`; REQUIRED tu choi tuong ung `PRESENT` hoac `pickedUpAt` khong co evidence. Evidence chi Staff co capability tuong ung hoac School Admin dung School scope xem, xoa blob/preview sau hai thang lich va giu audit metadata xoa.
 - Sau attendance hoac handover event, Parent chi nhan in-app notification event theo StudentParent link active; notification khong chua evidence anh va khong mo rong thanh SMS, email, Zalo hay chat.
-- StudentServiceEnrollment co status, effective dates va audit; chi School Admin/Finance Manager tao/huy. Parent co the tao, sua/huy leave request khi PENDING; khong tu huy service.
+- Finance catalog so huu service va `StudentServiceEnrollment` co status, effective dates va audit; chi School Admin/Finance Manager tao/huy. Parent co the tao, sua/huy leave request khi PENDING; khong tu huy service.
 - Bao luu dung `StudentEnrollment` lifecycle `ENROLLED -> ON_LEAVE` va resume `ON_LEAVE -> ENROLLED`, do School Admin co `ROSTER_MANAGE` thuc hien voi effective date, reason, Operation va audit. Bao luu khong tu dong tao giam hoc phi, phi khoi phuc, mien phi co so vat chat, refund hay Invoice mutation; Finance xu ly thoa thuan nay bang policy hoac manual adjustment tren Invoice `DRAFT` co reason/audit.
 - Meal adjustment la dong am co source tren Invoice DRAFT ke tiep; Saturday MANUAL phai kiem tra service coverage de khong charge trung.
 - Teacher tao mot DailyJournal hien hanh theo Student/ngay trong `Asia/Ho_Chi_Minh`; sua trong ngay tao version/audit bat bien. Anh journal chi nhan JPEG/PNG/WebP toi da 10 MB moi anh, khong gioi han so anh va khong dung chung attendance evidence.

@@ -781,18 +781,13 @@ So that School co lich su ban giao ma khong tao mot khoan phi tu dong.
 **Then** UI label no la operational reference voi School/date/Student context va Finance co the doc immutable audit-safe handover snapshot de giai thich dong `MANUAL`
 **And** khong tinh, goi y, tao hoac tu dong post late-pickup fee; khong bien no thanh pickup authorization.
 
-### Story 4.5: Service enrollment và nguồn leave ngắn cho Finance có kiểm soát
+### Story 4.5: Quyết định leave ngắn và nguồn immutable cho Finance
 
 As a School Admin or Finance Manager,
-I want to quan ly service enrollment theo effective date va cong bo source fact tu leave ngan da xac nhan,
+I want to quyet dinh leave ngan PENDING va cong bo source fact tu leave ngan da xac nhan,
 So that Finance co du lieu audit-safe cho meal adjustment sau nay ma khong tu suy dien giam hoc phi, bao luu hoac credit.
 
 **Acceptance Criteria:**
-
-**Given** School Admin hoac Finance Manager co capability phu hop
-**When** tao/huy `StudentServiceEnrollment`
-**Then** server luu status, effective dates, actor/audit va chi cho record thuoc selected School/Student
-**And** Parent khong co service-cancel action hoac endpoint.
 
 **Given** leave ngan sau deadline dang `PENDING` va School Admin hoac Finance Manager co `LEAVE_REQUEST_DECIDE` trong selected School
 **When** actor approve/reject voi `Idempotency-Key`
@@ -859,10 +854,10 @@ So that attendance/handover khong lam lo du lieu tre em hoac bien thanh pricing 
 
 Finance cau hinh catalog/rule va PromotionPolicy co version, tao CollectionRun, kiem tra preview do server tinh, generate Invoice DRAFT chong trung, xu ly adjustment hop le va issue immutable Payment instruction snapshot.
 
-### Story 5.1: Quản lý receivable catalog, ChargeRule và chính sách ưu đãi có phiên bản
+### Story 5.1: Quản lý receivable catalog, service enrollment, ChargeRule và chính sách ưu đãi có phiên bản
 
 As a Finance Manager,
-I want to quan ly khoan thu, ChargeRule va chinh sach uu dai co version theo School scope,
+I want to quan ly khoan thu, service enrollment, ChargeRule va chinh sach uu dai co version theo School scope,
 So that CollectionRun co rule ro rang ma Invoice lich su khong bi thay doi.
 
 **Acceptance Criteria:**
@@ -871,6 +866,11 @@ So that CollectionRun co rule ro rang ma Invoice lich su khong bi thay doi.
 **When** tao/inactivate `ReceivableGroup`, `Receivable`, `ChargeRule`, `PromotionPolicy` hoac tao version moi cua policy
 **Then** record la School-scoped, co audit/effective period/source, va catalog inactive khong the dung cho flow moi nhung van doc duoc trong snapshot lich su
 **And** ma khoan la optional nhung unique trong School khi duoc cung cap; money persist PostgreSQL `BIGINT` va REST chi tra JSON-safe integer, khong dung float.
+
+**Given** Finance Manager hoac School Admin quan ly dich vu cua School
+**When** tao/inactivate service tu Finance catalog hoac tao/huy `StudentServiceEnrollment`
+**Then** enrollment tham chieu service School-scoped, luu effective interval, status, actor/audit va chi ap dung cho Student cung School
+**And** server validate interval/cancel/overlap theo service catalog; Parent khong co service enrollment hay cancellation endpoint va enrollment khong tu dong tao gia, Invoice hay adjustment.
 
 **Given** ChargeRule cung Receivable ap dung o nhieu scope
 **When** server chon rule cho Student trong CollectionRun
