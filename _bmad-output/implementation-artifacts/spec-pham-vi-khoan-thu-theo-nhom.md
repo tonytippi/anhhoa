@@ -2,7 +2,7 @@
 title: 'Cấu hình phạm vi khoản thu theo nhóm'
 type: 'refactor'
 created: '2026-09-09'
-status: 'in-progress'
+status: 'superseded'
 baseline_commit: '1b1cfe5260cf023c63f90aa7aa79a22255cfa2da'
 review_loop_iteration: 0
 context:
@@ -14,17 +14,17 @@ context:
 
 ## Intent
 
-**Problem:** Phạm vi áp dụng đang bị đặt thành một tab độc lập. Vì đây là thuộc tính của khoản thu, vị trí đó không khớp luồng tạo/sửa khoản thu. Đồng thời, dịch vụ tự chọn như Học thứ 7 cần phân công riêng theo từng học sinh.
+**Problem:** Artifact này mô tả rule/scope/matrix để tự động áp khoản thu, nhưng Finance Admin MVP đã được giảm scope theo quyết định 2026-09-21: kế toán chọn khoản và quantity trực tiếp trên Invoice DRAFT.
 
-**Approach:** Giữ table Danh sách khoản thu và hiển thị phạm vi áp dụng ngay trên từng dòng. Action Thêm mới hoặc Sửa mở biểu mẫu của chính khoản thu trong tab Danh sách khoản thu. Biểu mẫu chứa thông tin khoản thu, thời gian áp dụng, phạm vi áp dụng và cách tính số lượng. Thêm tab Bảng khoản thu theo lớp, là ma trận theo kỳ/lớp: mỗi hàng là học sinh, mỗi cột là mọi khoản thu đang áp dụng cho lớp, gồm khoản chung Trường, theo Khối, theo Lớp và dịch vụ chọn riêng. Khoản thu theo phạm vi hiển thị chỉ đọc; Kế toán bật hoặc bỏ dịch vụ chọn riêng. Ma trận không đặt giá riêng, không thay khoản thu theo phạm vi và không tự tạo hóa đơn. Phạm vi cho chọn một loại: Toàn trường, Khối, Lớp hoặc Nhóm học sinh. Khối gồm Nhà trẻ/Mẫu giáo; Nhóm học sinh chỉ cho Học thử, Chờ phân lớp, Sắp vào lớp, Trong lớp và Bảo lưu. Nghỉ học/Tốt nghiệp không phải lựa chọn tạo khoản thu mới. Lớp ngoại khóa không thuộc release này.
+**Approach:** Superseded. Giữ artifact/mockup chỉ để truy vết Finance automation enhancement; không triển khai theo artifact này trong MVP.
 
 ## Boundaries & Constraints
 
-**Always:** Đây là mockup UX, không tạo API, persistence, entitlement hay data model Khối/nhóm học sinh. Mọi dữ liệu thật vẫn School-scoped và server-authoritative; browser/URL không là authorization. Thể hiện rõ phạm vi được áp dụng cho một khoản thu và thời gian áp dụng; thay đổi không sửa Invoice đã phát hành. Giữ `ChargeRule.quantity` chỉ `FIXED` hoặc `MANUAL`; giá mặc định thuộc Receivable và chỉ override có audit khi Invoice còn `DRAFT`. Toàn trường/Lớp/Phân công theo học sinh khớp contract canonical; Khối và Nhóm học sinh là taxonomy mockup được Product xác định, phải có change contract trước API. Tab Phân công chỉ chọn áp dụng khoản thu tự chọn cho học sinh/kỳ, không đặt giá riêng hay tự tạo Invoice. Nộp trước, giảm trừ, exact settlement và phí đón muộn không đổi.
+**Always:** Không dùng artifact này làm build input. Finance Admin MVP chỉ quản lý catalog và để Finance chọn Receivable/quantity dương trên Invoice DRAFT; mọi automation scope/rule cần contract mới.
 
-**Ask First:** Hiện thực backend/DB cho Khối hoặc Nhóm học sinh, thêm loại phạm vi mới ngoài Phân công theo học sinh vào PRD/SPEC, cho phép Nghỉ học/Tốt nghiệp nhận khoản thu mới, đưa Lớp ngoại khóa vào phạm vi, hoặc đổi quantity/price/lifecycle Finance.
+**Ask First:** Bất kỳ khôi phục hoặc triển khai scope/rule/matrix automation nào.
 
-**Never:** Không cấu hình giá riêng mặc định theo học sinh, không tự tính tiền, không tạo credit/generic balance/partial settlement, và không sao chép visual identity hoặc copy Kidsonline. Ma trận chỉ dùng để phân công khoản thu tự chọn theo học sinh và kỳ áp dụng.
+**Never:** Không triển khai từ artifact superseded này.
 
 ## I/O & Edge-Case Matrix
 
@@ -44,7 +44,7 @@ context:
 
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/admin/receivable-configuration.html:20-65` -- Danh sách catalog, biểu mẫu thêm/sửa khoản thu và bảng khoản thu theo lớp.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/prototype.js:499-522` -- mở/đóng biểu mẫu ngay trong tab Danh sách khoản thu, không thêm route/API.
-- `_bmad-output/implementation-artifacts/test-rendered-mockup-contracts.mjs:68-98` -- thay assertions mức riêng/rule thắng bằng four scope types, status exclusions và `FIXED`/`MANUAL` copy.
+- `_bmad-output/implementation-artifacts/test-rendered-mockup-contracts.mjs:68-98` -- historical mockup assertions cho scope/rule automation; không chạy như MVP acceptance.
 - `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/MOCKUP-COVERAGE.md:18` -- mô tả phạm vi theo khoản thu và ranh giới mockup-only.
 
 ## Tasks & Acceptance
