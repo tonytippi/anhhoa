@@ -29,6 +29,9 @@ const routes = {
     "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/generate",
   addGeneratedStudent:
     "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/generated-students",
+  addInvoiceLine: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines",
+  editInvoiceLine: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
+  removeInvoiceLine: "DELETE /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
 };
 const validation = (field: string, message: string) =>
   new BadRequestException({
@@ -82,6 +85,22 @@ export class FinanceService {
         "Đơn giá VND phải là số nguyên dương an toàn.",
       );
     return BigInt(value);
+  }
+  private quantity(value: unknown) {
+    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 2147483647n)
+      throw validation("quantity", "Số lượng phải là số nguyên dương.");
+    return Number(value);
+  }
+  private linePrice(value: unknown) {
+    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 9007199254740991n)
+      throw validation("unitPrice", "Đơn giá VND phải là số nguyên dương an toàn.");
+    return BigInt(value);
+  }
+  private amount(unitPrice: bigint, quantity: number) {
+    const amount = unitPrice * BigInt(quantity);
+    if (amount > 9223372036854775807n)
+      throw validation("quantity", "Số lượng và đơn giá vượt giới hạn VND.");
+    return amount;
   }
   private groupDto(value: any) {
     const status = value.lifecycleTransitions?.[0]?.status ?? null;
@@ -163,6 +182,102 @@ export class FinanceService {
       status: operation.status,
       outcome: operation.outcome,
     };
+  }
+  private lineDto(line: any) {
+    return {
+      id: line.id, receivableId: line.receivableId, receivableCode: line.receivableCodeSnapshot,
+      receivableName: line.receivableNameSnapshot, unitLabel: line.unitLabelSnapshot,
+      defaultUnitPrice: line.defaultUnitPriceSnapshot.toString(), unitPrice: line.unitPrice.toString(),
+      quantity: line.quantity.toString(), amount: line.amount.toString(), overrideReason: line.overrideReason,
+      source: line.source, sourceReason: line.sourceReason,
+      sourceRecordedAt: line.sourceRecordedAt?.toISOString() ?? null,
+      sourceProvenance: line.sourceProvenance,
+      sourceAudit: line.source ? { actorIdentityId: line.sourceActorIdentityId, membershipId: line.sourceMembershipId } : null,
+    };
+  }
+  private invoiceDto(invoice: any) {
+    return {
+      id: invoice.id, status: invoice.status, total: invoice.total.toString(), billingMonth: invoice.billingMonth,
+      student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot, className: invoice.classNameSnapshot },
+      lines: (invoice.lines ?? []).map((line: any) => this.lineDto(line)),
+    };
+  }
+  async invoice(identityId: string, schoolId: string, invoiceId: string) {
+    schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+    if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+    return this.invoiceDto(invoice);
+  }
+  private async source(tx: any, body: any, invoice: any, identityId: string, membershipId: string) {
+    const raw = body?.source;
+    if (raw == null) return null;
+    if (typeof raw !== "object" || Array.isArray(raw)) throw validation("source", "Nguồn giải thích không hợp lệ.");
+    const serviceDate = raw.serviceDate == null ? null : this.text(raw.serviceDate, "source.serviceDate", true, 10);
+    if (serviceDate && !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) throw validation("source.serviceDate", "Ngày dịch vụ không hợp lệ.");
+    const attendanceState = raw.attendanceState == null ? null : raw.attendanceState;
+    if (attendanceState && !["PRESENT", "ABSENT"].includes(attendanceState)) throw validation("source.attendanceState", "Trạng thái điểm danh không hợp lệ.");
+    const pickedUpAt = raw.pickedUpAt == null ? null : this.text(raw.pickedUpAt, "source.pickedUpAt", true, 40);
+    if (pickedUpAt && (!/^\d{2}:\d{2}$/.test(pickedUpAt) || Number(pickedUpAt.slice(0, 2)) > 23 || Number(pickedUpAt.slice(3)) > 59)) throw validation("source.pickedUpAt", "Giờ đón phải có dạng HH:MM hợp lệ.");
+    const lateCareMinutes = raw.lateCareMinutes == null ? null : raw.lateCareMinutes;
+    if (lateCareMinutes != null && (!Number.isInteger(lateCareMinutes) || lateCareMinutes < 0 || lateCareMinutes > 1440)) throw validation("source.lateCareMinutes", "Số phút phải là số nguyên từ 0 đến 1440.");
+    if (attendanceState === "ABSENT" && (pickedUpAt || lateCareMinutes != null)) throw validation("source", "Học sinh vắng mặt không thể có giờ đón hoặc trông muộn.");
+    if (!serviceDate && !attendanceState && !pickedUpAt && lateCareMinutes == null) throw validation("source", "Cần ít nhất một fact giải thích.");
+    const reason = this.text(body?.sourceReason, "sourceReason", true, 500)!;
+    const enrollment = await tx.studentEnrollment.findFirst({ where: { id: invoice.enrollmentIdSnapshot, schoolId: invoice.schoolId, studentId: invoice.studentId } });
+    if (!enrollment) throw validation("source", "Nguồn không thuộc enrollment của học sinh.");
+    if (serviceDate) {
+      const businessDate = new Date(`${serviceDate}T00:00:00.000Z`);
+      if (Number.isNaN(businessDate.getTime()) || businessDate.toISOString().slice(0, 10) !== serviceDate || businessDate < enrollment.effectiveFrom || (enrollment.endedOn && businessDate >= enrollment.endedOn)) throw validation("source.serviceDate", "Ngày dịch vụ không thuộc thời gian nhập học hiệu lực.");
+      const calendar = await tx.schoolCalendarVersion.findFirst({ where: { schoolId: invoice.schoolId, effectiveFrom: { lte: businessDate } }, include: { holidays: true }, orderBy: { effectiveFrom: "desc" } });
+      if (!calendar) throw new ConflictException({ code: "SCHOOL_CALENDAR_NOT_CONFIGURED", message: "Trường chưa cấu hình lịch vận hành." });
+      if (businessDate.getUTCDay() === 0 || calendar.holidays.some((holiday: any) => holiday.startsOn <= businessDate && holiday.endsOn >= businessDate)) throw validation("source.serviceDate", "Ngày dịch vụ không phải ngày vận hành.");
+    }
+    return { source: { serviceDate, attendanceState, pickedUpAt, lateCareMinutes }, sourceReason: reason, sourceActorIdentityId: identityId, sourceMembershipId: membershipId, sourceRecordedAt: new Date(), sourceProvenance: { type: "MANUAL_FINANCE_EXPLANATORY_V1", invoiceStudentId: invoice.studentId, enrollmentId: enrollment.id } };
+  }
+  private async draftInvoice(tx: any, schoolId: string, invoiceId: string) {
+    await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+    const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+    if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+    if (invoice.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_NOT_DRAFT", message: "Chỉ được sửa dòng khi hóa đơn ở trạng thái nháp." });
+    return invoice;
+  }
+  private async refreshInvoice(tx: any, schoolId: string, invoiceId: string) {
+    const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+    if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+    return this.invoiceDto(invoice);
+  }
+  async addInvoiceLine(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const input = { receivableId: this.identifier(body?.receivableId, "receivableId"), quantity: this.quantity(body?.quantity), unitPrice: body?.unitPrice == null ? null : this.linePrice(body.unitPrice), overrideReason: body?.unitPrice == null ? null : this.text(body?.overrideReason, "overrideReason", true, 500)! };
+    return this.mutate(actor, identityId, schoolId, routes.addInvoiceLine, key, operationId, { invoiceId, ...input, unitPrice: input.unitPrice?.toString() ?? null, source: body?.source ?? null, sourceReason: body?.sourceReason ?? null }, async (tx, operation) => {
+      const invoice = await this.draftInvoice(tx, schoolId, invoiceId);
+      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } });
+      if (!receivable) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
+      if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu đã ngừng áp dụng.");
+      const unitPrice = input.unitPrice ?? receivable.defaultUnitPrice; const amount = this.amount(unitPrice, input.quantity); const source = await this.source(tx, body, invoice, identityId, actor.membershipId);
+      const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice, quantity: input.quantity, amount, overrideReason: input.overrideReason, ...source } });
+      const outcome = await this.refreshInvoice(tx, schoolId, invoiceId); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_ADDED", operation, null, { line: this.lineDto(line), invoice: outcome }); return outcome;
+    });
+  }
+  async editInvoiceLine(identityId: string, schoolId: string, invoiceId: string, lineId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId"); this.identifier(lineId, "lineId");
+    const input = { quantity: this.quantity(body?.quantity), unitPrice: body?.unitPrice == null ? null : this.linePrice(body.unitPrice), overrideReason: body?.unitPrice == null ? null : this.text(body?.overrideReason, "overrideReason", true, 500)! };
+    return this.mutate(actor, identityId, schoolId, routes.editInvoiceLine, key, operationId, { invoiceId, lineId, ...input, unitPrice: input.unitPrice?.toString() ?? null, source: body?.source ?? null, sourceReason: body?.sourceReason ?? null }, async (tx, operation) => {
+      const invoice = await this.draftInvoice(tx, schoolId, invoiceId); const existing = await tx.invoiceLine.findFirst({ where: { id: lineId, invoiceId, schoolId } });
+      if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
+      const unitPrice = input.unitPrice ?? existing.unitPrice;
+      const overrideReason = input.unitPrice == null ? existing.overrideReason : input.overrideReason;
+      const source = body?.source === undefined ? { source: existing.source, sourceReason: existing.sourceReason, sourceActorIdentityId: existing.sourceActorIdentityId, sourceMembershipId: existing.sourceMembershipId, sourceRecordedAt: existing.sourceRecordedAt, sourceProvenance: existing.sourceProvenance } : body.source === null ? { source: Prisma.DbNull, sourceReason: null, sourceActorIdentityId: null, sourceMembershipId: null, sourceRecordedAt: null, sourceProvenance: Prisma.DbNull } : await this.source(tx, body, invoice, identityId, actor.membershipId);
+      const line = await tx.invoiceLine.update({ where: { id: lineId }, data: { quantity: input.quantity, unitPrice, amount: this.amount(unitPrice, input.quantity), overrideReason, ...source } });
+      const outcome = await this.refreshInvoice(tx, schoolId, invoiceId); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_EDITED", operation, this.lineDto(existing), { line: this.lineDto(line), invoice: outcome }); return outcome;
+    });
+  }
+  async removeInvoiceLine(identityId: string, schoolId: string, invoiceId: string, lineId: string, key: string, operationId: string) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId"); this.identifier(lineId, "lineId");
+    return this.mutate(actor, identityId, schoolId, routes.removeInvoiceLine, key, operationId, { invoiceId, lineId }, async (tx, operation) => {
+      await this.draftInvoice(tx, schoolId, invoiceId); const existing = await tx.invoiceLine.findFirst({ where: { id: lineId, invoiceId, schoolId } }); if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
+      await tx.invoiceLine.delete({ where: { id: lineId } }); const outcome = await this.refreshInvoice(tx, schoolId, invoiceId); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_REMOVED", operation, this.lineDto(existing), outcome); return outcome;
+    });
   }
   async createGroup(
     identityId: string,
@@ -347,6 +462,10 @@ export class FinanceService {
   }
   private runInclude: any = {
     selections: { select: { studentId: true } },
+    invoices: {
+      select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true },
+      orderBy: { studentCodeSnapshot: "asc" },
+    },
     lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
   };
   private runDto(run: any) {
@@ -361,6 +480,11 @@ export class FinanceService {
       selectedStudentIds: (run.selections ?? []).map(
         (selection: any) => selection.studentId,
       ),
+      invoices: (run.invoices ?? []).map((invoice: any) => ({
+        id: invoice.id, studentId: invoice.studentId, studentCode: invoice.studentCodeSnapshot,
+        studentName: invoice.studentNameSnapshot, className: invoice.classNameSnapshot,
+        status: invoice.status, total: invoice.total.toString(),
+      })),
       createdAt: run.createdAt.toISOString(),
       updatedAt: run.updatedAt.toISOString(),
     };
@@ -891,6 +1015,9 @@ export class FinanceService {
         const created = pending
           .filter((item: any) => insertedStudentIds.has(item.studentId))
           .map(({ enrollment, assignment, ...item }: any) => item);
+        const createdInvoices = await tx.invoice.findMany({ where: { schoolId, collectionRunId: run.id, studentId: { in: created.map((item: any) => item.studentId) } }, select: { id: true, studentId: true } });
+        const invoiceByStudent = new Map(createdInvoices.map((item: any) => [item.studentId, item.id]));
+        for (const item of created) item.invoiceId = invoiceByStudent.get(item.studentId);
         const invoiceExists = snapshots
           .filter((item: any) => !insertedStudentIds.has(item.studentId))
           .map(({ enrollment, assignment, ...item }: any) => ({
@@ -963,7 +1090,7 @@ export class FinanceService {
        const insertedStudentIds = candidate
          ? await this.insertInvoices(tx, [this.invoiceData(schoolId, run, candidate)])
          : new Set<string>();
-       const created = candidate && insertedStudentIds.has(studentId) ? [candidate] : [];
+       const created = candidate && insertedStudentIds.has(studentId) ? [{ ...candidate, invoiceId: (await tx.invoice.findFirst({ where: { schoolId, collectionRunId: run.id, studentId }, select: { id: true } }))?.id }] : [];
        if (candidate && !insertedStudentIds.has(studentId))
          skipped.push({ studentId, studentCode: student.studentCode, fullName: student.fullName, reason: "INVOICE_EXISTS" });
       const outcome = { run: this.runDto(run), created: created.map(({ enrollment, assignment, ...item }: any) => item), skipped };

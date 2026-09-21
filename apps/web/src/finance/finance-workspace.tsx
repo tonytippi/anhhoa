@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 type Group = { id: string; name: string; status: "ACTIVE" | "INACTIVE" | null };
 type Receivable = {
@@ -29,6 +29,7 @@ type Run = {
   status: "DRAFT" | "READY" | "GENERATED" | "CLOSED";
   version: number;
   selectedStudentIds: string[];
+  invoices?: Array<{ id: string; studentId: string; studentCode: string; studentName: string; className: string; status: string; total: string }>;
 };
 type Preview = {
   run: Run;
@@ -53,6 +54,7 @@ type GenerateOutcome = {
     studentCode: string;
     fullName: string;
     className: string;
+    invoiceId?: string;
   }>;
   skipped: Array<{
     studentId: string;
@@ -61,6 +63,8 @@ type GenerateOutcome = {
     reason: string;
   }>;
 };
+type Source = { serviceDate: string | null; attendanceState: "PRESENT" | "ABSENT" | null; pickedUpAt: string | null; lateCareMinutes: number | null };
+type Invoice = { id: string; status: string; total: string; billingMonth: string; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }> };
 type Pending = { id: string; schoolId: string };
 type Lifecycle = {
   kind: "receivable-groups" | "receivables";
@@ -89,6 +93,7 @@ const csrf = () =>
     .find((item) => item.startsWith(`${csrfName}=`))
     ?.slice(csrfName.length + 1);
 const uncertain = (status: number) => [408, 502, 503, 504].includes(status);
+const vnd = (value: string) => new Intl.NumberFormat("vi-VN").format(BigInt(value));
 const skipReason = (reason: string) =>
   ({
     NO_ENROLLMENT: "Không còn hồ sơ nhập học.",
@@ -120,6 +125,11 @@ export function FinanceWorkspace({
   const [additionConfirmation, setAdditionConfirmation] = useState<Candidate>();
   const [additionConfirmationName, setAdditionConfirmationName] = useState("");
   const [generatedOutcome, setGeneratedOutcome] = useState<GenerateOutcome>();
+  const [invoice, setInvoice] = useState<Invoice>();
+  const [line, setLine] = useState({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" });
+  const [editingLineId, setEditingLineId] = useState<string>();
+  const [editingSource, setEditingSource] = useState(false);
+  const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string }>();
   const [open, setOpen] = useState({ schoolYearId: "", billingMonth: "" });
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [group, setGroup] = useState({ name: "" });
@@ -133,12 +143,14 @@ export function FinanceWorkspace({
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [scope, setScope] = useState<"group" | "receivable" | "lifecycle">(
+  const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle">(
     "group",
   );
   const [pending, setPending] = useState<Pending>();
   const activeSchool = useRef(schoolId);
   const summary = useRef<HTMLDivElement>(null);
+  const removeDialog = useRef<HTMLDivElement>(null);
+  const removeTrigger = useRef<HTMLButtonElement>(null);
   const status = useRef(onStatusChange);
   const submitting = useRef(false);
   const request = useRef(0);
@@ -209,6 +221,7 @@ export function FinanceWorkspace({
       if (result.status === "COMPLETED") {
         if ((result.outcome as GenerateOutcome | undefined)?.created)
           setGeneratedOutcome(result.outcome as GenerateOutcome);
+        if ((result.outcome as Invoice | undefined)?.lines) applyInvoice(result.outcome as Invoice);
         await load();
       } else setMessage("Thao tác không thành công.");
     } catch {
@@ -220,6 +233,12 @@ export function FinanceWorkspace({
           "Chưa thể xác nhận Operation. Mã thao tác được giữ lại để đối soát sau.",
         );
     }
+  };
+  const applyInvoice = (next: Invoice) => {
+    setInvoice(next);
+    const patch = (item: Run) => ({ ...item, invoices: (item.invoices ?? []).map((candidate) => candidate.id === next.id ? { ...candidate, total: next.total, status: next.status } : candidate) });
+    setRun((current) => current ? patch(current) : current);
+    setRuns((current) => current.map(patch));
   };
   useEffect(() => {
     activeSchool.current = schoolId;
@@ -237,6 +256,10 @@ export function FinanceWorkspace({
     setAdditionConfirmation(undefined);
     setAdditionConfirmationName("");
     setGeneratedOutcome(undefined);
+    setInvoice(undefined);
+    setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" });
+    setEditingLineId(undefined);
+    setEditingSource(false);
     setOpen({ schoolYearId: "", billingMonth: "" });
     setSelectedStudentIds([]);
     setGroup({ name: "" });
@@ -293,11 +316,18 @@ export function FinanceWorkspace({
     });
   }, [dirty, pending]);
   useLayoutEffect(() => {
-    if (message || Object.keys(errors).length) summary.current?.focus();
+    const firstError = Object.keys(errors)[0];
+    const field = firstError && document.getElementById(`invoice-${scope}-${firstError}-field`);
+    if (field instanceof HTMLElement) field.focus();
+    else if (message || firstError) summary.current?.focus();
   }, [message, errors]);
+  useEffect(() => {
+    if (removeConfirmation) removeDialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    else removeTrigger.current?.focus();
+  }, [removeConfirmation]);
   const command = async (
     path: string,
-    method: "POST" | "PUT",
+    method: "POST" | "PUT" | "DELETE",
     body: object,
     nextScope?: typeof scope,
   ) => {
@@ -519,13 +549,50 @@ export function FinanceWorkspace({
       await load();
     }
   };
+  const openInvoice = async (invoiceId: string) => {
+    const token = ++request.current;
+    try {
+      const next = await get<Invoice>(`/api/app/schools/${schoolId}/finance/invoices/${invoiceId}`);
+      if (activeSchool.current === schoolId && token === request.current) setInvoice(next);
+    } catch (error: any) {
+      if (activeSchool.current === schoolId) setMessage(error.message);
+    }
+  };
+  const saveLine = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!invoice) return;
+    const body: Record<string, unknown> = { receivableId: line.receivableId, quantity: line.quantity };
+    if (line.unitPrice) { body.unitPrice = line.unitPrice; body.overrideReason = line.overrideReason; }
+    if (line.serviceDate || line.attendanceState || line.pickedUpAt || line.lateCareMinutes || line.sourceReason) {
+      body.source = { serviceDate: line.serviceDate || null, attendanceState: line.attendanceState || null, pickedUpAt: line.pickedUpAt || null, lateCareMinutes: line.lateCareMinutes ? Number(line.lateCareMinutes) : null };
+      body.sourceReason = line.sourceReason;
+    } else if (editingLineId && editingSource) body.source = null;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/lines${editingLineId ? `/${editingLineId}` : ""}`, editingLineId ? "PUT" : "POST", body, "invoice");
+    if (outcome) { applyInvoice(outcome as Invoice); setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }
+  };
+  const removeLine = async (lineId: string) => {
+    if (!invoice) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/lines/${lineId}`, "DELETE", {}, "receivable");
+    if (outcome) applyInvoice(outcome as Invoice);
+    setRemoveConfirmation(undefined);
+  };
+  const trapRemoveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const items = [...(removeDialog.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+    const first = items[0], last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
   const field = (nextScope: typeof scope, name: string) =>
     scope === nextScope && errors[name]
       ? {
+          id: `invoice-${nextScope}-${name}-field`,
           "aria-invalid": true,
-          "aria-describedby": `${nextScope}-${name}-error`,
+          "aria-describedby": `invoice-${nextScope}-${name}-error`,
         }
       : {};
+  const invoiceField = (name: string) => field("invoice", name);
 
   return (
     <section aria-labelledby="finance-title">
@@ -969,6 +1036,11 @@ export function FinanceWorkspace({
               ))}
             </tbody>
           </table>
+          <table>
+            <caption>Hóa đơn hiện có trong đợt thu</caption>
+            <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th>Tổng VND</th><th>Thao tác</th></tr></thead>
+            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Rà soát hóa đơn</button></td></tr>)}</tbody>
+          </table>
         </section>
       )}
       {generatedOutcome && (
@@ -987,6 +1059,7 @@ export function FinanceWorkspace({
                     {item.studentCode} / {item.fullName}
                   </td>
                   <td>{item.className}</td>
+                  <td>{item.invoiceId && <button type="button" onClick={() => void openInvoice(item.invoiceId!)}>Rà soát hóa đơn</button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -1008,6 +1081,15 @@ export function FinanceWorkspace({
           </table>
         </section>
       )}
+      {invoice && (
+        <section aria-labelledby="invoice-review-title">
+          <h3 id="invoice-review-title">Rà soát hóa đơn {invoice.student.code} / {invoice.student.name}</h3>
+          <p>Đợt {invoice.billingMonth}, lớp {invoice.student.className}, trạng thái {invoice.status}.</p>
+          <table><caption>Dòng hóa đơn do máy chủ tính</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Số tiền VND</th><th>Thao tác</th></tr></thead><tbody>{invoice.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.source && <small> Nguồn: {item.source.serviceDate ?? ""} {item.source.attendanceState ?? ""} {item.source.pickedUpAt ?? ""} {item.source.lateCareMinutes ?? ""}; {item.sourceReason}; ghi lúc {item.sourceRecordedAt ?? ""}; actor {item.sourceAudit?.actorIdentityId ?? ""}; membership {item.sourceAudit?.membershipId ?? ""}; provenance {JSON.stringify(item.sourceProvenance)}</small>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{invoice.status === "DRAFT" && <><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId, quantity: item.quantity, unitPrice: item.unitPrice, overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={3}>Tổng cần thu</th><th style={{ textAlign: "right" }}>{vnd(invoice.total)}</th><td /></tr></tbody></table>
+          {invoice.status === "DRAFT" ? <form onSubmit={saveLine}><h4>{editingLineId ? "Sửa dòng" : "Thêm dòng"}</h4><label>Khoản thu<select disabled={Boolean(editingLineId)} value={line.receivableId} onChange={(event) => setLine({ ...line, receivableId: event.target.value })} {...invoiceField("receivableId")}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>{scope === "invoice" && errors.receivableId && <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>}<label>Số lượng<input inputMode="numeric" value={line.quantity} onChange={(event) => setLine({ ...line, quantity: event.target.value })} {...invoiceField("quantity")} /></label>{scope === "invoice" && errors.quantity && <small id="invoice-invoice-quantity-error">{errors.quantity}</small>}<label>Đơn giá override VND (không bắt buộc)<input inputMode="numeric" value={line.unitPrice} onChange={(event) => setLine({ ...line, unitPrice: event.target.value })} {...invoiceField("unitPrice")} /></label>{scope === "invoice" && errors.unitPrice && <small id="invoice-invoice-unitPrice-error">{errors.unitPrice}</small>}<label>Lý do override<input value={line.overrideReason} onChange={(event) => setLine({ ...line, overrideReason: event.target.value })} {...invoiceField("overrideReason")} /></label>{scope === "invoice" && errors.overrideReason && <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>}<fieldset><legend>Nguồn giải thích thủ công</legend><label>Ngày dịch vụ<input type="date" value={line.serviceDate} onChange={(event) => setLine({ ...line, serviceDate: event.target.value })} /></label><label>Điểm danh<select value={line.attendanceState} onChange={(event) => setLine({ ...line, attendanceState: event.target.value })}><option value="">Không có</option><option value="PRESENT">Có mặt</option><option value="ABSENT">Vắng mặt</option></select></label><label>Giờ đón (HH:MM)<input value={line.pickedUpAt} onChange={(event) => setLine({ ...line, pickedUpAt: event.target.value })} /></label><label>Số phút trông muộn<input inputMode="numeric" value={line.lateCareMinutes} onChange={(event) => setLine({ ...line, lateCareMinutes: event.target.value })} /></label><label>Lý do nguồn giải thích<input value={line.sourceReason} onChange={(event) => setLine({ ...line, sourceReason: event.target.value })} /></label></fieldset><button disabled={Boolean(pending)}>{editingLineId ? "Lưu dòng" : "Thêm dòng"}</button>{editingLineId && <button type="button" onClick={() => { setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }}>Hủy sửa</button>}</form> : <p>Hóa đơn {invoice.status} chỉ đọc; dòng hóa đơn không thể thay đổi.</p>}
+        </section>
+      )}
+      {removeConfirmation && <div ref={removeDialog} role="dialog" aria-modal="true" aria-labelledby="finance-remove-line-title" onKeyDown={trapRemoveFocus}><h3 id="finance-remove-line-title">Xóa dòng {removeConfirmation.name}</h3><p>Dòng này sẽ không còn áp dụng cho hóa đơn nháp.</p><button type="button" disabled={Boolean(pending)} onClick={() => void removeLine(removeConfirmation.id)}>Xác nhận xóa dòng</button><button type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation(undefined)}>Hủy</button></div>}
       {generateConfirmation && run && (
         <div
           role="dialog"
