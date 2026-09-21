@@ -262,6 +262,7 @@ Staff co `HANDOVER_WRITE` tu Chuc danh chinh active va binding active trong Scho
 - `HANDOVER_WRITE` khong mo rong sang attendance, DailyJournal hay class leave; cac capability nay van can StaffClassAssignment hieu luc trong Class phu hop theo FR-12.
 - Reference snapshot va audit giu du thong tin de Finance giai thich dong thu thu cong; khong co cutoff/grace/block policy trong release nay.
 - Parent chi nhan thoi diem tra tre da xac nhan trong DTO/event toi thieu; khong nhan evidence, Staff identity hay ly do noi bo.
+- Finance Admin MVP truoc E4 co the luu tren mot dong `MANUAL` cua Invoice `DRAFT` tham chieu do Finance/School Admin nhap: ngay dich vu, trang thai diem danh, thoi diem tra tre va/hoac so phut trong muon. API validate School, StudentEnrollment, business date, whole-VND quantity/unit price va reason/audit, roi snapshot input tren finance line. Tham chieu nay khong phai attendance/handover record, khong tu suy ra quantity, price, fee, discount hay total va bat bien sau Issue; E4 sau nay khong overwrite/re-price snapshot do.
 
 ### 4.6 Payroll opt-in, nhan su va cham cong
 
@@ -345,9 +346,11 @@ Parent xem Invoice/obligation `ISSUED` con outstanding hoac Invoice `CLOSED` moi
 
 - Release 1: E1 platform identity/access/control plane; tenant-isolation tests la blocker.
 - Release 2: E2 school foundation/roster sau E1 tenant-isolation gate; E3 finance configuration chi sau E1 va E2.
-- Release 3: E4 attendance/leave/service/handover sau E2; E5 collection runs/invoices chi sau E2, E3 va E4; E6 ledger/report sau E5.
-- Release 4: E7 Parent multi-school finance portal sau E1, E2 va E6.
-- Release 5: Payroll E8 sau E1, E2, E3 va Payroll entitlement gate; E9 timekeeping sau E8; E10 regular payroll sau E8/E9; E11 correction/thirteenth-month sau E10. Payroll chi rollout tai School `PILOT_ENABLED` hoac `ENABLED`.
+- Release 3 (Finance Admin MVP): E5 collection runs/invoices sau E1, E2 va E3. Finance Admin nhap tham chieu diem danh/trong muon thu cong tren Invoice `DRAFT`; khong yeu cau Teacher hay Parent portal.
+- Release 4 (Finance settlement): E6 actual receipt, carry, revision, debt va reports sau E5; E5.7 dong CollectionRun va E5.8 revision Invoice thuoc release nay.
+- Release 5 (Operational inputs): E4 attendance/leave/service/handover sau E2 va E3. Teacher portal, evidence va operational queue khong la blocker cho Finance; E4 khong rewrite manual finance-source snapshot da issue.
+- Release 6 (Parent portal): E7 Parent multi-school finance portal sau E1, E2, E4 va E6.
+- Release 7: Payroll E8 sau E1, E2, E3 va Payroll entitlement gate; E9 timekeeping sau E8; E10 regular payroll sau E8/E9; E11 correction/thirteenth-month sau E10. Payroll chi rollout tai School `PILOT_ENABLED` hoac `ENABLED`.
 
 ## 7. Yeu cau chat luong, bao mat va governance
 

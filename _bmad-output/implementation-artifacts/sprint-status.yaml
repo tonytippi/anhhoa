@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-21 # Approved correction: Story 4.5 owns short-leave decision/source; service enrollment moves to Finance catalog Story 5.1.
+last_updated: 2026-09-21 # Approved Finance Admin MVP correction: Epic 5 starts before Teacher/Parent; Story 5.1 is next and manual Finance-source is deferred to Story 5.4.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -51,13 +51,13 @@ development_status:
   4-10-teacher-portal-queue-va-release-gate-van-hanh-lop: backlog
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-1-quan-ly-receivable-catalog-service-enrollment-chargerule-va-chinh-sach-uu-dai-co-phien-ban: backlog
+  epic-5: in-progress
+  5-1-quan-ly-receivable-catalog-va-chargerule-co-phien-ban: ready-for-dev
   5-2-tao-collectionrun-va-server-authoritative-preview: backlog
   5-3-generate-invoice-draft-idempotent-theo-snapshot-roster-rule: backlog
-  5-4-ra-soat-invoice-draft-adjustment-va-promotional-coverage-co-audit: backlog
+  5-4-ra-soat-invoice-draft-va-manual-finance-source-co-audit: backlog
   5-5-issue-invoice-voi-payment-instruction-snapshot-bat-bien: backlog
-  5-6-kiem-thu-collectionrun-va-invoice-issuance-release-gate: backlog
+  5-6-release-gate-finance-admin-mvp: backlog
   5-7-dong-collectionrun-da-generate: backlog
   5-8-revision-invoice-da-phat-hanh-va-huy-ban-cu: backlog
   epic-5-retrospective: optional

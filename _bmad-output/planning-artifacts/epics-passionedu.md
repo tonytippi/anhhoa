@@ -224,11 +224,11 @@ Teacher co capability ghi attendance/handover/DailyJournal trong Class duoc phan
 
 ### Epic 5: Tạo và phát hành nghĩa vụ thu
 
-Finance cau hinh catalog/rule va chinh sach uu dai co version, tao CollectionRun, kiem tra preview do server tinh, generate Invoice DRAFT chong trung, xu ly adjustment hop le va issue immutable Payment instruction snapshot.
+Finance Admin MVP cau hinh catalog/rule, tao CollectionRun, kiem tra preview do server tinh, generate Invoice DRAFT chong trung, ra soat dong thu voi manual Finance-source co audit va issue immutable Payment instruction snapshot. Service, promotion, settlement va report la enhancement sau MVP.
 
 **FRs covered:** FR-7, FR-8, FR-9.
 
-**Depends on:** Epic 1, Epic 2, Epic 3, Epic 4. Epic 4 only delivers immutable adjustment eligibility sources; Epic 5 owns materialization onto Invoice DRAFT.
+**Depends on:** Epic 1, Epic 2, Epic 3. Finance Admin MVP dung catalog, roster snapshot, BankAccount va manual Finance-source snapshot tren Invoice DRAFT. Epic 4 la enhancement sau release: sau khi co immutable short-leave source, Finance co the materialize meal adjustment source-linked ma khong thay doi CollectionRun, Invoice hay manual snapshot da issue.
 
 ### Epic 6: Thu tiền, đối soát công nợ và báo cáo sổ cái
 
@@ -854,10 +854,10 @@ So that attendance/handover khong lam lo du lieu tre em hoac bien thanh pricing 
 
 Finance cau hinh catalog/rule va PromotionPolicy co version, tao CollectionRun, kiem tra preview do server tinh, generate Invoice DRAFT chong trung, xu ly adjustment hop le va issue immutable Payment instruction snapshot.
 
-### Story 5.1: Quản lý receivable catalog, service enrollment, ChargeRule và chính sách ưu đãi có phiên bản
+### Story 5.1: Quản lý receivable catalog và ChargeRule có phiên bản
 
 As a Finance Manager,
-I want to quan ly khoan thu, service enrollment, ChargeRule va chinh sach uu dai co version theo School scope,
+I want to quan ly khoan thu va ChargeRule co version theo School scope,
 So that CollectionRun co rule ro rang ma Invoice lich su khong bi thay doi.
 
 **Acceptance Criteria:**
@@ -867,30 +867,22 @@ So that CollectionRun co rule ro rang ma Invoice lich su khong bi thay doi.
 **Then** record la School-scoped, co audit/effective period/source, va catalog inactive khong the dung cho flow moi nhung van doc duoc trong snapshot lich su
 **And** ma khoan la optional nhung unique trong School khi duoc cung cap; money persist PostgreSQL `BIGINT` va REST chi tra JSON-safe integer, khong dung float.
 
-**Given** Finance Manager hoac School Admin quan ly dich vu cua School
-**When** tao/inactivate service tu Finance catalog hoac tao/huy `StudentServiceEnrollment`
-**Then** enrollment tham chieu service School-scoped, luu effective interval, status, actor/audit va chi ap dung cho Student cung School
-**And** server validate interval/cancel/overlap theo service catalog; Parent khong co service enrollment hay cancellation endpoint va enrollment khong tu dong tao gia, Invoice hay adjustment.
-
 **Given** ChargeRule cung Receivable ap dung o nhieu scope
 **When** server chon rule cho Student trong CollectionRun
 **Then** precedence la `STUDENT > CLASS > SCHOOL`
 **And** conflict cung muc dac hieu bi tu choi, khong chon ngau nhien hoac theo client order.
 
-**Given** Finance Manager cau hinh quantity/price/promotion policy
+**Given** Finance Manager cau hinh quantity va price
 **When** request duoc validate
-**Then** ChargeRule chi nhan `FIXED` hoac `MANUAL`; policy version co mot hoac nhieu Receivable targets, typed unit/applied quantity, fixed-VND hoac percentage, fulfillment mode, priority, stacking/exclusivity va effective period
-**And** assignment, neu policy yeu cau, duoc gan cho Student theo effective interval/reason/audit; policy khong tao tong am hoac anonymous credit va khong co auto-pricing tu attendance, handover hay service enrollment.
-
-**Given** School Admin cau hinh policy version `PREPAID_COVERAGE`
-**When** activate, deactivate hoac tao version moi
-**Then** server validate target unit/applied quantity, optional consecutive-period business rule, target School graph, stacking/exclusivity va effective interval
-**And** version cu/coverage da issue khong bi thay doi; `StudentPromotionAssignment` la generic mechanism, khong tu suy luan quan he gia dinh.
+**Then** ChargeRule chi nhan `FIXED` hoac `MANUAL`; server validate whole-VND, effective interval va scope same-School
+**And** ChargeRule khong tu pricing tu attendance, handover hay browser state.
 
 **Given** finance API persist va tra money field
 **When** unit/integration test chay calculation, catalog va Invoice fixture
 **Then** VND math dung integer `BIGINT` end-to-end va REST reject/khong serialize gia tri khong JSON-safe
 **And** client total khong duoc dung lam persistence authority.
+
+**Deferred follow-up:** service catalog/`StudentServiceEnrollment`, `PromotionPolicy`, `StudentPromotionAssignment` va `PREPAID_COVERAGE` khong thuoc Finance Admin MVP; giu lai trong Finance enhancement sau MVP.
 
 ### Story 5.2: Tạo CollectionRun và server-authoritative preview
 
@@ -905,15 +897,10 @@ So that toi biet chinh xac Student nao du dieu kien, bi skip vi sao va tong tien
 **Then** `billingMonth` bat buoc dung `YYYY-MM` va SchoolYear chi co mot CollectionRun cho billingMonth do; UI mo run hien co thay vi tao run moi
 **And** lifecycle chi cho `DRAFT -> READY -> GENERATED -> CLOSED`; rule/scope edit o DRAFT, server chi dua READY khi hop le.
 
-**Given** Finance Manager hoac School Admin va Parent da thoa thuan truc tiep ve mot policy `PREPAID_COVERAGE` active
-**When** actor chon policy version cho mot hoac nhieu Student trong preview cua `MONTHLY` run
-**Then** API validate authority, policy version, SchoolYear, target applied quantity, optional consecutive-period rule, Receivable eligibility va overlap; start period luon la `billingMonth` cua run
-**And** Parent khong co request/selection endpoint hoac UI; client khong tu tinh gia goc, discount, ky coverage hay total.
-
 **Given** run o DRAFT voi rule/scope hop le
 **When** Finance Manager mo preview
-**Then** server dung cung selection/calculation service voi generate va tra School, period, scope, eligible rows, categorized skips gom `COVERED_BY_PROMOTIONAL_COVERAGE`, per-target promotion evaluation/reason, prior-debt context, amount composition, whole-VND totals, calculation time/version
-**And** client khong gui hoac tu thay tong, eligibility, skip reason hay policy result.
+**Then** server dung cung selection/calculation service voi generate va tra School, period, scope, eligible rows, categorized skips, amount composition, whole-VND totals, calculation time/version
+**And** client khong gui hoac tu thay tong, eligibility hay skip reason.
 
 **Given** preview invalid, stale hoac run state doi
 **When** Finance Manager co generate
@@ -930,7 +917,7 @@ So that moi Student du dieu kien chi co mot obligation trong run va timeout khon
 
 **Given** CollectionRun `READY`, active School context va Idempotency-Key hop le
 **When** Finance Manager xac nhan generate
-**Then** transaction dung roster as-of snapshot va rule/scope snapshot tu server de tao toi da mot DRAFT Invoice cho moi Student eligible, snapshot promotion evaluation va chi bo qua cap Student/Receivable/ky co issued promotion coverage
+**Then** transaction dung roster as-of snapshot va rule/scope snapshot tu server de tao toi da mot DRAFT Invoice cho moi Student eligible
 **And** unique `(schoolId, studentId, collectionRunId)` duoc enforce; Invoice luu enrollment/class/source facts can cho lich su.
 
 **Given** generate hoan tat, bi retry hoac mot Student khong the tao Invoice
@@ -941,12 +928,12 @@ So that moi Student du dieu kien chi co mot obligation trong run va timeout khon
 **Given** CollectionRun da `GENERATED`
 **When** Finance Manager thay doi rule/scope hoac them Student
 **Then** rule/scope goc bi lock; chi Student eligible chua co Invoice moi co the duoc them bang dung mot DRAFT Invoice tu rule snapshot
-**And** khoan phat sinh sau Issue phai di qua source-linked adjustment/refund workflow, khong tao supplemental run hoac sua run/Invoice cu; receivable khong nam trong coverage van generate binh thuong.
+**And** khoan phat sinh sau Issue phai di qua workflow correction/refund sau Finance Admin MVP, khong tao supplemental run hoac sua run/Invoice cu.
 
-### Story 5.4: Rà soát Invoice DRAFT, adjustment và promotion coverage có audit
+### Story 5.4: Rà soát Invoice DRAFT và manual Finance-source có audit
 
 As a Finance Manager,
-I want to xem va dieu chinh Invoice DRAFT, dong thoi lap promotion coverage theo Student trong boundary duoc cap quyen,
+I want to xem va dieu chinh Invoice DRAFT voi manual Finance-source trong boundary duoc cap quyen,
 So that exception duoc giai thich/audit truoc khi obligation bi khoa.
 
 **Acceptance Criteria:**
@@ -956,35 +943,17 @@ So that exception duoc giai thich/audit truoc khi obligation bi khoa.
 **Then** server validate authority, whole-VND integer, rule/discount constraints va bat buoc note/reason audit
 **And** client khong duoc set total, outstanding hoac settlement status; server tra amount composition va total authoritative.
 
-**Given** adjustment dua tren immutable approved-leave-day source hoac source Finance hop le
-**When** Finance Manager xem hoac request outcome
-**Then** UI hien thi immutable source, target DRAFT Invoice hoac no-target/issued/voided result va negative amount tu server
-**And** khong the tao duplicate/non-source-linked automatic adjustment hoac bien attendance/handover thanh auto-pricing.
-
-**Given** Finance Manager ap dung giam hoc phi theo thoa thuan hoac phi khoi phuc
-**When** actor them manual adjustment hoac ap dung Finance policy tren Invoice `DRAFT`
-**Then** server validate whole-VND, School/Student/Invoice state va reason/audit bat buoc
-**And** server khong suy luan percentage, amount hay fee tu so ngay LeaveRequest, enrollment transition hay client state.
-
-**Given** Epic 4 tra immutable adjustment eligibility source
-**When** Finance materialize adjustment trong Invoice `DRAFT`
-**Then** finance-only command chon target, tao negative line idempotent theo source/day/receivable va luu provenance
-**And** no-target, issued/voided target hoac retry outcome duoc tra tu server; khong duplicate, rematerialize hay tu tao charge.
-
-**Given** Finance Manager them dong `MANUAL` cho ngay thu Bay
-**When** dong thu duoc validate trong Invoice `DRAFT`
-**Then** server kiem tra active `StudentServiceEnrollment` cua Student bao phu ngay do
-**And** dong thu bi tu choi khi khong co coverage hoac trung charge voi service da duoc cover; attendance/handover khong tu dong tinh charge.
-
-**Given** Finance Manager hoac School Admin chon policy `PREPAID_COVERAGE` active cho Student trong preview `MONTHLY` sau thoa thuan truc tiep voi Parent
-**When** API tao Invoice DRAFT duy nhat cua Student trong run
-**Then** Invoice chua toan bo named future receivable-period pairs cua policy target quantity, gia goc, policy reduction/version, service interval va ly do; chi co them Receivable khong nam trong coverage cua billingMonth dang mo, khong co charge future khong lien quan
-**And** API tra overlap/eligibility truoc khi tao; coverage chi issue sau khi Invoice dong `EXACT`, luu policy version/Invoice/Receipt paid provenance, reject non-positive eligible operating days va issued coverage trung Student/Receivable/ky; Parent khong co catalog, request hay selection action.
+**Given** Finance Manager hoac School Admin them mot dong `MANUAL` trong Invoice `DRAFT`
+**When** actor nhap tham chieu van hanh thu cong cho Student, ngay dich vu, trang thai diem danh, thoi diem tra tre va/hoac so phut trong muon
+**Then** API validate School, StudentEnrollment, Invoice `DRAFT`, business date, whole-VND quantity/unit price va reason bat buoc; snapshot cac gia tri da nhap, actor, thoi diem va provenance tren finance line
+**And** API khong suy ra quantity, unit price, late-pickup fee, giam tru hay total tu cac tham chieu nay; client khong the set total hoac settlement status.
 
 **Given** Invoice khong con DRAFT hoac School context mismatch
 **When** user gui edit request
 **Then** server tu choi state/capability violation va UI refresh immutable server state
 **And** data table/detail hien thi VND right-aligned, state text label, source/audit context va accessible lifecycle explanation.
+
+**Deferred follow-up:** approved-leave source materialization, `StudentServiceEnrollment`/Saturday coverage va `PromotionPolicy`/`PREPAID_COVERAGE` thuoc Finance enhancement sau MVP.
 
 ### Story 5.5: Issue Invoice với Payment instruction snapshot bất biến
 
@@ -999,16 +968,6 @@ So that Parent va Finance cung tham chieu mot obligation/payment instruction kho
 **Then** transaction khoa obligation content, luu source/enrollment facts va snapshot receiving bank, account number, account holder, validated transfer content, student code/class name va issued total
 **And** BankAccount o School khac hoac inactive bi tu choi; timeout chi duoc retry sau Operation reconciliation.
 
-**Given** promotion evaluation cua Invoice DRAFT da thay doi truoc Issue
-**When** server re-evaluate policy, assignment, usage, stacking hoac coverage trong issue transaction
-**Then** server tu choi Issue voi `PROMOTION_REVIEW_REQUIRED` va tra projection moi de Kế toán ra soat
-**And** Invoice issue snapshot tung policy application/version/target/base/discount/priority/reason va assignment provenance neu co.
-
-**Given** Invoice DRAFT cua `MONTHLY` CollectionRun co policy `PREPAID_COVERAGE` duoc chon
-**When** Finance Manager issue
-**Then** Invoice snapshot named coverage receivable-period pairs, gia goc, policy version/reduction, service interval va coverage source facts
-**And** issued overlap cho cung Student/Receivable/ky bi tu choi va monthly CollectionRun sau do chi skip coverage facts do.
-
 **Given** Invoice da `ISSUED`
 **When** Finance Manager hoac client co sua line, quantity, price, discount, BankAccount, Payment instruction, total hoac state
 **Then** server tu choi mutation; chi actual-receipt close hoac Story 5.8 revision workflow co the transition Invoice
@@ -1019,23 +978,28 @@ So that Parent va Finance cung tham chieu mot obligation/payment instruction kho
 **Then** UI neu ro School, Student, period, immutable obligation, Payment instruction snapshot va ledger-derived outstanding
 **And** action destructive/issue co named confirmation, focus management, lifecycle conflict refresh va khong hien thi live account nhu historical snapshot.
 
-### Story 5.6: Kiểm thử CollectionRun và Invoice issuance release gate
+### Story 5.6: Release gate Finance Admin MVP
 
 As a release owner,
-I want automated proof cho calculation, scope, snapshot, concurrency va issue lifecycle,
-So that CollectionRun/Invoice khong duplicate, tinh sai VND hoac expose du lieu cross-tenant.
+I want automated proof cho Finance Admin MVP calculation, scope, snapshot, concurrency va issue lifecycle,
+So that CollectionRun/Invoice khong duplicate, tinh sai VND, expose du lieu cross-tenant hoac phu thuoc Teacher/Parent.
 
 **Acceptance Criteria:**
 
-**Given** fixture co nhieu School, SchoolYear, enrollment lifecycle, rules, promotion policy versions/assignments, bank accounts va CollectionRuns
-**When** unit/integration suite chay preview/generate/issue scenarios
-**Then** preview va generate dung cung outcome; scope/precedence/promotion evaluation/stacking/whole-VND math, coverage overlap/skip, roster snapshot, unique Invoice va lifecycle locks deu duoc kiem tra
+**Given** fixture co nhieu School, SchoolYear, enrollment lifecycle, Receivable, ChargeRule, BankAccount va CollectionRun
+**When** unit/integration suite chay catalog, preview, generate, DRAFT review va issue scenarios
+**Then** preview va generate dung cung outcome; scope/precedence/whole-VND math, roster/rule snapshot, unique Invoice va lifecycle locks deu duoc kiem tra
 **And** cross-School relation/query, inactive/wrong-School bank account, client total/status injection va Invoice mutation after issue deu bi tu choi.
 
 **Given** concurrent hoac retried generate/issue requests
 **When** suite thuc hien timeout, identical retry va changed fingerprint cases
 **Then** moi Student/run co toi da mot Invoice, Operation outcome duoc reconcile, audit/provenance du va duplicate post khong xay ra
-**And** Finance UI E2E cho preview/generate/issue hien thi server values, switch guard, timeout reconciliation, text state, focus/error va no stale School data.
+**And** Finance UI E2E cho preview/generate/DRAFT-review/issue hien thi server values, switch guard, timeout reconciliation, text state, focus/error va no stale School data.
+
+**Given** Finance Manager them manual Finance-source snapshot cho diem danh hoac trong muon tren Invoice `DRAFT`
+**When** API va UI tests chay
+**Then** School/Student/Invoice state, required reason/audit, integer VND/quantity, immutable issued snapshot va absence cua auto-pricing deu duoc prove
+**And** khong co route, bundle hay authorization dependency vao `teacher-web`, `parent-web`, attendance, service enrollment, `PromotionPolicy` hay Payroll.
 
 **Given** pilot performance fixture 1,000 Student
 **When** CollectionRun generate chay
