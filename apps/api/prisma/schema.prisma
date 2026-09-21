@@ -48,6 +48,7 @@ model School {
   receivables                       Receivable[]
   collectionRuns                    CollectionRun[]
   collectionRunLifecycleTransitions CollectionRunLifecycleTransition[]
+  invoices                          Invoice[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
@@ -80,6 +81,7 @@ model SchoolYear {
   staffClassAssignments      StaffClassAssignment[]
   enrollmentClassAssignments EnrollmentClassAssignment[]
   collectionRuns             CollectionRun[]
+  invoices                   Invoice[]
   closedAt                   DateTime?
   closedByMembershipId       String?                     @db.Uuid
   closeOperationId           String?                     @unique @db.Uuid
@@ -323,6 +325,7 @@ model Student {
   handoverRecords             HandoverRecord[]
   notificationSourceEvents    NotificationSourceEvent[]
   collectionRunSelections     CollectionRunSelection[]
+  invoices                    Invoice[]
 
   @@unique([schoolId, id])
   @@index([schoolId, studentCode])
@@ -660,10 +663,49 @@ model CollectionRun {
   schoolYear           SchoolYear                         @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
   selections           CollectionRunSelection[]
   lifecycleTransitions CollectionRunLifecycleTransition[]
+  invoices             Invoice[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, billingMonth])
+  @@unique([schoolId, id, schoolYearId, billingMonth])
   @@index([schoolId, schoolYearId, billingMonth])
+}
+
+enum InvoiceStatus {
+  DRAFT
+}
+
+model Invoice {
+  id                        String    @id @default(uuid()) @db.Uuid
+  schoolId                  String    @db.Uuid
+  studentId                 String    @db.Uuid
+  collectionRunId           String    @db.Uuid
+  schoolYearId              String    @db.Uuid
+  billingMonth              String
+  rosterAsOf                DateTime  @db.Date
+  studentCodeSnapshot       String
+  studentNameSnapshot       String
+  enrollmentIdSnapshot      String    @db.Uuid
+  enrollmentLifecycleSnapshot StudentEnrollmentLifecycle
+  enrollmentEffectiveFromSnapshot DateTime @db.Date
+  enrollmentEndedOnSnapshot DateTime? @db.Date
+   // Legacy invoices can predate assignment snapshots; newly generated invoices always provide both.
+   classAssignmentIdSnapshot String?   @db.Uuid
+   classAssignmentEffectiveFromSnapshot DateTime? @db.Date
+  classAssignmentEffectiveToSnapshot DateTime? @db.Date
+  classIdSnapshot           String    @db.Uuid
+  classNameSnapshot         String
+  selectionProvenance       Json
+  status                    InvoiceStatus @default(DRAFT)
+  createdAt                 DateTime  @default(now())
+  school                    School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student                   Student   @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  collectionRun             CollectionRun @relation(fields: [schoolId, collectionRunId, schoolYearId, billingMonth], references: [schoolId, id, schoolYearId, billingMonth], onDelete: Restrict)
+  schoolYear                SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, studentId, collectionRunId])
+  @@index([schoolId, collectionRunId])
 }
 
 model CollectionRunSelection {

@@ -1,46 +1,1315 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { AuthorizationService } from '../authorization/authorization.service.js';
-import { auditData } from '../common/audit.js';
-import { requestFingerprint } from '../common/mutation-protection.js';
-import { isOperationIdempotencyCollision } from '../common/operation-idempotency.js';
-import { PrismaService } from '../identity/prisma.service.js';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { AuthorizationService } from "../authorization/authorization.service.js";
+import { auditData } from "../common/audit.js";
+import { requestFingerprint } from "../common/mutation-protection.js";
+import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
+import { PrismaService } from "../identity/prisma.service.js";
 
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const routes = { group: 'POST /api/app/schools/:schoolId/finance/receivable-groups', receivable: 'POST /api/app/schools/:schoolId/finance/receivables', groupLifecycle: 'POST /api/app/schools/:schoolId/finance/receivable-groups/:groupId/lifecycle', receivableLifecycle: 'POST /api/app/schools/:schoolId/finance/receivables/:receivableId/lifecycle', openRun: 'POST /api/app/schools/:schoolId/finance/collection-runs', selection: 'PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/selection', ready: 'POST /api/app/schools/:schoolId/finance/collection-runs/:runId/ready' };
-const validation = (field: string, message: string) => new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu không hợp lệ.', fieldErrors: { [field]: message } });
+const uuid =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const routes = {
+  group: "POST /api/app/schools/:schoolId/finance/receivable-groups",
+  receivable: "POST /api/app/schools/:schoolId/finance/receivables",
+  groupLifecycle:
+    "POST /api/app/schools/:schoolId/finance/receivable-groups/:groupId/lifecycle",
+  receivableLifecycle:
+    "POST /api/app/schools/:schoolId/finance/receivables/:receivableId/lifecycle",
+  openRun: "POST /api/app/schools/:schoolId/finance/collection-runs",
+  selection:
+    "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/selection",
+  ready: "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/ready",
+  generate:
+    "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/generate",
+  addGeneratedStudent:
+    "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/generated-students",
+};
+const validation = (field: string, message: string) =>
+  new BadRequestException({
+    code: "VALIDATION_ERROR",
+    message: "Dữ liệu không hợp lệ.",
+    fieldErrors: { [field]: message },
+  });
 
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService, private readonly authorization: AuthorizationService) {}
-  private school(schoolId: string) { if (!uuid.test(schoolId)) throw validation('schoolId', 'ID trường không hợp lệ.'); return schoolId; }
-  private actor(identityId: string, schoolId: string) { return this.authorization.resolve(identityId, this.school(schoolId), 'app', 'FINANCE_MANAGE'); }
-  private text(value: unknown, field: string, required = true, limit = 200) { const result = typeof value === 'string' ? value.trim() : ''; if ((required && !result) || result.length > limit) throw validation(field, required ? `Cần từ 1 đến ${limit} ký tự.` : `Không quá ${limit} ký tự.`); return result || null; }
-  private identifier(value: unknown, field: string) { if (typeof value !== 'string' || !uuid.test(value)) throw validation(field, 'ID không hợp lệ.'); return value; }
-  private price(value: unknown) { if (typeof value !== 'string' || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 9007199254740991n) throw validation('defaultUnitPrice', 'Đơn giá VND phải là số nguyên dương an toàn.'); return BigInt(value); }
-  private groupDto(value: any) { const status = value.lifecycleTransitions?.[0]?.status ?? null; return { id: value.id, name: value.name, status, createdAt: value.createdAt.toISOString() }; }
-  private receivableDto(value: any) { const status = value.lifecycleTransitions?.[0]?.status ?? null; const groupStatus = value.group?.lifecycleTransitions?.[0]?.status ?? 'ACTIVE'; return { id: value.id, groupId: value.groupId, code: value.code, displayName: value.displayName, unitLabel: value.unitLabel, defaultUnitPrice: value.defaultUnitPrice.toString(), status, available: status === 'ACTIVE' && groupStatus === 'ACTIVE', createdAt: value.createdAt.toISOString() }; }
-  async read(identityId: string, schoolId: string) { schoolId = this.school(schoolId); await this.actor(identityId, schoolId); const [groups, receivables] = await Promise.all([this.prisma.receivableGroup.findMany({ where: { schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: 'desc' }, take: 1 } }, orderBy: { name: 'asc' } }), this.prisma.receivable.findMany({ where: { schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: 'desc' }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: 'desc' }, take: 1 } } } }, orderBy: { displayName: 'asc' } })]); return { groups: groups.map((item) => this.groupDto(item)), receivables: receivables.map((item) => this.receivableDto(item)) }; }
-  async operation(identityId: string, schoolId: string, operationId: string) { schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); if (!uuid.test(operationId)) throw new NotFoundException({ code: 'OPERATION_NOT_FOUND', message: 'Không tìm thấy thao tác.' }); const operation = await this.prisma.operation.findFirst({ where: { id: operationId, schoolId, membershipId: actor.membershipId, actorType: 'SCHOOL_MEMBERSHIP' } }); if (!operation) throw new NotFoundException({ code: 'OPERATION_NOT_FOUND', message: 'Không tìm thấy thao tác.' }); return { id: operation.id, status: operation.status, outcome: operation.outcome }; }
-  async createGroup(identityId: string, schoolId: string, key: string, operationId: string, body: any) { schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); const input = { name: this.text(body?.name, 'name')! }; return this.mutate(actor, identityId, schoolId, routes.group, key, operationId, input, async (tx, operation) => { try { const group = await tx.receivableGroup.create({ data: { schoolId, name: input.name } }); const transition = await tx.receivableGroupLifecycleTransition.create({ data: { schoolId, receivableGroupId: group.id, status: 'ACTIVE', actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 1 } }); const outcome = this.groupDto({ ...group, lifecycleTransitions: [transition] }); await this.audit(tx, schoolId, identityId, actor.membershipId, 'RECEIVABLE_GROUP_CREATED', operation, null, outcome); return outcome; } catch (error) { if ((error as any)?.code === 'P2002') throw validation('name', 'Tên nhóm đã tồn tại trong trường.'); throw error; } }); }
-  async createReceivable(identityId: string, schoolId: string, key: string, operationId: string, body: any) { schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); const input = { groupId: this.identifier(body?.groupId, 'groupId'), code: this.text(body?.code, 'code', false, 50), displayName: this.text(body?.displayName, 'displayName')!, unitLabel: this.text(body?.unitLabel, 'unitLabel', true, 50)!, defaultUnitPrice: this.price(body?.defaultUnitPrice) }; return this.mutate(actor, identityId, schoolId, routes.receivable, key, operationId, { ...input, defaultUnitPrice: input.defaultUnitPrice.toString() }, async (tx, operation) => { const group = await tx.receivableGroup.findFirst({ where: { id: input.groupId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: 'desc' }, take: 1 } } }); if (!group) throw new NotFoundException({ code: 'RECEIVABLE_GROUP_NOT_FOUND', message: 'Không tìm thấy nhóm khoản thu.' }); if (group.lifecycleTransitions[0]?.status !== 'ACTIVE') throw validation('groupId', 'Nhóm khoản thu đã ngừng áp dụng.'); try { const item = await tx.receivable.create({ data: { schoolId, ...input } }); const transition = await tx.receivableLifecycleTransition.create({ data: { schoolId, receivableId: item.id, status: 'ACTIVE', actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 1 } }); const outcome = this.receivableDto({ ...item, lifecycleTransitions: [transition], group }); await this.audit(tx, schoolId, identityId, actor.membershipId, 'RECEIVABLE_CREATED', operation, null, outcome); return outcome; } catch (error) { if ((error as any)?.code === 'P2002') throw validation('code', 'Mã khoản thu đã tồn tại trong trường.'); throw error; } }); }
-  async transitionGroup(identityId: string, schoolId: string, id: string, key: string, operationId: string, body: any) { return this.transition('group', identityId, this.school(schoolId), id, key, operationId, body); }
-  async transitionReceivable(identityId: string, schoolId: string, id: string, key: string, operationId: string, body: any) { return this.transition('receivable', identityId, this.school(schoolId), id, key, operationId, body); }
-  private month(value: unknown) { if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw validation('billingMonth', 'Tháng thu phải có dạng YYYY-MM.'); return value; }
-  private asOf(billingMonth: string) { const [year, month] = billingMonth.split('-').map(Number); return new Date(Date.UTC(year!, month! - 1, 1)); }
-  private runInclude: any = { selections: { select: { studentId: true } }, lifecycleTransitions: { orderBy: { sequence: 'desc' }, take: 1 } };
-  private runDto(run: any) { const status = run.lifecycleTransitions?.[0]?.status ?? run.status; return { id: run.id, schoolYearId: run.schoolYearId, billingMonth: run.billingMonth, type: run.type, status, version: run.version, selectedStudentIds: (run.selections ?? []).map((selection: any) => selection.studentId), createdAt: run.createdAt.toISOString(), updatedAt: run.updatedAt.toISOString() }; }
-  async runs(identityId: string, schoolId: string, schoolYearId?: string) { schoolId = this.school(schoolId); await this.actor(identityId, schoolId); if (schoolYearId) this.identifier(schoolYearId, 'schoolYearId'); const runs = await this.prisma.collectionRun.findMany({ where: { schoolId, ...(schoolYearId ? { schoolYearId } : {}) }, include: this.runInclude, orderBy: { billingMonth: 'desc' } }); return { runs: runs.map((run) => this.runDto(run)) }; }
-  async candidates(identityId: string, schoolId: string, schoolYearId?: string) { schoolId = this.school(schoolId); await this.actor(identityId, schoolId); if (schoolYearId) this.identifier(schoolYearId, 'schoolYearId'); const [schoolYears, enrollments] = await Promise.all([this.prisma.schoolYear.findMany({ where: { schoolId }, orderBy: { startsOn: 'desc' } }), schoolYearId ? this.prisma.studentEnrollment.findMany({ where: { schoolId, schoolYearId }, include: { student: true }, orderBy: { student: { studentCode: 'asc' } } }) : Promise.resolve([])]); return { schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString(), endsOn: year.endsOn.toISOString(), closedAt: year.closedAt?.toISOString() ?? null })), students: enrollments.map((enrollment) => ({ id: enrollment.studentId, studentCode: enrollment.student.studentCode, fullName: enrollment.student.fullName })) }; }
-  async run(identityId: string, schoolId: string, runId: string) { schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(runId, 'runId'); const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId }, include: this.runInclude }); if (!run) throw new NotFoundException({ code: 'COLLECTION_RUN_NOT_FOUND', message: 'Không tìm thấy đợt thu.' }); return this.runDto(run); }
-  async openRun(identityId: string, schoolId: string, key: string, operationId: string, body: any) { schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); const input = { schoolYearId: this.identifier(body?.schoolYearId, 'schoolYearId'), billingMonth: this.month(body?.billingMonth) }; const work = async (tx: any, operation: string) => { const year = await this.lockYear(tx, schoolId, input.schoolYearId); if (year.closedAt) throw new ConflictException({ code: 'SCHOOL_YEAR_CLOSED', message: 'Năm học đã đóng chỉ có thể xem.' }); const asOf = this.asOf(input.billingMonth); if (asOf < year.startsOn || asOf >= year.endsOn) throw validation('billingMonth', 'Tháng thu phải thuộc năm học đã chọn.'); const existing = await tx.collectionRun.findFirst({ where: { schoolId, schoolYearId: input.schoolYearId, billingMonth: input.billingMonth }, include: this.runInclude }); if (existing) return this.runDto(existing); const run = await tx.collectionRun.create({ data: { schoolId, schoolYearId: input.schoolYearId, billingMonth: input.billingMonth } }); const transition = await tx.collectionRunLifecycleTransition.create({ data: { schoolId, collectionRunId: run.id, status: 'DRAFT', actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 1 } }); const outcome = this.runDto({ ...run, selections: [], lifecycleTransitions: [transition] }); await this.audit(tx, schoolId, identityId, actor.membershipId, 'COLLECTION_RUN_OPENED', operation, null, outcome); return outcome; }; try { return await this.mutate(actor, identityId, schoolId, routes.openRun, key, operationId, input, work); } catch (error) { if ((error as any)?.code !== 'P2002') throw error; const existing = await this.prisma.collectionRun.findFirst({ where: { schoolId, schoolYearId: input.schoolYearId, billingMonth: input.billingMonth }, include: this.runInclude }); if (!existing) throw error; return { id: operationId, status: 'COMPLETED', outcome: this.runDto(existing) }; } }
-  async replaceSelection(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) { schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, 'runId'); if (!Array.isArray(body?.studentIds) || !body.studentIds.length) throw validation('studentIds', 'Cần chọn ít nhất một học sinh.'); const studentIds = [...new Set(body.studentIds.map((id: unknown) => this.identifier(id, 'studentIds')))].sort(); return this.mutate(actor, identityId, schoolId, routes.selection, key, operationId, { runId, studentIds }, async (tx, operation) => { const run = await this.lockRun(tx, schoolId, runId); const year = await this.lockYear(tx, schoolId, run.schoolYearId); if (year.closedAt) throw new ConflictException({ code: 'SCHOOL_YEAR_CLOSED', message: 'Năm học đã đóng chỉ có thể xem.' }); if (run.status !== 'DRAFT') throw new ConflictException({ code: 'COLLECTION_RUN_NOT_DRAFT', message: 'Chỉ được sửa danh sách khi đợt thu ở trạng thái nháp.' }); const count = await tx.studentEnrollment.count({ where: { schoolId, schoolYearId: run.schoolYearId, studentId: { in: studentIds } } }); if (count !== studentIds.length) throw validation('studentIds', 'Học sinh phải thuộc năm học và trường hiện tại.'); await tx.collectionRunSelection.deleteMany({ where: { schoolId, collectionRunId: run.id } }); await tx.collectionRunSelection.createMany({ data: studentIds.map((studentId) => ({ schoolId, collectionRunId: run.id, studentId })) }); const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude }); const outcome = this.runDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, 'COLLECTION_RUN_SELECTION_REPLACED', operation, { runId, version: run.version }, outcome); return outcome; }); }
-  private async selectionPreview(client: any, schoolId: string, run: any) { const asOf = this.asOf(run.billingMonth); const enrollments = await client.studentEnrollment.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, studentId: { in: run.selections.map((item: any) => item.studentId) } }, include: { student: true, classAssignments: { include: { classroom: true } } } }); const byStudent = new Map(enrollments.map((item: any) => [item.studentId, item])); const eligible: any[] = []; const skips: any[] = []; const sources: any[] = []; for (const selected of [...run.selections].sort((a: any, b: any) => a.studentId.localeCompare(b.studentId))) { const enrollment: any = byStudent.get(selected.studentId); const assignments = enrollment?.classAssignments.filter((item: any) => item.effectiveFrom <= asOf && (!item.effectiveTo || item.effectiveTo > asOf)).sort((a: any, b: any) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime() || a.id.localeCompare(b.id)); const assignment = assignments?.[0]; if (!enrollment) skips.push({ studentId: selected.studentId, reason: 'NO_ENROLLMENT' }); else if (enrollment.effectiveFrom > asOf || (enrollment.endedOn && enrollment.endedOn <= asOf)) skips.push({ studentId: selected.studentId, reason: 'ENROLLMENT_NOT_EFFECTIVE' }); else if (enrollment.lifecycle !== 'ENROLLED') skips.push({ studentId: selected.studentId, reason: 'NOT_ENROLLED' }); else if (!assignment) skips.push({ studentId: selected.studentId, reason: 'NO_CLASS_ASSIGNMENT' }); else if (assignment.classroom.status !== 'ACTIVE') skips.push({ studentId: selected.studentId, reason: 'CLASS_INACTIVE' }); else eligible.push({ studentId: enrollment.studentId, studentCode: enrollment.student.studentCode, fullName: enrollment.student.fullName, classId: assignment.classId, className: assignment.classroom.name }); if (enrollment) sources.push({ studentId: selected.studentId, enrollmentId: enrollment.id, enrollmentInterval: [enrollment.effectiveFrom.toISOString(), enrollment.endedOn?.toISOString() ?? null], assignmentId: assignment?.id ?? null, assignmentInterval: assignment ? [assignment.effectiveFrom.toISOString(), assignment.effectiveTo?.toISOString() ?? null] : null }); }
-     const facts = { runId: run.id, version: run.version, billingMonth: run.billingMonth, schoolYear: { id: run.schoolYear.id, startsOn: run.schoolYear.startsOn.toISOString(), endsOn: run.schoolYear.endsOn.toISOString(), closedAt: run.schoolYear.closedAt?.toISOString() ?? null }, selectedStudentIds: run.selections.map((item: any) => item.studentId).sort(), sources, eligible, skips }; return { run: this.runDto(run), eligible, skips, fingerprint: requestFingerprint(facts) }; }
-  async preview(identityId: string, schoolId: string, runId: string) { schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(runId, 'runId'); const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId }, include: { ...this.runInclude, schoolYear: true } }); if (!run) throw new NotFoundException({ code: 'COLLECTION_RUN_NOT_FOUND', message: 'Không tìm thấy đợt thu.' }); if (this.runDto(run).status !== 'DRAFT') throw new ConflictException({ code: 'COLLECTION_RUN_NOT_DRAFT', message: 'Chỉ có thể xem trước đợt thu nháp.' }); return this.selectionPreview(this.prisma, schoolId, run); }
-  async readyRun(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) { schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, 'runId'); const previewFingerprint = this.text(body?.previewFingerprint, 'previewFingerprint', true, 200)!; return this.mutate(actor, identityId, schoolId, routes.ready, key, operationId, { runId, previewFingerprint }, async (tx, operation) => { const locked = await this.lockRun(tx, schoolId, runId); const year = await this.lockYear(tx, schoolId, locked.schoolYearId); if (year.closedAt) throw new ConflictException({ code: 'SCHOOL_YEAR_CLOSED', message: 'Năm học đã đóng chỉ có thể xem.' }); const run = await tx.collectionRun.findFirst({ where: { id: runId, schoolId }, include: { ...this.runInclude, schoolYear: true } }); if (!run) throw new NotFoundException({ code: 'COLLECTION_RUN_NOT_FOUND', message: 'Không tìm thấy đợt thu.' }); if (this.runDto(run).status !== 'DRAFT') throw new ConflictException({ code: 'COLLECTION_RUN_STATE_CONFLICT', message: 'Trạng thái đợt thu đã thay đổi.' }); const preview = await this.selectionPreview(tx, schoolId, run); if (preview.fingerprint !== previewFingerprint) throw new ConflictException({ code: 'PREVIEW_STALE', message: 'Bản xem trước đã cũ. Hãy tải lại trước khi tiếp tục.' }); const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { status: 'READY', version: { increment: 1 } } }); const transition = await tx.collectionRunLifecycleTransition.create({ data: { schoolId, collectionRunId: run.id, previousStatus: 'DRAFT', status: 'READY', actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 2 } }); const outcome = this.runDto({ ...updated, selections: run.selections, lifecycleTransitions: [transition] }); await this.audit(tx, schoolId, identityId, actor.membershipId, 'COLLECTION_RUN_READY', operation, { fingerprint: previewFingerprint }, outcome); return outcome; }); }
-  private async lockYear(tx: any, schoolId: string, schoolYearId: string) { await tx.$queryRaw`SELECT 1 FROM "SchoolYear" WHERE "id" = ${schoolYearId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`; const year = await tx.schoolYear.findFirst({ where: { id: schoolYearId, schoolId } }); if (!year) throw new NotFoundException({ code: 'SCHOOL_YEAR_NOT_FOUND', message: 'Không tìm thấy năm học.' }); return year; }
-  private async lockRun(tx: any, schoolId: string, runId: string) { await tx.$queryRaw`SELECT 1 FROM "CollectionRun" WHERE "id" = ${runId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`; const run = await tx.collectionRun.findFirst({ where: { id: runId, schoolId } }); if (!run) throw new NotFoundException({ code: 'COLLECTION_RUN_NOT_FOUND', message: 'Không tìm thấy đợt thu.' }); return run; }
-  private async transition(kind: 'group' | 'receivable', identityId: string, schoolId: string, id: string, key: string, operationId: string, body: any) { const actor = await this.actor(identityId, schoolId); this.identifier(id, kind === 'group' ? 'groupId' : 'receivableId'); const status = body?.status; const reason = this.text(body?.reason, 'reason', true, 500)!; if (!['ACTIVE', 'INACTIVE'].includes(status)) throw validation('status', 'Trạng thái không hợp lệ.'); const route = kind === 'group' ? routes.groupLifecycle : routes.receivableLifecycle; return this.mutate(actor, identityId, schoolId, route, key, operationId, { id, status, reason }, async (tx, operation) => { const model = kind === 'group' ? tx.receivableGroup : tx.receivable; const transitionModel = kind === 'group' ? tx.receivableGroupLifecycleTransition : tx.receivableLifecycleTransition; const include = kind === 'group' ? { lifecycleTransitions: { orderBy: { sequence: 'desc' }, take: 1 } } : { lifecycleTransitions: { orderBy: { sequence: 'desc' }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: 'desc' }, take: 1 } } } }; const item = await model.findFirst({ where: { id, schoolId }, include }); if (!item) throw new NotFoundException({ code: kind === 'group' ? 'RECEIVABLE_GROUP_NOT_FOUND' : 'RECEIVABLE_NOT_FOUND', message: 'Không tìm thấy catalog khoản thu.' }); const prior = item.lifecycleTransitions[0]; if (!prior || prior.status === status) throw validation('status', 'Bản ghi đã ở trạng thái này.'); if (kind === 'receivable' && status === 'ACTIVE' && item.group.lifecycleTransitions[0]?.status !== 'ACTIVE') throw validation('status', 'Không thể kích hoạt khoản thu khi nhóm đã ngừng áp dụng.'); const transition = await transitionModel.create({ data: { schoolId, [kind === 'group' ? 'receivableGroupId' : 'receivableId']: id, previousStatus: prior.status, status, reason, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: prior.sequence + 1 } }); const oldValue = kind === 'group' ? this.groupDto(item) : this.receivableDto(item); const outcome = kind === 'group' ? this.groupDto({ ...item, lifecycleTransitions: [transition] }) : this.receivableDto({ ...item, lifecycleTransitions: [transition] }); await this.audit(tx, schoolId, identityId, actor.membershipId, kind === 'group' ? 'RECEIVABLE_GROUP_LIFECYCLE_CHANGED' : 'RECEIVABLE_LIFECYCLE_CHANGED', operation, oldValue, outcome); return outcome; }); }
-  private async audit(tx: any, schoolId: string, identityId: string, membershipId: string, action: string, operationId: string, oldValue: object | null, newValue: object) { await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: 'SCHOOL_MEMBERSHIP', reference: membershipId, membershipId }, action, { operationId, oldValue, newValue }) }); }
-  private async mutate(actor: { membershipId: string }, identityId: string, schoolId: string, route: string, key: string, operationId: string, body: unknown, work: (tx: any, operation: string) => Promise<unknown>) { if (!uuid.test(key) || !uuid.test(operationId)) throw new UnauthorizedException({ code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Cần Idempotency-Key và X-Operation-Id UUID.' }); const fingerprint = requestFingerprint(body); const replay = async () => this.prisma.operation.findFirst({ where: { schoolId, actorReference: actor.membershipId, actorType: 'SCHOOL_MEMBERSHIP', route, idempotencyKey: key } }); const operationById = async () => this.prisma.operation.findFirst({ where: { id: operationId, schoolId, membershipId: actor.membershipId, actorType: 'SCHOOL_MEMBERSHIP' } }); const existing = await replay(); if (existing) { if (existing.fingerprint !== fingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency-Key đã dùng cho yêu cầu khác.' }); await this.actor(identityId, schoolId); return { id: existing.id, status: existing.status, outcome: existing.outcome }; } const collision = await operationById(); if (collision) throw new ConflictException({ code: 'OPERATION_ID_CONFLICT', message: 'X-Operation-Id đã được dùng. Hãy đối soát Operation trước khi thử lại.', operationId }); try { return await this.prisma.$transaction(async (tx) => { await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`; const membership = await tx.schoolMembership.findFirst({ where: { id: actor.membershipId, schoolId, userIdentityId: identityId, status: 'ACTIVE', school: { status: 'ACTIVE' }, boundStaffProfile: { employmentStatus: 'ACTIVE', primaryPosition: { status: 'ACTIVE', grants: { some: { capability: 'FINANCE_MANAGE' } } } } } }); if (!membership) throw new NotFoundException({ code: 'FINANCE_CONTEXT_DENIED', message: 'Không thể truy cập catalog khoản thu.' }); const operation = await tx.operation.create({ data: { id: operationId, schoolId, membershipId: actor.membershipId, actorIdentityId: identityId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: actor.membershipId, route, idempotencyKey: key, fingerprint } }); const outcome = await work(tx, operation.id); const completed = await tx.operation.update({ where: { id: operation.id }, data: { status: 'COMPLETED', outcome: outcome as any } }); return { id: completed.id, status: completed.status, outcome: completed.outcome }; }); } catch (error) { if (isOperationIdempotencyCollision(error)) { const current = await replay(); if (current?.fingerprint === fingerprint) { await this.actor(identityId, schoolId); return { id: current.id, status: current.status, outcome: current.outcome }; } } if ((error as any)?.code === 'P2002') { const current = await operationById(); if (current) throw new ConflictException({ code: 'OPERATION_ID_CONFLICT', message: 'X-Operation-Id đã được dùng. Hãy đối soát Operation trước khi thử lại.', operationId }); } throw error; } }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly authorization: AuthorizationService,
+  ) {}
+  private school(schoolId: string) {
+    if (!uuid.test(schoolId))
+      throw validation("schoolId", "ID trường không hợp lệ.");
+    return schoolId;
+  }
+  private actor(identityId: string, schoolId: string) {
+    return this.authorization.resolve(
+      identityId,
+      this.school(schoolId),
+      "app",
+      "FINANCE_MANAGE",
+    );
+  }
+  private text(value: unknown, field: string, required = true, limit = 200) {
+    const result = typeof value === "string" ? value.trim() : "";
+    if ((required && !result) || result.length > limit)
+      throw validation(
+        field,
+        required ? `Cần từ 1 đến ${limit} ký tự.` : `Không quá ${limit} ký tự.`,
+      );
+    return result || null;
+  }
+  private identifier(value: unknown, field: string) {
+    if (typeof value !== "string" || !uuid.test(value))
+      throw validation(field, "ID không hợp lệ.");
+    return value;
+  }
+  private price(value: unknown) {
+    if (
+      typeof value !== "string" ||
+      !/^\d+$/.test(value) ||
+      BigInt(value) <= 0n ||
+      BigInt(value) > 9007199254740991n
+    )
+      throw validation(
+        "defaultUnitPrice",
+        "Đơn giá VND phải là số nguyên dương an toàn.",
+      );
+    return BigInt(value);
+  }
+  private groupDto(value: any) {
+    const status = value.lifecycleTransitions?.[0]?.status ?? null;
+    return {
+      id: value.id,
+      name: value.name,
+      status,
+      createdAt: value.createdAt.toISOString(),
+    };
+  }
+  private receivableDto(value: any) {
+    const status = value.lifecycleTransitions?.[0]?.status ?? null;
+    const groupStatus =
+      value.group?.lifecycleTransitions?.[0]?.status ?? "ACTIVE";
+    return {
+      id: value.id,
+      groupId: value.groupId,
+      code: value.code,
+      displayName: value.displayName,
+      unitLabel: value.unitLabel,
+      defaultUnitPrice: value.defaultUnitPrice.toString(),
+      status,
+      available: status === "ACTIVE" && groupStatus === "ACTIVE",
+      createdAt: value.createdAt.toISOString(),
+    };
+  }
+  async read(identityId: string, schoolId: string) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    const [groups, receivables] = await Promise.all([
+      this.prisma.receivableGroup.findMany({
+        where: { schoolId },
+        include: {
+          lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
+        },
+        orderBy: { name: "asc" },
+      }),
+      this.prisma.receivable.findMany({
+        where: { schoolId },
+        include: {
+          lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
+          group: {
+            include: {
+              lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
+            },
+          },
+        },
+        orderBy: { displayName: "asc" },
+      }),
+    ]);
+    return {
+      groups: groups.map((item) => this.groupDto(item)),
+      receivables: receivables.map((item) => this.receivableDto(item)),
+    };
+  }
+  async operation(identityId: string, schoolId: string, operationId: string) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    if (!uuid.test(operationId))
+      throw new NotFoundException({
+        code: "OPERATION_NOT_FOUND",
+        message: "Không tìm thấy thao tác.",
+      });
+    const operation = await this.prisma.operation.findFirst({
+      where: {
+        id: operationId,
+        schoolId,
+        membershipId: actor.membershipId,
+        actorType: "SCHOOL_MEMBERSHIP",
+      },
+    });
+    if (!operation)
+      throw new NotFoundException({
+        code: "OPERATION_NOT_FOUND",
+        message: "Không tìm thấy thao tác.",
+      });
+    return {
+      id: operation.id,
+      status: operation.status,
+      outcome: operation.outcome,
+    };
+  }
+  async createGroup(
+    identityId: string,
+    schoolId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    const input = { name: this.text(body?.name, "name")! };
+    return this.mutate(
+      actor,
+      identityId,
+      schoolId,
+      routes.group,
+      key,
+      operationId,
+      input,
+      async (tx, operation) => {
+        try {
+          const group = await tx.receivableGroup.create({
+            data: { schoolId, name: input.name },
+          });
+          const transition = await tx.receivableGroupLifecycleTransition.create(
+            {
+              data: {
+                schoolId,
+                receivableGroupId: group.id,
+                status: "ACTIVE",
+                actorIdentityId: identityId,
+                membershipId: actor.membershipId,
+                operationId: operation,
+                sequence: 1,
+              },
+            },
+          );
+          const outcome = this.groupDto({
+            ...group,
+            lifecycleTransitions: [transition],
+          });
+          await this.audit(
+            tx,
+            schoolId,
+            identityId,
+            actor.membershipId,
+            "RECEIVABLE_GROUP_CREATED",
+            operation,
+            null,
+            outcome,
+          );
+          return outcome;
+        } catch (error) {
+          if ((error as any)?.code === "P2002")
+            throw validation("name", "Tên nhóm đã tồn tại trong trường.");
+          throw error;
+        }
+      },
+    );
+  }
+  async createReceivable(
+    identityId: string,
+    schoolId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    const input = {
+      groupId: this.identifier(body?.groupId, "groupId"),
+      code: this.text(body?.code, "code", false, 50),
+      displayName: this.text(body?.displayName, "displayName")!,
+      unitLabel: this.text(body?.unitLabel, "unitLabel", true, 50)!,
+      defaultUnitPrice: this.price(body?.defaultUnitPrice),
+    };
+    return this.mutate(
+      actor,
+      identityId,
+      schoolId,
+      routes.receivable,
+      key,
+      operationId,
+      { ...input, defaultUnitPrice: input.defaultUnitPrice.toString() },
+      async (tx, operation) => {
+        const group = await tx.receivableGroup.findFirst({
+          where: { id: input.groupId, schoolId },
+          include: {
+            lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
+          },
+        });
+        if (!group)
+          throw new NotFoundException({
+            code: "RECEIVABLE_GROUP_NOT_FOUND",
+            message: "Không tìm thấy nhóm khoản thu.",
+          });
+        if (group.lifecycleTransitions[0]?.status !== "ACTIVE")
+          throw validation("groupId", "Nhóm khoản thu đã ngừng áp dụng.");
+        try {
+          const item = await tx.receivable.create({
+            data: { schoolId, ...input },
+          });
+          const transition = await tx.receivableLifecycleTransition.create({
+            data: {
+              schoolId,
+              receivableId: item.id,
+              status: "ACTIVE",
+              actorIdentityId: identityId,
+              membershipId: actor.membershipId,
+              operationId: operation,
+              sequence: 1,
+            },
+          });
+          const outcome = this.receivableDto({
+            ...item,
+            lifecycleTransitions: [transition],
+            group,
+          });
+          await this.audit(
+            tx,
+            schoolId,
+            identityId,
+            actor.membershipId,
+            "RECEIVABLE_CREATED",
+            operation,
+            null,
+            outcome,
+          );
+          return outcome;
+        } catch (error) {
+          if ((error as any)?.code === "P2002")
+            throw validation("code", "Mã khoản thu đã tồn tại trong trường.");
+          throw error;
+        }
+      },
+    );
+  }
+  async transitionGroup(
+    identityId: string,
+    schoolId: string,
+    id: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    return this.transition(
+      "group",
+      identityId,
+      this.school(schoolId),
+      id,
+      key,
+      operationId,
+      body,
+    );
+  }
+  async transitionReceivable(
+    identityId: string,
+    schoolId: string,
+    id: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    return this.transition(
+      "receivable",
+      identityId,
+      this.school(schoolId),
+      id,
+      key,
+      operationId,
+      body,
+    );
+  }
+  private month(value: unknown) {
+    if (typeof value !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value))
+      throw validation("billingMonth", "Tháng thu phải có dạng YYYY-MM.");
+    return value;
+  }
+  private asOf(billingMonth: string) {
+    const [year, month] = billingMonth.split("-").map(Number);
+    return new Date(Date.UTC(year!, month! - 1, 1));
+  }
+  private runInclude: any = {
+    selections: { select: { studentId: true } },
+    lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
+  };
+  private runDto(run: any) {
+    const status = run.lifecycleTransitions?.[0]?.status ?? run.status;
+    return {
+      id: run.id,
+      schoolYearId: run.schoolYearId,
+      billingMonth: run.billingMonth,
+      type: run.type,
+      status,
+      version: run.version,
+      selectedStudentIds: (run.selections ?? []).map(
+        (selection: any) => selection.studentId,
+      ),
+      createdAt: run.createdAt.toISOString(),
+      updatedAt: run.updatedAt.toISOString(),
+    };
+  }
+  async runs(identityId: string, schoolId: string, schoolYearId?: string) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    if (schoolYearId) this.identifier(schoolYearId, "schoolYearId");
+    const runs = await this.prisma.collectionRun.findMany({
+      where: { schoolId, ...(schoolYearId ? { schoolYearId } : {}) },
+      include: this.runInclude,
+      orderBy: { billingMonth: "desc" },
+    });
+    return { runs: runs.map((run) => this.runDto(run)) };
+  }
+  async candidates(
+    identityId: string,
+    schoolId: string,
+    schoolYearId?: string,
+  ) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    if (schoolYearId) this.identifier(schoolYearId, "schoolYearId");
+    const [schoolYears, enrollments] = await Promise.all([
+      this.prisma.schoolYear.findMany({
+        where: { schoolId },
+        orderBy: { startsOn: "desc" },
+      }),
+      schoolYearId
+        ? this.prisma.studentEnrollment.findMany({
+            where: { schoolId, schoolYearId },
+            include: { student: true },
+            orderBy: { student: { studentCode: "asc" } },
+          })
+        : Promise.resolve([]),
+    ]);
+    return {
+      schoolYears: schoolYears.map((year) => ({
+        id: year.id,
+        name: year.name,
+        startsOn: year.startsOn.toISOString(),
+        endsOn: year.endsOn.toISOString(),
+        closedAt: year.closedAt?.toISOString() ?? null,
+      })),
+      students: enrollments.map((enrollment) => ({
+        id: enrollment.studentId,
+        studentCode: enrollment.student.studentCode,
+        fullName: enrollment.student.fullName,
+      })),
+    };
+  }
+  async run(identityId: string, schoolId: string, runId: string) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    const run = await this.prisma.collectionRun.findFirst({
+      where: { id: runId, schoolId },
+      include: this.runInclude,
+    });
+    if (!run)
+      throw new NotFoundException({
+        code: "COLLECTION_RUN_NOT_FOUND",
+        message: "Không tìm thấy đợt thu.",
+      });
+    return this.runDto(run);
+  }
+  async openRun(
+    identityId: string,
+    schoolId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    const input = {
+      schoolYearId: this.identifier(body?.schoolYearId, "schoolYearId"),
+      billingMonth: this.month(body?.billingMonth),
+    };
+    const work = async (tx: any, operation: string) => {
+      const year = await this.lockYear(tx, schoolId, input.schoolYearId);
+      if (year.closedAt)
+        throw new ConflictException({
+          code: "SCHOOL_YEAR_CLOSED",
+          message: "Năm học đã đóng chỉ có thể xem.",
+        });
+      const asOf = this.asOf(input.billingMonth);
+      if (asOf < year.startsOn || asOf >= year.endsOn)
+        throw validation(
+          "billingMonth",
+          "Tháng thu phải thuộc năm học đã chọn.",
+        );
+      const existing = await tx.collectionRun.findFirst({
+        where: {
+          schoolId,
+          schoolYearId: input.schoolYearId,
+          billingMonth: input.billingMonth,
+        },
+        include: this.runInclude,
+      });
+      if (existing) return this.runDto(existing);
+      const run = await tx.collectionRun.create({
+        data: {
+          schoolId,
+          schoolYearId: input.schoolYearId,
+          billingMonth: input.billingMonth,
+        },
+      });
+      const transition = await tx.collectionRunLifecycleTransition.create({
+        data: {
+          schoolId,
+          collectionRunId: run.id,
+          status: "DRAFT",
+          actorIdentityId: identityId,
+          membershipId: actor.membershipId,
+          operationId: operation,
+          sequence: 1,
+        },
+      });
+      const outcome = this.runDto({
+        ...run,
+        selections: [],
+        lifecycleTransitions: [transition],
+      });
+      await this.audit(
+        tx,
+        schoolId,
+        identityId,
+        actor.membershipId,
+        "COLLECTION_RUN_OPENED",
+        operation,
+        null,
+        outcome,
+      );
+      return outcome;
+    };
+    try {
+      return await this.mutate(
+        actor,
+        identityId,
+        schoolId,
+        routes.openRun,
+        key,
+        operationId,
+        input,
+        work,
+      );
+    } catch (error) {
+      if ((error as any)?.code !== "P2002") throw error;
+      const existing = await this.prisma.collectionRun.findFirst({
+        where: {
+          schoolId,
+          schoolYearId: input.schoolYearId,
+          billingMonth: input.billingMonth,
+        },
+        include: this.runInclude,
+      });
+      if (!existing) throw error;
+      return {
+        id: operationId,
+        status: "COMPLETED",
+        outcome: this.runDto(existing),
+      };
+    }
+  }
+  async replaceSelection(
+    identityId: string,
+    schoolId: string,
+    runId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    if (!Array.isArray(body?.studentIds) || !body.studentIds.length)
+      throw validation("studentIds", "Cần chọn ít nhất một học sinh.");
+    const studentIds = [
+      ...new Set(
+        body.studentIds.map((id: unknown) => this.identifier(id, "studentIds")),
+      ),
+    ].sort();
+    return this.mutate(
+      actor,
+      identityId,
+      schoolId,
+      routes.selection,
+      key,
+      operationId,
+      { runId, studentIds },
+      async (tx, operation) => {
+        const run = await this.lockRun(tx, schoolId, runId);
+        const year = await this.lockYear(tx, schoolId, run.schoolYearId);
+        if (year.closedAt)
+          throw new ConflictException({
+            code: "SCHOOL_YEAR_CLOSED",
+            message: "Năm học đã đóng chỉ có thể xem.",
+          });
+        if (run.status !== "DRAFT")
+          throw new ConflictException({
+            code: "COLLECTION_RUN_NOT_DRAFT",
+            message: "Chỉ được sửa danh sách khi đợt thu ở trạng thái nháp.",
+          });
+        const count = await tx.studentEnrollment.count({
+          where: {
+            schoolId,
+            schoolYearId: run.schoolYearId,
+            studentId: { in: studentIds },
+          },
+        });
+        if (count !== studentIds.length)
+          throw validation(
+            "studentIds",
+            "Học sinh phải thuộc năm học và trường hiện tại.",
+          );
+        await tx.collectionRunSelection.deleteMany({
+          where: { schoolId, collectionRunId: run.id },
+        });
+        await tx.collectionRunSelection.createMany({
+          data: studentIds.map((studentId) => ({
+            schoolId,
+            collectionRunId: run.id,
+            studentId,
+          })),
+        });
+        const updated = await tx.collectionRun.update({
+          where: { id: run.id },
+          data: { version: { increment: 1 } },
+          include: this.runInclude,
+        });
+        const outcome = this.runDto(updated);
+        await this.audit(
+          tx,
+          schoolId,
+          identityId,
+          actor.membershipId,
+          "COLLECTION_RUN_SELECTION_REPLACED",
+          operation,
+          { runId, version: run.version },
+          outcome,
+        );
+        return outcome;
+      },
+    );
+  }
+  private async selectionPreview(
+    client: any,
+    schoolId: string,
+    run: any,
+    studentIds = run.selections.map((item: any) => item.studentId),
+  ) {
+    const asOf = this.asOf(run.billingMonth);
+    const enrollments = await client.studentEnrollment.findMany({
+      where: {
+        schoolId,
+        schoolYearId: run.schoolYearId,
+        studentId: { in: studentIds },
+      },
+      include: {
+        student: true,
+        classAssignments: { include: { classroom: true } },
+      },
+    });
+    const byStudent = new Map(
+      enrollments.map((item: any) => [item.studentId, item]),
+    );
+    const eligible: any[] = [];
+    const skips: any[] = [];
+    const sources: any[] = [];
+    for (const studentId of [...studentIds].sort()) {
+      const enrollment: any = byStudent.get(studentId);
+      const assignments = enrollment?.classAssignments
+        .filter(
+          (item: any) =>
+            item.effectiveFrom <= asOf &&
+            (!item.effectiveTo || item.effectiveTo > asOf),
+        )
+        .sort(
+          (a: any, b: any) =>
+            b.effectiveFrom.getTime() - a.effectiveFrom.getTime() ||
+            a.id.localeCompare(b.id),
+        );
+      const assignment = assignments?.[0];
+      const skipped = (reason: string) =>
+        skips.push({
+          studentId,
+          ...(enrollment
+            ? {
+                studentCode: enrollment.student.studentCode,
+                fullName: enrollment.student.fullName,
+              }
+            : {}),
+          reason,
+        });
+      if (!enrollment) skipped("NO_ENROLLMENT");
+      else if (
+        enrollment.effectiveFrom > asOf ||
+        (enrollment.endedOn && enrollment.endedOn <= asOf)
+      )
+        skipped("ENROLLMENT_NOT_EFFECTIVE");
+      else if (enrollment.lifecycle !== "ENROLLED") skipped("NOT_ENROLLED");
+      else if (!assignment) skipped("NO_CLASS_ASSIGNMENT");
+      else if (assignment.classroom.status !== "ACTIVE") skipped("CLASS_INACTIVE");
+      else
+        eligible.push({
+          studentId: enrollment.studentId,
+          studentCode: enrollment.student.studentCode,
+          fullName: enrollment.student.fullName,
+          classId: assignment.classId,
+          className: assignment.classroom.name,
+          enrollment,
+          assignment,
+        });
+      if (enrollment)
+        sources.push({
+          studentId,
+          enrollmentId: enrollment.id,
+          enrollmentInterval: [
+            enrollment.effectiveFrom.toISOString(),
+            enrollment.endedOn?.toISOString() ?? null,
+          ],
+          assignmentId: assignment?.id ?? null,
+          assignmentInterval: assignment
+            ? [
+                assignment.effectiveFrom.toISOString(),
+                assignment.effectiveTo?.toISOString() ?? null,
+              ]
+            : null,
+        });
+    }
+    const eligibleRows = eligible.map(({ enrollment, assignment, ...item }) => item);
+    const facts = {
+      runId: run.id,
+      version: run.version,
+      billingMonth: run.billingMonth,
+      schoolYear: {
+        id: run.schoolYear.id,
+        startsOn: run.schoolYear.startsOn.toISOString(),
+        endsOn: run.schoolYear.endsOn.toISOString(),
+        closedAt: run.schoolYear.closedAt?.toISOString() ?? null,
+      },
+      selectedStudentIds: [...studentIds].sort(),
+      sources,
+      eligible: eligibleRows,
+      skips,
+    };
+    return {
+      run: this.runDto(run),
+      eligible: eligibleRows,
+      skips,
+      fingerprint: requestFingerprint(facts),
+      // This is the sole roster result used to create invoice snapshots below.
+      snapshots: eligible,
+    };
+  }
+  async preview(identityId: string, schoolId: string, runId: string) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    const run = await this.prisma.collectionRun.findFirst({
+      where: { id: runId, schoolId },
+      include: { ...this.runInclude, schoolYear: true },
+    });
+    if (!run)
+      throw new NotFoundException({
+        code: "COLLECTION_RUN_NOT_FOUND",
+        message: "Không tìm thấy đợt thu.",
+      });
+    if (this.runDto(run).status !== "DRAFT")
+      throw new ConflictException({
+        code: "COLLECTION_RUN_NOT_DRAFT",
+        message: "Chỉ có thể xem trước đợt thu nháp.",
+      });
+    return this.selectionPreview(this.prisma, schoolId, run);
+  }
+  async readyRun(
+    identityId: string,
+    schoolId: string,
+    runId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    const previewFingerprint = this.text(
+      body?.previewFingerprint,
+      "previewFingerprint",
+      true,
+      200,
+    )!;
+    return this.mutate(
+      actor,
+      identityId,
+      schoolId,
+      routes.ready,
+      key,
+      operationId,
+      { runId, previewFingerprint },
+      async (tx, operation) => {
+        const locked = await this.lockRun(tx, schoolId, runId);
+        const year = await this.lockYear(tx, schoolId, locked.schoolYearId);
+        if (year.closedAt)
+          throw new ConflictException({
+            code: "SCHOOL_YEAR_CLOSED",
+            message: "Năm học đã đóng chỉ có thể xem.",
+          });
+        const run = await tx.collectionRun.findFirst({
+          where: { id: runId, schoolId },
+          include: { ...this.runInclude, schoolYear: true },
+        });
+        if (!run)
+          throw new NotFoundException({
+            code: "COLLECTION_RUN_NOT_FOUND",
+            message: "Không tìm thấy đợt thu.",
+          });
+        if (this.runDto(run).status !== "DRAFT")
+          throw new ConflictException({
+            code: "COLLECTION_RUN_STATE_CONFLICT",
+            message: "Trạng thái đợt thu đã thay đổi.",
+          });
+        const preview = await this.selectionPreview(tx, schoolId, run);
+        if (preview.fingerprint !== previewFingerprint)
+          throw new ConflictException({
+            code: "PREVIEW_STALE",
+            message: "Bản xem trước đã cũ. Hãy tải lại trước khi tiếp tục.",
+          });
+        const updated = await tx.collectionRun.update({
+          where: { id: run.id },
+          data: { status: "READY", version: { increment: 1 } },
+        });
+        const transition = await tx.collectionRunLifecycleTransition.create({
+          data: {
+            schoolId,
+            collectionRunId: run.id,
+            previousStatus: "DRAFT",
+            status: "READY",
+            actorIdentityId: identityId,
+            membershipId: actor.membershipId,
+            operationId: operation,
+            sequence: 2,
+          },
+        });
+        const outcome = this.runDto({
+          ...updated,
+          selections: run.selections,
+          lifecycleTransitions: [transition],
+        });
+        await this.audit(
+          tx,
+          schoolId,
+          identityId,
+          actor.membershipId,
+          "COLLECTION_RUN_READY",
+          operation,
+          { fingerprint: previewFingerprint },
+          outcome,
+        );
+        return outcome;
+      },
+    );
+  }
+  async generateRun(
+    identityId: string,
+    schoolId: string,
+    runId: string,
+    key: string,
+    operationId: string,
+  ) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    return this.mutate(
+      actor,
+      identityId,
+      schoolId,
+      routes.generate,
+      key,
+      operationId,
+      { runId },
+      async (tx, operation) => {
+        const locked = await this.lockRun(tx, schoolId, runId);
+        const year = await this.lockYear(tx, schoolId, locked.schoolYearId);
+        if (year.closedAt)
+          throw new ConflictException({
+            code: "SCHOOL_YEAR_CLOSED",
+            message: "Năm học đã đóng chỉ có thể xem.",
+          });
+        const run = await tx.collectionRun.findFirst({
+          where: { id: runId, schoolId },
+          include: { ...this.runInclude, schoolYear: true },
+        });
+        if (!run)
+          throw new NotFoundException({
+            code: "COLLECTION_RUN_NOT_FOUND",
+            message: "Không tìm thấy đợt thu.",
+          });
+        if (run.status !== "READY")
+          throw new ConflictException({
+            code: "COLLECTION_RUN_STATE_CONFLICT",
+            message: "Chỉ có thể tạo hóa đơn khi đợt thu đã sẵn sàng.",
+          });
+        // One authoritative roster read supplies both eligibility and immutable snapshots.
+        const roster = await this.selectionPreview(tx, schoolId, run);
+        const snapshots = roster.snapshots as any[];
+        const existingInvoices = await tx.invoice.findMany({
+          where: {
+            schoolId,
+            collectionRunId: run.id,
+            studentId: { in: snapshots.map((item: any) => item.studentId) },
+          },
+          select: { studentId: true },
+        });
+        const existingStudentIds = new Set(
+          existingInvoices.map((item: { studentId: string }) => item.studentId),
+        );
+        const pending = snapshots.filter(
+          (item: any) => !existingStudentIds.has(item.studentId),
+        );
+        // RETURNING distinguishes rows this command inserted from rows that lost a
+        // uniqueness race without putting the transaction into an error state.
+        const insertedStudentIds = await this.insertInvoices(
+          tx,
+          pending.map((item: any) => this.invoiceData(schoolId, run, item)),
+        );
+        const created = pending
+          .filter((item: any) => insertedStudentIds.has(item.studentId))
+          .map(({ enrollment, assignment, ...item }: any) => item);
+        const invoiceExists = snapshots
+          .filter((item: any) => !insertedStudentIds.has(item.studentId))
+          .map(({ enrollment, assignment, ...item }: any) => ({
+            ...item,
+            reason: "INVOICE_EXISTS",
+          }));
+        const updated = await tx.collectionRun.update({
+          where: { id: run.id },
+          data: { status: "GENERATED", version: { increment: 1 } },
+        });
+        const transition = await tx.collectionRunLifecycleTransition.create({
+          data: {
+            schoolId,
+            collectionRunId: run.id,
+            previousStatus: "READY",
+            status: "GENERATED",
+            actorIdentityId: identityId,
+            membershipId: actor.membershipId,
+            operationId: operation,
+            sequence: 3,
+          },
+        });
+        const outcome = {
+          run: this.runDto({
+            ...updated,
+            selections: run.selections,
+            lifecycleTransitions: [transition],
+          }),
+          created,
+          skipped: [...roster.skips, ...invoiceExists],
+        };
+        await this.audit(
+          tx,
+          schoolId,
+          identityId,
+          actor.membershipId,
+          "COLLECTION_RUN_GENERATED",
+          operation,
+          { runId },
+          outcome,
+        );
+        return outcome;
+      },
+    );
+  }
+  async addGeneratedStudent(
+    identityId: string,
+    schoolId: string,
+    runId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    const studentId = this.identifier(body?.studentId, "studentId");
+    return this.mutate(actor, identityId, schoolId, routes.addGeneratedStudent, key, operationId, { runId, studentId }, async (tx, operation) => {
+      const locked = await this.lockRun(tx, schoolId, runId);
+      const year = await this.lockYear(tx, schoolId, locked.schoolYearId);
+      if (year.closedAt) throw new ConflictException({ code: "SCHOOL_YEAR_CLOSED", message: "Năm học đã đóng chỉ có thể xem." });
+      const run = await tx.collectionRun.findFirst({ where: { id: runId, schoolId }, include: { ...this.runInclude, schoolYear: true } });
+      if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
+      if (run.status !== "GENERATED") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ có thể thêm học sinh khi đợt thu đã được tạo." });
+      const student = await tx.student.findFirst({ where: { id: studentId, schoolId } });
+      if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
+       const roster = await this.selectionPreview(tx, schoolId, run, [studentId]);
+       const candidate = roster.snapshots[0] as any;
+       const skipped = [...roster.skips];
+       const insertedStudentIds = candidate
+         ? await this.insertInvoices(tx, [this.invoiceData(schoolId, run, candidate)])
+         : new Set<string>();
+       const created = candidate && insertedStudentIds.has(studentId) ? [candidate] : [];
+       if (candidate && !insertedStudentIds.has(studentId))
+         skipped.push({ studentId, studentCode: student.studentCode, fullName: student.fullName, reason: "INVOICE_EXISTS" });
+      const outcome = { run: this.runDto(run), created: created.map(({ enrollment, assignment, ...item }: any) => item), skipped };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_GENERATED_STUDENT_ADDED", operation, { runId, studentId }, outcome);
+      return outcome;
+    });
+  }
+  private invoiceData(schoolId: string, run: any, item: any) {
+    const { enrollment, assignment } = item;
+    return {
+      schoolId, studentId: item.studentId, collectionRunId: run.id, schoolYearId: run.schoolYearId,
+      billingMonth: run.billingMonth, rosterAsOf: this.asOf(run.billingMonth),
+      studentCodeSnapshot: enrollment.student.studentCode, studentNameSnapshot: enrollment.student.fullName,
+      enrollmentIdSnapshot: enrollment.id, enrollmentLifecycleSnapshot: enrollment.lifecycle,
+      enrollmentEffectiveFromSnapshot: enrollment.effectiveFrom, enrollmentEndedOnSnapshot: enrollment.endedOn,
+      classAssignmentIdSnapshot: assignment.id, classAssignmentEffectiveFromSnapshot: assignment.effectiveFrom,
+      classAssignmentEffectiveToSnapshot: assignment.effectiveTo, classIdSnapshot: assignment.classId,
+      classNameSnapshot: assignment.classroom.name,
+      selectionProvenance: { policy: "COLLECTION_RUN_SELECTION_V1", runId: run.id, billingMonth: run.billingMonth,
+        rosterAsOf: this.asOf(run.billingMonth).toISOString(), enrollmentId: enrollment.id,
+        enrollmentInterval: [enrollment.effectiveFrom.toISOString(), enrollment.endedOn?.toISOString() ?? null],
+        assignmentId: assignment.id, assignmentInterval: [assignment.effectiveFrom.toISOString(), assignment.effectiveTo?.toISOString() ?? null] },
+    };
+  }
+  private async insertInvoices(tx: any, invoices: any[]) {
+    if (!invoices.length) return new Set<string>();
+    const rows = JSON.stringify(invoices);
+    const inserted = (await tx.$queryRaw(Prisma.sql`
+      INSERT INTO "Invoice" (
+        "schoolId", "studentId", "collectionRunId", "schoolYearId", "billingMonth", "rosterAsOf",
+        "studentCodeSnapshot", "studentNameSnapshot", "enrollmentIdSnapshot", "enrollmentLifecycleSnapshot",
+        "enrollmentEffectiveFromSnapshot", "enrollmentEndedOnSnapshot", "classAssignmentIdSnapshot",
+        "classAssignmentEffectiveFromSnapshot", "classAssignmentEffectiveToSnapshot", "classIdSnapshot",
+        "classNameSnapshot", "selectionProvenance"
+      )
+      SELECT
+        "schoolId"::uuid, "studentId"::uuid, "collectionRunId"::uuid, "schoolYearId"::uuid, "billingMonth",
+        "rosterAsOf"::date, "studentCodeSnapshot", "studentNameSnapshot", "enrollmentIdSnapshot"::uuid,
+        "enrollmentLifecycleSnapshot"::"StudentEnrollmentLifecycle", "enrollmentEffectiveFromSnapshot"::date,
+        "enrollmentEndedOnSnapshot"::date, "classAssignmentIdSnapshot"::uuid,
+        "classAssignmentEffectiveFromSnapshot"::date, "classAssignmentEffectiveToSnapshot"::date,
+        "classIdSnapshot"::uuid, "classNameSnapshot", "selectionProvenance"::jsonb
+      FROM jsonb_to_recordset(${rows}::jsonb) AS input(
+        "schoolId" text, "studentId" text, "collectionRunId" text, "schoolYearId" text, "billingMonth" text,
+        "rosterAsOf" text, "studentCodeSnapshot" text, "studentNameSnapshot" text, "enrollmentIdSnapshot" text,
+        "enrollmentLifecycleSnapshot" text, "enrollmentEffectiveFromSnapshot" text, "enrollmentEndedOnSnapshot" text,
+        "classAssignmentIdSnapshot" text, "classAssignmentEffectiveFromSnapshot" text,
+        "classAssignmentEffectiveToSnapshot" text, "classIdSnapshot" text, "classNameSnapshot" text,
+        "selectionProvenance" jsonb
+      )
+      ON CONFLICT ("schoolId", "studentId", "collectionRunId") DO NOTHING
+      RETURNING "studentId"
+    `)) as { studentId: string }[];
+    return new Set(inserted.map((invoice: { studentId: string }) => invoice.studentId));
+  }
+  private async lockYear(tx: any, schoolId: string, schoolYearId: string) {
+    await tx.$queryRaw`SELECT 1 FROM "SchoolYear" WHERE "id" = ${schoolYearId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+    const year = await tx.schoolYear.findFirst({
+      where: { id: schoolYearId, schoolId },
+    });
+    if (!year)
+      throw new NotFoundException({
+        code: "SCHOOL_YEAR_NOT_FOUND",
+        message: "Không tìm thấy năm học.",
+      });
+    return year;
+  }
+  private async lockRun(tx: any, schoolId: string, runId: string) {
+    await tx.$queryRaw`SELECT 1 FROM "CollectionRun" WHERE "id" = ${runId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+    const run = await tx.collectionRun.findFirst({
+      where: { id: runId, schoolId },
+    });
+    if (!run)
+      throw new NotFoundException({
+        code: "COLLECTION_RUN_NOT_FOUND",
+        message: "Không tìm thấy đợt thu.",
+      });
+    return run;
+  }
+  private async transition(
+    kind: "group" | "receivable",
+    identityId: string,
+    schoolId: string,
+    id: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(id, kind === "group" ? "groupId" : "receivableId");
+    const status = body?.status;
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    if (!["ACTIVE", "INACTIVE"].includes(status))
+      throw validation("status", "Trạng thái không hợp lệ.");
+    const route =
+      kind === "group" ? routes.groupLifecycle : routes.receivableLifecycle;
+    return this.mutate(
+      actor,
+      identityId,
+      schoolId,
+      route,
+      key,
+      operationId,
+      { id, status, reason },
+      async (tx, operation) => {
+        const model = kind === "group" ? tx.receivableGroup : tx.receivable;
+        const transitionModel =
+          kind === "group"
+            ? tx.receivableGroupLifecycleTransition
+            : tx.receivableLifecycleTransition;
+        const include =
+          kind === "group"
+            ? {
+                lifecycleTransitions: {
+                  orderBy: { sequence: "desc" },
+                  take: 1,
+                },
+              }
+            : {
+                lifecycleTransitions: {
+                  orderBy: { sequence: "desc" },
+                  take: 1,
+                },
+                group: {
+                  include: {
+                    lifecycleTransitions: {
+                      orderBy: { sequence: "desc" },
+                      take: 1,
+                    },
+                  },
+                },
+              };
+        const item = await model.findFirst({
+          where: { id, schoolId },
+          include,
+        });
+        if (!item)
+          throw new NotFoundException({
+            code:
+              kind === "group"
+                ? "RECEIVABLE_GROUP_NOT_FOUND"
+                : "RECEIVABLE_NOT_FOUND",
+            message: "Không tìm thấy catalog khoản thu.",
+          });
+        const prior = item.lifecycleTransitions[0];
+        if (!prior || prior.status === status)
+          throw validation("status", "Bản ghi đã ở trạng thái này.");
+        if (
+          kind === "receivable" &&
+          status === "ACTIVE" &&
+          item.group.lifecycleTransitions[0]?.status !== "ACTIVE"
+        )
+          throw validation(
+            "status",
+            "Không thể kích hoạt khoản thu khi nhóm đã ngừng áp dụng.",
+          );
+        const transition = await transitionModel.create({
+          data: {
+            schoolId,
+            [kind === "group" ? "receivableGroupId" : "receivableId"]: id,
+            previousStatus: prior.status,
+            status,
+            reason,
+            actorIdentityId: identityId,
+            membershipId: actor.membershipId,
+            operationId: operation,
+            sequence: prior.sequence + 1,
+          },
+        });
+        const oldValue =
+          kind === "group" ? this.groupDto(item) : this.receivableDto(item);
+        const outcome =
+          kind === "group"
+            ? this.groupDto({ ...item, lifecycleTransitions: [transition] })
+            : this.receivableDto({
+                ...item,
+                lifecycleTransitions: [transition],
+              });
+        await this.audit(
+          tx,
+          schoolId,
+          identityId,
+          actor.membershipId,
+          kind === "group"
+            ? "RECEIVABLE_GROUP_LIFECYCLE_CHANGED"
+            : "RECEIVABLE_LIFECYCLE_CHANGED",
+          operation,
+          oldValue,
+          outcome,
+        );
+        return outcome;
+      },
+    );
+  }
+  private async audit(
+    tx: any,
+    schoolId: string,
+    identityId: string,
+    membershipId: string,
+    action: string,
+    operationId: string,
+    oldValue: object | null,
+    newValue: object,
+  ) {
+    await tx.auditRecord.create({
+      data: auditData(
+        schoolId,
+        {
+          identityId,
+          type: "SCHOOL_MEMBERSHIP",
+          reference: membershipId,
+          membershipId,
+        },
+        action,
+        { operationId, oldValue, newValue },
+      ),
+    });
+  }
+  private async mutate(
+    actor: { membershipId: string },
+    identityId: string,
+    schoolId: string,
+    route: string,
+    key: string,
+    operationId: string,
+    body: unknown,
+    work: (tx: any, operation: string) => Promise<unknown>,
+  ) {
+    if (!uuid.test(key) || !uuid.test(operationId))
+      throw new UnauthorizedException({
+        code: "IDEMPOTENCY_KEY_REQUIRED",
+        message: "Cần Idempotency-Key và X-Operation-Id UUID.",
+      });
+    const fingerprint = requestFingerprint(body);
+    const replay = async () =>
+      this.prisma.operation.findFirst({
+        where: {
+          schoolId,
+          actorReference: actor.membershipId,
+          actorType: "SCHOOL_MEMBERSHIP",
+          route,
+          idempotencyKey: key,
+        },
+      });
+    const operationById = async () =>
+      this.prisma.operation.findFirst({
+        where: {
+          id: operationId,
+          schoolId,
+          membershipId: actor.membershipId,
+          actorType: "SCHOOL_MEMBERSHIP",
+        },
+      });
+    const existing = await replay();
+    if (existing) {
+      if (existing.fingerprint !== fingerprint)
+        throw new ConflictException({
+          code: "IDEMPOTENCY_CONFLICT",
+          message: "Idempotency-Key đã dùng cho yêu cầu khác.",
+        });
+      await this.actor(identityId, schoolId);
+      return {
+        id: existing.id,
+        status: existing.status,
+        outcome: existing.outcome,
+      };
+    }
+    const collision = await operationById();
+    if (collision)
+      throw new ConflictException({
+        code: "OPERATION_ID_CONFLICT",
+        message:
+          "X-Operation-Id đã được dùng. Hãy đối soát Operation trước khi thử lại.",
+        operationId,
+      });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`;
+        const membership = await tx.schoolMembership.findFirst({
+          where: {
+            id: actor.membershipId,
+            schoolId,
+            userIdentityId: identityId,
+            status: "ACTIVE",
+            school: { status: "ACTIVE" },
+            boundStaffProfile: {
+              employmentStatus: "ACTIVE",
+              primaryPosition: {
+                status: "ACTIVE",
+                grants: { some: { capability: "FINANCE_MANAGE" } },
+              },
+            },
+          },
+        });
+        if (!membership)
+          throw new NotFoundException({
+            code: "FINANCE_CONTEXT_DENIED",
+            message: "Không thể truy cập catalog khoản thu.",
+          });
+        const operation = await tx.operation.create({
+          data: {
+            id: operationId,
+            schoolId,
+            membershipId: actor.membershipId,
+            actorIdentityId: identityId,
+            actorType: "SCHOOL_MEMBERSHIP",
+            actorReference: actor.membershipId,
+            route,
+            idempotencyKey: key,
+            fingerprint,
+          },
+        });
+        const outcome = await work(tx, operation.id);
+        const completed = await tx.operation.update({
+          where: { id: operation.id },
+          data: { status: "COMPLETED", outcome: outcome as any },
+        });
+        return {
+          id: completed.id,
+          status: completed.status,
+          outcome: completed.outcome,
+        };
+      });
+    } catch (error) {
+      if (isOperationIdempotencyCollision(error)) {
+        const current = await replay();
+        if (current?.fingerprint === fingerprint) {
+          await this.actor(identityId, schoolId);
+          return {
+            id: current.id,
+            status: current.status,
+            outcome: current.outcome,
+          };
+        }
+      }
+      if ((error as any)?.code === "P2002") {
+        const current = await operationById();
+        if (current)
+          throw new ConflictException({
+            code: "OPERATION_ID_CONFLICT",
+            message:
+              "X-Operation-Id đã được dùng. Hãy đối soát Operation trước khi thử lại.",
+            operationId,
+          });
+      }
+      throw error;
+    }
+  }
 }
