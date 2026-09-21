@@ -10,6 +10,7 @@ import {
   SettingsWorkspace,
   type SettingsStatus,
 } from "./settings/settings-workspace";
+import { LeaveReviewWorkspace } from "./attendance/leave-review-workspace";
 
 type School = { schoolId: string; schoolName: string };
 type Context = {
@@ -20,6 +21,7 @@ type Context = {
     | "SCHOOL_CONTEXT_READ"
     | "ROSTER_MANAGE"
     | "SETTINGS_MANAGE"
+    | "LEAVE_REQUEST_DECIDE"
   >;
   navigation: Array<{ id: string; label: string }>;
 };
@@ -34,7 +36,7 @@ const denied = (status: number) => [401, 403, 404].includes(status);
 export function SchoolContext({ clear }: { clear: () => void }) {
   const [schools, setSchools] = useState<School[]>();
   const [context, setContext] = useState<Context>();
-  const [view, setView] = useState<"roster" | "settings">("roster");
+  const [view, setView] = useState<"roster" | "settings" | "leave-review">("roster");
   const [rosterStatus, setRosterStatus] = useState<WorkspaceStatus>({
     dirty: false,
     pending: false,
@@ -43,6 +45,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     dirty: false,
     pending: false,
   });
+  const [leaveReviewStatus, setLeaveReviewStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
   const [switchTo, setSwitchTo] = useState<string>();
   const [error, setError] = useState("");
   const mounted = useRef(true);
@@ -66,6 +69,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     setContext(undefined);
     setRosterStatus({ dirty: false, pending: false });
     setSettingsStatus({ dirty: false, pending: false });
+    setLeaveReviewStatus({ dirty: false, pending: false });
     setView("roster");
     setSwitchTo(undefined);
   };
@@ -90,6 +94,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     setView("roster");
     setRosterStatus({ dirty: false, pending: false });
     setSettingsStatus({ dirty: false, pending: false });
+    setLeaveReviewStatus({ dirty: false, pending: false });
     const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}`, {
       credentials: "include",
     });
@@ -144,8 +149,10 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     if (
       rosterStatus.dirty ||
       rosterStatus.pending ||
-      settingsStatus.dirty ||
-      settingsStatus.pending
+        settingsStatus.dirty ||
+        settingsStatus.pending ||
+        leaveReviewStatus.dirty ||
+        leaveReviewStatus.pending
     )
       setSwitchTo(schoolId);
     else void load(schoolId).catch((cause: Error) => setError(cause.message));
@@ -166,6 +173,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
         : status,
     );
   }, []);
+  const updateLeaveReviewStatus = useCallback((status: WorkspaceStatus) => setLeaveReviewStatus(status), []);
   if (!schools) return <p>Đang tải ngữ cảnh trường...</p>;
   if (!schools.length)
     return <p>Không có trường nào đang cấp quyền cho tài khoản này.</p>;
@@ -177,7 +185,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
           aria-label="Chọn trường"
           value={context?.schoolId ?? ""}
           disabled={Boolean(
-            rosterStatus.pending || settingsStatus.pending,
+            rosterStatus.pending || settingsStatus.pending || leaveReviewStatus.pending,
           )}
           onChange={(event) => requestSwitch(event.target.value)}
         >
@@ -200,7 +208,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
           <nav aria-label="Điều hướng trường">
             {context.navigation.map((item) =>
               item.id === "roster" ||
-              item.id === "settings" ? (
+              item.id === "settings" || item.id === "leave-review" ? (
                 <button
                   key={item.id}
                   aria-current={view === item.id ? "page" : undefined}
@@ -235,6 +243,9 @@ export function SchoolContext({ clear }: { clear: () => void }) {
               }}
               onStatusChange={updateSettingsStatus}
             />
+          ) : view === "leave-review" &&
+            context.capabilities.includes("LEAVE_REQUEST_DECIDE") ? (
+            <LeaveReviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={() => { clearContext(); void refreshChooser(); }} onStatusChange={updateLeaveReviewStatus} />
           ) : null}
         </>
       )}
@@ -254,6 +265,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
                   setSwitchTo(undefined);
                   setRosterStatus({ dirty: false, pending: false });
                   setSettingsStatus({ dirty: false, pending: false });
+                  setLeaveReviewStatus({ dirty: false, pending: false });
                   void load(target).catch((cause: Error) =>
                     setError(cause.message),
                   );

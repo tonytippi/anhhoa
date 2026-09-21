@@ -3,7 +3,7 @@ import { PrismaService } from '../identity/prisma.service.js';
 
 export const capabilityCatalog = [
   'SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAGE', 'SETTINGS_MANAGE',
-  'CLASS_LEAVE_READ', 'ATTENDANCE_WRITE', 'DAILY_JOURNAL_WRITE', 'HANDOVER_WRITE',
+  'CLASS_LEAVE_READ', 'LEAVE_REQUEST_DECIDE', 'ATTENDANCE_WRITE', 'DAILY_JOURNAL_WRITE', 'HANDOVER_WRITE',
   'WORKFORCE_MANAGE', 'TIMEKEEPING_IMPORT', 'TIMEKEEPING_REVIEW', 'LATE_CARE_MANAGE',
   'PAYROLL_PREPARE', 'PAYROLL_RECONCILE', 'PAYROLL_APPROVE', 'PAYROLL_REOPEN',
   'PAYROLL_PAYOUT_CONFIRM', 'PAYROLL_REPORT_READ',
@@ -27,6 +27,7 @@ export class AuthorizationService {
     const navigation = [{ id: 'overview', label: 'Tổng quan' }];
     if (capabilities.includes('ATTENDANCE_WRITE')) navigation.push({ id: 'attendance', label: 'Điểm danh' });
     if (capabilities.includes('HANDOVER_WRITE')) navigation.push({ id: 'handover', label: 'Bàn giao' });
+    if (capabilities.includes('LEAVE_REQUEST_DECIDE')) navigation.push({ id: 'leave-review', label: 'Duyệt đơn nghỉ' });
     if (capabilities.includes('ACCESS_MANAGE')) navigation.push({ id: 'access', label: 'Quản lý truy cập' });
     if (capabilities.includes('ROSTER_MANAGE')) navigation.push({ id: 'roster', label: 'Danh bộ' });
     if (capabilities.includes('SETTINGS_MANAGE')) navigation.push({ id: 'settings', label: 'Cấu hình trường' });

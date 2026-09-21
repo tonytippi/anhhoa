@@ -40,7 +40,7 @@ export class OpsService {
          ['HIEU_TRUONG', 'Hiệu trưởng'], ['QUAN_LY_TRUONG', 'Quản lý trường'], ['KE_TOAN', 'Kế toán'], ['GIAO_VIEN', 'Giáo viên'], ['TUYEN_SINH', 'Nhân viên tuyển sinh'], ['BEP', 'Bếp'], ['Y_TE', 'Y tế'],
        ].map(([code, positionName]) => tx.schoolPosition.create({ data: { schoolId: school.id, code, name: positionName } })));
        const ownerPosition = positions[0]!;
-       await tx.positionCapabilityGrant.createMany({ data: ['SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAGE', 'SETTINGS_MANAGE', 'CLASS_LEAVE_READ'].map((capability) => ({ schoolId: school.id, positionId: ownerPosition.id, capability })) });
+        await tx.positionCapabilityGrant.createMany({ data: ['SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAGE', 'SETTINGS_MANAGE', 'CLASS_LEAVE_READ', 'LEAVE_REQUEST_DECIDE'].map((capability) => ({ schoolId: school.id, positionId: ownerPosition.id, capability })) });
        await tx.staffProfile.create({ data: { schoolId: school.id, fullName: ownerEmail, email: ownerEmail, phone: 'Chưa cập nhật', dateOfBirth: new Date('1900-01-01T00:00:00.000Z'), gender: 'Chưa cập nhật', address: 'Chưa cập nhật', primaryPositionId: ownerPosition.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
        await tx.auditRecord.create({ data: auditData(school.id, { identityId, type: 'PLATFORM_OPERATOR_GRANT', reference: grant.id }, 'SCHOOL_PROVISIONED', { platformOperatorGrantId: grant.id, operationId }) });
        return { schoolId: school.id, status: school.status, studentCodePrefix: school.studentCodePrefix };

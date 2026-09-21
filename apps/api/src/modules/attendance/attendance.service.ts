@@ -95,6 +95,7 @@ export class AttendanceService {
       rejectedReason: string | null;
       decidedAt: Date | null;
       days: Array<{ operatingOn: Date }>;
+      student?: { fullName: string; studentCode: string };
     },
     parent = false,
   ) {
@@ -110,8 +111,10 @@ export class AttendanceService {
       ...(parent
         ? {}
         : {
-            rejectedReason: request.rejectedReason,
-            decidedAt: request.decidedAt?.toISOString() ?? null,
+             rejectedReason: request.rejectedReason,
+             decidedAt: request.decidedAt?.toISOString() ?? null,
+             studentName: request.student?.fullName,
+             studentCode: request.student?.studentCode,
           }),
     };
   }
@@ -203,7 +206,6 @@ export class AttendanceService {
             policyDeadlineLocalTime: facts.policy.nextDayDeadlineLocalTime,
             days: {
               create: facts.operating.map((item) => ({
-                schoolId,
                 operatingOn: this.day(item.day),
                 calendarEffectiveFrom: item.calendarEffectiveFrom,
               })),
@@ -211,6 +213,7 @@ export class AttendanceService {
           },
           include: { days: { orderBy: { operatingOn: "asc" } } },
         });
+        if (facts.auto) await this.issueLeaveDaySources(tx, request);
         const outcome = {
           ...this.dto(request, true),
           excludedDates: facts.excluded,
@@ -249,7 +252,7 @@ export class AttendanceService {
           parentProfileId: parent.id,
           studentId: { in: links.map((link) => link.studentId) },
         },
-        include: { days: { orderBy: { operatingOn: "asc" } } },
+        include: { days: { orderBy: { operatingOn: "asc" } }, student: { select: { fullName: true, studentCode: true } } },
         orderBy: { createdAt: "desc" },
       })
     ).map((request) => this.dto(request, true));
@@ -324,10 +327,82 @@ export class AttendanceService {
     return (
       await this.prisma.leaveRequest.findMany({
         where: { schoolId },
-        include: { days: { orderBy: { operatingOn: "asc" } } },
+        include: { days: { orderBy: { operatingOn: "asc" } }, student: { select: { fullName: true, studentCode: true } } },
         orderBy: { createdAt: "desc" },
       })
     ).map((request) => this.dto(request));
+  }
+  async appOperation(identityId: string, schoolId: string, operationId: string) {
+    if (!uuid.test(operationId))
+      throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
+    const actor = await this.approver(identityId, schoolId);
+    const operation = await this.prisma.operation.findFirst({
+      where: {
+        id: operationId,
+        schoolId,
+        actorType: "SCHOOL_MEMBERSHIP",
+        actorReference: actor.id,
+        route: { in: [approveRoute, rejectRoute] },
+      },
+    });
+    if (!operation)
+      throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
+    return { id: operation.id, status: operation.status, outcome: operation.outcome };
+  }
+  async leaveDaySources(
+    identityId: string,
+    schoolId: string,
+    limit = 100,
+    cursor?: string,
+  ) {
+    await this.approver(identityId, schoolId);
+    const cursorSource = cursor
+      ? await this.prisma.leaveDaySource.findFirst({
+          where: { id: cursor, schoolId, exclusions: { none: {} } },
+          select: { operatingOn: true, id: true },
+        })
+      : null;
+    if (cursor && !cursorSource)
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: { cursor: "Con trỏ không hợp lệ." },
+      });
+    const sources = await this.prisma.leaveDaySource.findMany({
+      where: {
+        schoolId,
+        exclusions: { none: {} },
+        ...(cursorSource
+          ? {
+              OR: [
+                { operatingOn: { gt: cursorSource.operatingOn } },
+                { operatingOn: cursorSource.operatingOn, id: { gt: cursorSource.id } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        studentId: true,
+        operatingOn: true,
+        leaveRequestId: true,
+        leaveStatus: true,
+      },
+      orderBy: [{ operatingOn: "asc" }, { id: "asc" }],
+      take: limit + 1,
+    });
+    const page = sources.slice(0, limit);
+    return {
+      data: page.map((source) => ({
+        schoolId,
+        studentId: source.studentId,
+        operatingOn: source.operatingOn.toISOString().slice(0, 10),
+        leaveRequestId: source.leaveRequestId,
+        leaveStatus: source.leaveStatus,
+        eligible: true,
+      })),
+      nextCursor: sources.length > limit ? page.at(-1)?.id ?? null : null,
+    };
   }
   async teacherList(identityId: string, schoolId: string, classId?: string) {
     const membership = await this.prisma.schoolMembership.findFirst({
@@ -337,6 +412,8 @@ export class AttendanceService {
         status: "ACTIVE",
         school: { status: "ACTIVE" },
         boundStaffProfile: {
+          boundAt: { not: null },
+          boundByMembershipId: { not: null },
           employmentStatus: "ACTIVE",
           primaryPosition: {
             status: "ACTIVE",
@@ -437,7 +514,8 @@ export class AttendanceService {
        const previous = await tx.attendanceRecord.findUnique({ where: { schoolId_classId_studentId_attendanceOn: { schoolId, classId, studentId, attendanceOn: this.day(attendanceOn) } }, select: { state: true, evidenceId: true, policyEffectiveFrom: true, membershipId: true, staffProfileId: true } });
        const facts = await this.attendanceFacts(tx, schoolId, classId, studentId, attendanceOn, state, evidenceId, current, previous?.evidenceId ?? null);
       const record = await tx.attendanceRecord.upsert({ where: { schoolId_classId_studentId_attendanceOn: { schoolId, classId, studentId, attendanceOn: this.day(attendanceOn) } }, create: { schoolId, classId, studentId, attendanceOn: this.day(attendanceOn), state, evidenceId: state === "PRESENT" ? evidenceId : null, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId }, update: { state, evidenceId: state === "PRESENT" ? evidenceId : null, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId } });
-       if (record.evidenceId) await tx.evidenceReference.updateMany({ where: { id: record.evidenceId, schoolId, OR: [{ confirmedAt: null }, { confirmedStudentId: studentId, confirmedAttendanceOn: this.day(attendanceOn) }] }, data: { confirmedAt: new Date(), confirmedStudentId: studentId, confirmedAttendanceOn: this.day(attendanceOn) } });
+        if (record.evidenceId) await tx.evidenceReference.updateMany({ where: { id: record.evidenceId, schoolId, OR: [{ confirmedAt: null }, { confirmedStudentId: studentId, confirmedAttendanceOn: this.day(attendanceOn) }] }, data: { confirmedAt: new Date(), confirmedStudentId: studentId, confirmedAttendanceOn: this.day(attendanceOn) } });
+        if (record.state === "PRESENT") await this.excludeLeaveDaySources(tx, schoolId, studentId, attendanceOn, record.id);
        await this.writeNotificationSource(tx, schoolId, "ATTENDANCE", record.id, studentId, attendanceOn, record.state);
        const outcome = { id: record.id, classId, studentId, attendanceOn, state: record.state, evidenceId: record.evidenceId, evidenceAvailability: record.evidenceId ? "AVAILABLE" : null, policyEffectiveFrom: record.policyEffectiveFrom.toISOString().slice(0, 10), updatedAt: record.updatedAt.toISOString() };
       await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: "SCHOOL_MEMBERSHIP", reference: current.id, membershipId: current.id }, "ATTENDANCE_RECORDED", { operationId: op, attendanceRecordId: record.id, classId, studentId, attendanceOn, state, evidenceId: record.evidenceId, policyEffectiveFrom: outcome.policyEffectiveFrom, previous }) });
@@ -587,6 +665,11 @@ export class AttendanceService {
     operationId: string,
     body: unknown,
   ) {
+    if (!uuid.test(leaveRequestId))
+      throw new NotFoundException({
+        code: "LEAVE_REQUEST_NOT_FOUND",
+        message: "Không tìm thấy đơn nghỉ.",
+      });
     const actor = await this.approver(identityId, schoolId);
     const reason =
       typeof (body as { reason?: unknown })?.reason === "string"
@@ -623,7 +706,7 @@ export class AttendanceService {
             message: "Đơn nghỉ đã được quyết định.",
           });
         const updated = await tx.leaveRequest.update({
-          where: { id: request.id },
+          where: { schoolId_id: { schoolId, id: request.id } },
           data: {
             status,
             rejectedReason: status === "REJECTED" ? reason : null,
@@ -632,6 +715,7 @@ export class AttendanceService {
           },
           include: { days: { orderBy: { operatingOn: "asc" } } },
         });
+        if (status === "APPROVED") await this.issueLeaveDaySources(tx, updated);
         await tx.auditRecord.create({
           data: auditData(
             schoolId,
@@ -658,6 +742,57 @@ export class AttendanceService {
     )
       result.push(current.toISOString().slice(0, 10));
     return result;
+  }
+  private async issueLeaveDaySources(
+    tx: Db,
+    request: { schoolId: string; id: string; studentId: string; status: string; days: Array<{ operatingOn: Date }> },
+  ) {
+    if (request.status !== "AUTO_APPROVED" && request.status !== "APPROVED") return;
+    await tx.leaveDaySource.createMany({
+      data: request.days.map((day) => ({
+        schoolId: request.schoolId,
+        studentId: request.studentId,
+        operatingOn: day.operatingOn,
+        leaveRequestId: request.id,
+        leaveStatus: request.status,
+      })),
+      skipDuplicates: true,
+    });
+    const operatingOn = request.days.map((day) => day.operatingOn);
+    const present = await tx.attendanceRecord.findMany({
+      where: {
+        schoolId: request.schoolId,
+        studentId: request.studentId,
+        state: "PRESENT",
+        attendanceOn: { in: operatingOn },
+      },
+      select: { id: true, attendanceOn: true },
+    });
+    for (const attendance of present)
+      await this.excludeLeaveDaySources(
+        tx,
+        request.schoolId,
+        request.studentId,
+        attendance.attendanceOn.toISOString().slice(0, 10),
+        attendance.id,
+      );
+  }
+  private async excludeLeaveDaySources(tx: Db, schoolId: string, studentId: string, attendanceOn: string, attendanceRecordId: string) {
+    const source = await tx.leaveDaySource.findUnique({
+      where: {
+        schoolId_studentId_operatingOn: {
+          schoolId,
+          studentId,
+          operatingOn: this.day(attendanceOn),
+        },
+      },
+      select: { id: true },
+    });
+    if (source)
+      await tx.leaveDaySourceExclusion.createMany({
+        data: [{ schoolId, leaveDaySourceId: source.id, attendanceRecordId }],
+        skipDuplicates: true,
+      });
   }
   private async teacher(identityId: string, schoolId: string, classId?: string, attendanceOn?: string, tx: Db = this.prisma) {
     const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "ATTENDANCE_WRITE" } } } } }, select: { id: true, boundStaffProfile: { select: { id: true } } } });
@@ -753,10 +888,12 @@ export class AttendanceService {
         status: "ACTIVE",
         school: { status: "ACTIVE" },
         boundStaffProfile: {
+          boundAt: { not: null },
+          boundByMembershipId: { not: null },
           employmentStatus: "ACTIVE",
           primaryPosition: {
             status: "ACTIVE",
-            grants: { some: { capability: "SETTINGS_MANAGE" } },
+            grants: { some: { capability: "LEAVE_REQUEST_DECIDE" } },
           },
         },
       },

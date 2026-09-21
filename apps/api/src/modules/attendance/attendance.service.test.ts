@@ -17,12 +17,12 @@ function service(overrides: Record<string, unknown> = {}) {
     leavePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), nextDayDeadlineLocalTime: '15:00' }) },
     schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) },
     operation: { create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) },
-    leaveRequest: { create: vi.fn() },
+    leaveRequest: { create: vi.fn() }, leaveDaySource: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) }, leaveDaySourceExclusion: { createMany: vi.fn() },
     auditRecord: { create: vi.fn() },
     evidenceReference: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
   };
   const prisma = {
-    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, evidenceReference: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, $transaction: vi.fn(async (work) => work(transaction)), ...overrides,
+    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() }, leaveDaySourceExclusion: { createMany: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, evidenceReference: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, $transaction: vi.fn(async (work) => work(transaction)), ...overrides,
   };
   return { prisma, attendance: new AttendanceService(prisma as never) };
 }
@@ -120,5 +120,28 @@ describe('AttendanceService leave matrix', () => {
     await expect(attendance.create('parent-identity', school, key, operation, { studentId: student, startsOn: '2026-02-09', endsOn: '2026-02-09' })).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
     await expect(attendance.decide('admin', school, operation, 'REJECTED', key, operation, {})).rejects.toMatchObject({ response: { code: 'VALIDATION_ERROR' } });
+  });
+  it('requires the active audited leave-decision capability before a decision lookup or write', async () => {
+    const { attendance, prisma } = service({ schoolMembership: { findFirst: vi.fn().mockResolvedValue(null) } });
+    await expect(attendance.decide('admin', school, operation, 'APPROVED', key, operation, {})).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+    expect(prisma.leaveRequest.findFirst).not.toHaveBeenCalled();
+  });
+  it('exports every durable, unexcluded leave-day fact through a stable cursor without Finance fields', async () => {
+    const source = { id: operation, studentId: student, operatingOn: day('2026-02-09'), leaveRequestId: operation, leaveStatus: 'APPROVED' };
+    const { attendance, prisma } = service({ leaveDaySource: { findMany: vi.fn().mockResolvedValue([source]) } });
+    await expect(attendance.leaveDaySources('admin', school)).resolves.toEqual({ data: [{ schoolId: school, studentId: student, operatingOn: '2026-02-09', leaveRequestId: operation, leaveStatus: 'APPROVED', eligible: true }], nextCursor: null });
+    expect((prisma.leaveDaySource.findMany as any)).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school, exclusions: { none: {} } }, take: 101 }));
+    const excluded = service({ leaveDaySource: { findMany: vi.fn().mockResolvedValue([]) } }).attendance;
+    await expect(excluded.leaveDaySources('admin', school)).resolves.toEqual({ data: [], nextCursor: null });
+  });
+  it('issues at most one approved fact per student operating day and appends PRESENT exclusions', async () => {
+    const source = { id: operation };
+    const { attendance } = service();
+    const tx = { leaveDaySource: { createMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(source) }, leaveDaySourceExclusion: { createMany: vi.fn() }, attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) } };
+    await (attendance as any).issueLeaveDaySources(tx, { schoolId: school, id: operation, studentId: student, status: 'APPROVED', days: [{ operatingOn: day('2026-02-09') }] });
+    await (attendance as any).excludeLeaveDaySources(tx, school, student, '2026-02-09', key);
+    expect(tx.leaveDaySource.createMany).toHaveBeenCalledWith(expect.objectContaining({ data: [expect.objectContaining({ schoolId: school, studentId: student, operatingOn: day('2026-02-09') })], skipDuplicates: true }));
+    expect(tx.leaveDaySource.findUnique).toHaveBeenCalledWith({ where: { schoolId_studentId_operatingOn: { schoolId: school, studentId: student, operatingOn: day('2026-02-09') } }, select: { id: true } });
+    expect(tx.leaveDaySourceExclusion.createMany).toHaveBeenCalledWith({ data: [{ schoolId: school, leaveDaySourceId: operation, attendanceRecordId: key }], skipDuplicates: true });
   });
 });

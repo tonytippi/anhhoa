@@ -37,6 +37,8 @@ model School {
   dailyJournalPolicies DailyJournalPolicy[]
   leavePolicies LeavePolicy[]
   leaveRequests LeaveRequest[]
+  leaveDaySources LeaveDaySource[]
+  leaveDaySourceExclusions LeaveDaySourceExclusion[]
   attendanceRecords AttendanceRecord[]
   handoverRecords HandoverRecord[]
   evidenceReferences EvidenceReference[]
@@ -242,6 +244,7 @@ model LeaveRequest {
   studentParent StudentParent @relation(fields: [schoolId, studentId, parentProfileId], references: [schoolId, studentId, parentProfileId], onDelete: Restrict)
   decidedByMembership SchoolMembership? @relation("LeaveRequestDecisionMembership", fields: [schoolId, decidedByMembershipId], references: [schoolId, id], onDelete: Restrict)
   days LeaveRequestDay[]
+  leaveDaySources LeaveDaySource[]
   @@unique([schoolId, id])
   @@index([schoolId, studentId, createdAt])
   @@index([schoolId, parentProfileId, createdAt])
@@ -261,6 +264,39 @@ model LeaveRequestDay {
   @@index([schoolId, operatingOn])
 }
 
+model LeaveDaySource {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  studentId String @db.Uuid
+  operatingOn DateTime @db.Date
+  leaveRequestId String @db.Uuid
+  leaveStatus LeaveRequestStatus
+  issuedAt DateTime @default(now())
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student Student @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  leaveRequest LeaveRequest @relation(fields: [schoolId, leaveRequestId], references: [schoolId, id], onDelete: Restrict)
+  exclusions LeaveDaySourceExclusion[]
+
+  @@unique([schoolId, studentId, operatingOn])
+  @@unique([schoolId, id])
+  @@index([schoolId, operatingOn, studentId])
+}
+
+model LeaveDaySourceExclusion {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  leaveDaySourceId String @db.Uuid
+  attendanceRecordId String @db.Uuid
+  excludedAt DateTime @default(now())
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  leaveDaySource LeaveDaySource @relation(fields: [schoolId, leaveDaySourceId], references: [schoolId, id], onDelete: Restrict)
+  attendanceRecord AttendanceRecord @relation(fields: [schoolId, attendanceRecordId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, leaveDaySourceId, attendanceRecordId])
+  @@unique([schoolId, id])
+  @@index([schoolId, leaveDaySourceId])
+}
+
 model Student {
   id          String   @id @default(uuid()) @db.Uuid
   schoolId    String   @db.Uuid
@@ -273,6 +309,7 @@ model Student {
   enrollments StudentEnrollment[]
   parentLinks StudentParent[]
   leaveRequests LeaveRequest[]
+  leaveDaySources LeaveDaySource[]
   attendanceRecords AttendanceRecord[]
   confirmedEvidenceReferences EvidenceReference[] @relation("EvidenceConfirmedStudent")
   handoverRecords HandoverRecord[]
@@ -722,6 +759,7 @@ model AttendanceRecord {
   policy AttendancePolicy @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
   membership SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   staffProfile StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+  leaveDaySourceExclusions LeaveDaySourceExclusion[]
 
   @@unique([schoolId, classId, studentId, attendanceOn])
   @@unique([schoolId, id])
