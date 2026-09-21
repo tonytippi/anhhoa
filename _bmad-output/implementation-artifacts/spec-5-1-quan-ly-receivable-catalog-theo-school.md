@@ -2,9 +2,10 @@
 title: 'Story 5.1: Quản lý receivable catalog theo School'
 type: 'feature'
 created: '2026-09-21'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
+baseline_revision: '5318de6cc81a0bfa0d3d8e6f49a8d888b83838b3'
 context:
   - '_bmad-output/implementation-artifacts/epic-5-context.md'
   - '_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21-manual-invoice-mvp.md'
@@ -77,3 +78,45 @@ deferred: []
 - `TARGET_INTEGRATION_DATABASE_URL="$TARGET_INTEGRATION_DATABASE_URL" pnpm --filter @passionedu/api test:integration` -- expected: PostgreSQL Finance catalog isolation/idempotency suite pass using `apps/api/.env` configuration.
 - `pnpm --filter @passionedu/admin-web test` -- expected: Finance catalog workspace tests pass.
 - `pnpm typecheck && pnpm test` -- expected: workspace typecheck and tests pass.
+
+## Review Triage Log
+
+### 2026-09-21 - Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 15 (high 4, medium 10, low 1)
+- defer: 0
+- reject: 1
+- addressed_findings:
+  - `[high] [patch]` Bổ sung integration suite PostgreSQL cho catalog Finance: tenant graph, lifecycle/history, BigInt, idempotency, Operation/audit và revoke được chạy qua harness chính thức.
+  - `[high] [patch]` Khắc phục collision `X-Operation-Id`, lifecycle audit thiếu old/new state và trạng thái Receivable active dưới Group inactive.
+  - `[high] [patch]` Bảo toàn Operation khi HTTP outcome không chắc chắn, giới hạn reconciliation và bỏ timer khi School/unmount đổi.
+  - `[high] [patch]` Thay prompt lifecycle bằng dialog có field error accessible; thêm loading, empty và load-error table states.
+  - `[medium] [patch]` Phân biệt validation inactive group với capability denial, không lộ target foreign/missing, và validate UUID trước Prisma query.
+  - `[medium] [patch]` Bổ sung service, controller và workspace tests cho idempotency, CSRF/origin, VND, lifecycle availability, stale persisted Operation và HTTP 503 reconciliation.
+
+## Auto Run Result
+
+Status: done
+
+Baseline revision: `5318de6cc81a0bfa0d3d8e6f49a8d888b83838b3` (`docs(planning): simplify finance invoice mvp`).
+
+Summary: Đã triển khai Finance receivable catalog School-scoped gồm `ReceivableGroup`, `Receivable` và lifecycle history append-only; capability `FINANCE_MANAGE`; REST mutation bảo vệ CSRF/origin/idempotency/Operation/audit; workspace Admin có reconciliation; và migration PostgreSQL giữ composite tenant graph, partial unique code, BIGINT VND.
+
+Files changed:
+- `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260921000002_finance_receivable_catalog/migration.sql` - domain catalog, lifecycle, tenant relation và DB invariants.
+- `apps/api/src/modules/finance/*` - Finance REST/service, authorization, operation reconciliation và unit/controller tests.
+- `apps/api/src/integration/finance.integration.test.ts` - release proof PostgreSQL cho toàn bộ I/O matrix.
+- `apps/api/src/modules/authorization/authorization.service.ts`, `apps/api/src/modules/ops/ops.service.ts`, `apps/api/src/app.module.ts` - capability, provisioning và module integration.
+- `apps/web/src/finance/*`, `apps/web/src/school-context.tsx` - Finance Admin workspace và navigation được server grant.
+
+Review findings: 15 patches applied (high 4, medium 10, low 1); 0 deferred; 1 rejected. Follow-up review recommendation: true (score 31 từ 4 high, 10 medium, 1 low patched finding).
+
+Verification performed:
+- `pnpm --filter @passionedu/api test` - pass, 15 files / 75 tests.
+- `pnpm --filter @passionedu/admin-web test` - pass, 7 files / 60 tests.
+- `pnpm typecheck && pnpm test` - pass.
+- `set -a && source .env && set +a && TARGET_INTEGRATION_DATABASE_URL="${TARGET_INTEGRATION_DATABASE_URL:-$DATABASE_URL}" pnpm test:integration` from `apps/api` - pass; migration deployed and 8 files / 63 PostgreSQL integration tests passed.
+- `git diff --check` - pass.
+
+Residual risks: Controller origin/CSRF proof is unit-level while database suite invokes Finance service using the established integration convention. Catalog selection is exposed through `available`; actual Invoice-line enforcement belongs to Story 5.4 because Invoice lines are intentionally out of scope here.

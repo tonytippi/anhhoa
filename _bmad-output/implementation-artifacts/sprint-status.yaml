@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-21 # Finance Admin MVP uses manual positive Invoice DRAFT lines; Story 5.1 catalog is next, ChargeRule automation is deferred.
+last_updated: 2026-09-21 # Story 5.1 Finance catalog is done; ChargeRule automation remains deferred.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -52,7 +52,7 @@ development_status:
   epic-4-retrospective: optional
 
   epic-5: in-progress
-  5-1-quan-ly-receivable-catalog-theo-school: ready-for-dev
+  5-1-quan-ly-receivable-catalog-theo-school: done
   5-2-tao-collectionrun-chon-student-va-server-authoritative-preview: backlog
   5-3-generate-invoice-draft-rong-idempotent-theo-snapshot-roster: backlog
   5-4-ra-soat-dong-invoice-draft-co-audit: backlog

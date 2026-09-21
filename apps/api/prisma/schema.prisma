@@ -44,6 +44,8 @@ model School {
   evidenceReferences EvidenceReference[]
   notificationSourceEvents NotificationSourceEvent[]
   bankAccounts BankAccount[]
+  receivableGroups ReceivableGroup[]
+  receivables Receivable[]
   initialOwnerIdentity UserIdentity? @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
@@ -538,6 +540,8 @@ model SchoolMembership {
   decidedLeaveRequests LeaveRequest[] @relation("LeaveRequestDecisionMembership")
   bankAccounts BankAccount[]
   bankAccountLifecycleTransitions BankAccountLifecycleTransition[]
+  receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
+  receivableLifecycleTransitions ReceivableLifecycleTransition[]
   uploadedEvidenceReferences EvidenceReference[] @relation("EvidenceUploadedMembership")
 
   @@unique([schoolId, userIdentityId])
@@ -585,6 +589,8 @@ model Operation {
   actorIdentity   UserIdentity?      @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
   closedSchoolYears SchoolYear[]     @relation("SchoolYearCloseOperation")
   bankAccountLifecycleTransitions BankAccountLifecycleTransition[] @relation("BankAccountLifecycleOperation")
+  receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
+  receivableLifecycleTransitions ReceivableLifecycleTransition[]
 
   // PostgreSQL partial unique indexes below are migration-owned because Prisma cannot express predicates.
   @@index([schoolId, actorType, actorReference, route, idempotencyKey])
@@ -592,6 +598,83 @@ model Operation {
   @@index([platformOperatorGrantId, createdAt])
   @@index([schoolId, route])
   @@unique([schoolId, id])
+}
+
+enum ReceivableStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model ReceivableGroup {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  name String
+  createdAt DateTime @default(now())
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  receivables Receivable[]
+  lifecycleTransitions ReceivableGroupLifecycleTransition[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, name])
+  @@index([schoolId, createdAt])
+}
+
+model Receivable {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  groupId String @db.Uuid
+  code String?
+  displayName String
+  unitLabel String
+  defaultUnitPrice BigInt @db.BigInt
+  createdAt DateTime @default(now())
+  school School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  group ReceivableGroup @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
+  lifecycleTransitions ReceivableLifecycleTransition[]
+
+  @@unique([schoolId, id])
+  @@index([schoolId, groupId])
+  @@index([schoolId, createdAt])
+}
+
+model ReceivableGroupLifecycleTransition {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  receivableGroupId String @db.Uuid
+  previousStatus ReceivableStatus?
+  status ReceivableStatus
+  reason String?
+  actorIdentityId String @db.Uuid
+  membershipId String @db.Uuid
+  operationId String @db.Uuid
+  sequence Int
+  changedAt DateTime @default(now())
+  group ReceivableGroup @relation(fields: [schoolId, receivableGroupId], references: [schoolId, id], onDelete: Restrict)
+  membership SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation Operation @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, receivableGroupId, sequence])
+}
+
+model ReceivableLifecycleTransition {
+  id String @id @default(uuid()) @db.Uuid
+  schoolId String @db.Uuid
+  receivableId String @db.Uuid
+  previousStatus ReceivableStatus?
+  status ReceivableStatus
+  reason String?
+  actorIdentityId String @db.Uuid
+  membershipId String @db.Uuid
+  operationId String @db.Uuid
+  sequence Int
+  changedAt DateTime @default(now())
+  receivable Receivable @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  membership SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation Operation @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, receivableId, sequence])
 }
 
 model SchoolProfileVersion {
