@@ -34,7 +34,7 @@ describe('target platform structure', () => {
     expect(reset).toContain("import 'dotenv/config'");
     expect(reset).toContain("assertDevelopmentEnvironment('Development database reset')");
     expect(reset).toContain("['exec', 'prisma', 'migrate', 'reset', '--force']");
-    expect(reset).not.toContain('--skip-seed');
+    expect(reset).toContain("['exec', 'prisma', 'db', 'seed']");
   });
 
   it('routes all five fixed hosts through the pilot proxy and deploys migrations first', async () => {
