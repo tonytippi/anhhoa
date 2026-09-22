@@ -1,4 +1,4 @@
-# Kindergarten Invoice Management
+# PassionEdu
 
 ## Khởi chạy workspace
 
@@ -39,7 +39,7 @@ pnpm --filter parent-web test
 
 Lệnh này chạy các test trong `apps/parent-web` với cấu hình local `vitest.config.ts`; không cần khởi động API cho các test component hiện có.
 
-API tự động nạp `apps/api/.env` khi khởi động; repository chỉ giữ biến môi trường mẫu trong `apps/api/.env.example`, không thêm giá trị thật. Để chạy API, sao chép file này thành `apps/api/.env`, đặt các biến OAuth Google, `JWT_SECRET` (ít nhất 32 ký tự), `ADMIN_EMAILS`, `WEB_ORIGIN`, callback và redirect URLs đã đăng ký. `OAUTH_REDIRECT_URLS` là allowlist URL sau đăng nhập, phân tách bằng dấu phẩy; `OAUTH_DENIED_REDIRECT_URL` phải là một URL trong allowlist này. Khi phát triển local, đăng ký chính xác `http://localhost:5173/api/auth/google/callback` trong Google Console và đặt URL này cho `GOOGLE_CALLBACK_URL`; Vite chuyển tiếp callback đến Nest tại `/auth/google/callback`. `WEB_ORIGIN` và public origin của `GOOGLE_CALLBACK_URL` phải cùng schemeful site: khác port hoặc sibling subdomain được phép, còn cross-site hoặc khác `http`/`https` sẽ bị từ chối khi API khởi động. Web mặc định dùng `VITE_API_URL=/api`; chỉ đặt override này khi có một public API base path khác.
+API tự động nạp `apps/api/.env`; repository chỉ giữ `apps/api/.env.example`, không thêm giá trị thật. Để chạy local, sao chép file này thành `apps/api/.env` và đặt OAuth Google, `SESSION_SECRET` (ít nhất 32 ký tự), `SESSION_TTL_SECONDS`, `APP_WEB_ORIGIN`, `APP_GOOGLE_CALLBACK_URL`, `APP_OAUTH_REDIRECT_URLS`, `APP_OAUTH_DENIED_REDIRECT_URL`, `APP_SESSION_COOKIE_NAME` và `APP_CSRF_COOKIE_NAME`. Đăng ký `http://localhost:3000/api/app/auth/google/callback` trong Google Console và đặt cùng URL cho `APP_GOOGLE_CALLBACK_URL`; các redirect của `APP_OAUTH_REDIRECT_URLS` phải thuộc `APP_WEB_ORIGIN`. Web mặc định dùng `VITE_API_URL=/api`.
 
 ## Font assets
 
@@ -57,25 +57,23 @@ pnpm --filter api build
 pnpm --filter api start
 ```
 
-`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. `JWT_SECRET` phải ổn định giữa deploy/restart; `JWT_EXPIRES_IN` là thời hạn duy nhất cho cả JWT và cookie session. Session chỉ được cấp trong cookie `Secure`, `httpOnly`, `SameSite=Lax`; client cần lấy CSRF token tại `GET /auth/csrf` và gửi lại qua `X-CSRF-Token` cho mutation đã có session. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
+`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. `SESSION_SECRET` phải ổn định giữa deploy/restart và `SESSION_TTL_SECONDS` xác định thời hạn session. Session audience `app` dùng cookie `APP_SESSION_COOKIE_NAME` và CSRF cookie `APP_CSRF_COOKIE_NAME`; mutation gửi `X-CSRF-Token`. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
 
-## Docker Compose test deployment
+## Pilot VPS deployment
 
-Compose test deployment gồm PostgreSQL 16 trên named volume, migration one-shot, API NestJS va hai Nginx gateway PWA doc lap: Admin va Parent. Chi hai gateway duoc map ra loopback cua host; PostgreSQL va API chi nam tren Docker network. Moi gateway rewrite SPA route ve `index.html` va proxy relative `/api` toi API, vi vay PWA va API luon dung cung public HTTPS origin. Dat `DATABASE_URL` trong `.env.production` dung hostname Docker noi bo `postgres` (vi du `postgresql://user:password@postgres:5432/database?schema=public`), khong dung `localhost`.
+Pilot dùng Docker Compose tại `deploy/compose/compose.yaml`: PostgreSQL 16 lưu trên named volume `postgres-data`, một job migration one-shot, API NestJS, bốn portal độc lập và Caddy làm TLS reverse proxy. Caddy phục vụ năm host cố định: `app.passionedu.org`, `teacher.passionedu.org`, `parent.passionedu.org`, `ops.passionedu.org` và `api.passionedu.org`.
 
 ```bash
-cp .env.production.example .env.production
-# Điền giá trị thật trong .env.production, không commit file này.
-docker compose --env-file .env.production config
-docker compose --env-file .env.production up --build -d
-docker compose --env-file .env.production ps
+cp deploy/compose/.env.example /path/outside/repository/passionedu.env
+# Điền giá trị thật vào file ngoài Git, gồm OAuth, SESSION_SECRET, database va TLS.
+docker compose --env-file /path/outside/repository/passionedu.env -f deploy/compose/compose.yaml config
+docker compose --env-file /path/outside/repository/passionedu.env -f deploy/compose/compose.yaml up --build -d
+docker compose --env-file /path/outside/repository/passionedu.env -f deploy/compose/compose.yaml ps
 ```
 
-`migrate` chạy `prisma migrate deploy` từ migrations đã commit trước khi API được khởi động. Lần chạy lại an toàn; nếu migration lỗi, API không khởi động. Không dùng `prisma db push` cho deployment. Các giá trị `POSTGRES_DB`, `POSTGRES_USER` và `POSTGRES_PASSWORD` chỉ được dùng khi khởi tạo volume lần đầu; muốn đổi chúng phải tạo database role thủ công hoặc chủ động xóa volume. Dừng stack giữ nguyên database trong named volume `postgres-data`; chỉ chạy `docker compose --env-file .env.production down -v` khi chủ động muốn xóa toàn bộ dữ liệu test.
+Mount thư mục chứng chỉ TLS của VPS qua `TLS_CERT_DIR`; `TLS_CERT_FILE` và `TLS_KEY_FILE` là các đường dẫn bên trong mount `/certs`. Đăng ký bốn callback OAuth API và redirect URL tương ứng với từng portal trong file env. API fail-fast nếu thiếu audience origin, callback, redirect, cookie, OAuth, session hoặc bootstrap configuration.
 
-Tao hai Cloudflare Tunnel ben ngoai Compose: Admin toi `http://localhost:<WEB_PORT>` (mac dinh `8080`) va Parent toi `http://localhost:<PARENT_WEB_PORT>` (mac dinh `8081`). Cau hinh `WEB_ORIGIN` la public HTTPS origin Admin, vi du `https://admin.example.com`; dat `GOOGLE_CALLBACK_URL` la `https://admin.example.com/api/auth/google/callback`. Cau hinh `PARENT_WEB_ORIGIN` la public HTTPS origin Parent rieng, vi du `https://parent.example.com`; dat `PARENT_GOOGLE_CALLBACK_URL` la `https://parent.example.com/api/parent/auth/google/callback`. Dang ky ca hai callback trong Google OAuth. Moi cap `*_OAUTH_REDIRECT_URLS` va `*_OAUTH_DENIED_REDIRECT_URL` phai dung origin tuong ung; Parent phai dung `PARENT_SESSION_COOKIE_NAME` va `PARENT_CSRF_COOKIE_NAME` khac cookie Admin. Kiem tra gateway Parent bang `curl -i http://127.0.0.1:${PARENT_WEB_PORT:-8081}/api/parent/auth/csrf`. Khong them container Tunnel, TLS termination, database port hoac secrets vao Compose/image.
-
-Khi chẩn đoán OAuth Admin ở production, bật Preserve log trong DevTools Network. `GET /api/auth/google` phải trả cookie `oauth_state` với path `/api/auth/google`; callback hợp lệ phải ghi cookie `session` path `/`, có `Max-Age` bằng `JWT_EXPIRES_IN`, rồi `GET /api/auth/me` trả `200`. Xác minh `WEB_ORIGIN`, callback Google và từng URL redirect khớp tuyệt đối origin public Admin.
+`migrate` chạy `prisma migrate deploy` trước API. Không dùng `prisma db push`, không sửa migration đã deploy và không rollback destructive. Dừng stack giữ `postgres-data`; chỉ dùng `down -v` khi chủ động xóa toàn bộ dữ liệu pilot. Xem hướng dẫn vận hành ngắn tại `deploy/compose/README.md`.
 
 ## Yêu cầu
 Tôi muốn làm hệ thống quản lý hóa đơn cho trường mầm non. Hệ thống phải thật đơn giản.

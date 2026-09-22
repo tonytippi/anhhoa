@@ -3,9 +3,12 @@ import { Prisma } from "@prisma/client";
 import { AuthorizationService } from "../modules/authorization/authorization.service.js";
 import { PrismaService } from "../modules/identity/prisma.service.js";
 import { FinanceService } from "../modules/finance/finance.service.js";
+import { RosterService } from "../modules/roster/roster.service.js";
 
 const prisma = new PrismaService();
-const finance = new FinanceService(prisma, new AuthorizationService(prisma));
+const authorization = new AuthorizationService(prisma);
+const finance = new FinanceService(prisma, authorization);
+const rosterService = new RosterService(prisma, authorization);
 const schools: string[] = [];
 const uuid = () => crypto.randomUUID();
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -1481,6 +1484,18 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(prisma.collectionRun.update({ where: { id: runId }, data: { status: "GENERATED" } })).rejects.toThrow();
     });
 
+    it("closes a run with an issued revision and its cancelled source, but keeps nonterminal invoices blocking", async () => {
+      const fixture = await issueFixture();
+      await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      const prepared = await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Sửa số tiền" });
+      const replacementId = outcomeId(prepared);
+      await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { receivableId: fixture.receivableId, quantity: "1" });
+      await expect(finance.closeRun(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { reason: "Còn bản nháp" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
+      await finance.issueRevision(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      await expect(finance.closeRun(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { reason: "Đã kiểm tra bản điều chỉnh" })).resolves.toMatchObject({ outcome: { status: "CLOSED" } });
+      await expect(prisma.collectionRun.findUniqueOrThrow({ where: { id: fixture.invoice.collectionRunId } })).resolves.toMatchObject({ status: "CLOSED" });
+    });
+
     it("rejects direct DRAFT or READY close, contradictory lifecycle history, and every closed-run business mutation", async () => {
       const current = await roster(await graph());
       const draftId = outcomeId(await open(current));
@@ -1532,6 +1547,33 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { bankAccountId: bank.id })).rejects.toMatchObject({ status: 409, response: { code: "FINANCE_POLICY_NOT_CONFIGURED" } });
       expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).toMatchObject({ status: "DRAFT", issuedAt: null, obligationTotalSnapshot: null });
       expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "INVOICE_ISSUED" } })).toBe(0);
+    });
+
+    it("rejects normal issue through the API and direct status writes after SchoolYear or CollectionRun finality", async () => {
+      const closedYear = await issueFixture();
+      await prisma.schoolYear.update({ where: { id: closedYear.current.year.id }, data: { closedAt: new Date() } });
+      await expect(finance.issueInvoice(closedYear.current.identity.id, closedYear.current.school.id, closedYear.invoice.id, uuid(), uuid(), { bankAccountId: closedYear.bank.id })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_CLOSED" } });
+      await expect(prisma.invoice.update({ where: { id: closedYear.invoice.id }, data: { status: "ISSUED" } })).rejects.toThrow(/CLOSED SchoolYear/);
+      expect(await prisma.invoice.findUniqueOrThrow({ where: { id: closedYear.invoice.id } })).toMatchObject({ status: "DRAFT", issuedAt: null });
+
+      const closedRun = await issueFixture();
+      await finance.issueInvoice(closedRun.current.identity.id, closedRun.current.school.id, closedRun.invoice.id, uuid(), uuid(), { bankAccountId: closedRun.bank.id });
+      await finance.closeRun(closedRun.current.identity.id, closedRun.current.school.id, closedRun.invoice.collectionRunId, uuid(), uuid(), { reason: "Đóng đợt thu" });
+      const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: closedRun.invoice.id } });
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+        await tx.invoice.update({ where: { id: issued.id }, data: { status: "DRAFT", issuedAt: null, bankAccountIdSnapshot: null, receivingBankSnapshot: null, accountNumberSnapshot: null, accountHolderNameSnapshot: null, transferContentSnapshot: null, obligationLinesSnapshot: Prisma.DbNull, obligationTotalSnapshot: null, financePolicyEffectiveFrom: null, dueDaysAfterIssueSnapshot: null, taxTreatmentSnapshot: null, debtScopeSnapshot: null, reversalModeSnapshot: null, dueOn: null } });
+      });
+      await expect(prisma.invoice.update({ where: { id: issued.id }, data: { status: "ISSUED", issuedAt: issued.issuedAt!, bankAccountIdSnapshot: issued.bankAccountIdSnapshot!, receivingBankSnapshot: issued.receivingBankSnapshot!, accountNumberSnapshot: issued.accountNumberSnapshot!, accountHolderNameSnapshot: issued.accountHolderNameSnapshot!, transferContentSnapshot: issued.transferContentSnapshot!, obligationLinesSnapshot: issued.obligationLinesSnapshot as Prisma.InputJsonValue, obligationTotalSnapshot: issued.obligationTotalSnapshot!, financePolicyEffectiveFrom: issued.financePolicyEffectiveFrom!, dueDaysAfterIssueSnapshot: issued.dueDaysAfterIssueSnapshot!, taxTreatmentSnapshot: issued.taxTreatmentSnapshot!, debtScopeSnapshot: issued.debtScopeSnapshot!, reversalModeSnapshot: issued.reversalModeSnapshot!, dueOn: issued.dueOn! } })).rejects.toThrow(/CLOSED CollectionRun/);
+    });
+
+    it("rejects SchoolYear close while a generated CollectionRun has DRAFT invoices", async () => {
+      const fixture = await issueFixture();
+      await prisma.positionCapabilityGrant.create({ data: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "ROSTER_MANAGE" } });
+      const input = { schoolYearId: fixture.current.year.id, effectiveTo: "2026-12-31", reason: "Kết năm", confirmation: "ĐÓNG NĂM HỌC" };
+      const preview = await rosterService.previewCloseYear(fixture.current.identity.id, fixture.current.school.id, input);
+      await expect(rosterService.closeYear(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { ...input, previewFingerprint: preview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
+      expect(await prisma.schoolYear.findUniqueOrThrow({ where: { id: fixture.current.year.id } })).toMatchObject({ closedAt: null });
     });
 
     it("refuses foreign or inactive accounts, empty/non-DRAFT invoices, revoked actors, and changed issue retries without writes", async () => {

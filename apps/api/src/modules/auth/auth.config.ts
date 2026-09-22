@@ -13,12 +13,14 @@ export type AudienceConfig = {
 
 const names: Record<Audience, string> = { app: 'APP', teacher: 'TEACHER', parent: 'PARENT', ops: 'OPS' };
 
-function value(name: string, fallback: string): string {
-  return process.env[name] || fallback;
+function value(name: string, fallback: string, strict = false): string {
+  const result = process.env[name];
+  if (strict && !result) throw new Error(`${name} must be configured before startup.`);
+  return result || fallback;
 }
 
 function url(name: string, fallback: string, strict: boolean): string {
-  const result = value(name, fallback);
+  const result = value(name, fallback, strict);
   try { return new URL(result).toString().replace(/\/$/, ''); } catch { if (strict) throw new Error(`${name} must be an absolute URL.`); return fallback; }
 }
 
@@ -27,8 +29,8 @@ export function audienceConfig(audience: Audience, strict = false): AudienceConf
   const port: Record<Audience, string> = { app: '5173', parent: '5174', teacher: '5175', ops: '5176' };
   const origin = url(`${prefix}_WEB_ORIGIN`, `http://localhost:${port[audience]}`, strict);
   const callbackUrl = url(`${prefix}_GOOGLE_CALLBACK_URL`, `http://localhost:3000/api/${audience}/auth/google/callback`, strict);
-  const redirects = value(`${prefix}_OAUTH_REDIRECT_URLS`, origin).split(',').map((entry) => url(`${prefix}_OAUTH_REDIRECT_URLS`, entry.trim(), strict));
-  return { audience, origin, callbackUrl, redirects, deniedRedirect: url(`${prefix}_OAUTH_DENIED_REDIRECT_URL`, origin, strict), cookieName: value(`${prefix}_SESSION_COOKIE_NAME`, `${audience}_session`), csrfCookieName: value(`${prefix}_CSRF_COOKIE_NAME`, `${audience}_csrf`), correlationCookieName: `${audience}_oauth_correlation` };
+  const redirects = value(`${prefix}_OAUTH_REDIRECT_URLS`, origin, strict).split(',').map((entry) => url(`${prefix}_OAUTH_REDIRECT_URLS`, entry.trim(), strict));
+  return { audience, origin, callbackUrl, redirects, deniedRedirect: url(`${prefix}_OAUTH_DENIED_REDIRECT_URL`, origin, strict), cookieName: value(`${prefix}_SESSION_COOKIE_NAME`, `${audience}_session`, strict), csrfCookieName: value(`${prefix}_CSRF_COOKIE_NAME`, `${audience}_csrf`, strict), correlationCookieName: `${audience}_oauth_correlation` };
 }
 
 export function audienceOrigins(strict = false): string[] {

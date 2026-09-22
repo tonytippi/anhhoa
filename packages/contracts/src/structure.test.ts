@@ -29,11 +29,20 @@ describe('target platform structure', () => {
   it('routes all five fixed hosts through the pilot proxy and deploys migrations first', async () => {
     const compose = await read('deploy/compose/compose.yaml');
     const caddy = await read('deploy/compose/Caddyfile');
+    const environment = await read('deploy/compose/.env.example');
+    const runbook = await read('README.md');
     for (const host of ['app', 'teacher', 'parent', 'ops', 'api']) expect(caddy).toContain(`${host}.passionedu.org`);
     expect(compose).toContain("'prisma', 'migrate', 'deploy'");
     expect(compose).toContain('postgres-data');
     expect(compose).toContain('service_completed_successfully');
     expect(compose).not.toContain('db push');
+    for (const variable of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET', 'OAUTH_STATE_TTL_SECONDS', 'SESSION_TTL_SECONDS', ...['APP', 'TEACHER', 'PARENT', 'OPS'].flatMap((prefix) => [`${prefix}_WEB_ORIGIN`, `${prefix}_GOOGLE_CALLBACK_URL`, `${prefix}_OAUTH_REDIRECT_URLS`, `${prefix}_OAUTH_DENIED_REDIRECT_URL`, `${prefix}_SESSION_COOKIE_NAME`, `${prefix}_CSRF_COOKIE_NAME`])]) {
+      expect(compose).toContain(`${variable}: "\${${variable}:?${variable} is required}"`);
+      expect(environment).toContain(`${variable}=`);
+    }
+    expect(runbook).toContain('deploy/compose/compose.yaml');
+    expect(runbook).toContain('Caddy');
+    expect(runbook).not.toMatch(/Nginx|Cloudflare Tunnel|\.env\.production\.example/);
   });
 
   it('does not track legacy source, secrets, or cross-app imports', async () => {

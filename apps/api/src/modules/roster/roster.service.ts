@@ -1530,6 +1530,20 @@ export class RosterService {
       { schoolYearId, effectiveTo, reason, previewFingerprint },
       async (tx, operation) => {
         await this.lockYear(tx, schoolId, schoolYearId);
+        const unfinalizedRun = await tx.collectionRun.findFirst({
+          where: {
+            schoolId,
+            schoolYearId,
+            status: "GENERATED",
+            invoices: { some: { status: "DRAFT" } },
+          },
+          select: { id: true },
+        });
+        if (unfinalizedRun)
+          throw new ConflictException({
+            code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL",
+            message: "Cần hoàn tất các hóa đơn nháp trong đợt thu trước khi đóng năm học.",
+          });
         const preview = await this.closeYearPreview(tx, schoolId, {
           schoolYearId,
           effectiveTo,
