@@ -9,7 +9,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` khởi động toàn workspace, không phải topology tối thiểu để test Finance Admin MVP. Admin chạy tại `http://localhost:5173`, Ops chạy tại `http://localhost:5176`, và API tại `http://localhost:3000`; Admin/Ops local gọi trực tiếp API với `VITE_API_URL=http://localhost:3000`. Hai Vite app này không khai báo development proxy `/api`.
+`pnpm dev` khởi động toàn workspace, không phải topology tối thiểu để test Finance Admin MVP. Admin chạy tại `http://localhost:5173`, Ops chạy tại `http://localhost:5176`, và API tại `http://localhost:3000`; Admin/Ops khi development mặc định gọi trực tiếp API local. Hai Vite app này không khai báo development proxy `/api`.
 
 Để test Release 1 Finance Admin MVP trên database local mới, xem [runbook local Finance Admin MVP](docs/local-finance-admin-mvp.md). Runbook chỉ yêu cầu PostgreSQL, API, Admin và Ops; Teacher/Parent không cần chạy nhưng API vẫn cần đầy đủ cấu hình audience của bốn portal.
 

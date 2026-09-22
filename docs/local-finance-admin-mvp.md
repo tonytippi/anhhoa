@@ -1,48 +1,48 @@
-# Runbook local: Finance Admin MVP
+# Runbook cục bộ: Finance Admin MVP
 
-Runbook nay dung de kiem thu Release 1 Finance Admin MVP tren database PostgreSQL local moi. Chi chay API, Ops va Admin; khong dung `pnpm dev` vi lenh do khoi dong toan workspace, bao gom cac portal khong can cho luong nay.
+Runbook này dùng để kiểm thử Release 1 Finance Admin MVP trên database PostgreSQL cục bộ mới. Chỉ chạy API, Ops và Admin; không dùng `pnpm dev` vì lệnh đó khởi động toàn workspace, bao gồm các portal không cần cho luồng này.
 
-## Pham vi
+## Phạm vi
 
-Topology toi thieu:
+Topology tối thiểu:
 
-| Thanh phan | URL/port | Can cau hinh | Can chay |
+| Thành phần | URL/port | Cần cấu hình | Cần chạy |
 | --- | --- | --- | --- |
-| PostgreSQL | theo `DATABASE_URL` | Co | Co |
-| API | `http://localhost:3000` | Co | Co |
-| Admin | `http://localhost:5173` | Co | Co |
-| Ops | `http://localhost:5176` | Co | Co |
-| Teacher | `http://localhost:5175` | Co | Khong |
-| Parent | `http://localhost:5174` | Co | Khong |
+| PostgreSQL | theo `DATABASE_URL` | Có | Có |
+| API | `http://localhost:3000` | Có | Có |
+| Admin | `http://localhost:5173` | Có | Có |
+| Ops | `http://localhost:5176` | Có | Có |
+| Teacher | `http://localhost:5175` | Có | Không |
+| Parent | `http://localhost:5174` | Có | Không |
 
-API fail-fast khi thieu cau hinh cho bat ky audience nao trong bon audience `app`, `teacher`, `parent`, `ops`. Do do Teacher va Parent khong can chay trong manual Finance MVP, nhung cac bien moi truong cua chung van phai co trong `apps/api/.env`.
+API fail-fast khi thiếu cấu hình cho bất kỳ audience nào trong bốn audience `app`, `teacher`, `parent`, `ops`. Do đó Teacher và Parent không cần chạy trong manual Finance MVP, nhưng các biến môi trường của chúng vẫn phải có trong `apps/api/.env`.
 
-Release test nay bao gom provision School, danh bo toi thieu, cau hinh tai chinh, mo dot thu, tao hoa don nhap va phat hanh hoa don. Khong bao gom Receipt, settlement, refund, ledger report, hay hanh vi Teacher/Parent.
+Release test này bao gồm provision School, danh bạ tối thiểu, cấu hình tài chính, mở đợt thu, tạo hóa đơn nháp và phát hành hóa đơn. Không bao gồm Receipt, settlement, refund, ledger report, hay hành vi Teacher/Parent.
 
-## Dieu kien
+## Điều kiện
 
-- Node.js `24.21.0` va pnpm `11.9.0`. Chay `nvm use` neu dung nvm.
-- PostgreSQL local dang chay va co database rong ma nguoi dung local co quyen migrate. Khong dung Compose pilot/production cho manual local test nay.
-- Google OAuth client local. Cac secret chi nam trong `apps/api/.env` local, khong commit file nay hay thong tin OAuth vao repository.
-- Can hai tai khoan Google khac nhau: tai khoan Ops co email dung bang `SUPERADMIN_EMAIL`; tai khoan School Admin la email owner khi provision School va **phai khac** `SUPERADMIN_EMAIL`.
+- Node.js `24.21.0` và pnpm `11.9.0`. Chạy `nvm use` nếu dùng nvm.
+- PostgreSQL cục bộ đang chạy và có database rỗng mà người dùng cục bộ có quyền migrate. Không dùng Compose pilot/production cho manual local test này.
+- Google OAuth client cục bộ. Các secret chỉ nằm trong `apps/api/.env` cục bộ, không commit file này hay thông tin OAuth vào repository.
+- Cần hai tài khoản Google khác nhau: tài khoản Ops có email đúng bằng `SUPERADMIN_EMAIL`; tài khoản School Admin là email owner khi provision School và **phải khác** `SUPERADMIN_EMAIL`.
 
-Cai dependencies tu root:
+Cài dependencies từ root:
 
 ```bash
 pnpm install
 ```
 
-## Cau hinh API local
+## Cấu hình API cục bộ
 
-Sao chep template, sau do dien gia tri local that vao file khong duoc commit:
+Sao chép template, sau đó điền giá trị cục bộ thật vào file không được commit:
 
 ```bash
 cp apps/api/.env.example apps/api/.env
 ```
 
-`apps/api/.env` phai co `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` it nhat 32 ky tu va `SUPERADMIN_EMAIL` hop le. Giu `PORT=3000` de dung topology trong runbook.
+`apps/api/.env` phải có `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` ít nhất 32 ký tự và `SUPERADMIN_EMAIL` hợp lệ. Giữ `PORT=3000` để đúng topology trong runbook.
 
-Khai bao day du bon audience theo template. Cac gia tri local can dung la:
+Khai báo đầy đủ bốn audience theo template. Các giá trị cục bộ cần dùng là:
 
 ```dotenv
 WEB_ORIGIN=http://localhost:5173
@@ -75,26 +75,26 @@ PARENT_SESSION_COOKIE_NAME=parent_session
 PARENT_CSRF_COOKIE_NAME=parent_csrf
 ```
 
-Dat `SESSION_TTL_SECONDS` va `OAUTH_STATE_TTL_SECONDS` thanh so nguyen duong; template cung cap gia tri local hop le. Cookie name cua cac audience phai khac nhau. `SUPERADMIN_EMAIL` la email Google duy nhat co the bootstrap Platform Operator cho Ops.
+Đặt `SESSION_TTL_SECONDS` và `OAUTH_STATE_TTL_SECONDS` thành số nguyên dương; template cung cấp giá trị cục bộ hợp lệ. Cookie name của các audience phải khác nhau. `SUPERADMIN_EMAIL` là email Google duy nhất có thể bootstrap Platform Operator cho Ops.
 
-Dang ky hai redirect URI sau trong Google OAuth client cho happy path nay, va dat chung trong cac bien callback tuong ung:
+Đăng ký hai redirect URI sau trong Google OAuth client cho happy path này, và đặt chúng trong các biến callback tương ứng:
 
 ```text
 http://localhost:3000/api/app/auth/google/callback
 http://localhost:3000/api/ops/auth/google/callback
 ```
 
-Khong can dang ky hay chay Teacher/Parent de test Finance MVP. Tuy vay, khong xoa hay bo trong bien cau hinh Teacher/Parent: API van validate chung khi khoi dong.
+Không cần đăng ký hay chạy Teacher/Parent để test Finance MVP. Tuy vậy, không xóa hay bỏ trống biến cấu hình Teacher/Parent: API vẫn validate chúng khi khởi động.
 
-## Migrate va khoi dong
+## Migrate và khởi động
 
-Ap dung migrations vao database local rong:
+Áp dụng migrations vào database cục bộ rỗng:
 
 ```bash
 pnpm --filter @passionedu/api prisma:migrate:deploy
 ```
 
-Mo ba terminal rieng tu root workspace. Ca hai Vite app phai nhan URL API tuyet doi; khong co Vite development proxy `/api`.
+Mở ba terminal riêng từ root workspace. Ops và Admin có mặc định development tương ứng là `5176`/`5173` và gọi trực tiếp API `http://localhost:3000`; không có Vite development proxy `/api`.
 
 Terminal 1, API:
 
@@ -102,72 +102,72 @@ Terminal 1, API:
 pnpm --filter @passionedu/api dev
 ```
 
-Cho API lang nghe tai `http://localhost:3000`. Neu API khong khoi dong, kiem tra `apps/api/.env`: database, OAuth, `SESSION_SECRET`, `SUPERADMIN_EMAIL`, va toan bo bien audience phai hop le.
+Chờ API lắng nghe tại `http://localhost:3000`. Nếu API không khởi động, kiểm tra `apps/api/.env`: database, OAuth, `SESSION_SECRET`, `SUPERADMIN_EMAIL`, và toàn bộ biến audience phải hợp lệ.
 
 Terminal 2, Ops:
 
 ```bash
-VITE_API_URL=http://localhost:3000 pnpm --filter @passionedu/ops-web dev -- --port 5176
+pnpm --filter @passionedu/ops-web dev
 ```
 
-Mo `http://localhost:5176` chi sau khi process Ops da chay.
+Mở `http://localhost:5176` chỉ sau khi process Ops đã chạy. Config Vite đặt sẵn `5176`, `--strictPort` và `VITE_API_URL=http://localhost:3000` cho development. Nếu `5176` đang bị chiếm, Vite dừng ngay; dừng process đang chiếm port thay vì đổi origin OAuth/API.
 
 Terminal 3, Admin:
 
 ```bash
-VITE_API_URL=http://localhost:3000 pnpm --filter @passionedu/admin-web dev -- --port 5173
+pnpm --filter @passionedu/admin-web dev
 ```
 
-Mo `http://localhost:5173`. Neu mot port dang duoc dung, dung process dang chiem port thay vi doi port, vi origin OAuth/API trong runbook nay la co dinh.
+Mở `http://localhost:5173`. Nếu một port đang được dùng, dừng process đang chiếm port thay vì đổi port, vì origin OAuth/API trong runbook này là cố định.
 
 ## Bootstrap School qua Ops
 
-1. Mo Ops tai `http://localhost:5176` va dang nhap Google bang chinh email `SUPERADMIN_EMAIL`.
-2. Chon `Khoi tao truong`.
-3. Nhap ten truong, ma truong dang lowercase kebab-case, tien to ma hoc sinh uppercase, va email owner.
-4. Email owner phai la email Google School Admin khac email Ops. Ops khong the tu lam initial owner cua School.
-5. Xac nhan tao School va doi soat School xuat hien voi trang thai dang hoat dong.
-6. Dang xuat Ops. Mo Admin tai `http://localhost:5173` va dang nhap bang email owner vua provision.
-7. Chon School trong `Chon truong`. Initial owner co quyen truy cap danh bo, cau hinh va Finance da duoc cap khi provision.
+1. Mở Ops tại `http://localhost:5176` và đăng nhập Google bằng chính email `SUPERADMIN_EMAIL`.
+2. Chọn `Khởi tạo trường`.
+3. Nhập tên trường, mã trường dạng lowercase kebab-case, tiền tố mã học sinh uppercase, và email owner.
+4. Email owner phải là email Google School Admin khác email Ops. Ops không thể tự làm initial owner của School.
+5. Xác nhận tạo School và đối soát School xuất hiện với trạng thái đang hoạt động.
+6. Đăng xuất Ops. Mở Admin tại `http://localhost:5173` và đăng nhập bằng email owner vừa provision.
+7. Chọn School trong `Chọn trường`. Initial owner có quyền truy cập danh bạ, cấu hình và Finance đã được cấp khi provision.
 
-Khong dung School tu `prisma:seed` de thay the luong nay. Seed chi tao School mau; no khong tao initial owner, dang nhap, membership/capability dung cho bootstrap, hay du lieu Finance.
+Không dùng School từ `prisma:seed` để thay thế luồng này. Seed chỉ tạo School mẫu; nó không tạo initial owner, đăng nhập, membership/capability đúng cho bootstrap, hay dữ liệu Finance.
 
-## Thiet lap du lieu Finance toi thieu
+## Thiết lập dữ liệu Finance tối thiểu
 
-Trong Admin cua School vua provision, hoan thanh theo thu tu sau. Chon ngay hieu luc va thang thu nam trong khoang nam hoc, va dung ngay thuc te phu hop voi database test.
+Trong Admin của School vừa provision, hoàn thành theo thứ tự sau. Chọn ngày hiệu lực và tháng thu năm trong khoảng năm học, và dùng ngày thực tế phù hợp với database test.
 
-1. Mo `Danh bo`.
-2. Trong `Tao nam hoc`, tao nam hoc co ten, ngay bat dau va ngay ket thuc.
-3. Chon nam hoc vua tao, sau do dung `Them lop` de tao it nhat mot lop dang hoat dong.
-4. Trong form hoc sinh, tao it nhat mot hoc sinh, chon lop, dat lifecycle `ENROLLED`, va dat `Ngay hieu luc` khong muon hon ngay dau cua thang thu. Day la enrollment can thiet de hoc sinh du dieu kien tao hoa don.
-5. Mo `Cau hinh truong`, phan `Tai chinh va thanh toan`.
-6. Tao `FinancePolicy` bang `Tao phien ban chinh sach`: ngay hieu luc, so ngay han thanh toan, nhan thue, dao nguoc va ly do. Policy can co hieu luc tai ngay phat hanh hoa don.
-7. Trong cung phan nay, them mot `Tai khoan nhan tien` dang hoat dong. Tai khoan nay duoc chon luc phat hanh hoa don.
-8. Mo `Finance`.
-9. Trong `Nhom khoan thu`, them mot nhom dang ap dung.
-10. Trong `Khoan thu`, chon nhom va them it nhat mot khoan thu voi ten, don vi va don gia VND mac dinh.
+1. Mở `Danh bạ`.
+2. Trong `Tạo năm học`, tạo năm học có tên, ngày bắt đầu và ngày kết thúc.
+3. Chọn năm học vừa tạo, sau đó dùng `Thêm lớp` để tạo ít nhất một lớp đang hoạt động.
+4. Trong form học sinh, tạo ít nhất một học sinh, chọn lớp, đặt lifecycle `ENROLLED`, và đặt `Ngày hiệu lực` không muộn hơn ngày đầu của tháng thu. Đây là enrollment cần thiết để học sinh đủ điều kiện tạo hóa đơn.
+5. Mở `Cấu hình trường`, phần `Tài chính và thanh toán`.
+6. Tạo `FinancePolicy` bằng `Tạo phiên bản chính sách`: ngày hiệu lực, số ngày hạn thanh toán, nhãn thuế, đảo ngược và lý do. Policy cần có hiệu lực tại ngày phát hành hóa đơn.
+7. Trong cùng phần này, thêm một `Tài khoản nhận tiền` đang hoạt động. Tài khoản này được chọn lúc phát hành hóa đơn.
+8. Mở `Finance`.
+9. Trong `Nhóm khoản thu`, thêm một nhóm đang áp dụng.
+10. Trong `Khoản thu`, chọn nhóm và thêm ít nhất một khoản thu với tên, đơn vị và đơn giá VND mặc định.
 
-## Tao va phat hanh hoa don
+## Tạo và phát hành hóa đơn
 
-1. Trong `Finance`, o `Mo dot thu thang`, chon nam hoc va thang thu, sau do chon `Mo hoac vao dot thu`.
-2. Trong dot `DRAFT`, chon hoc sinh, chon `Luu danh sach da chon`, roi chon `Xem truoc tu may chu`.
-3. Kiem tra hoc sinh nam trong danh sach du dieu kien. Neu bi bo qua, sua roster/effective date theo ly do ma may chu tra ve, roi lap lai preview.
-4. Chon `Xac nhan preview va chuyen READY`, sau do chon `Tao hoa don nhap` va xac nhan thang thu trong dialog.
-5. Trong ket qua tao hoa don hoac danh sach hoa don cua dot, chon `Ra soat hoa don` cho hoc sinh.
-6. Hoa don bat dau o trang thai `DRAFT`. Them it nhat mot line bang khoan thu da tao; dieu chinh quantity/don gia theo giao dien neu can. Tong phai lon hon 0.
-7. Chon `Phat hanh hoa don`, chon tai khoan nhan dang hoat dong, nhap dung ten hoc sinh de xac nhan, roi xac nhan phat hanh.
-8. Xac nhan hoa don chuyen sang `ISSUED` va co thong tin han thanh toan, tai khoan nhan, noi dung chuyen khoan va policy snapshot.
+1. Trong `Finance`, ở `Mở đợt thu tháng`, chọn năm học và tháng thu, sau đó chọn `Mở hoặc vào đợt thu`.
+2. Trong đợt `DRAFT`, chọn học sinh, chọn `Lưu danh sách đã chọn`, rồi chọn `Xem trước từ máy chủ`.
+3. Kiểm tra học sinh nằm trong danh sách đủ điều kiện. Nếu bị bỏ qua, sửa roster/effective date theo lý do mà máy chủ trả về, rồi lặp lại preview.
+4. Chọn `Xác nhận preview và chuyển READY`, sau đó chọn `Tạo hóa đơn nháp` và xác nhận tháng thu trong dialog.
+5. Trong kết quả tạo hóa đơn hoặc danh sách hóa đơn của đợt, chọn `Rà soát hóa đơn` cho học sinh.
+6. Hóa đơn bắt đầu ở trạng thái `DRAFT`. Thêm ít nhất một line bằng khoản thu đã tạo; điều chỉnh quantity/đơn giá theo giao diện nếu cần. Tổng phải lớn hơn 0.
+7. Chọn `Phát hành hóa đơn`, chọn tài khoản nhận đang hoạt động, nhập đúng tên học sinh để xác nhận, rồi xác nhận phát hành.
+8. Xác nhận hóa đơn chuyển sang `ISSUED` và có thông tin hạn thanh toán, tài khoản nhận, nội dung chuyển khoản và policy snapshot.
 
-Neu mot mutation timeout hoac ket noi bi gian doan, khong gui lai ngay. Portal giu Operation ID va tu doi soat. Doi ket qua doi soat truoc khi thu lai thao tac.
+Nếu một mutation timeout hoặc kết nối bị gián đoạn, không gửi lại ngay. Portal giữ Operation ID và tự đối soát. Đợi kết quả đối soát trước khi thử lại thao tác.
 
-## Kiem tra ket thuc
+## Kiểm tra kết thúc
 
-- API dang chay tai port `3000`, Ops tai `5176`, Admin tai `5173`; ca hai portal goi truc tiep `http://localhost:3000` qua `VITE_API_URL`.
-- Dang nhap Ops chi thanh cong cho `SUPERADMIN_EMAIL`; School owner dang nhap qua Admin, khong qua Ops.
-- School co nam hoc, lop, hoc sinh `ENROLLED`, FinancePolicy co hieu luc, tai khoan nhan dang hoat dong, nhom/khoan thu, CollectionRun, hoa don `DRAFT` va hoa don `ISSUED` sau khi hoan thanh happy path.
-- Teacher va Parent khong chay trong toan bo qua trinh.
+- API đang chạy tại port `3000`, Ops tại `5176`, Admin tại `5173`; cả hai portal gọi trực tiếp `http://localhost:3000` qua `VITE_API_URL`.
+- Đăng nhập Ops chỉ thành công cho `SUPERADMIN_EMAIL`; School owner đăng nhập qua Admin, không qua Ops.
+- School có năm học, lớp, học sinh `ENROLLED`, FinancePolicy có hiệu lực, tài khoản nhận đang hoạt động, nhóm/khoản thu, CollectionRun, hóa đơn `DRAFT` và hóa đơn `ISSUED` sau khi hoàn thành happy path.
+- Teacher và Parent không chạy trong toàn bộ quá trình.
 
-Co the chay cac kiem tra khong can database test rieng sau khi thay doi tai lieu:
+Có thể chạy các kiểm tra không cần database test riêng sau khi thay đổi tài liệu:
 
 ```bash
 pnpm --filter @passionedu/admin-web typecheck
