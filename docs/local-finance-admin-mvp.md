@@ -45,7 +45,7 @@ cp apps/api/.env.example apps/api/.env
 Khai báo đầy đủ bốn audience theo template. Các giá trị cục bộ cần dùng là:
 
 ```dotenv
-WEB_ORIGIN=http://localhost:5173
+APP_WEB_ORIGIN=http://localhost:5173
 TEACHER_WEB_ORIGIN=http://localhost:5175
 OPS_WEB_ORIGIN=http://localhost:5176
 PARENT_WEB_ORIGIN=http://localhost:5174
