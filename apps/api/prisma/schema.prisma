@@ -738,6 +738,7 @@ model CollectionRunGenerationItem {
 enum InvoiceStatus {
   DRAFT
   ISSUED
+  CANCELLED
 }
 
 model Invoice {
@@ -777,15 +778,18 @@ model Invoice {
   debtScopeSnapshot         FinanceDebtScope?
   reversalModeSnapshot      FinanceReversalMode?
   dueOn                     DateTime? @db.Date
+  revisesInvoiceId          String?   @db.Uuid
+  revisionReason            String?
   createdAt                 DateTime  @default(now())
   school                    School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student                   Student   @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   collectionRun             CollectionRun @relation(fields: [schoolId, collectionRunId, schoolYearId, billingMonth], references: [schoolId, id, schoolYearId, billingMonth], onDelete: Restrict)
   schoolYear                SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
   lines                     InvoiceLine[]
+  revisesInvoice            Invoice?  @relation("InvoiceRevision", fields: [schoolId, revisesInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  replacementInvoices       Invoice[] @relation("InvoiceRevision")
 
   @@unique([schoolId, id])
-  @@unique([schoolId, studentId, collectionRunId])
   @@index([schoolId, collectionRunId])
   @@index([schoolId, status])
 }

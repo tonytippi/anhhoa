@@ -65,7 +65,7 @@ type GenerateOutcome = {
 };
 type Source = { serviceDate: string | null; attendanceState: "PRESENT" | "ABSENT" | null; pickedUpAt: string | null; lateCareMinutes: number | null };
 type BankAccount = { id: string; receivingBank: string; accountNumber: string; accountHolderName: string };
-type Invoice = { id: string; status: string; total: string; billingMonth: string; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
+type Invoice = { id: string; status: string; total: string; billingMonth: string; revisesInvoiceId: string | null; revisionReason: string | null; replacementInvoiceId: string | null; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
 type Pending = { id: string; schoolId: string };
 type GenerationProgress = {
   status: "QUEUED" | "RUNNING" | "PAUSED" | "FAILED" | "COMPLETED";
@@ -143,6 +143,9 @@ export function FinanceWorkspace({
   const [issueConfirmation, setIssueConfirmation] = useState(false);
   const [issueConfirmationName, setIssueConfirmationName] = useState("");
   const [issueBankAccountId, setIssueBankAccountId] = useState("");
+  const [revisionConfirmation, setRevisionConfirmation] = useState(false);
+  const [revisionReason, setRevisionReason] = useState("");
+  const [revisionConfirmationName, setRevisionConfirmationName] = useState("");
   const [line, setLine] = useState({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" });
   const [editingLineId, setEditingLineId] = useState<string>();
   const [editingSource, setEditingSource] = useState(false);
@@ -171,6 +174,8 @@ export function FinanceWorkspace({
   const removeTrigger = useRef<HTMLButtonElement>(null);
   const issueDialog = useRef<HTMLDivElement>(null);
   const issueTrigger = useRef<HTMLButtonElement>(null);
+  const revisionDialog = useRef<HTMLDivElement>(null);
+  const revisionTrigger = useRef<HTMLButtonElement>(null);
   const closeDialog = useRef<HTMLDivElement>(null);
   const closeTrigger = useRef<HTMLButtonElement>(null);
   const closedHeading = useRef<HTMLHeadingElement>(null);
@@ -305,6 +310,9 @@ export function FinanceWorkspace({
     setIssueConfirmation(false);
     setIssueConfirmationName("");
     setIssueBankAccountId("");
+    setRevisionConfirmation(false);
+    setRevisionReason("");
+    setRevisionConfirmationName("");
     setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" });
     setEditingLineId(undefined);
     setEditingSource(false);
@@ -386,6 +394,10 @@ export function FinanceWorkspace({
     if (issueConfirmation) issueDialog.current?.querySelector<HTMLElement>("select")?.focus();
     else issueTrigger.current?.focus();
   }, [issueConfirmation]);
+  useEffect(() => {
+    if (revisionConfirmation) revisionDialog.current?.querySelector<HTMLElement>("textarea")?.focus();
+    else revisionTrigger.current?.focus();
+  }, [revisionConfirmation]);
   useEffect(() => {
     if (closeConfirmation) closeDialog.current?.querySelector<HTMLElement>("textarea")?.focus();
     else closeTrigger.current?.focus();
@@ -664,8 +676,13 @@ export function FinanceWorkspace({
   };
   const issueInvoice = async () => {
     if (!invoice || !issueBankAccountId) return;
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/issue`, "POST", { bankAccountId: issueBankAccountId }, "invoice");
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/${invoice.revisesInvoiceId ? "issue-revision" : "issue"}`, "POST", { bankAccountId: issueBankAccountId }, "invoice");
     if (outcome) { applyInvoice(outcome as Invoice); setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); try { await load(); } catch { setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất."); } }
+  };
+  const prepareRevision = async () => {
+    if (!invoice) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/revisions`, "POST", { reason: revisionReason }, "invoice");
+    if (outcome) { applyInvoice(outcome as Invoice); setRevisionConfirmation(false); setRevisionReason(""); setRevisionConfirmationName(""); try { await load(); } catch { setMessage("Bản điều chỉnh đã được chuẩn bị; chưa thể tải lại dữ liệu mới nhất."); } }
   };
   const openIssueConfirmation = async () => {
     if (!invoice) return;
@@ -695,6 +712,14 @@ export function FinanceWorkspace({
   const trapCloseFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Tab") return;
     const items = [...(closeDialog.current?.querySelectorAll<HTMLElement>("textarea, button") ?? [])].filter((item) => !item.hasAttribute("disabled"));
+    const first = items[0], last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  const trapRevisionFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const items = [...(revisionDialog.current?.querySelectorAll<HTMLElement>("textarea, input, button") ?? [])].filter((item) => !item.hasAttribute("disabled"));
     const first = items[0], last = items.at(-1);
     if (!first || !last) return;
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -1224,14 +1249,17 @@ export function FinanceWorkspace({
         <section aria-labelledby="invoice-review-title">
           <h3 id="invoice-review-title">Rà soát hóa đơn {invoice.student.code} / {invoice.student.name}</h3>
           <p>Đợt {invoice.billingMonth}, lớp {invoice.student.className}, trạng thái {invoice.status}.</p>
-          {invoice.status === "DRAFT" && <button ref={issueTrigger} type="button" disabled={Boolean(pending) || !invoice.lines.length || invoice.total === "0"} onClick={() => void openIssueConfirmation()}>Phát hành hóa đơn</button>}
-          {invoice.status === "ISSUED" && <section aria-label="Snapshot phát hành"><h4>Hướng dẫn thanh toán đã phát hành</h4><p>Tổng nghĩa vụ: {vnd(invoice.issue?.obligationTotal ?? invoice.total)} VND. Hạn thanh toán: {invoice.issue?.dueOn}.</p><p>{invoice.issue?.bankAccount.receivingBank} / {invoice.issue?.bankAccount.accountNumber} / {invoice.issue?.bankAccount.accountHolderName}</p><p>Nội dung chuyển khoản: {invoice.issue?.transferContent}</p><p>Chính sách {invoice.issue?.policy.effectiveFrom}: {invoice.issue?.policy.dueDaysAfterIssue} ngày; {invoice.issue?.policy.taxTreatment}; {invoice.issue?.policy.debtScope}; {invoice.issue?.policy.reversalMode}.</p><p>Settlement chưa được ghi nhận.</p></section>}
+           {invoice.status === "DRAFT" && <button ref={issueTrigger} type="button" disabled={Boolean(pending) || !invoice.lines.length || invoice.total === "0"} onClick={() => void openIssueConfirmation()}>{invoice.revisesInvoiceId ? "Phát hành bản thay thế" : "Phát hành hóa đơn"}</button>}
+            {invoice.status === "ISSUED" && !invoice.revisesInvoiceId && <button ref={revisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => { setRevisionReason(""); setRevisionConfirmationName(""); setRevisionConfirmation(true); }}>Chuẩn bị bản điều chỉnh</button>}
+           {(invoice.revisesInvoiceId || invoice.replacementInvoiceId) && <p>Lineage: {invoice.revisesInvoiceId ? `thay thế ${invoice.revisesInvoiceId}` : `được thay thế bởi ${invoice.replacementInvoiceId}`}. {invoice.revisionReason ? `Lý do: ${invoice.revisionReason}.` : ""}</p>}
+           {(invoice.status === "ISSUED" || invoice.status === "CANCELLED") && <section aria-label="Snapshot phát hành"><h4>Hướng dẫn thanh toán đã phát hành</h4><p>Tổng nghĩa vụ: {vnd(invoice.issue?.obligationTotal ?? invoice.total)} VND. Hạn thanh toán: {invoice.issue?.dueOn}.</p><p>{invoice.issue?.bankAccount.receivingBank} / {invoice.issue?.bankAccount.accountNumber} / {invoice.issue?.bankAccount.accountHolderName}</p><p>Nội dung chuyển khoản: {invoice.issue?.transferContent}</p><p>Chính sách {invoice.issue?.policy.effectiveFrom}: {invoice.issue?.policy.dueDaysAfterIssue} ngày; {invoice.issue?.policy.taxTreatment}; {invoice.issue?.policy.debtScope}; {invoice.issue?.policy.reversalMode}.</p><p>{invoice.status === "CANCELLED" ? "Hóa đơn đã hủy và chỉ đọc." : "Settlement chưa được ghi nhận."}</p></section>}
           <table><caption>Dòng hóa đơn do máy chủ tính</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Số tiền VND</th><th>Thao tác</th></tr></thead><tbody>{invoice.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.source && <small> Nguồn: {item.source.serviceDate ?? ""} {item.source.attendanceState ?? ""} {item.source.pickedUpAt ?? ""} {item.source.lateCareMinutes ?? ""}; {item.sourceReason}; ghi lúc {item.sourceRecordedAt ?? ""}; actor {item.sourceAudit?.actorIdentityId ?? ""}; membership {item.sourceAudit?.membershipId ?? ""}; provenance {JSON.stringify(item.sourceProvenance)}</small>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{invoice.status === "DRAFT" && <><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId, quantity: item.quantity, unitPrice: item.unitPrice, overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={3}>Tổng cần thu</th><th style={{ textAlign: "right" }}>{vnd(invoice.total)}</th><td /></tr></tbody></table>
           {invoice.status === "DRAFT" ? <form onSubmit={saveLine}><h4>{editingLineId ? "Sửa dòng" : "Thêm dòng"}</h4><label>Khoản thu<select disabled={Boolean(editingLineId)} value={line.receivableId} onChange={(event) => setLine({ ...line, receivableId: event.target.value })} {...invoiceField("receivableId")}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>{scope === "invoice" && errors.receivableId && <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>}<label>Số lượng<input inputMode="numeric" value={line.quantity} onChange={(event) => setLine({ ...line, quantity: event.target.value })} {...invoiceField("quantity")} /></label>{scope === "invoice" && errors.quantity && <small id="invoice-invoice-quantity-error">{errors.quantity}</small>}<label>Đơn giá override VND (không bắt buộc)<input inputMode="numeric" value={line.unitPrice} onChange={(event) => setLine({ ...line, unitPrice: event.target.value })} {...invoiceField("unitPrice")} /></label>{scope === "invoice" && errors.unitPrice && <small id="invoice-invoice-unitPrice-error">{errors.unitPrice}</small>}<label>Lý do override<input value={line.overrideReason} onChange={(event) => setLine({ ...line, overrideReason: event.target.value })} {...invoiceField("overrideReason")} /></label>{scope === "invoice" && errors.overrideReason && <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>}<fieldset><legend>Nguồn giải thích thủ công</legend><label>Ngày dịch vụ<input type="date" value={line.serviceDate} onChange={(event) => setLine({ ...line, serviceDate: event.target.value })} /></label><label>Điểm danh<select value={line.attendanceState} onChange={(event) => setLine({ ...line, attendanceState: event.target.value })}><option value="">Không có</option><option value="PRESENT">Có mặt</option><option value="ABSENT">Vắng mặt</option></select></label><label>Giờ đón (HH:MM)<input value={line.pickedUpAt} onChange={(event) => setLine({ ...line, pickedUpAt: event.target.value })} /></label><label>Số phút trông muộn<input inputMode="numeric" value={line.lateCareMinutes} onChange={(event) => setLine({ ...line, lateCareMinutes: event.target.value })} /></label><label>Lý do nguồn giải thích<input value={line.sourceReason} onChange={(event) => setLine({ ...line, sourceReason: event.target.value })} /></label></fieldset><button disabled={Boolean(pending)}>{editingLineId ? "Lưu dòng" : "Thêm dòng"}</button>{editingLineId && <button type="button" onClick={() => { setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }}>Hủy sửa</button>}</form> : <p>Hóa đơn {invoice.status} chỉ đọc; dòng hóa đơn không thể thay đổi.</p>}
         </section>
       )}
       {removeConfirmation && <div ref={removeDialog} role="dialog" aria-modal="true" aria-labelledby="finance-remove-line-title" onKeyDown={trapRemoveFocus}><h3 id="finance-remove-line-title">Xóa dòng {removeConfirmation.name}</h3><p>Dòng này sẽ không còn áp dụng cho hóa đơn nháp.</p><button type="button" disabled={Boolean(pending)} onClick={() => void removeLine(removeConfirmation.id)}>Xác nhận xóa dòng</button><button type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation(undefined)}>Hủy</button></div>}
-      {issueConfirmation && invoice && <div ref={issueDialog} role="dialog" aria-modal="true" aria-labelledby="finance-issue-title" onKeyDown={trapIssueFocus}><h3 id="finance-issue-title">Phát hành hóa đơn cho {invoice.student.name}</h3><p>Chỉ snapshot tài khoản đang hoạt động từ máy chủ được dùng. Không thể chỉnh sửa sau phát hành.</p><label>Tài khoản nhận<select value={issueBankAccountId} onChange={(event) => setIssueBankAccountId(event.target.value)}><option value="">Chọn tài khoản</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.receivingBank} / {account.accountNumber} / {account.accountHolderName}</option>)}</select></label><label>Nhập chính xác tên học sinh {invoice.student.name} để xác nhận<input value={issueConfirmationName} onChange={(event) => setIssueConfirmationName(event.target.value)} /></label><button type="button" disabled={Boolean(pending) || !issueBankAccountId || issueConfirmationName !== invoice.student.name} onClick={() => void issueInvoice()}>Xác nhận phát hành</button><button type="button" disabled={Boolean(pending)} onClick={() => { setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); }}>Hủy</button></div>}
+       {issueConfirmation && invoice && <div ref={issueDialog} role="dialog" aria-modal="true" aria-labelledby="finance-issue-title" onKeyDown={trapIssueFocus}><h3 id="finance-issue-title">{invoice.revisesInvoiceId ? "Phát hành bản thay thế" : "Phát hành hóa đơn"} cho {invoice.student.name}</h3><p>Chỉ snapshot tài khoản đang hoạt động từ máy chủ được dùng. Không thể chỉnh sửa sau phát hành.</p><label>Tài khoản nhận<select value={issueBankAccountId} onChange={(event) => setIssueBankAccountId(event.target.value)}><option value="">Chọn tài khoản</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.receivingBank} / {account.accountNumber} / {account.accountHolderName}</option>)}</select></label><label>Nhập chính xác tên học sinh {invoice.student.name} để xác nhận<input value={issueConfirmationName} onChange={(event) => setIssueConfirmationName(event.target.value)} /></label><button type="button" disabled={Boolean(pending) || !issueBankAccountId || issueConfirmationName !== invoice.student.name} onClick={() => void issueInvoice()}>Xác nhận phát hành</button><button type="button" disabled={Boolean(pending)} onClick={() => { setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); }}>Hủy</button></div>}
+       {revisionConfirmation && invoice && <div ref={revisionDialog} role="dialog" aria-modal="true" aria-labelledby="finance-revision-title" onKeyDown={trapRevisionFocus}><h3 id="finance-revision-title">Chuẩn bị bản điều chỉnh cho {invoice.student.name}</h3><p>Hóa đơn đã phát hành vẫn giữ nguyên cho đến khi bản thay thế được phát hành.</p><label>Lý do điều chỉnh<textarea value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} /></label><label>Nhập chính xác tên học sinh {invoice.student.name} để xác nhận<input value={revisionConfirmationName} onChange={(event) => setRevisionConfirmationName(event.target.value)} /></label><button type="button" disabled={Boolean(pending) || !revisionReason.trim() || revisionConfirmationName !== invoice.student.name} onClick={() => void prepareRevision()}>Xác nhận chuẩn bị bản điều chỉnh</button><button type="button" disabled={Boolean(pending)} onClick={() => setRevisionConfirmation(false)}>Hủy</button></div>}
       {closeConfirmation && run && <div ref={closeDialog} role="dialog" aria-modal="true" aria-labelledby="finance-close-run-title" onKeyDown={trapCloseFocus}><h3 id="finance-close-run-title">Đóng đợt thu {run.billingMonth}</h3><p>Chỉ đóng được khi mọi hóa đơn đã phát hành. Sau khi đóng, máy chủ từ chối thêm học sinh và các thao tác tạo hoặc sửa.</p><label>Nhập chính xác tháng thu {run.billingMonth} để xác nhận<input value={closeConfirmationMonth} onChange={(event) => setCloseConfirmationMonth(event.target.value)} /></label><label>Lý do đóng đợt thu<textarea id="finance-close-reason-field" aria-invalid={Boolean(errors.reason)} aria-describedby={errors.reason ? "finance-close-reason-error" : undefined} value={closeReason} onChange={(event) => setCloseReason(event.target.value)} /></label>{errors.reason && <small id="finance-close-reason-error">{errors.reason}</small>}<button type="button" disabled={Boolean(pending) || !closeReason.trim() || closeConfirmationMonth !== run.billingMonth} onClick={() => void closeRun()}>Xác nhận đóng đợt thu</button><button type="button" disabled={Boolean(pending)} onClick={() => { setCloseConfirmation(false); setCloseReason(""); setCloseConfirmationMonth(""); }}>Hủy</button></div>}
       {generateConfirmation && run && (
         <div

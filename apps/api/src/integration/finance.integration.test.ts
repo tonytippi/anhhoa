@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 import { AuthorizationService } from "../modules/authorization/authorization.service.js";
 import { PrismaService } from "../modules/identity/prisma.service.js";
 import { FinanceService } from "../modules/finance/finance.service.js";
@@ -1061,6 +1062,41 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       ).rejects.toThrow(/does not match parent state/);
     });
 
+    it("prepares one revision from immutable source facts, then atomically issues it and cancels the source", async () => {
+      const fixture = await issueFixture();
+      const issued = await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      expect(issued.outcome).toMatchObject({ status: "ISSUED" });
+      const key = uuid(); const operationId = uuid();
+      const prepared = await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, key, operationId, { reason: "Sai khoản thu" });
+      const replacementId = outcomeId(prepared);
+      expect(await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, key, uuid(), { reason: "Sai khoản thu" })).toEqual(prepared);
+      const replacement = await prisma.invoice.findUniqueOrThrow({ where: { id: replacementId } });
+      const source = await prisma.invoice.findUniqueOrThrow({ where: { id: fixture.invoice.id } });
+      expect(replacement).toMatchObject({ status: "DRAFT", revisesInvoiceId: source.id, revisionReason: "Sai khoản thu", studentId: source.studentId, collectionRunId: source.collectionRunId, studentNameSnapshot: source.studentNameSnapshot });
+      await expect(finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Lý do khác" })).rejects.toMatchObject({ status: 409, response: { code: "INVOICE_REVISION_EXISTS" } });
+      await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { receivableId: fixture.receivableId, quantity: "1" });
+      const issuedRevision = await finance.issueRevision(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      expect(issuedRevision.outcome).toMatchObject({ id: replacementId, status: "ISSUED", revisesInvoiceId: source.id });
+      expect(await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } })).toMatchObject({ status: "CANCELLED", obligationTotalSnapshot: source.obligationTotalSnapshot });
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, action: "INVOICE_CANCELLED_FOR_REVISION" } })).toMatchObject({ provenance: { operationId: issuedRevision.id, newValue: { status: "CANCELLED", replacementInvoiceId: replacementId } } });
+      await expect(prisma.invoice.create({ data: { schoolId: fixture.current.school.id, studentId: source.studentId, collectionRunId: source.collectionRunId, schoolYearId: source.schoolYearId, billingMonth: source.billingMonth, rosterAsOf: source.rosterAsOf, studentCodeSnapshot: source.studentCodeSnapshot, studentNameSnapshot: source.studentNameSnapshot, enrollmentIdSnapshot: source.enrollmentIdSnapshot, enrollmentLifecycleSnapshot: source.enrollmentLifecycleSnapshot, enrollmentEffectiveFromSnapshot: source.enrollmentEffectiveFromSnapshot, enrollmentEndedOnSnapshot: source.enrollmentEndedOnSnapshot, classAssignmentIdSnapshot: source.classAssignmentIdSnapshot, classAssignmentEffectiveFromSnapshot: source.classAssignmentEffectiveFromSnapshot, classAssignmentEffectiveToSnapshot: source.classAssignmentEffectiveToSnapshot, classIdSnapshot: source.classIdSnapshot, classNameSnapshot: source.classNameSnapshot, selectionProvenance: source.selectionProvenance as Prisma.InputJsonValue, revisesInvoiceId: source.id, revisionReason: "Duplicate" } })).rejects.toThrow();
+      await expect(prisma.invoice.update({ where: { id: source.id }, data: { studentNameSnapshot: "Mutated" } })).rejects.toThrow(/immutable/);
+      await expect(prisma.invoice.update({ where: { id: source.id }, data: { status: "CANCELLED", total: 1n } })).rejects.toThrow(/immutable|Cancellation/);
+    });
+
+    it("rejects revision access, closed run/year, and direct lifecycle or lineage writes", async () => {
+      const fixture = await issueFixture(); const foreign = await graph();
+      await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      await expect(finance.prepareRevision(foreign.identity.id, foreign.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Foreign" })).rejects.toMatchObject({ status: 404 });
+      await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "FINANCE_MANAGE" } });
+      await expect(finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Revoked" })).rejects.toMatchObject({ status: 403 });
+      await prisma.positionCapabilityGrant.create({ data: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "FINANCE_MANAGE" } });
+      await prisma.schoolYear.update({ where: { id: fixture.current.year.id }, data: { closedAt: new Date() } });
+      await expect(finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Closed year" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_CLOSED" } });
+      await expect(prisma.invoice.update({ where: { id: fixture.invoice.id }, data: { status: "CANCELLED" } })).rejects.toThrow(/replacement/);
+      await expect(prisma.invoice.create({ data: { schoolId: fixture.current.school.id, studentId: fixture.student.student.id, collectionRunId: fixture.invoice.collectionRunId, schoolYearId: fixture.invoice.schoolYearId, billingMonth: fixture.invoice.billingMonth, rosterAsOf: fixture.invoice.rosterAsOf, studentCodeSnapshot: fixture.invoice.studentCodeSnapshot, studentNameSnapshot: fixture.invoice.studentNameSnapshot, enrollmentIdSnapshot: fixture.invoice.enrollmentIdSnapshot, enrollmentLifecycleSnapshot: fixture.invoice.enrollmentLifecycleSnapshot, enrollmentEffectiveFromSnapshot: fixture.invoice.enrollmentEffectiveFromSnapshot, enrollmentEndedOnSnapshot: fixture.invoice.enrollmentEndedOnSnapshot, classAssignmentIdSnapshot: fixture.invoice.classAssignmentIdSnapshot, classAssignmentEffectiveFromSnapshot: fixture.invoice.classAssignmentEffectiveFromSnapshot, classAssignmentEffectiveToSnapshot: fixture.invoice.classAssignmentEffectiveToSnapshot, classIdSnapshot: fixture.invoice.classIdSnapshot, classNameSnapshot: fixture.invoice.classNameSnapshot, selectionProvenance: fixture.invoice.selectionProvenance as Prisma.InputJsonValue, status: "ISSUED" } })).rejects.toThrow(/DRAFT/);
+    });
+
     it("uses the generate-time roster once, skips a Student changed after READY, and persists no stale snapshot", async () => {
       const current = await roster(await graph());
       const student = await enrolled(current);
@@ -1387,7 +1423,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
        expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(0);
        const [lineGuard] = await prisma.$queryRaw<Array<{ definition: string; labels: string[] }>>`SELECT pg_get_functiondef(p.oid)::text AS definition, ARRAY(SELECT enumlabel::text FROM pg_enum WHERE enumtypid = '"InvoiceStatus"'::regtype ORDER BY enumsortorder)::text[] AS labels FROM pg_proc p WHERE p.proname = 'reject_invoice_line_after_issue'`;
        expect(lineGuard).toBeDefined();
-        expect(lineGuard).toMatchObject({ labels: ["DRAFT", "ISSUED"] });
+         expect(lineGuard).toMatchObject({ labels: ["DRAFT", "ISSUED", "CANCELLED"] });
        expect(lineGuard!.definition).toContain("IS DISTINCT FROM 'DRAFT'");
      });
 
@@ -1527,7 +1563,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(prisma.invoiceLine.create({ data: { schoolId: current.school.id, invoiceId: invoice.id, receivableId, receivableNameSnapshot: "Injected", unitLabelSnapshot: "lần", defaultUnitPriceSnapshot: 1n, unitPrice: 1n, quantity: 1, amount: 1n } })).rejects.toThrow(/DRAFT/);
       const line = await prisma.invoiceLine.findFirstOrThrow({ where: { invoiceId: invoice.id } });
       await expect(prisma.invoiceLine.update({ where: { id: line.id }, data: { unitPrice: 1n } })).rejects.toThrow(/DRAFT/);
-      await expect(prisma.$queryRaw<Array<{ labels: string[] }>>`SELECT ARRAY(SELECT enumlabel::text FROM pg_enum WHERE enumtypid = '"InvoiceStatus"'::regtype ORDER BY enumsortorder)::text[] AS labels`).resolves.toEqual([{ labels: ["DRAFT", "ISSUED"] }]);
+       await expect(prisma.$queryRaw<Array<{ labels: string[] }>>`SELECT ARRAY(SELECT enumlabel::text FROM pg_enum WHERE enumtypid = '"InvoiceStatus"'::regtype ORDER BY enumsortorder)::text[] AS labels`).resolves.toEqual([{ labels: ["DRAFT", "ISSUED", "CANCELLED"] }]);
     });
 
     it("rejects direct DRAFT snapshot injection and incomplete or incoherent DRAFT-to-ISSUED mutation", async () => {

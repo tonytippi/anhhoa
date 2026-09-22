@@ -35,6 +35,8 @@ const routes = {
   editInvoiceLine: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
   removeInvoiceLine: "DELETE /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
   issueInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue",
+  prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
+  issueRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue-revision",
 };
 const validation = (field: string, message: string) =>
   new BadRequestException({
@@ -231,8 +233,11 @@ export class FinanceService {
       id: invoice.id, status: invoice.status, total: invoice.total.toString(), billingMonth: invoice.billingMonth,
       student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot, className: invoice.classNameSnapshot },
       lines: (invoice.lines ?? []).map((line: any) => this.lineDto(line)),
+      revisesInvoiceId: invoice.revisesInvoiceId ?? null,
+      revisionReason: invoice.revisionReason ?? null,
+      replacementInvoiceId: invoice.replacementInvoices?.[0]?.id ?? null,
     };
-    if (invoice.status === "ISSUED") result.issue = {
+    if (invoice.status === "ISSUED" || invoice.status === "CANCELLED") result.issue = {
       issuedAt: invoice.issuedAt.toISOString(), obligationTotal: invoice.obligationTotalSnapshot.toString(),
       obligationLines: invoice.obligationLinesSnapshot, dueOn: invoice.dueOn.toISOString().slice(0, 10),
       bankAccount: { id: invoice.bankAccountIdSnapshot, receivingBank: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot },
@@ -256,7 +261,7 @@ export class FinanceService {
   }
   async invoice(identityId: string, schoolId: string, invoiceId: string) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
-    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } }, replacementInvoices: { select: { id: true }, take: 1 } } });
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     return this.invoiceDto(invoice);
   }
@@ -269,6 +274,7 @@ export class FinanceService {
       const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
       if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (invoice.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_NOT_DRAFT", message: "Hóa đơn đã được phát hành hoặc không thể phát hành." });
+      if (invoice.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_REVISION_ISSUE_REQUIRED", message: "Bản điều chỉnh phải được phát hành qua luồng thay thế." });
       if (!invoice.lines.length || invoice.total <= 0n) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng và tổng VND dương để phát hành.");
       const bank = await tx.bankAccount.findFirst({ where: { id: bankAccountId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
       if (!bank || bank.lifecycleTransitions[0]?.status !== "ACTIVE") throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND", message: "Không tìm thấy tài khoản nhận đang hoạt động." });
@@ -281,6 +287,67 @@ export class FinanceService {
       const obligationLines = invoice.lines.map((line: any) => this.lineDto(line));
       const updated = await tx.invoice.update({ where: { id: invoice.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(invoice.studentNameSnapshot, invoice.classNameSnapshot), obligationLinesSnapshot: obligationLines, obligationTotalSnapshot: invoice.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn }, include: { lines: { orderBy: { createdAt: "asc" } } } });
       const outcome = this.invoiceDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_ISSUED", operation, { id: invoice.id, status: "DRAFT" }, outcome); return outcome;
+    });
+  }
+  async prepareRevision(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    return this.mutate(actor, identityId, schoolId, routes.prepareRevision, key, operationId, { invoiceId, reason }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const source = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      if (!source) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+      if (source.status !== "ISSUED" || source.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_SOURCE", message: "Chỉ hóa đơn gốc đã phát hành mới có thể được điều chỉnh." });
+      const run = await this.lockRun(tx, schoolId, source.collectionRunId);
+      const year = await this.lockYear(tx, schoolId, source.schoolYearId);
+      if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
+      const existing = await tx.invoice.findFirst({ where: { schoolId, revisesInvoiceId: source.id }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      if (existing) {
+        if (existing.revisionReason !== reason)
+          throw new ConflictException({ code: "INVOICE_REVISION_EXISTS", message: "Bản điều chỉnh đã tồn tại với lý do khác." });
+        throw new ConflictException({ code: "INVOICE_REVISION_EXISTS", message: "Bản điều chỉnh đã tồn tại. Hãy đối soát Operation trước khi thử lại." });
+      }
+      const replacement = await tx.invoice.create({ data: {
+        schoolId, studentId: source.studentId, collectionRunId: source.collectionRunId, schoolYearId: source.schoolYearId, billingMonth: source.billingMonth,
+        rosterAsOf: source.rosterAsOf, studentCodeSnapshot: source.studentCodeSnapshot, studentNameSnapshot: source.studentNameSnapshot,
+        enrollmentIdSnapshot: source.enrollmentIdSnapshot, enrollmentLifecycleSnapshot: source.enrollmentLifecycleSnapshot,
+        enrollmentEffectiveFromSnapshot: source.enrollmentEffectiveFromSnapshot, enrollmentEndedOnSnapshot: source.enrollmentEndedOnSnapshot,
+        classAssignmentIdSnapshot: source.classAssignmentIdSnapshot, classAssignmentEffectiveFromSnapshot: source.classAssignmentEffectiveFromSnapshot,
+        classAssignmentEffectiveToSnapshot: source.classAssignmentEffectiveToSnapshot, classIdSnapshot: source.classIdSnapshot, classNameSnapshot: source.classNameSnapshot,
+        selectionProvenance: source.selectionProvenance, revisesInvoiceId: source.id, revisionReason: reason,
+      }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      const outcome = this.invoiceDto(replacement);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_PREPARED", operation, { id: source.id, status: source.status }, outcome, reason);
+      return outcome;
+    });
+  }
+  async issueRevision(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const bankAccountId = this.identifier(body?.bankAccountId, "bankAccountId");
+    return this.mutate(actor, identityId, schoolId, routes.issueRevision, key, operationId, { invoiceId, bankAccountId }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT 1 FROM "BankAccount" WHERE "id" = ${bankAccountId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const replacement = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      if (!replacement) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+      if (replacement.status !== "DRAFT" || !replacement.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_DRAFT", message: "Chỉ bản điều chỉnh nháp mới có thể phát hành thay thế." });
+      await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${replacement.revisesInvoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const source = await tx.invoice.findFirst({ where: { id: replacement.revisesInvoiceId, schoolId } });
+      if (!source || source.status !== "ISSUED" || source.studentId !== replacement.studentId || source.collectionRunId !== replacement.collectionRunId) throw new ConflictException({ code: "INVOICE_REVISION_GRAPH_CONFLICT", message: "Hóa đơn nguồn không còn hợp lệ để thay thế." });
+      const run = await this.lockRun(tx, schoolId, replacement.collectionRunId);
+      const year = await this.lockYear(tx, schoolId, replacement.schoolYearId);
+      if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
+      if (!replacement.lines.length || replacement.total <= 0n) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng và tổng VND dương để phát hành.");
+      const bank = await tx.bankAccount.findFirst({ where: { id: bankAccountId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
+      if (!bank || bank.lifecycleTransitions[0]?.status !== "ACTIVE" || bank.transferTemplate !== "{{studentName}} {{className}}") throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND", message: "Không tìm thấy tài khoản nhận đang hoạt động." });
+      const now = new Date(); const issueDate = this.localIssueDate(now);
+      const policy = await tx.financePolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: issueDate } }, orderBy: { effectiveFrom: "desc" } });
+      if (!policy) throw new ConflictException({ code: "FINANCE_POLICY_NOT_CONFIGURED", message: "Chưa có chính sách Finance hiệu lực để phát hành." });
+      const dueOn = new Date(issueDate); dueOn.setUTCDate(dueOn.getUTCDate() + policy.dueDaysAfterIssue);
+      const updated = await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      await tx.invoice.update({ where: { id: source.id }, data: { status: "CANCELLED" } });
+      const outcome = this.invoiceDto(updated);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_ISSUED", operation, { sourceInvoiceId: source.id, sourceStatus: "ISSUED" }, outcome, replacement.revisionReason ?? undefined);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_CANCELLED_FOR_REVISION", operation, { id: source.id, status: "ISSUED" }, { id: source.id, status: "CANCELLED", replacementInvoiceId: replacement.id }, replacement.revisionReason ?? undefined);
+      return outcome;
     });
   }
   private async source(tx: any, body: any, invoice: any, identityId: string, membershipId: string) {
@@ -1279,7 +1346,7 @@ export class FinanceService {
         "classAssignmentEffectiveToSnapshot" text, "classIdSnapshot" text, "classNameSnapshot" text,
         "selectionProvenance" jsonb
       )
-      ON CONFLICT ("schoolId", "studentId", "collectionRunId") DO NOTHING
+       ON CONFLICT ("schoolId", "studentId", "collectionRunId") WHERE "revisesInvoiceId" IS NULL DO NOTHING
       RETURNING "studentId"
     `)) as { studentId: string }[];
     return new Set(inserted.map((invoice: { studentId: string }) => invoice.studentId));
