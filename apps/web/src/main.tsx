@@ -78,27 +78,50 @@ export function AdminShell() {
   }, []);
   if (!ready)
     return (
-      <main>
-        <h1>PassionEdu - Quản trị trường</h1>
-        <p>Đang xác thực phiên...</p>
+      <main className="admin-auth-shell">
+        <section className="admin-auth-card" aria-live="polite">
+          <p className="admin-eyebrow">PASSIONEDU</p>
+          <h1>Quản trị trường</h1>
+          <p>Đang xác thực phiên...</p>
+        </section>
       </main>
     );
   if (!session)
     return (
-      <main>
-        <h1>PassionEdu - Quản trị trường</h1>
-        <p>Vui lòng đăng nhập để tiếp tục.</p>
-        <a href={googleLoginUrl("app")}>Đăng nhập với Google</a>
+      <main className="admin-auth-shell">
+        <section className="admin-auth-card">
+          <p className="admin-eyebrow">PASSIONEDU</p>
+          <h1>Quản trị trường</h1>
+          <p>Vui lòng đăng nhập để tiếp tục.</p>
+          <a className="admin-primary-link" href={googleLoginUrl("app")}>
+            Đăng nhập với Google
+          </a>
+        </section>
       </main>
     );
   return (
-    <main>
-      <a href="#school-content">Bỏ qua điều hướng</a>
-      <div id="school-content">
-        <SchoolContext clear={clear} />
-      </div>
-      <button onClick={() => void logout("app", clear)}>Đăng xuất</button>
-    </main>
+    <div className="app-shell admin-app-shell">
+      <aside className="sidebar admin-sidebar" aria-label="Khung quản trị">
+        <div className="brand" aria-label="PassionEdu">
+          <span className="brand-mark" aria-hidden="true">✦</span>
+          <span>PassionEdu</span>
+        </div>
+        <p className="admin-sidebar-copy">Quản trị vận hành trường</p>
+        <div className="admin-sidebar-footer">
+          <span className="admin-session-label">Tài khoản đang đăng nhập</span>
+          <button className="account" onClick={() => void logout("app", clear)}>
+            <span className="avatar" aria-hidden="true">PE</span>
+            <span>Đăng xuất</span>
+          </button>
+        </div>
+      </aside>
+      <main className="admin-main">
+        <a className="admin-skip-link" href="#school-content">Bỏ qua điều hướng</a>
+        <div id="school-content">
+          <SchoolContext clear={clear} />
+        </div>
+      </main>
+    </div>
   );
 }
 

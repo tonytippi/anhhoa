@@ -180,14 +180,26 @@ export function SchoolContext({ clear }: { clear: () => void }) {
   }, []);
   const updateLeaveReviewStatus = useCallback((status: WorkspaceStatus) => setLeaveReviewStatus(status), []);
   const updateFinanceStatus = useCallback((status: FinanceStatus) => setFinanceStatus(status), []);
-  if (!schools) return <p>Đang tải ngữ cảnh trường...</p>;
+  if (!schools)
+    return (
+      <section className="school-context school-context-loading" aria-live="polite">
+        <p>Đang tải ngữ cảnh trường...</p>
+      </section>
+    );
   if (!schools.length)
-    return <p>Không có trường nào đang cấp quyền cho tài khoản này.</p>;
+    return (
+      <section className="school-context school-context-empty">
+        <p className="school-context-kicker">NGỮ CẢNH TRƯỜNG</p>
+        <h1>Chưa có trường được cấp quyền</h1>
+        <p>Không có trường nào đang cấp quyền cho tài khoản này.</p>
+      </section>
+    );
   return (
     <section className="school-context">
-      <label>
-        Chọn trường{" "}
-        <select
+      <div className="school-context-switcher">
+        <label className="school-context-label">
+          <span>Chọn trường</span>
+          <select
           aria-label="Chọn trường"
           value={context?.schoolId ?? ""}
           disabled={Boolean(
@@ -203,30 +215,35 @@ export function SchoolContext({ clear }: { clear: () => void }) {
               {school.schoolName}
             </option>
           ))}
-        </select>
-      </label>
-      {error && <p role="alert">{error}</p>}
+          </select>
+        </label>
+        {!context && <p className="school-context-hint">Chọn một trường để bắt đầu công việc.</p>}
+      </div>
+      {error && <p className="school-context-error" role="alert">{error}</p>}
       {context && (
         <>
-          <h1 ref={heading} tabIndex={-1}>
+          <header className="school-context-heading">
+            <p className="school-context-kicker">NGỮ CẢNH ĐANG LÀM VIỆC</p>
+            <h1 ref={heading} tabIndex={-1}>
             PassionEdu - {context.schoolName}
-          </h1>
-          <nav aria-label="Điều hướng trường">
+            </h1>
+          </header>
+            <nav className="school-context-navigation" aria-label="Điều hướng quản trị và nhân sự">
             {context.navigation.map((item) =>
               item.id === "roster" ||
               item.id === "settings" || item.id === "leave-review" || item.id === "finance" ? (
                 <button
                   key={item.id}
+                  className={`school-context-nav-item school-context-nav-${item.id}`}
                   aria-current={view === item.id ? "page" : undefined}
                   onClick={() => setView(item.id as typeof view)}
                 >
                   {item.label}
                 </button>
-              ) : (
-                <span key={item.id}>{item.label} </span>
-              ),
+              ) : null,
             )}
           </nav>
+          <div className="school-context-workspace">
           {view === "roster" &&
           context.capabilities.includes("ROSTER_MANAGE") ? (
             <RosterWorkspace
@@ -255,19 +272,23 @@ export function SchoolContext({ clear }: { clear: () => void }) {
           ) : view === "finance" && context.capabilities.includes("FINANCE_MANAGE") ? (
             <FinanceWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={() => { clearContext(); void refreshChooser(); }} onStatusChange={updateFinanceStatus} />
           ) : null}
+          </div>
         </>
       )}
       {switchTo && (
-        <div ref={dialog} role="dialog" aria-modal="true">
+        <div className="school-switch-backdrop">
+        <div className="school-switch-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="school-switch-title">
           {switchTo ? (
             <>
-              <h2>Đổi trường?</h2>
+              <h2 id="school-switch-title">Đổi trường?</h2>
               <p>
                 Biểu mẫu đang có nội dung chưa gửi hoặc thao tác đang được đối
                 soát.
               </p>
-              <button onClick={() => setSwitchTo(undefined)}>Ở lại</button>
+              <div className="school-switch-actions">
+              <button className="school-switch-stay" onClick={() => setSwitchTo(undefined)}>Ở lại</button>
               <button
+                className="school-switch-discard"
                 onClick={() => {
                   const target = switchTo;
                   setSwitchTo(undefined);
@@ -282,8 +303,10 @@ export function SchoolContext({ clear }: { clear: () => void }) {
               >
                 Bỏ nội dung và đổi trường
               </button>
+              </div>
             </>
           ) : null}
+        </div>
         </div>
       )}
     </section>

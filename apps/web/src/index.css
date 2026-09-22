@@ -982,3 +982,442 @@ tbody tr:last-child td {
     justify-content: start;
   }
 }
+
+/* Admin chrome: shared workspace context, kept separate from route-level workspaces. */
+.admin-app-shell {
+  background: #f7f8f3;
+  color: #18332d;
+}
+.admin-sidebar {
+  background: #fff;
+}
+.admin-sidebar-copy {
+  margin: -16px 12px 0;
+  color: #5f746e;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.admin-sidebar-footer {
+  margin-top: auto;
+  border-top: 1px solid #e4e2d8;
+  padding-top: 16px;
+}
+.admin-session-label {
+  display: block;
+  margin: 0 12px 6px;
+  color: #5f746e;
+  font-size: 12px;
+  font-weight: 600;
+}
+.admin-main {
+  margin-left: 232px;
+  min-height: 100vh;
+  padding: 32px;
+}
+.admin-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 12px;
+  z-index: 50;
+  border-radius: 8px;
+  background: #fff;
+  color: #18332d;
+  padding: 10px 14px;
+  font-weight: 700;
+}
+.admin-skip-link:focus { left: 12px; }
+.admin-auth-shell {
+  display: grid;
+  min-height: 100vh;
+  margin-left: 0;
+  place-items: center;
+  background: #f7f8f3;
+  padding: 24px;
+}
+.admin-auth-card {
+  width: min(100%, 440px);
+  border: 1px solid #d7e2dc;
+  border-radius: 18px;
+  background: #fff;
+  padding: 32px;
+  box-shadow: 0 8px 24px rgb(24 51 45 / 6%);
+}
+.admin-auth-card h1 { margin-bottom: 12px; color: #18332d; font-size: 28px; }
+.admin-auth-card p:not(.admin-eyebrow) { margin: 0 0 24px; color: #5f746e; }
+.admin-eyebrow, .school-context-kicker {
+  margin: 0 0 8px;
+  color: #247a51;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .09em;
+}
+.admin-primary-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #247a51;
+  color: #fff;
+  padding: 0 16px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.admin-primary-link:hover { background: #1c623f; }
+.school-context {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+}
+.school-context-loading,
+.school-context-empty {
+  display: grid;
+  min-height: 220px;
+  align-content: center;
+  border: 1px solid #d7e2dc;
+  border-radius: 18px;
+  background: #fff;
+  padding: 32px;
+}
+.school-context-loading { color: #5f746e; }
+.school-context-empty h1 { margin: 0 0 10px; }
+.school-context-empty p:last-child { margin: 0; color: #5f746e; }
+.school-context-switcher {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid #d7e2dc;
+  border-radius: 18px;
+  background: #fff;
+  padding: 20px 24px;
+}
+.school-context-label { display: grid; min-width: min(100%, 380px); gap: 7px; color: #18332d; font-size: 13px; font-weight: 700; }
+.school-context-label select {
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid #d7e2dc;
+  border-radius: 8px;
+  background: #fff;
+  color: #18332d;
+  padding: 0 12px;
+}
+.school-context-hint { margin: 0; color: #5f746e; }
+.school-context-error { margin: 16px 0 0; border: 1px solid #f0c5c5; border-radius: 12px; background: #fce8e8; color: #922e2e; padding: 12px 16px; font-weight: 600; }
+.school-context-heading { margin: 32px 0 18px; }
+.school-context-heading h1 { margin: 0; color: #18332d; font-size: 28px; }
+.school-context-navigation { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #d7e2dc; padding-bottom: 12px; }
+.school-context-navigation button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #5f746e;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 700;
+}
+.school-context-navigation button:hover { background: #eef6f1; color: #18332d; }
+.school-context-navigation button[aria-current="page"] { background: #e4f3ea; color: #155d3b; }
+.school-context-workspace { margin-top: 24px; }
+.school-switch-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; background: rgb(24 51 45 / 45%); padding: 16px; }
+.school-switch-dialog { width: min(100%, 500px); border: 1px solid #d7e2dc; border-radius: 18px; background: #fff; padding: 24px; box-shadow: 0 20px 50px rgb(24 51 45 / 25%); }
+.school-switch-dialog h2 { margin: 0 0 10px; color: #18332d; }
+.school-switch-dialog p { margin: 0; color: #5f746e; }
+.school-switch-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.school-switch-actions button { min-height: 44px; border-radius: 10px; padding: 0 14px; font: inherit; font-weight: 700; }
+.school-switch-stay { border: 1px solid #d7e2dc; background: #fff; color: #18332d; }
+.school-switch-discard { border: 0; background: #247a51; color: #fff; }
+
+/* Shared operational treatment for School-scoped workspaces.
+   Individual routes retain their own structure and behavior; these rules only
+   supply the common management-surface language. */
+.school-context-workspace > section {
+  display: grid;
+  gap: 20px;
+}
+.school-context-workspace h2,
+.school-context-workspace h3,
+.school-context-workspace h4 {
+  color: #18332d;
+  font-family: "Be Vietnam Pro", Inter, sans-serif;
+}
+.school-context-workspace h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.35;
+}
+.school-context-workspace h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  line-height: 1.4;
+}
+.school-context-workspace h4 { margin: 0; font-size: 15px; }
+.school-context-workspace > section > h2 + p {
+  margin: -14px 0 0;
+  color: #5f746e;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.school-context-workspace [role="alert"] {
+  margin: 0;
+  border: 1px solid #f0c5c5;
+  border-radius: 12px;
+  background: #fce8e8;
+  color: #922e2e;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.school-context-workspace .roster-form,
+.school-context-workspace > section > form,
+.school-context-workspace > section > section {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d7e2dc;
+  border-radius: 12px;
+  background: #fff;
+  padding: 20px;
+}
+.school-context-workspace .roster-form {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  align-items: end;
+}
+.school-context-workspace .roster-form > h3,
+.school-context-workspace .roster-form > p,
+.school-context-workspace .roster-form > fieldset,
+.school-context-workspace .roster-form > [role="alert"] {
+  grid-column: 1 / -1;
+}
+.school-context-workspace label {
+  display: grid;
+  gap: 7px;
+  color: #35524a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.school-context-workspace input:not([type="checkbox"]):not([type="radio"]),
+.school-context-workspace select,
+.school-context-workspace textarea {
+  min-height: 42px;
+  width: 100%;
+  border: 1px solid #c5d5ce;
+  border-radius: 8px;
+  background: #fff;
+  color: #18332d;
+  padding: 9px 11px;
+  font: inherit;
+}
+.school-context-workspace textarea { min-height: 92px; resize: vertical; }
+.school-context-workspace fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  border: 1px solid #d7e2dc;
+  border-radius: 10px;
+  padding: 12px;
+}
+.school-context-workspace legend {
+  padding: 0 5px;
+  color: #35524a;
+  font-size: 13px;
+  font-weight: 700;
+}
+.school-context-workspace fieldset label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #4f665f;
+  font-weight: 600;
+}
+.school-context-workspace input[type="checkbox"],
+.school-context-workspace input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #247a51;
+}
+.school-context-workspace button {
+  min-height: 40px;
+  border: 1px solid #bdd1c8;
+  border-radius: 8px;
+  background: #fff;
+  color: #185d3d;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.school-context-workspace button:hover:not(:disabled) {
+  border-color: #247a51;
+  background: #eef6f1;
+}
+.school-context-workspace button:disabled {
+  border-color: #dce4e0;
+  background: #e8ecea;
+  color: #66746f;
+  cursor: not-allowed;
+}
+.school-context-workspace .roster-form > button:last-child,
+.school-context-workspace form > button:not([type="button"]):last-child {
+  justify-self: start;
+  border-color: #247a51;
+  background: #247a51;
+  color: #fff;
+}
+.school-context-workspace .table-scroll {
+  overflow-x: auto;
+  border: 1px solid #d7e2dc;
+  border-radius: 12px;
+  background: #fff;
+}
+.school-context-workspace table { min-width: 720px; }
+.school-context-workspace caption {
+  caption-side: top;
+  border-bottom: 1px solid #d7e2dc;
+  color: #18332d;
+  padding: 15px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+}
+.school-context-workspace th,
+.school-context-workspace td {
+  border-color: #e4ece8;
+  padding: 13px 16px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.school-context-workspace thead th {
+  background: #f6faf7;
+  color: #527067;
+  font-size: 12px;
+  font-weight: 800;
+}
+.school-context-workspace tbody tr:hover { background: #fbfdfb; }
+.school-context-workspace td > button,
+.school-context-workspace td button {
+  min-height: 30px;
+  margin: 2px 4px 2px 0;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.school-context-workspace small {
+  color: #922e2e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Desktop navigation belongs to the persistent Admin sidebar.  The navigation
+   remains in SchoolContext so capability filtering and the existing view
+   switcher stay the single source of truth. */
+@media (min-width: 1024px) {
+  .school-context-navigation {
+    position: fixed;
+    top: 106px;
+    left: 12px;
+    z-index: 11;
+    display: grid;
+    width: 208px;
+    gap: 4px;
+    border: 0;
+    padding: 0;
+  }
+  .school-context-navigation button {
+    display: flex;
+    min-height: 42px;
+    align-items: center;
+    width: 100%;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #526861;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+  }
+  .school-context-navigation button:hover { background: #eef6f1; color: #18332d; }
+  .school-context-navigation button[aria-current="page"] {
+    background: #e4f3ea;
+    color: #155d3b;
+    font-weight: 750;
+  }
+  .school-context-navigation::before {
+    content: "VẬN HÀNH";
+    margin: 0 12px 5px;
+    color: #789088;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .08em;
+  }
+  .school-context-nav-roster::before {
+    content: "DANH BỘ";
+    position: absolute;
+    top: -17px;
+    left: 0;
+    color: #789088;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .08em;
+  }
+  .school-context-nav-roster { position: relative; margin-top: 24px; }
+  .school-context-nav-finance::before {
+    content: "TÀI CHÍNH";
+    position: absolute;
+    top: -17px;
+    left: 0;
+    color: #789088;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .08em;
+  }
+  .school-context-nav-finance { position: relative; margin-top: 24px; }
+}
+@media (min-width: 1024px) and (max-width: 1279px) { .admin-main { margin-left: 72px; } }
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .admin-sidebar-copy,
+  .admin-session-label,
+  .admin-sidebar .brand > span:last-child,
+  .admin-sidebar .account > span:last-child { display: none; }
+  .admin-sidebar .brand,
+  .admin-sidebar .account { justify-content: center; padding-inline: 0; }
+  .school-context-navigation { left: 10px; width: 52px; }
+  .school-context-navigation button {
+    justify-content: center;
+    overflow: hidden;
+    padding: 0 6px;
+    font-size: 0;
+  }
+  .school-context-navigation button::before,
+  .school-context-navigation span::before {
+    color: currentColor;
+    font-size: 17px;
+  }
+  .school-context-navigation button[aria-current="page"]::before { content: "●"; }
+  .school-context-navigation button:not([aria-current="page"])::before { content: "○"; }
+  .school-context-navigation::before,
+  .school-context-nav-roster::before,
+  .school-context-nav-finance::before { display: none; }
+  .school-context-nav-roster,
+  .school-context-nav-finance { margin-top: 0; }
+}
+@media (max-width: 1023px) {
+  .admin-main { margin-left: 0; padding: 24px; }
+}
+@media (max-width: 767px) {
+  .admin-main { padding: 20px 16px; }
+  .school-context-switcher { align-items: stretch; flex-direction: column; padding: 20px; }
+  .school-context-label { min-width: 0; }
+  .school-context-heading { margin-top: 24px; }
+  .school-context-heading h1 { font-size: 26px; }
+  .school-context-navigation { align-items: stretch; flex-direction: column; }
+  .school-context-navigation button { text-align: left; }
+  .school-switch-actions { flex-direction: column-reverse; }
+  .school-switch-actions button { width: 100%; }
+  .school-context-workspace .roster-form { grid-template-columns: 1fr; }
+  .school-context-workspace .table-scroll { margin-inline: -1px; }
+}

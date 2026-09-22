@@ -9,6 +9,16 @@ describe('SchoolContext', () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
     const clear = vi.fn(); vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={clear} />); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } }); await waitFor(() => expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường A' })).toBeNull()); expect(screen.getByRole('option', { name: 'Trường B' })).toBeTruthy(); expect(clear).not.toHaveBeenCalled();
   });
+  it('exposes semantic presentation hooks for the chooser and school workspace', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context })));
+    vi.stubGlobal('fetch', fetch); const { container } = render(<SchoolContext clear={vi.fn()} />);
+    await screen.findByLabelText('Chọn trường');
+    expect(container.querySelector('.school-context-switcher')).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'a' } });
+    await screen.findByRole('heading', { name: 'PassionEdu - Trường A' });
+    expect(container.querySelector('.school-context-heading')).not.toBeNull();
+    expect(container.querySelector('.school-context-navigation')).not.toBeNull();
+  });
   it('revalidates the open School when the browser returns to the foreground', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
     vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={vi.fn()} />); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.focus(window);
