@@ -65,6 +65,16 @@ test('Admin Finance uses server values from preview through named issue and clea
   await expect(page.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 150.000 VND');
   await expect(page.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Chính sách 2026-01-01: 7 ngày; NOT_APPLICABLE; CURRENT_SCHOOL_YEAR_ONLY; DIRECT');
 
+  await page.getByRole('button', { name: 'Đóng đợt thu' }).click();
+  const closeDialog = page.getByRole('dialog', { name: 'Đóng đợt thu 2026-09' });
+  await expect(closeDialog).toBeVisible();
+  await closeDialog.getByLabel('Nhập chính xác tháng thu 2026-09 để xác nhận').fill('2026-09');
+  await closeDialog.getByLabel('Lý do đóng đợt thu').fill('Đã rà soát hóa đơn phát hành');
+  await page.getByRole('button', { name: 'Xác nhận đóng đợt thu' }).click();
+  await expect(page.getByRole('heading', { name: 'Đợt thu 2026-09 / CLOSED' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Đợt thu đã đóng' })).toContainText('Máy chủ đã khóa đợt thu này');
+  await expect(page.getByRole('button', { name: 'Yêu cầu thêm' })).toHaveCount(0);
+
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeFocused();
   await page.getByRole('button', { name: 'Khoản thu' }).click();

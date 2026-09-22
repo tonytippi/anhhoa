@@ -46,4 +46,10 @@ describe('FinanceService validation', () => {
     expect(result).toEqual({ accounts: [{ id: 'active', receivingBank: 'A', accountNumber: '1', accountHolderName: 'Holder' }] });
     expect(prisma.bankAccount.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
   });
+  it('requires a close reason before creating an Operation', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const school = crypto.randomUUID(); const run = crypto.randomUUID();
+    await expect(new FinanceService(prisma as never, authorization as never).closeRun('identity', school, run, crypto.randomUUID(), crypto.randomUUID(), {})).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 });

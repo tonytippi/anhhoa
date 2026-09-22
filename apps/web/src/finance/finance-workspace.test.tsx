@@ -352,6 +352,47 @@ describe("FinanceWorkspace", () => {
     expect(await screen.findByRole("button", { name: "Yêu cầu thêm" })).toBeTruthy();
     expect(fetch.mock.calls.some(([url]) => String(url).includes("collection-run-candidates?schoolYearId=year-a"))).toBe(true);
   });
+  it("requires a close reason, sends the close command, and renders the returned read-only CLOSED run", async () => {
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }] };
+    const closed = { ...generatedRun, status: "CLOSED" as const };
+    let isClosed = false;
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/close") ? (isClosed = true, response({ status: "COMPLETED", outcome: closed })) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [isClosed ? closed : generatedRun] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" }));
+    fireEvent.click(screen.getByRole("button", { name: "Đóng đợt thu" }));
+    const confirm = screen.getByRole("button", { name: "Xác nhận đóng đợt thu" });
+    expect(confirm).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("Nhập chính xác tháng thu 2026-09 để xác nhận"), { target: { value: "2026-09" } });
+    fireEvent.change(screen.getByLabelText("Lý do đóng đợt thu"), { target: { value: "Đã rà soát" } });
+    fireEvent.click(confirm);
+    expect(await screen.findByText("Đợt thu đã đóng")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Yêu cầu thêm" })).toBeNull();
+    expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/close") && (options as RequestInit).body === JSON.stringify({ reason: "Đã rà soát" }))).toBe(true);
+  });
+  it("reconciles a timed-out close with its CLOSED outcome when refresh fails and explains a DRAFT block", async () => {
+    const issuedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }] };
+    const closed = { ...issuedRun, status: "CLOSED" as const };
+    let failRefresh = false;
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/close") ? (failRefresh = true, new Response(null, { status: 503 })) : url.includes("/operations/") ? response({ status: "COMPLETED", outcome: closed }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? failRefresh ? new Response(null, { status: 503 }) : response({ runs: [issuedRun] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mở chi tiết" }));
+    fireEvent.click(screen.getByRole("button", { name: "Đóng đợt thu" }));
+    fireEvent.change(screen.getByLabelText("Nhập chính xác tháng thu 2026-09 để xác nhận"), { target: { value: "2026-09" } });
+    fireEvent.change(screen.getByLabelText("Lý do đóng đợt thu"), { target: { value: "Đã rà soát" } });
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận đóng đợt thu" }));
+    expect(await screen.findByRole("heading", { name: "Đợt thu đã đóng" })).toBe(document.activeElement);
+  });
+  it("disables close and explains the server-returned DRAFT invoice block", async () => {
+    const draftRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [draftRun] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" }));
+    await screen.findByText("Chưa thể đóng: còn hóa đơn nháp cần phát hành.");
+    expect(screen.getByRole("button", { name: "Đóng đợt thu" })).toHaveProperty("disabled", true);
+  });
   it("reopens an Invoice discovered from the server run and edits only through server outcome", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: { serviceDate: "2026-09-01", attendanceState: "PRESENT", pickedUpAt: "17:30", lateCareMinutes: 30 }, sourceReason: "Theo dõi", sourceRecordedAt: "2026-09-01T00:00:00.000Z", sourceProvenance: {} }] };

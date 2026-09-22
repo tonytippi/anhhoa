@@ -29,6 +29,8 @@ const routes = {
     "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/generate",
   addGeneratedStudent:
     "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/generated-students",
+  closeRun:
+    "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/close",
   addInvoiceLine: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines",
   editInvoiceLine: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
   removeInvoiceLine: "DELETE /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
@@ -1204,6 +1206,36 @@ export class FinanceService {
       return outcome;
     });
   }
+  async closeRun(
+    identityId: string,
+    schoolId: string,
+    runId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    return this.mutate(actor, identityId, schoolId, routes.closeRun, key, operationId, { runId, reason }, async (tx, operation) => {
+      const locked = await this.lockRun(tx, schoolId, runId);
+      if (locked.status !== "GENERATED")
+        throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ có thể đóng đợt thu đã tạo hóa đơn." });
+      const invoices = await tx.invoice.findMany({ where: { schoolId, collectionRunId: runId }, select: { status: true } });
+      if (invoices.some((invoice: { status: string }) => invoice.status !== "ISSUED"))
+        throw new ConflictException({ code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL", message: "Chỉ có thể đóng khi mọi hóa đơn đã phát hành hoặc đã kết thúc." });
+      const updated = await tx.collectionRun.update({ where: { id: locked.id }, data: { status: "CLOSED", version: { increment: 1 } } });
+      await tx.collectionRunLifecycleTransition.create({
+        data: { schoolId, collectionRunId: locked.id, previousStatus: "GENERATED", status: "CLOSED", actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 4 },
+      });
+      const closed = await tx.collectionRun.findFirst({ where: { id: updated.id, schoolId }, include: this.runInclude });
+      if (!closed) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
+      const outcome = this.runDto(closed);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_CLOSED", operation, this.runDto({ ...locked, selections: [], invoices: [], lifecycleTransitions: [{ status: "GENERATED" }] }), outcome, reason);
+      return outcome;
+    });
+  }
   private invoiceData(schoolId: string, run: any, item: any) {
     const { enrollment, assignment } = item;
     return {
@@ -1400,6 +1432,7 @@ export class FinanceService {
     operationId: string,
     oldValue: object | null,
     newValue: object,
+    reason?: string,
   ) {
     await tx.auditRecord.create({
       data: auditData(
@@ -1412,6 +1445,7 @@ export class FinanceService {
         },
         action,
         { operationId, oldValue, newValue },
+        reason,
       ),
     });
   }

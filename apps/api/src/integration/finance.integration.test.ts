@@ -1058,7 +1058,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
             operationId, sequence: 4,
           },
         }),
-      ).resolves.toMatchObject({ status: "CLOSED" });
+      ).rejects.toThrow(/does not match parent state/);
     });
 
     it("uses the generate-time roster once, skips a Student changed after READY, and persists no stale snapshot", async () => {
@@ -1426,6 +1426,59 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: bank.id, previousStatus: "ACTIVE", status: "INACTIVE", reason: "Đổi tài khoản", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId: issued.id, sequence: 2 } });
       await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-09-22"), dueDaysAfterIssue: 30, taxTreatment: "TAX_INCLUDED", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "SCHOOL_ADMIN_APPROVAL", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
       expect(await finance.invoice(current.identity.id, current.school.id, invoice.id)).toMatchObject({ issue: { transferContent: "Hoc sinh Finance Mam Active", bankAccount: { accountNumber: "123456789" }, policy: { dueDaysAfterIssue: 7 } } });
+    });
+
+    it("closes only a fully issued generated run atomically, replays the outcome, and database guards preserve the lock", async () => {
+      const { current, invoice, bank } = await issueFixture();
+      const runId = invoice.collectionRunId;
+      const key = uuid(); const operationId = uuid();
+      await expect(finance.closeRun(current.identity.id, current.school.id, runId, key, operationId, { reason: "Đã rà soát" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
+      expect(await prisma.collectionRunLifecycleTransition.count({ where: { schoolId: current.school.id, collectionRunId: runId, status: "CLOSED" } })).toBe(0);
+      await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { bankAccountId: bank.id });
+      const closed = await finance.closeRun(current.identity.id, current.school.id, runId, key, operationId, { reason: "Đã rà soát" });
+      expect(closed).toMatchObject({ id: operationId, status: "COMPLETED", outcome: { id: runId, status: "CLOSED" } });
+      await expect(finance.closeRun(current.identity.id, current.school.id, runId, key, uuid(), { reason: "Đã rà soát" })).resolves.toEqual(closed);
+      await expect(finance.closeRun(current.identity.id, current.school.id, runId, key, uuid(), { reason: "Lý do khác" })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
+      expect(await prisma.collectionRunLifecycleTransition.findMany({ where: { schoolId: current.school.id, collectionRunId: runId }, orderBy: { sequence: "asc" } })).toMatchObject([{ status: "DRAFT" }, { status: "READY" }, { status: "GENERATED" }, { previousStatus: "GENERATED", status: "CLOSED", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId }]);
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "COLLECTION_RUN_CLOSED" } })).toMatchObject({ reason: "Đã rà soát", membershipId: current.membership.id, provenance: { operationId } });
+      await expect(finance.addGeneratedStudent(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentId: (await enrolled(current)).student.id })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_STATE_CONFLICT" } });
+      await expect(prisma.collectionRun.update({ where: { id: runId }, data: { status: "GENERATED" } })).rejects.toThrow();
+    });
+
+    it("rejects direct DRAFT or READY close, contradictory lifecycle history, and every closed-run business mutation", async () => {
+      const current = await roster(await graph());
+      const draftId = outcomeId(await open(current));
+      await expect(prisma.collectionRun.update({ where: { id: draftId }, data: { status: "CLOSED" } })).rejects.toThrow(/only from GENERATED/);
+      const student = await enrolled(current);
+      const readyId = outcomeId(await open(current, "2026-10"));
+      await finance.replaceSelection(current.identity.id, current.school.id, readyId, uuid(), uuid(), { studentIds: [student.student.id] });
+      const preview = await finance.preview(current.identity.id, current.school.id, readyId);
+      await finance.readyRun(current.identity.id, current.school.id, readyId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
+      await expect(prisma.collectionRun.update({ where: { id: readyId }, data: { status: "CLOSED" } })).rejects.toThrow(/only from GENERATED/);
+      const { current: issuedCurrent, invoice, bank } = await issueFixture();
+      await finance.issueInvoice(issuedCurrent.identity.id, issuedCurrent.school.id, invoice.id, uuid(), uuid(), { bankAccountId: bank.id });
+      const runId = invoice.collectionRunId;
+      await finance.closeRun(issuedCurrent.identity.id, issuedCurrent.school.id, runId, uuid(), uuid(), { reason: "Khóa dữ liệu" });
+      await expect(prisma.collectionRun.update({ where: { id: runId }, data: { billingMonth: "2026-10" } })).rejects.toThrow(/business data is immutable/);
+      await expect(prisma.collectionRunLifecycleTransition.create({ data: { schoolId: issuedCurrent.school.id, collectionRunId: runId, previousStatus: "GENERATED", status: "CLOSED", actorIdentityId: issuedCurrent.identity.id, membershipId: issuedCurrent.membership.id, operationId: uuid(), sequence: 4 } })).rejects.toThrow(/does not match parent state|Contradictory/);
+    });
+
+    it("denies foreign or revoked close and serializes close against generated-student addition", async () => {
+      const fixture = await issueFixture(); const foreign = await roster(await graph());
+      await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      const runId = fixture.invoice.collectionRunId;
+      await expect(finance.closeRun(foreign.identity.id, foreign.school.id, runId, uuid(), uuid(), { reason: "Foreign" })).rejects.toMatchObject({ status: 404, response: { code: "COLLECTION_RUN_NOT_FOUND" } });
+      await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "FINANCE_MANAGE" } });
+      await expect(finance.closeRun(fixture.current.identity.id, fixture.current.school.id, runId, uuid(), uuid(), { reason: "Revoked" })).rejects.toMatchObject({ status: 403, response: { code: "CAPABILITY_DENIED" } });
+      await prisma.positionCapabilityGrant.create({ data: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "FINANCE_MANAGE" } });
+      const later = await enrolled(fixture.current);
+      const results = await Promise.allSettled([
+        finance.closeRun(fixture.current.identity.id, fixture.current.school.id, runId, uuid(), uuid(), { reason: "Concurrent" }),
+        finance.addGeneratedStudent(fixture.current.identity.id, fixture.current.school.id, runId, uuid(), uuid(), { studentId: later.student.id }),
+      ]);
+      const run = await prisma.collectionRun.findUniqueOrThrow({ where: { id: runId } });
+      if (run.status === "CLOSED") expect(await prisma.invoice.count({ where: { schoolId: fixture.current.school.id, collectionRunId: runId, status: "DRAFT" } })).toBe(0);
+      else expect(results.some((result) => result.status === "rejected" && (result.reason as any)?.response?.code === "COLLECTION_RUN_INVOICES_NOT_TERMINAL")).toBe(true);
     });
 
     it("selects the FinancePolicy and due date from one Vietnam-local issue instant at a UTC boundary", async () => {

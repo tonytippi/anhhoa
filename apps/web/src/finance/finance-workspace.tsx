@@ -134,6 +134,9 @@ export function FinanceWorkspace({
   const [generateConfirmationMonth, setGenerateConfirmationMonth] = useState("");
   const [additionConfirmation, setAdditionConfirmation] = useState<Candidate>();
   const [additionConfirmationName, setAdditionConfirmationName] = useState("");
+  const [closeConfirmation, setCloseConfirmation] = useState(false);
+  const [closeReason, setCloseReason] = useState("");
+  const [closeConfirmationMonth, setCloseConfirmationMonth] = useState("");
   const [generatedOutcome, setGeneratedOutcome] = useState<GenerateOutcome>();
   const [invoice, setInvoice] = useState<Invoice>();
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
@@ -168,6 +171,9 @@ export function FinanceWorkspace({
   const removeTrigger = useRef<HTMLButtonElement>(null);
   const issueDialog = useRef<HTMLDivElement>(null);
   const issueTrigger = useRef<HTMLButtonElement>(null);
+  const closeDialog = useRef<HTMLDivElement>(null);
+  const closeTrigger = useRef<HTMLButtonElement>(null);
+  const closedHeading = useRef<HTMLHeadingElement>(null);
   const status = useRef(onStatusChange);
   const submitting = useRef(false);
   const request = useRef(0);
@@ -202,7 +208,12 @@ export function FinanceWorkspace({
     setCatalog(nextCatalog);
     setRuns(nextRuns.runs);
     setCandidates(nextCandidates);
-    if (run) setRun(nextRuns.runs.find((item) => item.id === run.id));
+    if (run) {
+      const refreshedRun = nextRuns.runs.find((item) => item.id === run.id);
+      setRun(refreshedRun);
+      if (refreshedRun && refreshedRun.status !== "DRAFT")
+        setSelectedStudentIds(refreshedRun.selectedStudentIds);
+    }
   };
   const loadBankAccounts = async () => {
     const next = await get<{ accounts: BankAccount[] }>(`/api/app/schools/${schoolId}/finance/bank-accounts`);
@@ -246,6 +257,12 @@ export function FinanceWorkspace({
         if ((result.outcome as GenerateOutcome | undefined)?.created)
           setGeneratedOutcome(result.outcome as GenerateOutcome);
         if ((result.outcome as Invoice | undefined)?.lines) applyInvoice(result.outcome as Invoice);
+        if ((result.outcome as Run | undefined)?.status === "CLOSED") {
+          chooseRun(result.outcome as Run);
+          setCloseConfirmation(false);
+          setCloseReason("");
+          setCloseConfirmationMonth("");
+        }
         try { await load(); } catch { setMessage("Thao tác đã hoàn tất; chưa thể tải lại dữ liệu mới nhất."); }
       } else setMessage("Thao tác không thành công.");
     } catch {
@@ -279,6 +296,9 @@ export function FinanceWorkspace({
     setGenerateConfirmationMonth("");
     setAdditionConfirmation(undefined);
     setAdditionConfirmationName("");
+    setCloseConfirmation(false);
+    setCloseReason("");
+    setCloseConfirmationMonth("");
     setGeneratedOutcome(undefined);
     setInvoice(undefined);
     setBankAccounts([]);
@@ -366,6 +386,13 @@ export function FinanceWorkspace({
     if (issueConfirmation) issueDialog.current?.querySelector<HTMLElement>("select")?.focus();
     else issueTrigger.current?.focus();
   }, [issueConfirmation]);
+  useEffect(() => {
+    if (closeConfirmation) closeDialog.current?.querySelector<HTMLElement>("textarea")?.focus();
+    else closeTrigger.current?.focus();
+  }, [closeConfirmation]);
+  useEffect(() => {
+    if (run?.status === "CLOSED" && !closeConfirmation) closedHeading.current?.focus();
+  }, [run?.status, closeConfirmation]);
   const command = async (
     path: string,
     method: "POST" | "PUT" | "DELETE",
@@ -548,6 +575,17 @@ export function FinanceWorkspace({
       await load();
     }
   };
+  const closeRun = async () => {
+    if (!run) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/close`, "POST", { reason: closeReason }, "lifecycle");
+    if (outcome) {
+      setCloseConfirmation(false);
+      setCloseReason("");
+      setCloseConfirmationMonth("");
+      chooseRun(outcome as Run);
+      try { await load(); } catch { setMessage("Đợt thu đã đóng; chưa thể tải lại dữ liệu mới nhất."); }
+    }
+  };
   const saveGroup = async (event: FormEvent) => {
     event.preventDefault();
     if (
@@ -649,6 +687,14 @@ export function FinanceWorkspace({
   const trapIssueFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Tab") return;
     const items = [...(issueDialog.current?.querySelectorAll<HTMLElement>("input, select, button") ?? [])].filter((item) => !item.hasAttribute("disabled"));
+    const first = items[0], last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  const trapCloseFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const items = [...(closeDialog.current?.querySelectorAll<HTMLElement>("textarea, button") ?? [])].filter((item) => !item.hasAttribute("disabled"));
     const first = items[0], last = items.at(-1);
     if (!first || !last) return;
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -1121,6 +1167,19 @@ export function FinanceWorkspace({
             <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th>Tổng VND</th><th>Thao tác</th></tr></thead>
             <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Rà soát hóa đơn</button></td></tr>)}</tbody>
           </table>
+          {run.invoices?.some((invoice) => invoice.status === "DRAFT") ? <p>Chưa thể đóng: còn hóa đơn nháp cần phát hành.</p> : null}
+          <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => invoice.status === "DRAFT"))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
+        </section>
+      )}
+      {run?.status === "CLOSED" && (
+        <section aria-label="Đợt thu đã đóng">
+          <h3 ref={closedHeading} tabIndex={-1}>Đợt thu đã đóng</h3>
+          <p>Máy chủ đã khóa đợt thu này. Không thể thêm học sinh hoặc tạo, sửa hóa đơn trong đợt thu đã đóng.</p>
+          <table>
+            <caption>Hóa đơn đã khóa theo đợt thu</caption>
+            <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th>Tổng VND</th><th>Chi tiết</th></tr></thead>
+            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Xem hóa đơn</button></td></tr>)}</tbody>
+          </table>
         </section>
       )}
       {generatedOutcome && (
@@ -1173,6 +1232,7 @@ export function FinanceWorkspace({
       )}
       {removeConfirmation && <div ref={removeDialog} role="dialog" aria-modal="true" aria-labelledby="finance-remove-line-title" onKeyDown={trapRemoveFocus}><h3 id="finance-remove-line-title">Xóa dòng {removeConfirmation.name}</h3><p>Dòng này sẽ không còn áp dụng cho hóa đơn nháp.</p><button type="button" disabled={Boolean(pending)} onClick={() => void removeLine(removeConfirmation.id)}>Xác nhận xóa dòng</button><button type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation(undefined)}>Hủy</button></div>}
       {issueConfirmation && invoice && <div ref={issueDialog} role="dialog" aria-modal="true" aria-labelledby="finance-issue-title" onKeyDown={trapIssueFocus}><h3 id="finance-issue-title">Phát hành hóa đơn cho {invoice.student.name}</h3><p>Chỉ snapshot tài khoản đang hoạt động từ máy chủ được dùng. Không thể chỉnh sửa sau phát hành.</p><label>Tài khoản nhận<select value={issueBankAccountId} onChange={(event) => setIssueBankAccountId(event.target.value)}><option value="">Chọn tài khoản</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.receivingBank} / {account.accountNumber} / {account.accountHolderName}</option>)}</select></label><label>Nhập chính xác tên học sinh {invoice.student.name} để xác nhận<input value={issueConfirmationName} onChange={(event) => setIssueConfirmationName(event.target.value)} /></label><button type="button" disabled={Boolean(pending) || !issueBankAccountId || issueConfirmationName !== invoice.student.name} onClick={() => void issueInvoice()}>Xác nhận phát hành</button><button type="button" disabled={Boolean(pending)} onClick={() => { setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); }}>Hủy</button></div>}
+      {closeConfirmation && run && <div ref={closeDialog} role="dialog" aria-modal="true" aria-labelledby="finance-close-run-title" onKeyDown={trapCloseFocus}><h3 id="finance-close-run-title">Đóng đợt thu {run.billingMonth}</h3><p>Chỉ đóng được khi mọi hóa đơn đã phát hành. Sau khi đóng, máy chủ từ chối thêm học sinh và các thao tác tạo hoặc sửa.</p><label>Nhập chính xác tháng thu {run.billingMonth} để xác nhận<input value={closeConfirmationMonth} onChange={(event) => setCloseConfirmationMonth(event.target.value)} /></label><label>Lý do đóng đợt thu<textarea id="finance-close-reason-field" aria-invalid={Boolean(errors.reason)} aria-describedby={errors.reason ? "finance-close-reason-error" : undefined} value={closeReason} onChange={(event) => setCloseReason(event.target.value)} /></label>{errors.reason && <small id="finance-close-reason-error">{errors.reason}</small>}<button type="button" disabled={Boolean(pending) || !closeReason.trim() || closeConfirmationMonth !== run.billingMonth} onClick={() => void closeRun()}>Xác nhận đóng đợt thu</button><button type="button" disabled={Boolean(pending)} onClick={() => { setCloseConfirmation(false); setCloseReason(""); setCloseConfirmationMonth(""); }}>Hủy</button></div>}
       {generateConfirmation && run && (
         <div
           role="dialog"
