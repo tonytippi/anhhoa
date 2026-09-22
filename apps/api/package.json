@@ -12,7 +12,8 @@
     "test": "vitest run --config vitest.config.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "ALLOW_DEVELOPMENT_SEED=true PRISMA_SEED=true prisma db seed",
+    "prisma:seed": "PRISMA_SEED=true prisma db seed",
+    "db:reset:dev": "tsx scripts/reset-development-database.ts",
     "test:integration": "tsx scripts/test-integration.ts",
     "e2e:api": "pnpm build && node dist/e2e-api.js",
     "seed:e2e:release-gate": "tsx scripts/seed-e2e-release-gate.ts"

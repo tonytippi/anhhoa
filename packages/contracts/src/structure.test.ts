@@ -23,7 +23,18 @@ describe('target platform structure', () => {
     expect(schema).toContain('model School');
     expect(schema).not.toContain('model Admin');
     expect(schema).not.toContain('model InvoiceTemplate');
-    expect(seed).toContain('truong-mau-passionedu');
+    expect(seed).toContain("name: 'Mầm Non Giáo dục Đỉnh Cao - PeakLand Preschool'");
+    expect(seed).toContain("slug: 'pl'");
+    expect(seed).toContain("studentCodePrefix: 'PL'");
+    expect(seed).toContain("ownerEmail: 'sonnh273@gmail.com'");
+    expect(seed).toContain("assertDevelopment('Development seed')");
+    const apiPackage = JSON.parse(await read('apps/api/package.json'));
+    expect(apiPackage.scripts['db:reset:dev']).toBe('tsx scripts/reset-development-database.ts');
+    const reset = await read('apps/api/scripts/reset-development-database.ts');
+    expect(reset).toContain("import 'dotenv/config'");
+    expect(reset).toContain("assertDevelopmentEnvironment('Development database reset')");
+    expect(reset).toContain("['exec', 'prisma', 'migrate', 'reset', '--force']");
+    expect(reset).not.toContain('--skip-seed');
   });
 
   it('routes all five fixed hosts through the pilot proxy and deploys migrations first', async () => {

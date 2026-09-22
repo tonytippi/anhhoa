@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { seed } from './seed.js';
+import { assertDevelopmentEnvironment, seed } from './seed.js';
 
 describe('development fixture seed', () => {
-  it('refuses to seed without explicit development authorization', async () => {
-    const previous = process.env.ALLOW_DEVELOPMENT_SEED;
-    delete process.env.ALLOW_DEVELOPMENT_SEED;
-    await expect(seed()).rejects.toThrow('ALLOW_DEVELOPMENT_SEED=true');
-    if (previous) process.env.ALLOW_DEVELOPMENT_SEED = previous;
+  it('refuses to seed outside development before opening a database connection', async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+    try {
+      expect(assertDevelopmentEnvironment).toThrow('NODE_ENV=development');
+      await expect(seed()).rejects.toThrow('NODE_ENV=development');
+    } finally {
+      if (previous === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous;
+    }
   });
 });

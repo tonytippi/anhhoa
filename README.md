@@ -54,14 +54,18 @@ Prisma chỉ thuộc `apps/api/prisma`. `prisma:generate` chỉ đọc schema n�
 ```bash
 pnpm --filter api prisma:generate
 pnpm --filter api exec prisma migrate deploy
-pnpm --filter api prisma:seed
+NODE_ENV=development pnpm --filter api prisma:seed
+# Xóa toàn bộ database ở DATABASE_URL, migrate lại từ đầu rồi seed PeakLand.
+NODE_ENV=development pnpm --filter api db:reset:dev
 pnpm --filter api build
 pnpm --filter api start
 ```
 
 `PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. `SESSION_SECRET` phải ổn định giữa deploy/restart và `SESSION_TTL_SECONDS` xác định thời hạn session. Session audience `app` dùng cookie `APP_SESSION_COOKIE_NAME` và CSRF cookie `APP_CSRF_COOKIE_NAME`; mutation gửi `X-CSRF-Token`. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
 
-`pnpm --filter api prisma:seed` chi phuc vu development fixture va chi tao School mau. No khong provision initial School owner, membership/capability, dang nhap OAuth, hay du lieu Finance; dung Ops voi `SUPERADMIN_EMAIL` theo runbook de bootstrap test Finance.
+`NODE_ENV=development pnpm --filter api prisma:seed` chỉ phục vụ development fixture. Nó tạo tenant đầu tiên **Mầm Non Giáo dục Đỉnh Cao - PeakLand Preschool** (`pl`, tiền tố học sinh `PL`) và owner access graph cho `sonnh273@gmail.com`, để tài khoản này đăng nhập Google có thể truy cập Admin portal. Seed không gán Google subject, không tạo session, Platform Operator, Operation/audit giả hay dữ liệu Finance; subject chỉ được OAuth verified callback bind.
+
+`NODE_ENV=development pnpm --filter api db:reset:dev` là destructive: xóa toàn bộ dữ liệu tại `DATABASE_URL`, áp dụng lại migration từ đầu và seed PeakLand. Lệnh từ chối mọi runtime khác `development`; luôn kiểm tra `DATABASE_URL` trước khi chạy.
 
 ## Pilot VPS deployment
 
