@@ -9,7 +9,9 @@ pnpm install
 pnpm dev
 ```
 
-Web chạy tại `http://localhost:5173`; API tối thiểu chạy nội bộ tại `http://localhost:3000`. Browser chỉ gọi API relative qua `http://localhost:5173/api`; Vite development proxy `/api` tới API và bỏ prefix này trước khi forward.
+`pnpm dev` khởi động toàn workspace, không phải topology tối thiểu để test Finance Admin MVP. Admin chạy tại `http://localhost:5173`, Ops chạy tại `http://localhost:5176`, và API tại `http://localhost:3000`; Admin/Ops local gọi trực tiếp API với `VITE_API_URL=http://localhost:3000`. Hai Vite app này không khai báo development proxy `/api`.
+
+Để test Release 1 Finance Admin MVP trên database local mới, xem [runbook local Finance Admin MVP](docs/local-finance-admin-mvp.md). Runbook chỉ yêu cầu PostgreSQL, API, Admin và Ops; Teacher/Parent không cần chạy nhưng API vẫn cần đầy đủ cấu hình audience của bốn portal.
 
 Các lệnh kiểm tra workspace:
 
@@ -39,7 +41,7 @@ pnpm --filter parent-web test
 
 Lệnh này chạy các test trong `apps/parent-web` với cấu hình local `vitest.config.ts`; không cần khởi động API cho các test component hiện có.
 
-API tự động nạp `apps/api/.env`; repository chỉ giữ `apps/api/.env.example`, không thêm giá trị thật. Để chạy local, sao chép file này thành `apps/api/.env` và đặt OAuth Google, `SESSION_SECRET` (ít nhất 32 ký tự), `SESSION_TTL_SECONDS`, `APP_WEB_ORIGIN`, `APP_GOOGLE_CALLBACK_URL`, `APP_OAUTH_REDIRECT_URLS`, `APP_OAUTH_DENIED_REDIRECT_URL`, `APP_SESSION_COOKIE_NAME` và `APP_CSRF_COOKIE_NAME`. Đăng ký `http://localhost:3000/api/app/auth/google/callback` trong Google Console và đặt cùng URL cho `APP_GOOGLE_CALLBACK_URL`; các redirect của `APP_OAUTH_REDIRECT_URLS` phải thuộc `APP_WEB_ORIGIN`. Web mặc định dùng `VITE_API_URL=/api`.
+API tự động nạp `apps/api/.env`; repository chỉ giữ `apps/api/.env.example`, không thêm giá trị thật. Để chạy local, sao chép file này thành `apps/api/.env` và đặt OAuth Google, `SESSION_SECRET` (ít nhất 32 ký tự), `SESSION_TTL_SECONDS`, `SUPERADMIN_EMAIL`, và origin/callback/redirect/cookie của đầy đủ bốn audience App, Teacher, Parent, Ops. API fail-fast nếu thiếu hoặc sai cấu hình auth/CORS. Xem [runbook local Finance Admin MVP](docs/local-finance-admin-mvp.md) cho callback OAuth và lệnh khởi động đúng theo Finance MVP.
 
 ## Font assets
 
@@ -58,6 +60,8 @@ pnpm --filter api start
 ```
 
 `PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. `SESSION_SECRET` phải ổn định giữa deploy/restart và `SESSION_TTL_SECONDS` xác định thời hạn session. Session audience `app` dùng cookie `APP_SESSION_COOKIE_NAME` và CSRF cookie `APP_CSRF_COOKIE_NAME`; mutation gửi `X-CSRF-Token`. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
+
+`pnpm --filter api prisma:seed` chi phuc vu development fixture va chi tao School mau. No khong provision initial School owner, membership/capability, dang nhap OAuth, hay du lieu Finance; dung Ops voi `SUPERADMIN_EMAIL` theo runbook de bootstrap test Finance.
 
 ## Pilot VPS deployment
 
