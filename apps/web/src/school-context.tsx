@@ -30,6 +30,7 @@ type Context = {
 type WorkspaceStatus = {
   dirty: boolean;
   pending: boolean;
+  dialogOpen?: boolean;
   reconcile?: () => void;
 };
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
@@ -102,7 +103,7 @@ export function SchoolContext({
     selected.current = undefined;
     stop();
     setContext(undefined);
-    setRosterStatus({ dirty: false, pending: false });
+    setRosterStatus({ dirty: false, pending: false, dialogOpen: false });
     setSettingsStatus({ dirty: false, pending: false });
     setLeaveReviewStatus({ dirty: false, pending: false });
     setFinanceStatus({ dirty: false, pending: false });
@@ -146,7 +147,7 @@ export function SchoolContext({
     setContext(undefined);
     setView("students");
     setExpanded({ roster: true, settings: false });
-    setRosterStatus({ dirty: false, pending: false });
+    setRosterStatus({ dirty: false, pending: false, dialogOpen: false });
     setSettingsStatus({ dirty: false, pending: false });
     setLeaveReviewStatus({ dirty: false, pending: false });
     setFinanceStatus({ dirty: false, pending: false });
@@ -193,7 +194,11 @@ export function SchoolContext({
   }, [context?.schoolId]);
   useEffect(() => {
     const revalidate = () => {
-      if (document.visibilityState === "visible" && selected.current)
+      if (
+        document.visibilityState === "visible" &&
+        selected.current &&
+        !rosterStatus.dialogOpen
+      )
         void load(selected.current).catch((cause: Error) =>
           setError(cause.message),
         );
@@ -204,7 +209,7 @@ export function SchoolContext({
       document.removeEventListener("visibilitychange", revalidate);
       window.removeEventListener("focus", revalidate);
     };
-  }, []);
+  }, [rosterStatus.dialogOpen]);
   useEffect(() => {
     if (switchTo)
       dialog.current
@@ -227,7 +232,8 @@ export function SchoolContext({
   const updateRosterStatus = useCallback((status: WorkspaceStatus) => {
     setRosterStatus((currentStatus) =>
       currentStatus.dirty === status.dirty &&
-      currentStatus.pending === status.pending
+      currentStatus.pending === status.pending &&
+      currentStatus.dialogOpen === status.dialogOpen
         ? currentStatus
         : status,
     );

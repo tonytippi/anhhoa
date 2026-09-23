@@ -143,7 +143,12 @@ type TransitionPreview = {
 type ErrorBody = {
   error?: { message?: string; fieldErrors?: Record<string, string> };
 };
-type Status = { dirty: boolean; pending: boolean; reconcile?: () => void };
+type Status = {
+  dirty: boolean;
+  pending: boolean;
+  dialogOpen?: boolean;
+  reconcile?: () => void;
+};
 
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const csrfName =
@@ -373,9 +378,10 @@ export function RosterWorkspace({
     onStatusChange?.({
       dirty,
       pending: Boolean(pending),
+      dialogOpen: studentIntakeOpen,
       reconcile: pending ? () => void reconcile(pending) : undefined,
     });
-  }, [dirty, pending, onStatusChange]);
+  }, [dirty, pending, studentIntakeOpen, onStatusChange]);
 
   const read = async <T,>(
     path: string,
