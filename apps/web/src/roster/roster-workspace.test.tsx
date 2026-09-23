@@ -51,6 +51,7 @@ describe('RosterWorkspace', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Tạo học sinh và ghi danh' });
     fireEvent.change(screen.getByLabelText('Ảnh hồ sơ'), { target: { files: [] } });
     fireEvent.mouseDown(dialog.parentElement!);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(dialog).toBeTruthy();
     expect(screen.getByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeTruthy();
   });
