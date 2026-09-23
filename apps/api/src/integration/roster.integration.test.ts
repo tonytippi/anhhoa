@@ -50,6 +50,8 @@ afterEach(async () => {
   await prisma.studentEnrollmentLifecycleTransition.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.enrollmentClassAssignment.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.staffClassAssignment.deleteMany({ where: { schoolId: { in: schools } } });
+  await prisma.staffPhoto.deleteMany({ where: { schoolId: { in: schools } } });
+  await prisma.staffCodeRegistry.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.staffProfile.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.schoolPosition.deleteMany({ where: { schoolId: { in: schools } } });
@@ -263,6 +265,28 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     await prisma.class.update({ where: { id: current.classroom.id }, data: { name: 'Tên lớp mới' } });
     expect(await roster.assignments(current.admin.id, current.current.id, current.year.id)).toMatchObject([{ id: assignmentId, effectiveTo: '2026-06-01', reason: 'Phân công đầu năm', endReason: 'Điều chuyển', schoolYear: { name: 'Năm 2026' }, classroom: { name: 'Mầm' }, access: { status: 'NOT_PROVIDED' } }]);
     expect(await prisma.auditRecord.count({ where: { schoolId: current.current.id, action: { in: ['STAFF_PROFILE_CREATED', 'STAFF_CLASS_ASSIGNED', 'STAFF_CLASS_ASSIGNMENT_ENDED'] } } })).toBe(3);
+  });
+
+  it('persists optional Staff identifiers, scopes Staff code uniqueness, and protects Staff media', async () => {
+    const current = await graph(); const foreign = await graph();
+    const profile = { fullName: 'Cô Mai', email: 'mai@example.com', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id, staffCode: ' NV-001 ', personalIdentifier: ' CCCD-01 ' };
+    const created = await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), profile);
+    const staffId = (created.outcome as { id: string }).id;
+    expect(created.outcome).toMatchObject({ staffCode: 'NV-001', personalIdentifier: 'CCCD-01', hasPhoto: false });
+    await expect(roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { ...profile, email: 'other@example.com' })).rejects.toMatchObject({ status: 409, response: { fieldErrors: { staffCode: expect.any(String) } } });
+    await expect(roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { ...profile, email: 'case@example.com', staffCode: 'nv-001' })).rejects.toMatchObject({ status: 409, response: { fieldErrors: { staffCode: expect.any(String) } } });
+    await roster.updateStaff(current.admin.id, current.current.id, staffId, uuid(), uuid(), { ...profile, staffCode: null, personalIdentifier: null });
+    await expect(roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { ...profile, email: 'reused@example.com' })).rejects.toMatchObject({ status: 409, response: { fieldErrors: { staffCode: expect.any(String) } } });
+    await expect(roster.createStaff(foreign.admin.id, foreign.current.id, uuid(), uuid(), { ...profile, primaryPositionId: foreign.position.id })).resolves.toBeTruthy();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const key = uuid(); const uploaded = await roster.uploadStaffPhoto(current.admin.id, current.current.id, staffId, key, uuid(), 'image/png', png);
+    expect(await roster.uploadStaffPhoto(current.admin.id, current.current.id, staffId, key, uuid(), 'image/png', png)).toEqual(uploaded);
+    expect((await roster.staff(current.admin.id, current.current.id)).find((item) => item.id === staffId)).toMatchObject({ hasPhoto: true, staffCode: null });
+    const photo = await roster.staffPhoto(current.admin.id, current.current.id, staffId);
+    expect(photo.contentType).toBe('image/png'); expect(Buffer.from(photo.blob)).toEqual(png);
+    await expect(roster.uploadStaffPhoto(current.admin.id, current.current.id, staffId, uuid(), uuid(), 'image/png', Buffer.from('not a png'))).rejects.toMatchObject({ status: 400, response: { fieldErrors: { photo: expect.any(String) } } });
+    await expect(roster.staffPhoto(foreign.admin.id, foreign.current.id, staffId)).rejects.toMatchObject({ status: 404 });
+    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STAFF_PHOTO_UPLOADED' } })).toMatchObject({ provenance: { staffProfileId: staffId } });
   });
 
   it('enforces Staff assignment tenant graph and half-open overlap while allowing adjacent and distinct Class intervals', async () => {

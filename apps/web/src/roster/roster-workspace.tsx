@@ -71,6 +71,9 @@ type Staff = {
   dateOfBirth: string;
   gender: string;
   address: string;
+  staffCode: string | null;
+  personalIdentifier: string | null;
+  hasPhoto: boolean;
   employmentStatus: "ACTIVE" | "INACTIVE";
   primaryPositionId: string;
   primaryPosition: {
@@ -112,6 +115,7 @@ type Pending = {
   id: string;
   schoolId: string;
   studentId?: string;
+  staffId?: string;
   kind:
     | "school-year"
     | "class"
@@ -124,6 +128,7 @@ type Pending = {
     | "parent"
     | "parent-revoke"
     | "staff"
+    | "staff-photo"
     | "position"
     | "assignment"
     | "assignment-end"
@@ -238,6 +243,9 @@ export function RosterWorkspace({
     employmentStatus: "ACTIVE",
     primaryPositionId: "",
     schoolMembershipId: "",
+    staffCode: "",
+    personalIdentifier: "",
+    photo: null as File | null,
   });
   const [positionInput, setPositionInput] = useState({
     code: "",
@@ -247,6 +255,8 @@ export function RosterWorkspace({
   });
   const [positionAction, setPositionAction] = useState<PositionAction>();
   const [editingStaffId, setEditingStaffId] = useState("");
+  const [staffIntakeOpen, setStaffIntakeOpen] = useState(false);
+  const confirmedStaff = useRef<string | undefined>(undefined);
   const [assignment, setAssignment] = useState({
     staffId: "",
     classId: "",
@@ -325,6 +335,7 @@ export function RosterWorkspace({
   const summary = useRef<HTMLDivElement>(null);
   const endDialog = useRef<HTMLDivElement>(null);
   const studentIntakeDialog = useRef<HTMLDivElement>(null);
+  const staffIntakeDialog = useRef<HTMLDivElement>(null);
   const endTrigger = useRef<HTMLButtonElement>(null);
   const restoreEndFocus = useRef(false);
   const timer = useRef<number | undefined>(undefined);
@@ -361,7 +372,10 @@ export function RosterWorkspace({
       staffInput.phone ||
       staffInput.dateOfBirth ||
       staffInput.gender ||
-      staffInput.address ||
+       staffInput.address ||
+       staffInput.staffCode ||
+       staffInput.personalIdentifier ||
+       staffInput.photo ||
       assignment.staffId ||
       assignment.classId ||
       assignment.effectiveFrom ||
@@ -378,10 +392,10 @@ export function RosterWorkspace({
     onStatusChange?.({
       dirty,
       pending: Boolean(pending),
-      dialogOpen: studentIntakeOpen,
+       dialogOpen: studentIntakeOpen || staffIntakeOpen,
       reconcile: pending ? () => void reconcile(pending) : undefined,
     });
-  }, [dirty, pending, studentIntakeOpen, onStatusChange]);
+  }, [dirty, pending, studentIntakeOpen, staffIntakeOpen, onStatusChange]);
 
   const read = async <T,>(
     path: string,
@@ -545,6 +559,15 @@ export function RosterWorkspace({
         } else if (operation.kind === "student-photo" && operation.studentId && operation.studentId === confirmedStudent.current) {
           setStudent((current) => ({ ...current, photo: null }));
           void completeStudentIntake(operation.studentId, true);
+        } else if (operation.kind === "staff") {
+          const createdStaffId = (result.outcome as { id?: string } | undefined)?.id;
+          if (createdStaffId) {
+            confirmedStaff.current = createdStaffId;
+            await completeStaffIntake(createdStaffId);
+          }
+        } else if (operation.kind === "staff-photo" && operation.staffId) {
+          setStaffInput((current) => ({ ...current, photo: null }));
+          void completeStaffIntake(operation.staffId, true);
         } else if (operation.kind === "parent" && operation.studentId === confirmedStudent.current)
           clearStudentIntake();
       }
@@ -600,6 +623,9 @@ export function RosterWorkspace({
       employmentStatus: "ACTIVE",
       primaryPositionId: "",
       schoolMembershipId: "",
+      staffCode: "",
+      personalIdentifier: "",
+      photo: null,
     });
     setPositionInput({ code: "", name: "", capabilities: [], reason: "" });
     setPositionAction(undefined);
@@ -908,31 +934,51 @@ export function RosterWorkspace({
   };
   const saveStaff = async (event: FormEvent) => {
     event.preventDefault();
+    if (confirmedStaff.current) return void completeStaffIntake(confirmedStaff.current);
     const path = editingStaffId
       ? `/api/app/schools/${schoolId}/roster/staff/${editingStaffId}`
       : `/api/app/schools/${schoolId}/roster/staff`;
-    if (
-      await post(
+    const { photo: _photo, ...staffProfile } = staffInput;
+    const result = await post(
         path,
         {
-          ...staffInput,
+          ...staffProfile,
           schoolMembershipId: staffInput.schoolMembershipId || null,
+          staffCode: staffInput.staffCode || null,
+          personalIdentifier: staffInput.personalIdentifier || null,
         },
         "staff",
-      )
-    ) {
-      setStaffInput({
-        fullName: "",
-        email: "",
-        phone: "",
-        dateOfBirth: "",
-        gender: "",
-        address: "",
-        employmentStatus: "ACTIVE",
-        primaryPositionId: "",
-        schoolMembershipId: "",
-      });
-      setEditingStaffId("");
+      );
+    const saved = result ? (result as { outcome?: { id?: string } }).outcome : undefined;
+    if (saved?.id) { confirmedStaff.current = saved.id; await completeStaffIntake(saved.id); }
+  };
+  const clearStaffIntake = () => {
+    setStaffInput({ fullName: "", email: "", phone: "", dateOfBirth: "", gender: "", address: "", employmentStatus: "ACTIVE", primaryPositionId: "", schoolMembershipId: "", staffCode: "", personalIdentifier: "", photo: null });
+    setEditingStaffId(""); setStaffErrors({}); setStaffIntakeOpen(false); confirmedStaff.current = undefined;
+  };
+  const completeStaffIntake = async (staffId: string, photoComplete = false) => {
+    if (staffInput.photo) {
+      if (!photoComplete && !(await uploadStaffPhoto(staffId, staffInput.photo))) return;
+      if (!photoComplete) setStaffInput((current) => ({ ...current, photo: null }));
+    }
+    clearStaffIntake();
+  };
+  const uploadStaffPhoto = async (staffId: string, photo: File) => {
+    if (pending) return false;
+    const operation: Pending = { id: crypto.randomUUID(), schoolId, staffId, kind: "staff-photo" };
+    const requestGeneration = generation.current;
+    try {
+      const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/roster/staff/${staffId}/photo`, { method: "POST", credentials: "include", headers: { "content-type": photo.type, "x-csrf-token": decodeURIComponent(csrf() ?? ""), "idempotency-key": crypto.randomUUID(), "x-operation-id": operation.id }, body: photo });
+      if (!valid(schoolId, requestGeneration)) return false;
+      if (deniedStatus(response.status)) { denied(); return false; }
+      if (uncertain(response.status)) throw new TypeError("Mutation outcome is uncertain.");
+      if (!response.ok) { const data = (await response.json()) as ErrorBody; setStaffErrors(data.error?.fieldErrors ?? {}); setMessage(data.error?.message ?? "Không thể tải ảnh hồ sơ."); return false; }
+      await refresh(requestGeneration);
+      return valid(schoolId, requestGeneration);
+    } catch (error) {
+      if (valid(schoolId, requestGeneration) && error instanceof TypeError) { sessionStorage.setItem(pendingKey, JSON.stringify(operation)); setPending(operation); void reconcile(operation, requestGeneration); }
+      else if (valid(schoolId, requestGeneration)) setMessage("Không thể tải ảnh hồ sơ.");
+      return false;
     }
   };
   const savePosition = async (event: FormEvent) => {
@@ -1238,6 +1284,7 @@ export function RosterWorkspace({
     if (!studentIntakeOpen) return;
     studentIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus();
   }, [studentIntakeOpen]);
+  useEffect(() => { if (staffIntakeOpen) staffIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus(); }, [staffIntakeOpen]);
   const studentIntakeForm = (radioName: string, inDialog = false) => (
     <form className="roster-form student-intake-form" onSubmit={createStudent}>
       <h3 id={inDialog ? "student-intake-title" : undefined}>
@@ -1315,8 +1362,10 @@ export function RosterWorkspace({
       {positionAction && <div role="dialog" aria-modal="true" aria-labelledby="position-action-title"><form className="roster-form" onSubmit={submitPositionAction}><h3 id="position-action-title">{positionAction.kind === "rename" ? `Đổi tên ${positionAction.position.name}` : positionAction.kind === "inactivate" ? `Ngừng hiệu lực ${positionAction.position.name}` : positionAction.kind === "grant" ? `Cấp capability cho ${positionAction.position.name}` : `Thu hồi capability của ${positionAction.position.name}`}</h3>{positionAction.kind === "rename" && <label>Tên chức danh mới<input value={positionAction.name} onChange={(event) => setPositionAction({ ...positionAction, name: event.target.value })} {...field(positionErrors, "name", "position-")} /></label>}{positionAction.kind === "grant" && <label>Capability cần cấp<select value={positionAction.capability} onChange={(event) => setPositionAction({ ...positionAction, capability: event.target.value })}><option value="">Chọn capability</option>{Object.entries(capabilityLabel).filter(([capability]) => !positionAction.position.capabilities.includes(capability)).map(([capability, label]) => <option key={capability} value={capability}>{label}</option>)}</select></label>}<label>{positionAction.kind === "rename" ? "Lý do đổi tên chức danh" : positionAction.kind === "inactivate" ? "Lý do ngừng hiệu lực chức danh" : positionAction.kind === "grant" ? "Lý do cấp capability" : "Lý do thu hồi capability"}<input value={positionAction.reason} onChange={(event) => setPositionAction({ ...positionAction, reason: event.target.value })} {...field(positionErrors, "reason", "position-")} /></label>{positionErrors.reason && <small id="position-reason-error">{positionErrors.reason}</small>}{positionAction.kind === "inactivate" && <label>Nhập NGỪNG HIỆU LỰC để xác nhận<input value={positionAction.confirmation} onChange={(event) => setPositionAction({ ...positionAction, confirmation: event.target.value })} /></label>}<button type="button" onClick={() => setPositionAction(undefined)}>Hủy</button><button disabled={disabled || (positionAction.kind === "inactivate" && positionAction.confirmation !== "NGỪNG HIỆU LỰC")}>{positionAction.kind === "rename" ? "Lưu tên chức danh" : positionAction.kind === "inactivate" ? "Xác nhận ngừng hiệu lực" : positionAction.kind === "grant" ? "Cấp capability" : "Xác nhận thu hồi capability"}</button></form></div>}
       </>}
       {(section === "all" || section === "staff") && <>
-      <form className="roster-form" onSubmit={saveStaff}>
-        <h3>{editingStaffId ? "Sửa hồ sơ nhân sự" : "Hồ sơ nhân sự"}</h3>
+      <button type="button" className="primary-action" disabled={disabled} onClick={() => { clearStaffIntake(); setStaffIntakeOpen(true); }}>Thêm nhân viên</button>
+      {staffIntakeOpen && <div className="student-intake-backdrop"><div ref={staffIntakeDialog} className="student-intake-dialog staff-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-intake-title"><form className="roster-form student-intake-form" onSubmit={saveStaff}>
+        <h3 id="staff-intake-title">{editingStaffId ? "Sửa hồ sơ nhân viên" : "Tạo hồ sơ nhân viên"}</h3>
+        <fieldset><legend>Thông tin cơ bản</legend>
         <label>
           Họ và tên nhân sự
           <input
@@ -1331,7 +1380,7 @@ export function RosterWorkspace({
           <small id="staff-fullName-error">{staffErrors.fullName}</small>
         )}
         <label>
-          Email nhân sự
+          Email liên hệ
           <input
             type="email"
             value={staffInput.email}
@@ -1373,13 +1422,13 @@ export function RosterWorkspace({
         )}
         <label>
           Giới tính
-          <input
+          <select
             value={staffInput.gender}
             onChange={(event) =>
               setStaffInput({ ...staffInput, gender: event.target.value })
             }
             {...field(staffErrors, "gender", "staff-")}
-          />
+          ><option value="">Chọn giới tính</option><option value="Nam">Nam</option><option value="Nữ">Nữ</option><option value="Khác">Khác</option></select>
         </label>
         {staffErrors.gender && (
           <small id="staff-gender-error">{staffErrors.gender}</small>
@@ -1397,30 +1446,20 @@ export function RosterWorkspace({
         {staffErrors.address && (
           <small id="staff-address-error">{staffErrors.address}</small>
         )}
+        <label>Mã nhân viên<input value={staffInput.staffCode} onChange={(event) => setStaffInput({ ...staffInput, staffCode: event.target.value })} {...field(staffErrors, "staffCode", "staff-")} /></label>
+        {staffErrors.staffCode && <small id="staff-staffCode-error">{staffErrors.staffCode}</small>}
+        <label>Mã định danh cá nhân<input value={staffInput.personalIdentifier} onChange={(event) => setStaffInput({ ...staffInput, personalIdentifier: event.target.value })} {...field(staffErrors, "personalIdentifier", "staff-")} /></label>
+        {staffErrors.personalIdentifier && <small id="staff-personalIdentifier-error">{staffErrors.personalIdentifier}</small>}
+        <label className="student-intake-full-width">Ảnh hồ sơ<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setStaffInput({ ...staffInput, photo: event.target.files?.[0] ?? staffInput.photo })} {...field(staffErrors, "photo", "staff-")} /></label>
+        {staffErrors.photo && <small id="staff-photo-error">{staffErrors.photo}</small>}
+        </fieldset><fieldset><legend>Công việc</legend>
         <label>Chức danh chính<select value={staffInput.primaryPositionId} onChange={(event) => setStaffInput({ ...staffInput, primaryPositionId: event.target.value })}><option value="">Chọn chức danh</option>{positions.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Trạng thái nhân sự<select value={staffInput.employmentStatus} onChange={(event) => setStaffInput({ ...staffInput, employmentStatus: event.target.value as 'ACTIVE' | 'INACTIVE' })}><option value="ACTIVE">Đang hiệu lực</option><option value="INACTIVE">Không hiệu lực</option></select></label>
-        {editingStaffId && (
-          <button
-            type="button"
-            onClick={() => {
-              setEditingStaffId("");
-              setStaffInput({
-                fullName: "",
-                email: "",
-                phone: "",
-                dateOfBirth: "",
-                gender: "",
-                address: "", employmentStatus: "ACTIVE", primaryPositionId: "", schoolMembershipId: "",
-              });
-            }}
-          >
-            Hủy sửa hồ sơ
-          </button>
-        )}
-        <button disabled={disabled}>
+        </fieldset>
+        <div className="student-intake-actions"><button type="button" disabled={disabled} onClick={clearStaffIntake}>Đóng</button><button disabled={disabled}>
           {editingStaffId ? "Lưu thay đổi hồ sơ" : "Lưu hồ sơ nhân sự"}
-        </button>
-      </form>
+        </button></div>
+      </form></div></div>}
       <div className="table-scroll">
         <table>
           <caption>Hồ sơ nhân sự của {schoolName}</caption>
@@ -1458,8 +1497,12 @@ export function RosterWorkspace({
                           employmentStatus: item.employmentStatus,
                           primaryPositionId: item.primaryPositionId,
                           schoolMembershipId: item.schoolMembershipId ?? "",
+                          staffCode: item.staffCode ?? "",
+                          personalIdentifier: item.personalIdentifier ?? "",
+                          photo: null,
                         });
                         setStaffErrors({});
+                        setStaffIntakeOpen(true);
                       }}
                     >
                       Sửa hồ sơ

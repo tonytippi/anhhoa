@@ -438,6 +438,13 @@ export class RosterController {
       ),
     };
   }
+  @Post("staff/:staffId/photo") async uploadStaffPhoto(@Req() request: RequestLike & { body: unknown }, @Param("schoolId") schoolId: string, @Param("staffId") staffId: string, @Headers("idempotency-key") key: string, @Headers("x-operation-id") operationId: string) {
+    return { data: await this.roster.uploadStaffPhoto(this.identity(request), schoolId, staffId, this.mutation(request, key), operationId ?? "", request.headers["content-type"]?.split(";")[0], request.body) };
+  }
+  @Get("staff/:staffId/photo") async staffPhoto(@Req() request: RequestLike, @Param("schoolId") schoolId: string, @Param("staffId") staffId: string, @Res() response: ResponseLike) {
+    const media = await this.roster.staffPhoto(this.identity(request), schoolId, staffId);
+    response.setHeader("Content-Type", media.contentType); response.setHeader("Cache-Control", "private, no-store"); response.setHeader("X-Content-Type-Options", "nosniff"); response.send(media.blob);
+  }
   @Post("staff/:staffId/assignments") async createAssignment(
     @Req() request: RequestLike,
     @Param("schoolId") schoolId: string,

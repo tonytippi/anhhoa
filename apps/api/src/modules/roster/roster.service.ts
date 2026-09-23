@@ -40,6 +40,7 @@ const route = {
     "POST /api/app/schools/:schoolId/roster/enrollments/:enrollmentId/lifecycle",
   staff: "POST /api/app/schools/:schoolId/roster/staff",
   staffUpdate: "POST /api/app/schools/:schoolId/roster/staff/:staffId",
+  staffPhoto: "POST /api/app/schools/:schoolId/roster/staff/:staffId/photo",
   assignment:
     "POST /api/app/schools/:schoolId/roster/staff/:staffId/assignments",
   assignmentChange:
@@ -196,6 +197,9 @@ export class RosterService {
       dateOfBirth: value.dateOfBirth.toISOString().slice(0, 10),
       gender: value.gender,
       address: value.address,
+      staffCode: value.staffCode ?? null,
+      personalIdentifier: value.personalIdentifier ?? null,
+      hasPhoto: Boolean(value.photo),
       employmentStatus: value.employmentStatus,
       primaryPositionId: value.primaryPositionId,
       primaryPosition: value.primaryPosition
@@ -341,7 +345,7 @@ export class RosterService {
     return (
       await this.prisma.staffProfile.findMany({
         where: { schoolId },
-        include: { primaryPosition: true },
+        include: { primaryPosition: true, photo: { select: { id: true } } },
         orderBy: { fullName: "asc" },
       })
     ).map((item) => this.staffDto(item));
@@ -669,8 +673,9 @@ export class RosterService {
             boundByMembershipId: binding ? actor.membershipId : null,
             dateOfBirth: this.dateValue(profile.dateOfBirth, "dateOfBirth"),
           },
-          include: { primaryPosition: true },
+          include: { primaryPosition: true, photo: { select: { id: true } } },
         });
+        await this.claimStaffCode(tx, schoolId, staff.id, profile.staffCode);
         await this.audit(
           tx,
           schoolId,
@@ -745,8 +750,9 @@ export class RosterService {
                   : null,
             dateOfBirth: this.dateValue(profile.dateOfBirth, "dateOfBirth"),
           },
-          include: { primaryPosition: true },
+          include: { primaryPosition: true, photo: { select: { id: true } } },
         });
+        await this.claimStaffCode(tx, schoolId, staff.id, profile.staffCode);
         await this.audit(
           tx,
           schoolId,
@@ -764,6 +770,27 @@ export class RosterService {
         return this.staffDto(staff);
       },
     );
+  }
+  async uploadStaffPhoto(identityId: string, schoolId: string, staffId: string, key: string, operationId: string, contentType: string | undefined, media: unknown) {
+    const actor = await this.actor(identityId, schoolId);
+    const blob = Buffer.isBuffer(media) ? media : null;
+    if (!uuid.test(staffId) || !["image/jpeg", "image/png", "image/webp"].includes(contentType ?? "") || !blob?.length || blob.length > 10 * 1024 * 1024 || !this.photoSignature(contentType!, blob))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Tệp ảnh hồ sơ không hợp lệ.", fieldErrors: { photo: "Ảnh phải là JPEG, PNG hoặc WebP không rỗng, tối đa 10 MiB." } });
+    const digest = createHash("sha256").update(blob).digest("hex");
+    return this.mutate(actor, identityId, schoolId, route.staffPhoto, key, operationId, { staffId, contentType, size: blob.length, digest }, async (tx, operation) => {
+      const staff = await tx.staffProfile.findFirst({ where: { id: staffId, schoolId }, select: { id: true } });
+      if (!staff) throw new NotFoundException({ code: "STAFF_NOT_FOUND", message: "Không tìm thấy nhân sự." });
+      const photo = await tx.staffPhoto.upsert({ where: { schoolId_staffId: { schoolId, staffId } }, create: { schoolId, staffId, contentType: contentType!, blob }, update: { contentType: contentType!, blob } });
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "STAFF_PHOTO_UPLOADED", operation, { staffProfileId: staffId, photoId: photo.id, contentType, size: blob.length });
+      return { id: photo.id, staffId, contentType: photo.contentType };
+    });
+  }
+  async staffPhoto(identityId: string, schoolId: string, staffId: string) {
+    await this.actor(identityId, schoolId);
+    if (!uuid.test(staffId)) throw new NotFoundException({ code: "STAFF_PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh hồ sơ." });
+    const photo = await this.prisma.staffPhoto.findFirst({ where: { schoolId, staffId } });
+    if (!photo) throw new NotFoundException({ code: "STAFF_PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh hồ sơ." });
+    return { contentType: photo.contentType, blob: photo.blob };
   }
   async createAssignment(
     identityId: string,
@@ -1956,6 +1983,13 @@ export class RosterService {
       });
     return email;
   }
+  private async claimStaffCode(tx: any, schoolId: string, staffId: string, staffCode: string | null) {
+    if (!staffCode) return;
+    const existing = await tx.staffCodeRegistry.findFirst({ where: { schoolId, staffCode } });
+    if (existing && existing.staffId !== staffId)
+      throw new ConflictException({ code: "STAFF_CODE_EXISTS", message: "Mã nhân viên đã được dùng trong trường này.", fieldErrors: { staffCode: "Mã nhân viên đã được dùng trong trường này." } });
+    if (!existing) await tx.staffCodeRegistry.create({ data: { schoolId, staffId, staffCode } });
+  }
   private staffInput(body: any) {
     const employmentStatus = body?.employmentStatus ?? "ACTIVE";
     const primaryPositionId =
@@ -1987,6 +2021,8 @@ export class RosterService {
       dateOfBirth: this.date(body?.dateOfBirth, "dateOfBirth"),
       gender: this.text(body?.gender, "gender", "Giới tính", 30),
       address: this.text(body?.address, "address", "Địa chỉ", 500),
+      staffCode: this.optionalText(body?.staffCode, "staffCode", "Mã nhân viên", 100)?.toUpperCase() ?? null,
+      personalIdentifier: this.optionalText(body?.personalIdentifier, "personalIdentifier", "Mã định danh cá nhân", 100),
       employmentStatus,
       primaryPositionId,
       schoolMembershipId,
@@ -2584,6 +2620,8 @@ export class RosterService {
         });
       if (command === route.student && this.personalIdentifierConflict(error))
         throw new ConflictException({ code: "PERSONAL_IDENTIFIER_EXISTS", message: "Mã định danh cá nhân đã được dùng.", fieldErrors: { personalIdentifier: "Mã định danh cá nhân đã được dùng." } });
+      if ((command === route.staff || command === route.staffUpdate) && this.staffCodeConflict(error))
+        throw new ConflictException({ code: "STAFF_CODE_EXISTS", message: "Mã nhân viên đã được dùng trong trường này.", fieldErrors: { staffCode: "Mã nhân viên đã được dùng trong trường này." } });
       throw error;
     }
   }
@@ -2609,5 +2647,8 @@ export class RosterService {
   }
   private personalIdentifierConflict(error: unknown) {
     return Boolean(error && typeof error === "object" && (error as { code?: string; meta?: unknown }).code === "P2002" && JSON.stringify((error as { meta?: unknown }).meta).includes("Student_personalIdentifier_ci_key"));
+  }
+  private staffCodeConflict(error: unknown) {
+    return Boolean(error && typeof error === "object" && (error as { code?: string; meta?: unknown }).code === "P2002" && (JSON.stringify((error as { meta?: unknown }).meta).includes("StaffProfile_schoolId_staffCode_present_key") || JSON.stringify((error as { meta?: unknown }).meta).includes("StaffCodeRegistry_schoolId_staffCode_key")));
   }
 }

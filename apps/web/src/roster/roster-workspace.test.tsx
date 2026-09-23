@@ -489,8 +489,9 @@ describe('RosterWorkspace', () => {
     });
     vi.stubGlobal('fetch', fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Thêm nhân viên' }));
     fireEvent.change(await screen.findByLabelText('Họ và tên nhân sự'), { target: { value: 'Cô Mai' } });
-    fireEvent.change(screen.getByLabelText('Email nhân sự'), { target: { value: staff.email } });
+    fireEvent.change(screen.getByLabelText('Email liên hệ'), { target: { value: staff.email } });
     fireEvent.change(screen.getByLabelText('Số điện thoại nhân sự'), { target: { value: staff.phone } });
     fireEvent.change(screen.getByLabelText('Ngày sinh nhân sự'), { target: { value: staff.dateOfBirth } });
     fireEvent.change(screen.getByLabelText('Giới tính'), { target: { value: staff.gender } });
@@ -503,7 +504,7 @@ describe('RosterWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sửa hồ sơ' }));
     fireEvent.change(screen.getByLabelText('Họ và tên nhân sự'), { target: { value: 'Cô Mai đã sửa' } });
     fireEvent.submit(screen.getByRole('button', { name: 'Lưu thay đổi hồ sơ' }).closest('form')!);
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/staff/staff-a', expect.objectContaining({ method: 'POST', body: JSON.stringify({ fullName: 'Cô Mai đã sửa', email: staff.email, phone: staff.phone, dateOfBirth: staff.dateOfBirth, gender: staff.gender, address: staff.address, employmentStatus: staff.employmentStatus, primaryPositionId: staff.primaryPositionId, schoolMembershipId: null }) })));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/staff/staff-a', expect.objectContaining({ method: 'POST', body: JSON.stringify({ fullName: 'Cô Mai đã sửa', email: staff.email, phone: staff.phone, dateOfBirth: staff.dateOfBirth, gender: staff.gender, address: staff.address, employmentStatus: staff.employmentStatus, primaryPositionId: staff.primaryPositionId, schoolMembershipId: null, staffCode: null, personalIdentifier: null }) })));
     expect((await screen.findAllByText('Cô Mai đã sửa')).length).toBeGreaterThan(0);
   });
 
@@ -555,10 +556,11 @@ describe('RosterWorkspace', () => {
     });
     vi.stubGlobal('fetch', fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.change(await screen.findByLabelText('Email nhân sự'), { target: { value: 'invalid' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Thêm nhân viên' }));
+    fireEvent.change(await screen.findByLabelText('Email liên hệ'), { target: { value: 'invalid' } });
     fireEvent.submit(screen.getByRole('button', { name: 'Lưu hồ sơ nhân sự' }).closest('form')!);
     expect(await screen.findByText('Email không hợp lệ.')).toBeTruthy();
-    expect((screen.getByLabelText('Email nhân sự') as HTMLInputElement).value).toBe('invalid');
+    expect((screen.getByLabelText('Email liên hệ') as HTMLInputElement).value).toBe('invalid');
     expect(document.activeElement?.getAttribute('role')).toBe('alert');
     fireEvent.change(screen.getByLabelText('Nhân sự'), { target: { value: staff.id } });
     fireEvent.change(screen.getByLabelText('Lớp phân công'), { target: { value: classroom.id } });

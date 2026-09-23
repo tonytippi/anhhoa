@@ -24,6 +24,7 @@ model School {
   classes                           Class[]
   students                          Student[]
   staffProfiles                     StaffProfile[]
+  staffPhotos                       StaffPhoto[]
   staffClassAssignments             StaffClassAssignment[]
   enrollments                       StudentEnrollment[]
   enrollmentClassAssignments        EnrollmentClassAssignment[]
@@ -52,6 +53,7 @@ model School {
   invoices                          Invoice[]
   invoiceLines                      InvoiceLine[]
   studentPhotos                     StudentPhoto[]
+  staffCodeRegistry                 StaffCodeRegistry[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
@@ -124,6 +126,8 @@ model StaffProfile {
   dateOfBirth                DateTime               @db.Date
   gender                     String
   address                    String
+  staffCode                  String?
+  personalIdentifier         String?
   employmentStatus           StaffEmploymentStatus  @default(ACTIVE)
   primaryPositionId          String                 @db.Uuid
   schoolMembershipId         String?                @unique @db.Uuid
@@ -139,11 +143,42 @@ model StaffProfile {
   attendanceRecords          AttendanceRecord[]
   handoverRecords            HandoverRecord[]
   uploadedEvidenceReferences EvidenceReference[]    @relation("EvidenceUploadedStaffProfile")
+  photo                      StaffPhoto?
+  issuedCodes                StaffCodeRegistry[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, primaryPositionId, id])
   @@unique([schoolId, schoolMembershipId])
   @@index([schoolId, fullName])
+  @@index([schoolId, staffCode])
+}
+
+model StaffPhoto {
+  id          String       @id @default(uuid()) @db.Uuid
+  schoolId    String       @db.Uuid
+  staffId     String       @db.Uuid
+  contentType String
+  blob        Bytes
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  school      School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  staff       StaffProfile @relation(fields: [schoolId, staffId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, staffId])
+}
+
+model StaffCodeRegistry {
+  id        String       @id @default(uuid()) @db.Uuid
+  schoolId  String       @db.Uuid
+  staffId   String       @db.Uuid
+  staffCode String
+  createdAt DateTime     @default(now())
+  school    School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  staff     StaffProfile @relation(fields: [schoolId, staffId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, staffCode])
+  @@unique([schoolId, staffId, staffCode])
 }
 
 enum StaffEmploymentStatus {
