@@ -195,11 +195,13 @@ export function RosterWorkspace({
   schoolName,
   denied,
   onStatusChange,
+  section = "all",
 }: {
   schoolId: string;
   schoolName: string;
   denied: () => void;
   onStatusChange?: (status: Status) => void;
+  section?: "all" | "students" | "parents" | "staff" | "classes" | "years" | "positions";
 }) {
   const [years, setYears] = useState<SchoolYear[]>([]);
   const [yearId, setYearId] = useState("");
@@ -1119,8 +1121,8 @@ export function RosterWorkspace({
   };
 
   return (
-    <section className="roster-workspace" aria-labelledby="roster-title">
-      <h2 id="roster-title">Danh bộ</h2>
+    <section className={`roster-workspace roster-workspace-${section}`} aria-labelledby="roster-title">
+      <h2 id="roster-title">{({ all: "Danh bộ", students: "Học sinh", parents: "Phụ huynh", staff: "Nhân viên", classes: "Lớp học", years: "Năm học", positions: "Chức danh & capability" } as const)[section]}</h2>
       <p>
         {schoolName}
         {selected ? ` / ${selected.name}` : " / Chưa có năm học"}
@@ -1130,6 +1132,7 @@ export function RosterWorkspace({
           {message}
         </div>
       )}
+      {(section === "all" || section === "positions") && <>
       <form className="roster-form" onSubmit={savePosition}>
         <h3>Danh mục chức danh</h3>
         <label>Mã chức danh<input value={positionInput.code} onChange={(event) => setPositionInput({ ...positionInput, code: event.target.value })} {...field(positionErrors, "code", "position-")} /></label>
@@ -1143,6 +1146,8 @@ export function RosterWorkspace({
       </form>
       <div className="table-scroll"><table><caption>Chức danh của {schoolName}</caption><thead><tr><th>Chức danh</th><th>Capability</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{positions.length ? positions.map((item) => <tr key={item.id}><th scope="row">{item.name} ({item.code})</th><td>{item.capabilities.map((capability) => <span key={capability}>{capabilityLabel[capability] ?? capability} <button type="button" disabled={disabled} aria-label={`Thu hồi ${capabilityLabel[capability] ?? capability} của ${item.name}`} onClick={() => setPositionAction({ position: item, kind: "revoke", name: item.name, capability, reason: "", confirmation: "" })}>Thu hồi</button> </span>) || 'Chưa cấp capability'}</td><td>{item.status === 'ACTIVE' ? 'Đang hiệu lực' : 'Không hiệu lực'}</td><td><button type="button" disabled={disabled} onClick={() => setPositionAction({ position: item, kind: "rename", name: item.name, capability: "", reason: "", confirmation: "" })}>Đổi tên {item.name}</button>{item.status === 'ACTIVE' && <><button type="button" disabled={disabled} onClick={() => setPositionAction({ position: item, kind: "grant", name: item.name, capability: "", reason: "", confirmation: "" })}>Cấp capability cho {item.name}</button><button type="button" disabled={disabled} onClick={() => setPositionAction({ position: item, kind: "inactivate", name: item.name, capability: "", reason: "", confirmation: "" })}>Ngừng hiệu lực {item.name}</button></>}</td></tr>) : <tr><td colSpan={4}>Chưa có chức danh.</td></tr>}</tbody></table></div>
       {positionAction && <div role="dialog" aria-modal="true" aria-labelledby="position-action-title"><form className="roster-form" onSubmit={submitPositionAction}><h3 id="position-action-title">{positionAction.kind === "rename" ? `Đổi tên ${positionAction.position.name}` : positionAction.kind === "inactivate" ? `Ngừng hiệu lực ${positionAction.position.name}` : positionAction.kind === "grant" ? `Cấp capability cho ${positionAction.position.name}` : `Thu hồi capability của ${positionAction.position.name}`}</h3>{positionAction.kind === "rename" && <label>Tên chức danh mới<input value={positionAction.name} onChange={(event) => setPositionAction({ ...positionAction, name: event.target.value })} {...field(positionErrors, "name", "position-")} /></label>}{positionAction.kind === "grant" && <label>Capability cần cấp<select value={positionAction.capability} onChange={(event) => setPositionAction({ ...positionAction, capability: event.target.value })}><option value="">Chọn capability</option>{Object.entries(capabilityLabel).filter(([capability]) => !positionAction.position.capabilities.includes(capability)).map(([capability, label]) => <option key={capability} value={capability}>{label}</option>)}</select></label>}<label>{positionAction.kind === "rename" ? "Lý do đổi tên chức danh" : positionAction.kind === "inactivate" ? "Lý do ngừng hiệu lực chức danh" : positionAction.kind === "grant" ? "Lý do cấp capability" : "Lý do thu hồi capability"}<input value={positionAction.reason} onChange={(event) => setPositionAction({ ...positionAction, reason: event.target.value })} {...field(positionErrors, "reason", "position-")} /></label>{positionErrors.reason && <small id="position-reason-error">{positionErrors.reason}</small>}{positionAction.kind === "inactivate" && <label>Nhập NGỪNG HIỆU LỰC để xác nhận<input value={positionAction.confirmation} onChange={(event) => setPositionAction({ ...positionAction, confirmation: event.target.value })} /></label>}<button type="button" onClick={() => setPositionAction(undefined)}>Hủy</button><button disabled={disabled || (positionAction.kind === "inactivate" && positionAction.confirmation !== "NGỪNG HIỆU LỰC")}>{positionAction.kind === "rename" ? "Lưu tên chức danh" : positionAction.kind === "inactivate" ? "Xác nhận ngừng hiệu lực" : positionAction.kind === "grant" ? "Cấp capability" : "Xác nhận thu hồi capability"}</button></form></div>}
+      </>}
+      {(section === "all" || section === "staff") && <>
       <form className="roster-form" onSubmit={saveStaff}>
         <h3>{editingStaffId ? "Sửa hồ sơ nhân sự" : "Hồ sơ nhân sự"}</h3>
         <label>
@@ -1303,6 +1308,8 @@ export function RosterWorkspace({
           </tbody>
         </table>
       </div>
+      </>}
+      {(section === "all" || section === "years") && <>
       <form className="roster-form" onSubmit={createYear}>
         <h3>Tạo năm học</h3>
         <label>
@@ -1400,6 +1407,7 @@ export function RosterWorkspace({
           </tbody>
         </table>
       </div>
+      </>}
       {yearId && (
         <>
           {readOnly && (
@@ -1408,7 +1416,7 @@ export function RosterWorkspace({
             </p>
           )}
           <fieldset disabled={readOnly || disabled}>
-            {!readOnly && (
+            {(section === "all" || section === "classes") && !readOnly && (
               <form className="roster-form" onSubmit={createClass}>
                 <h3>Thêm lớp cho {selected?.name}</h3>
                 <label>
@@ -1425,6 +1433,7 @@ export function RosterWorkspace({
                 <button disabled={disabled}>Tạo lớp</button>
               </form>
             )}
+            {(section === "all" || section === "staff") && <>
             <form className="roster-form" onSubmit={saveAssignment}>
               <h3>
                 {editingAssignmentId
@@ -1653,7 +1662,8 @@ export function RosterWorkspace({
                 </tbody>
               </table>
             </div>
-            <div className="table-scroll">
+            </>}
+            {(section === "all" || section === "classes") && <div className="table-scroll">
               <table>
                 <caption>Lớp thuộc {selected?.name}</caption>
                 <thead>
@@ -1715,7 +1725,8 @@ export function RosterWorkspace({
                   )}
                 </tbody>
               </table>
-            </div>
+            </div>}
+            {(section === "all" || section === "years") && <>
             <form className="roster-form" onSubmit={previewRosterTransition}>
               <h3>Chuyển danh bộ</h3>
               <p>
@@ -1985,7 +1996,9 @@ export function RosterWorkspace({
                 </button>
               </section>
             )}
-            {selected?.isActive ? (
+            </>}
+            {(section === "all" || section === "students" || section === "parents") && <>
+            {section !== "parents" && (selected?.isActive ? (
               <form className="roster-form" onSubmit={createStudent}>
                 <h3>Tạo học sinh và enrollment</h3>
                 <label>
@@ -2096,7 +2109,7 @@ export function RosterWorkspace({
               <p role="status">
                 Chỉ có thể tạo enrollment trong năm học đang hoạt động.
               </p>
-            )}
+            ))}
             <div className="table-scroll">
               <table>
                 <caption>Học sinh của {selected?.name}</caption>
@@ -2321,6 +2334,7 @@ export function RosterWorkspace({
                 )),
               )}
             </section>
+            </>}
           </fieldset>
         </>
       )}

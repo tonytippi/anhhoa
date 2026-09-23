@@ -31,9 +31,33 @@ describe('SchoolContext', () => {
   });
   it('exposes server-projected roster navigation and protects dirty roster input on switch', async () => {
     const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };
-    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: rosterContext }))).mockResolvedValue(new Response(JSON.stringify({ data: [] })));
-    vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={vi.fn()} />); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); fireEvent.click(await screen.findByRole('button', { name: 'Danh bộ' })); await screen.findByRole('heading', { name: 'Danh bộ' }); fireEvent.change(screen.getByLabelText('Tên năm học'), { target: { value: 'Năm 2026' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } });
-    expect((await screen.findByRole('dialog')).textContent).toContain('Biểu mẫu đang có nội dung chưa gửi'); expect((screen.getByLabelText('Tên năm học') as HTMLInputElement).value).toBe('Năm 2026');
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: rosterContext })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={vi.fn()} />); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'Học sinh' }); expect(screen.getByRole('button', { name: 'Phụ huynh' })).toBeTruthy(); expect(screen.getByRole('button', { name: 'Nhân viên' })).toBeTruthy(); expect(screen.getByRole('button', { name: 'Lớp học' })).toBeTruthy(); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } });
+    expect((await screen.findByRole('dialog')).textContent).toContain('Biểu mẫu đang có nội dung chưa gửi'); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
+  });
+  it('selects people and class destinations without rendering configuration controls', async () => {
+    const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: rosterContext })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch); render(<SchoolContext clear={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Nhân viên' }));
+    expect(await screen.findByRole('heading', { name: 'Nhân viên' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Nhân viên' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.queryByRole('button', { name: 'Tạo năm học' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Lớp học' }));
+    expect(await screen.findByRole('heading', { name: 'Lớp học' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Lớp học' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.queryByRole('button', { name: 'Tạo chức danh' })).toBeNull();
   });
   it('integrates Settings navigation and guards a dirty Settings form before switching School', async () => {
     const settingsContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'SETTINGS_MANAGE'] as const, navigation: [{ id: 'settings', label: 'Cấu hình trường' }] };

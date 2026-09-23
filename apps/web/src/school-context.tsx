@@ -38,7 +38,9 @@ const denied = (status: number) => [401, 403, 404].includes(status);
 export function SchoolContext({ clear }: { clear: () => void }) {
   const [schools, setSchools] = useState<School[]>();
   const [context, setContext] = useState<Context>();
-  const [view, setView] = useState<"roster" | "settings" | "leave-review" | "finance">("roster");
+  type View = "students" | "parents" | "staff" | "classes" | "years" | "positions" | "settings" | "leave-review" | "finance";
+  const [view, setView] = useState<View>("students");
+  const [expanded, setExpanded] = useState<Record<"roster" | "settings", boolean>>({ roster: true, settings: false });
   const [rosterStatus, setRosterStatus] = useState<WorkspaceStatus>({
     dirty: false,
     pending: false,
@@ -74,7 +76,8 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     setSettingsStatus({ dirty: false, pending: false });
     setLeaveReviewStatus({ dirty: false, pending: false });
     setFinanceStatus({ dirty: false, pending: false });
-    setView("roster");
+    setView("students");
+    setExpanded({ roster: true, settings: false });
     setSwitchTo(undefined);
   };
   const refreshChooser = async () => {
@@ -95,7 +98,8 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     selected.current = schoolId;
     stop();
     setContext(undefined);
-    setView("roster");
+    setView("students");
+    setExpanded({ roster: true, settings: false });
     setRosterStatus({ dirty: false, pending: false });
     setSettingsStatus({ dirty: false, pending: false });
     setLeaveReviewStatus({ dirty: false, pending: false });
@@ -112,6 +116,10 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     const next = ((await response.json()) as { data: Context }).data;
     if (!current(schoolId, requestVersion)) return;
     setContext(next);
+    if (!next.navigation.some((item) => item.id === "roster") && next.navigation.some((item) => item.id === "settings")) {
+      setView("settings");
+      setExpanded({ roster: false, settings: true });
+    }
   };
   useEffect(() => {
     mounted.current = true;
@@ -229,22 +237,27 @@ export function SchoolContext({ clear }: { clear: () => void }) {
             </h1>
           </header>
             <nav className="school-context-navigation" aria-label="Điều hướng quản trị và nhân sự">
-            {context.navigation.map((item) =>
-              item.id === "roster" ||
-              item.id === "settings" || item.id === "leave-review" || item.id === "finance" ? (
-                <button
-                  key={item.id}
-                  className={`school-context-nav-item school-context-nav-${item.id}`}
-                  aria-current={view === item.id ? "page" : undefined}
-                  onClick={() => setView(item.id as typeof view)}
-                >
-                  {item.label}
-                </button>
-              ) : null,
-            )}
-          </nav>
+              {context.navigation.some((item) => item.id === "roster") && (
+                <section className="school-context-nav-group">
+                  <button type="button" className="school-context-nav-group-toggle" aria-controls="roster-submenu" aria-expanded={expanded.roster} onClick={() => setExpanded((value) => ({ ...value, roster: !value.roster }))}>Danh bộ</button>
+                  {expanded.roster && <div id="roster-submenu" className="school-context-nav-submenu">
+                    {([['students', 'Học sinh'], ['parents', 'Phụ huynh'], ['staff', 'Nhân viên'], ['classes', 'Lớp học']] as const).map(([id, label]) => <button type="button" key={id} aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}>{label}</button>)}
+                  </div>}
+                </section>
+              )}
+              {context.navigation.some((item) => item.id === "settings") && (
+                <section className="school-context-nav-group">
+                  <button type="button" className="school-context-nav-group-toggle" aria-controls="settings-submenu" aria-expanded={expanded.settings} onClick={() => setExpanded((value) => ({ ...value, settings: !value.settings }))}>Cấu hình trường</button>
+                  {expanded.settings && <div id="settings-submenu" className="school-context-nav-submenu">
+                    {([['years', 'Năm học'], ['positions', 'Chức danh & capability']] as const).map(([id, label]) => context.capabilities.includes("ROSTER_MANAGE") && <button type="button" key={id} aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}>{label}</button>)}
+                    {context.capabilities.includes("SETTINGS_MANAGE") && <button type="button" aria-current={view === "settings" ? "page" : undefined} onClick={() => setView("settings")}>Chính sách trường</button>}
+                  </div>}
+                </section>
+              )}
+              {context.navigation.filter((item) => item.id === "leave-review" || item.id === "finance").map((item) => <button type="button" key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onClick={() => setView(item.id as View)}>{item.label}</button>)}
+            </nav>
           <div className="school-context-workspace">
-          {view === "roster" &&
+          {(["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) &&
           context.capabilities.includes("ROSTER_MANAGE") ? (
             <RosterWorkspace
               schoolId={context.schoolId}
@@ -254,6 +267,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
                 void refreshChooser();
               }}
               onStatusChange={updateRosterStatus}
+              section={view as "students" | "parents" | "staff" | "classes" | "years" | "positions"}
             />
           ) : view === "settings" &&
             context.capabilities.includes("SETTINGS_MANAGE") ? (

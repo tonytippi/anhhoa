@@ -968,6 +968,13 @@ tbody tr:last-child td {
     justify-content: center;
   }
 }
+
+.school-context-nav-group { display: grid; gap: 4px; }
+.school-context-nav-group-toggle { font-weight: 750 !important; }
+.school-context-nav-group-toggle::after { content: "⌄"; margin-left: auto; }
+.school-context-nav-group-toggle[aria-expanded="false"]::after { content: "›"; }
+.school-context-nav-submenu { display: grid; gap: 2px; padding-left: 12px; }
+.school-context-nav-submenu button { font-size: 13px; }
 @media (max-width: 900px) {
   .invoice-detail-grid {
     grid-template-columns: 1fr;
