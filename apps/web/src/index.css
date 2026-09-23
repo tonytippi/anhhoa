@@ -1332,6 +1332,37 @@ tbody tr:last-child td {
   box-shadow: 0 24px 64px rgb(24 51 45 / 26%);
 }
 .student-intake-dialog .roster-form { margin: 0; }
+.student-intake-form {
+  grid-template-columns: 1fr !important;
+  align-items: stretch !important;
+}
+.student-intake-form > fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+.student-intake-form > fieldset > small {
+  grid-column: 1 / -1;
+  margin-top: -8px;
+}
+.student-intake-form .student-intake-full-width,
+.student-intake-form .student-intake-radios {
+  grid-column: 1 / -1;
+}
+.student-intake-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+.student-intake-radios label {
+  display: inline-flex;
+  align-items: center;
+}
+.student-intake-dialog {
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+}
 .student-intake-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1501,4 +1532,6 @@ tbody tr:last-child td {
   .student-list-toolbar { align-items: flex-start; flex-direction: column; }
   .student-list-toolbar .primary-action { width: 100%; }
   .student-intake-backdrop { align-items: start; padding: 16px; }
+  .student-intake-dialog { max-height: calc(100dvh - 32px); }
+  .student-intake-form > fieldset { grid-template-columns: 1fr; }
 }

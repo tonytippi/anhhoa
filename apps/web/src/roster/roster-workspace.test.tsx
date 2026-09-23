@@ -20,11 +20,28 @@ describe('RosterWorkspace', () => {
     vi.stubGlobal('fetch', rosterFetch());
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
     expect(await screen.findByRole('button', { name: 'Thêm học sinh' })).toBeTruthy();
-    expect(screen.queryByRole('dialog', { name: 'Tạo học sinh và enrollment' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Thêm học sinh' }));
-    expect(await screen.findByRole('dialog', { name: 'Tạo học sinh và enrollment' })).toBeTruthy();
+    const dialog = await screen.findByRole('dialog', { name: 'Tạo học sinh và ghi danh' });
+    expect(dialog).toBeTruthy();
+    expect(Array.from(dialog.querySelectorAll('legend')).map((legend) => legend.textContent)).toEqual(['Thông tin cơ bản', 'Thông tin hồ sơ', 'Ghi danh', 'Phụ huynh (tùy chọn)']);
+    expect(dialog.textContent).not.toContain('enrollment');
     fireEvent.click(screen.getByRole('button', { name: 'Đóng' }));
-    expect(screen.queryByRole('dialog', { name: 'Tạo học sinh và enrollment' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeNull();
+  });
+
+  it('submits the Student payload from the intake dialog', async () => {
+    const fetch = rosterFetch(response({ outcome: { id: 'student-a' } }));
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Tạo học sinh và ghi danh' });
+    fireEvent.change(screen.getByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
+    fireEvent.change(screen.getByLabelText('Ngày sinh'), { target: { value: '2022-01-01' } });
+    fireEvent.change(screen.getByLabelText('Ngày hiệu lực'), { target: { value: '2026-01-01' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/students', expect.objectContaining({ body: JSON.stringify({ fullName: 'Bé An', dateOfBirth: '2022-01-01', preferredName: null, gender: null, address: null, personalIdentifier: null, classId: 'class-a', intakeStatus: 'PLACED', effectiveFrom: '2026-01-01', schoolYearId: 'year-a' }) })));
+    expect(dialog).toBeTruthy();
   });
 
   it('keeps invalid SchoolYear input, focuses the summary, and renders field errors', async () => {
@@ -130,7 +147,21 @@ describe('RosterWorkspace', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
     await screen.findByText('S1');
     expect(screen.getAllByText('Đang nhập học').length).toBeGreaterThan(1);
+    expect(screen.getByRole('columnheader', { name: 'Ghi danh hiện tại' })).toBeTruthy();
     expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/students', expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('clears the selected class while waiting for placement and preserves the Student payload', async () => {
+    const fetch = rosterFetch(response({ outcome: { id: 'student-a' } }));
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
+    fireEvent.change(screen.getByLabelText('Ngày sinh'), { target: { value: '2022-01-01' } });
+    fireEvent.change(screen.getAllByLabelText('Ngày hiệu lực', { selector: 'input' }).at(-1)!, { target: { value: '2026-01-01' } });
+    fireEvent.click(screen.getByLabelText('Chờ xếp lớp'));
+    expect(screen.queryByLabelText('Lớp')).toBeNull();
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/students', expect.objectContaining({ body: JSON.stringify({ fullName: 'Bé An', dateOfBirth: '2022-01-01', preferredName: null, gender: null, address: null, personalIdentifier: null, classId: null, intakeStatus: 'WAITING_FOR_CLASS', effectiveFrom: '2026-01-01', schoolYearId: 'year-a' }) })));
   });
 
   it('keeps Student input and focuses the server field error', async () => {
@@ -244,7 +275,7 @@ describe('RosterWorkspace', () => {
     const fetch = vi.fn((url: string) => Promise.resolve(response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [] : [{ ...year, isActive: false }])));
     vi.stubGlobal('fetch', fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    expect(await screen.findByText('Chỉ có thể tạo enrollment trong năm học đang hoạt động.')).toBeTruthy();
+    expect(await screen.findByText('Chỉ có thể tạo ghi danh trong năm học đang hoạt động.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Tạo học sinh' })).toBeNull();
   });
 
@@ -327,6 +358,7 @@ describe('RosterWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Lý do đóng năm học'), { target: { value: 'Kết năm' } });
     fireEvent.submit(closeForm);
     expect(await screen.findByText('Bé An')).toBeTruthy();
+    expect(screen.getByText(/Ghi danh vẫn giữ trạng thái hiện tại/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Nhập ĐÓNG NĂM HỌC để xác nhận'), { target: { value: 'ĐÓNG NĂM HỌC' } });
     fireEvent.click(screen.getByRole('button', { name: 'Xác nhận đóng năm học' }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/roster/close-year', expect.objectContaining({ body: JSON.stringify({ schoolYearId: 'year-a', effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: 'close-preview-a', confirmation: 'ĐÓNG NĂM HỌC' }) })));
