@@ -16,6 +16,17 @@ const rosterFetch = (post = response({ id: 'operation' })) => vi.fn((url: string
 afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); });
 
 describe('RosterWorkspace', () => {
+  it('shows the Student list first and opens intake only from its primary action', async () => {
+    vi.stubGlobal('fetch', rosterFetch());
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
+    expect(await screen.findByRole('button', { name: 'Thêm học sinh' })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Tạo học sinh và enrollment' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm học sinh' }));
+    expect(await screen.findByRole('dialog', { name: 'Tạo học sinh và enrollment' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }));
+    expect(screen.queryByRole('dialog', { name: 'Tạo học sinh và enrollment' })).toBeNull();
+  });
+
   it('keeps invalid SchoolYear input, focuses the summary, and renders field errors', async () => {
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? error({ name: 'Tên cần từ 1 đến 100 ký tự.' }) : response([])));
     vi.stubGlobal('fetch', fetch);
@@ -94,7 +105,7 @@ describe('RosterWorkspace', () => {
     expect(screen.queryByText('Lớp Mầm')).toBeNull();
     expect(screen.queryByText('Bé An')).toBeNull();
     expect(screen.getByText('Năm học này chưa có lớp.')).toBeTruthy();
-    expect(screen.getByText('Năm học này chưa có học sinh.')).toBeTruthy();
+    expect(screen.getByText('Chưa có học sinh trong năm học này')).toBeTruthy();
     resolveClasses(response([nextClassroom]));
     resolveStudents(response([nextStudent]));
     expect((await screen.findAllByText('Lớp Lá')).length).toBeGreaterThan(0);

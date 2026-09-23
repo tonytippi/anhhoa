@@ -1280,6 +1280,77 @@ tbody tr:last-child td {
   border-radius: 12px;
   background: #fff;
 }
+.student-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.student-list-toolbar h3 { margin: 0; }
+.student-list-toolbar .primary-action { flex: 0 0 auto; }
+.school-context-workspace fieldset.student-roster-surface {
+  display: grid;
+  gap: 18px;
+  border: 0;
+  padding: 0;
+}
+.school-context-workspace .student-roster-surface > .student-list-toolbar {
+  padding: 2px 0;
+}
+.student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
+.student-empty-state {
+  padding: 46px 24px !important;
+  text-align: center;
+}
+.student-empty-state strong,
+.student-empty-state span { display: block; }
+.student-empty-state strong { color: #18332d; font-size: 15px; }
+.student-empty-state span { margin-top: 6px; color: #5f746e; }
+.student-empty-state button { margin-top: 18px; border-color: #247a51 !important; background: #247a51 !important; color: #fff !important; }
+.student-placement-history {
+  border: 1px solid #d7e2dc;
+  border-radius: 12px;
+  background: #fff;
+  padding: 20px;
+}
+.student-placement-history h3 { margin: 0 0 12px; }
+.student-intake-backdrop {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  overflow-y: auto;
+  background: rgb(24 51 45 / 42%);
+  padding: 32px;
+}
+.student-intake-dialog {
+  width: min(920px, 100%);
+  margin: auto;
+  border-radius: 14px;
+  background: #fffdf7;
+  box-shadow: 0 24px 64px rgb(24 51 45 / 26%);
+}
+.student-intake-dialog .roster-form { margin: 0; }
+.student-intake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  grid-column: 1 / -1;
+}
+.student-intake-actions > button:last-child {
+  border-color: #247a51;
+  background: #247a51;
+  color: #fff;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .school-context-workspace table { min-width: 720px; }
 .school-context-workspace caption {
   caption-side: top;
@@ -1427,4 +1498,7 @@ tbody tr:last-child td {
   .school-switch-actions button { width: 100%; }
   .school-context-workspace .roster-form { grid-template-columns: 1fr; }
   .school-context-workspace .table-scroll { margin-inline: -1px; }
+  .student-list-toolbar { align-items: flex-start; flex-direction: column; }
+  .student-list-toolbar .primary-action { width: 100%; }
+  .student-intake-backdrop { align-items: start; padding: 16px; }
 }

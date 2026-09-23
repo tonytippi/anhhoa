@@ -301,6 +301,7 @@ export function RosterWorkspace({
   const [studentErrors, setStudentErrors] = useState<Record<string, string>>(
     {},
   );
+  const [studentIntakeOpen, setStudentIntakeOpen] = useState(false);
   const [confirmedStudentId, setConfirmedStudentId] = useState<string>();
   const confirmedStudent = useRef<string | undefined>(undefined);
   const [staffErrors, setStaffErrors] = useState<Record<string, string>>({});
@@ -318,6 +319,7 @@ export function RosterWorkspace({
   const [pending, setPending] = useState<Pending>();
   const summary = useRef<HTMLDivElement>(null);
   const endDialog = useRef<HTMLDivElement>(null);
+  const studentIntakeDialog = useRef<HTMLDivElement>(null);
   const endTrigger = useRef<HTMLButtonElement>(null);
   const restoreEndFocus = useRef(false);
   const timer = useRef<number | undefined>(undefined);
@@ -821,6 +823,7 @@ export function RosterWorkspace({
     setStudent({ fullName: "", dateOfBirth: "", preferredName: "", gender: "", address: "", personalIdentifier: "", classId: classes.find((item) => item.status === "ACTIVE")?.id ?? "", intakeStatus: "PLACED", effectiveFrom: "", photo: null, parentFullName: "", parentEmail: "", parentPhone: "" });
     confirmedStudent.current = undefined;
     setConfirmedStudentId(undefined);
+    setStudentIntakeOpen(false);
   };
   const completeStudentIntake = async (studentId: string, photoComplete = false) => {
     const photo = student.photo;
@@ -1197,6 +1200,12 @@ export function RosterWorkspace({
   const selected = years.find((item) => item.id === yearId);
   const readOnly = Boolean(selected?.closedAt);
   const disabled = Boolean(pending);
+  const showStudentIntake = section === "all" || studentIntakeOpen;
+  const hasPlacementHistory = students.some((student) =>
+    student.enrollments.some(
+      (enrollment) => (enrollment.classAssignmentHistory?.length ?? 0) > 0,
+    ),
+  );
   const field = (errors: Record<string, string>, name: string, prefix = "") =>
     errors[name]
       ? { "aria-invalid": true, "aria-describedby": `${prefix}${name}-error` }
@@ -1219,6 +1228,10 @@ export function RosterWorkspace({
       first.focus();
     }
   };
+  useEffect(() => {
+    if (!studentIntakeOpen) return;
+    studentIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus();
+  }, [studentIntakeOpen]);
 
   return (
     <section className={`roster-workspace roster-workspace-${section}`} aria-labelledby="roster-title">
@@ -1515,7 +1528,7 @@ export function RosterWorkspace({
               Năm học đã đóng. Danh bộ và lịch sử chỉ có thể xem.
             </p>
           )}
-          <fieldset disabled={readOnly || disabled}>
+          <fieldset className={section === "students" ? "student-roster-surface" : undefined} disabled={readOnly || disabled}>
             {(section === "all" || section === "classes") && !readOnly && (
               <form className="roster-form" onSubmit={createClass}>
                 <h3>Thêm lớp cho {selected?.name}</h3>
@@ -2098,9 +2111,17 @@ export function RosterWorkspace({
             )}
             </>}
             {(section === "all" || section === "students" || section === "parents") && <>
-            {section !== "parents" && (selected?.isActive ? (
+            {section === "students" && selected?.isActive && (
+              <div className="student-list-toolbar">
+                <h3>Học sinh của {selected.name}</h3>
+                <button type="button" className="primary-action" disabled={disabled} onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh</button>
+              </div>
+            )}
+            {section === "students" && selected?.isActive && studentIntakeOpen && (
+              <div className="student-intake-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setStudentIntakeOpen(false); }}>
+              <div ref={studentIntakeDialog} className="student-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="student-intake-title" onKeyDown={(event) => { if (event.key === "Escape") setStudentIntakeOpen(false); }}>
               <form className="roster-form" onSubmit={createStudent}>
-                <h3>Tạo học sinh và enrollment</h3>
+                <h3 id="student-intake-title">Tạo học sinh và enrollment</h3>
                 <label>
                   Họ và tên
                   <input
@@ -2192,16 +2213,33 @@ export function RosterWorkspace({
                   </small>
                 )}
                 <fieldset><legend>Phụ huynh (tùy chọn)</legend><label>Họ và tên phụ huynh<input value={student.parentFullName} onChange={(event) => setStudent({ ...student, parentFullName: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "fullName", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.fullName && <small id="parent-fullName-error">{studentErrors.fullName}</small>}<label>Email phụ huynh<input type="email" value={student.parentEmail} onChange={(event) => setStudent({ ...student, parentEmail: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "email", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.email && <small id="parent-email-error">{studentErrors.email}</small>}<label>Số điện thoại phụ huynh<input value={student.parentPhone} onChange={(event) => setStudent({ ...student, parentPhone: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "phone", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.phone && <small id="parent-phone-error">{studentErrors.phone}</small>}</fieldset>
+                <div className="student-intake-actions"><button type="button" disabled={disabled} onClick={() => setStudentIntakeOpen(false)}>Đóng</button><button disabled={disabled}>Tạo học sinh</button></div>
+              </form>
+              </div>
+              </div>
+            )}
+            {section !== "parents" && selected?.isActive && showStudentIntake && section === "all" && (
+              <form className="roster-form" onSubmit={createStudent}>
+                <h3>Tạo học sinh và enrollment</h3>
+                <label>Họ và tên<input value={student.fullName} onChange={(event) => setStudent({ ...student, fullName: event.target.value })} {...field(studentErrors, "fullName")} /></label>
+                {studentErrors.fullName && <small id="fullName-error">{studentErrors.fullName}</small>}
+                <label>Ngày sinh<input type="date" value={student.dateOfBirth} onChange={(event) => setStudent({ ...student, dateOfBirth: event.target.value })} {...field(studentErrors, "dateOfBirth")} /></label>
+                {studentErrors.dateOfBirth && <small id="dateOfBirth-error">{studentErrors.dateOfBirth}</small>}
+                <fieldset><legend>Thông tin học sinh</legend><label>Tên thường gọi<input value={student.preferredName} onChange={(event) => setStudent({ ...student, preferredName: event.target.value })} {...field(studentErrors, "preferredName")} /></label>{studentErrors.preferredName && <small id="preferredName-error">{studentErrors.preferredName}</small>}<label>Giới tính học sinh<select value={student.gender} onChange={(event) => setStudent({ ...student, gender: event.target.value })} {...field(studentErrors, "gender")}><option value="">Không khai báo</option><option value="NAM">Nam</option><option value="NU">Nữ</option><option value="KHAC">Khác</option></select></label>{studentErrors.gender && <small id="gender-error">{studentErrors.gender}</small>}<label>Địa chỉ học sinh<textarea value={student.address} onChange={(event) => setStudent({ ...student, address: event.target.value })} {...field(studentErrors, "address")} /></label>{studentErrors.address && <small id="address-error">{studentErrors.address}</small>}<label>Mã định danh cá nhân<input value={student.personalIdentifier} onChange={(event) => setStudent({ ...student, personalIdentifier: event.target.value })} {...field(studentErrors, "personalIdentifier")} /></label>{studentErrors.personalIdentifier && <small id="personalIdentifier-error">{studentErrors.personalIdentifier}</small>}<label>Ảnh hồ sơ<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setStudent({ ...student, photo: event.target.files?.[0] ?? null })} {...field(studentErrors, "photo")} /></label>{studentErrors.photo && <small id="photo-error">{studentErrors.photo}</small>}</fieldset>
+                <fieldset><legend>Nhập học</legend><label><input type="radio" name="intake-status-all" checked={student.intakeStatus === "PLACED"} onChange={() => setStudent({ ...student, intakeStatus: "PLACED" })} />Xếp lớp</label><label><input type="radio" name="intake-status-all" checked={student.intakeStatus === "WAITING_FOR_CLASS"} onChange={() => setStudent({ ...student, intakeStatus: "WAITING_FOR_CLASS", classId: "" })} />Chờ xếp lớp</label>{student.intakeStatus === "PLACED" && <label>Lớp<select value={student.classId} onChange={(event) => setStudent({ ...student, classId: event.target.value })} {...field(studentErrors, "classId")}><option value="">Chọn lớp</option>{classes.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{studentErrors.classId && <small id="classId-error">{studentErrors.classId}</small>}</fieldset>
+                <label>Ngày hiệu lực<input type="date" value={student.effectiveFrom} onChange={(event) => setStudent({ ...student, effectiveFrom: event.target.value })} {...field(studentErrors, "effectiveFrom")} /></label>{studentErrors.effectiveFrom && <small id="effectiveFrom-error">{studentErrors.effectiveFrom}</small>}
+                <fieldset><legend>Phụ huynh (tùy chọn)</legend><label>Họ và tên phụ huynh<input value={student.parentFullName} onChange={(event) => setStudent({ ...student, parentFullName: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "fullName", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.fullName && <small id="parent-fullName-error">{studentErrors.fullName}</small>}<label>Email phụ huynh<input type="email" value={student.parentEmail} onChange={(event) => setStudent({ ...student, parentEmail: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "email", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.email && <small id="parent-email-error">{studentErrors.email}</small>}<label>Số điện thoại phụ huynh<input value={student.parentPhone} onChange={(event) => setStudent({ ...student, parentPhone: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "phone", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.phone && <small id="parent-phone-error">{studentErrors.phone}</small>}</fieldset>
                 <button disabled={disabled}>Tạo học sinh</button>
               </form>
-            ) : (
+            )}
+            {section !== "parents" && !selected?.isActive && (
               <p role="status">
                 Chỉ có thể tạo enrollment trong năm học đang hoạt động.
               </p>
-            ))}
-            <div className="table-scroll">
+            )}
+            <div className="table-scroll student-list-table">
               <table>
-                <caption>Học sinh của {selected?.name}</caption>
+                <caption className="visually-hidden">Danh sách học sinh của {selected?.name}</caption>
                 <thead>
                   <tr>
                     <th>Mã</th>
@@ -2412,13 +2450,17 @@ export function RosterWorkspace({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5}>Năm học này chưa có học sinh.</td>
+                      <td colSpan={5} className="student-empty-state">
+                        <strong>Chưa có học sinh trong năm học này</strong>
+                        <span>Thêm hồ sơ đầu tiên để bắt đầu quản lý danh sách và phân lớp.</span>
+                        {selected?.isActive && <button type="button" onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh đầu tiên</button>}
+                      </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <section aria-label="Lịch sử phân lớp xác nhận">
+            {hasPlacementHistory && <section className="student-placement-history" aria-label="Lịch sử phân lớp xác nhận">
               <h3>Lịch sử phân lớp</h3>
               {students.flatMap((student) =>
                 student.enrollments.map((enrollment) => (
@@ -2439,7 +2481,7 @@ export function RosterWorkspace({
                   </div>
                 )),
               )}
-            </section>
+            </section>}
             </>}
           </fieldset>
         </>
