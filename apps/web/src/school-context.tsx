@@ -180,9 +180,9 @@ export function SchoolContext({
     setError("");
     void refreshChooser()
       .then(() => undefined)
-      .catch(() => {
+      .catch((cause: Error) => {
         clearContext();
-        clear();
+        setError(cause.message);
       });
     return () => {
       mounted.current = false;
@@ -257,7 +257,9 @@ export function SchoolContext({
   if (!schools)
     return (
       <section className="school-context school-context-loading" aria-live="polite">
-        <p>Đang tải ngữ cảnh trường...</p>
+        <p role={error ? "alert" : undefined}>
+          {error || "Đang tải ngữ cảnh trường..."}
+        </p>
       </section>
     );
   if (!schools.length)

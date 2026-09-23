@@ -20,6 +20,13 @@ describe('SchoolContext', () => {
     expect(container.querySelector('.school-context-heading')).not.toBeNull();
     expect(container.querySelector('.school-context-navigation')).not.toBeNull();
   });
+  it('keeps the authenticated shell when loading Schools fails without a 401', async () => {
+    const clear = vi.fn();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 500 })));
+    renderSchoolContext(clear);
+    expect(await screen.findByText('Không thể tải danh sách trường.')).toBeTruthy();
+    expect(clear).not.toHaveBeenCalled();
+  });
   it('revalidates the open School when the browser returns to the foreground', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
     vi.stubGlobal('fetch', fetch); renderSchoolContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.focus(window);

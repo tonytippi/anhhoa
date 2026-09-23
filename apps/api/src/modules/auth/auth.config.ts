@@ -29,8 +29,13 @@ export function audienceConfig(audience: Audience, strict = false): AudienceConf
   const port: Record<Audience, string> = { app: '5173', parent: '5174', teacher: '5175', ops: '5176' };
   const origin = url(`${prefix}_WEB_ORIGIN`, `http://localhost:${port[audience]}`, strict);
   const callbackUrl = url(`${prefix}_GOOGLE_CALLBACK_URL`, `http://localhost:3000/api/${audience}/auth/google/callback`, strict);
+  if (strict && process.env.NODE_ENV === 'production' && !callbackUrl.startsWith('https://')) throw new Error(`${prefix}_GOOGLE_CALLBACK_URL must use HTTPS in production.`);
   const redirects = value(`${prefix}_OAUTH_REDIRECT_URLS`, origin, strict).split(',').map((entry) => url(`${prefix}_OAUTH_REDIRECT_URLS`, entry.trim(), strict));
   return { audience, origin, callbackUrl, redirects, deniedRedirect: url(`${prefix}_OAUTH_DENIED_REDIRECT_URL`, origin, strict), cookieName: value(`${prefix}_SESSION_COOKIE_NAME`, `${audience}_session`, strict), csrfCookieName: value(`${prefix}_CSRF_COOKIE_NAME`, `${audience}_csrf`, strict), correlationCookieName: `${audience}_oauth_correlation` };
+}
+
+export function cookieSecure(audience: Audience): boolean {
+  return audienceConfig(audience).callbackUrl.startsWith('https://');
 }
 
 export function audienceOrigins(strict = false): string[] {
