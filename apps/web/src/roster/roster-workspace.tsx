@@ -2166,7 +2166,7 @@ export function RosterWorkspace({
               </div>
             )}
             {section === "students" && selected?.isActive && studentIntakeOpen && (
-              <div className="student-intake-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setStudentIntakeOpen(false); }}>
+              <div className="student-intake-backdrop" role="presentation">
               <div ref={studentIntakeDialog} className="student-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="student-intake-title" onKeyDown={(event) => { if (event.key === "Escape") setStudentIntakeOpen(false); }}>
               {studentIntakeForm("intake-status", true)}
               </div>

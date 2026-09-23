@@ -44,6 +44,17 @@ describe('RosterWorkspace', () => {
     expect(dialog).toBeTruthy();
   });
 
+  it('keeps the intake dialog open when the file chooser is cancelled', async () => {
+    vi.stubGlobal('fetch', rosterFetch());
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Tạo học sinh và ghi danh' });
+    fireEvent.change(screen.getByLabelText('Ảnh hồ sơ'), { target: { files: [] } });
+    fireEvent.mouseDown(dialog.parentElement!);
+    expect(dialog).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeTruthy();
+  });
+
   it('keeps invalid SchoolYear input, focuses the summary, and renders field errors', async () => {
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? error({ name: 'Tên cần từ 1 đến 100 ký tự.' }) : response([])));
     vi.stubGlobal('fetch', fetch);
