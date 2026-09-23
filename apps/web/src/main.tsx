@@ -118,7 +118,7 @@ export function AdminShell() {
       <main className="admin-main">
         <a className="admin-skip-link" href="#school-content">Bỏ qua điều hướng</a>
         <div id="school-content">
-          <SchoolContext clear={clear} />
+          <SchoolContext clear={clear} userIdentityId={session.userIdentityId} />
         </div>
       </main>
     </div>

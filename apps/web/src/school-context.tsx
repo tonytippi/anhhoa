@@ -34,8 +34,16 @@ type WorkspaceStatus = {
 };
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const denied = (status: number) => [401, 403, 404].includes(status);
+const selectionKey = (userIdentityId: string) =>
+  `passionedu:app:selected-school:${userIdentityId}`;
 
-export function SchoolContext({ clear }: { clear: () => void }) {
+export function SchoolContext({
+  clear,
+  userIdentityId,
+}: {
+  clear: () => void;
+  userIdentityId: string;
+}) {
   const [schools, setSchools] = useState<School[]>();
   const [context, setContext] = useState<Context>();
   type View = "students" | "parents" | "staff" | "classes" | "years" | "positions" | "settings" | "leave-review" | "finance";
@@ -52,6 +60,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
   const [leaveReviewStatus, setLeaveReviewStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
   const [financeStatus, setFinanceStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
   const [switchTo, setSwitchTo] = useState<string>();
+  const [showChooser, setShowChooser] = useState(false);
   const [error, setError] = useState("");
   const mounted = useRef(true);
   const selected = useRef<string | undefined>(undefined);
@@ -59,6 +68,27 @@ export function SchoolContext({ clear }: { clear: () => void }) {
   const timer = useRef<number | undefined>(undefined);
   const heading = useRef<HTMLHeadingElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  const savedSchoolId = () => {
+    try {
+      return window.localStorage.getItem(selectionKey(userIdentityId)) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const saveSchoolId = (schoolId: string) => {
+    try {
+      window.localStorage.setItem(selectionKey(userIdentityId), schoolId);
+    } catch {
+      // Storage is only a UX hint; an unavailable browser store must not block context loading.
+    }
+  };
+  const forgetSchoolId = () => {
+    try {
+      window.localStorage.removeItem(selectionKey(userIdentityId));
+    } catch {
+      // Storage is only a UX hint.
+    }
+  };
   const current = (schoolId: string, requestVersion?: number) =>
     mounted.current &&
     selected.current === schoolId &&
@@ -80,7 +110,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     setExpanded({ roster: true, settings: false });
     setSwitchTo(undefined);
   };
-  const refreshChooser = async () => {
+  const refreshChooser = async (restoreSelection = true) => {
     const response = await fetch(`${apiUrl}/api/app/schools`, {
       credentials: "include",
     });
@@ -90,8 +120,24 @@ export function SchoolContext({ clear }: { clear: () => void }) {
       return;
     }
     if (!response.ok) throw new Error("Không thể tải danh sách trường.");
-    if (mounted.current)
-      setSchools(((await response.json()) as { data: School[] }).data);
+    const next = ((await response.json()) as { data: School[] }).data;
+    if (!mounted.current) return;
+    setSchools(next);
+    if (restoreSelection && next.length === 1) {
+      const onlySchool = next[0];
+      if (!onlySchool) return;
+      setShowChooser(false);
+      void load(onlySchool.schoolId).catch((cause: Error) => setError(cause.message));
+      return;
+    }
+    const saved = savedSchoolId();
+    if (restoreSelection && saved && next.some((school) => school.schoolId === saved)) {
+      setShowChooser(false);
+      void load(saved).catch((cause: Error) => setError(cause.message));
+      return;
+    }
+    if (saved) forgetSchoolId();
+    setShowChooser(true);
   };
   const load = async (schoolId: string) => {
     const requestVersion = ++version.current;
@@ -109,13 +155,17 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     });
     if (!current(schoolId, requestVersion)) return;
     if (denied(response.status)) {
+      forgetSchoolId();
       clearContext();
-      return refreshChooser();
+      setShowChooser(true);
+      return refreshChooser(false);
     }
     if (!response.ok) throw new Error("Không thể tải ngữ cảnh trường.");
     const next = ((await response.json()) as { data: Context }).data;
     if (!current(schoolId, requestVersion)) return;
     setContext(next);
+    setShowChooser(false);
+    saveSchoolId(schoolId);
     if (!next.navigation.some((item) => item.id === "roster") && next.navigation.some((item) => item.id === "settings")) {
       setView("settings");
       setExpanded({ roster: false, settings: true });
@@ -123,6 +173,10 @@ export function SchoolContext({ clear }: { clear: () => void }) {
   };
   useEffect(() => {
     mounted.current = true;
+    clearContext();
+    setSchools(undefined);
+    setShowChooser(false);
+    setError("");
     void refreshChooser()
       .then(() => undefined)
       .catch(() => {
@@ -133,7 +187,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
       mounted.current = false;
       stop();
     };
-  }, []);
+  }, [userIdentityId]);
   useLayoutEffect(() => {
     heading.current?.focus();
   }, [context?.schoolId]);
@@ -188,6 +242,12 @@ export function SchoolContext({ clear }: { clear: () => void }) {
   }, []);
   const updateLeaveReviewStatus = useCallback((status: WorkspaceStatus) => setLeaveReviewStatus(status), []);
   const updateFinanceStatus = useCallback((status: FinanceStatus) => setFinanceStatus(status), []);
+  const handleWorkspaceDenied = () => {
+    forgetSchoolId();
+    clearContext();
+    setShowChooser(true);
+    void refreshChooser(false).catch((cause: Error) => setError(cause.message));
+  };
   if (!schools)
     return (
       <section className="school-context school-context-loading" aria-live="polite">
@@ -204,7 +264,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
     );
   return (
     <section className="school-context">
-      <div className="school-context-switcher">
+      {(schools.length > 1 || showChooser) && <div className="school-context-switcher">
         <label className="school-context-label">
           <span>Chọn trường</span>
           <select
@@ -226,7 +286,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
           </select>
         </label>
         {!context && <p className="school-context-hint">Chọn một trường để bắt đầu công việc.</p>}
-      </div>
+      </div>}
       {error && <p className="school-context-error" role="alert">{error}</p>}
       {context && (
         <>
@@ -262,10 +322,7 @@ export function SchoolContext({ clear }: { clear: () => void }) {
             <RosterWorkspace
               schoolId={context.schoolId}
               schoolName={context.schoolName}
-              denied={() => {
-                clearContext();
-                void refreshChooser();
-              }}
+              denied={handleWorkspaceDenied}
               onStatusChange={updateRosterStatus}
               section={view as "students" | "parents" | "staff" | "classes" | "years" | "positions"}
             />
@@ -274,17 +331,14 @@ export function SchoolContext({ clear }: { clear: () => void }) {
             <SettingsWorkspace
               schoolId={context.schoolId}
               schoolName={context.schoolName}
-              denied={() => {
-                clearContext();
-                void refreshChooser();
-              }}
+              denied={handleWorkspaceDenied}
               onStatusChange={updateSettingsStatus}
             />
           ) : view === "leave-review" &&
             context.capabilities.includes("LEAVE_REQUEST_DECIDE") ? (
-            <LeaveReviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={() => { clearContext(); void refreshChooser(); }} onStatusChange={updateLeaveReviewStatus} />
+            <LeaveReviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateLeaveReviewStatus} />
           ) : view === "finance" && context.capabilities.includes("FINANCE_MANAGE") ? (
-            <FinanceWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={() => { clearContext(); void refreshChooser(); }} onStatusChange={updateFinanceStatus} />
+            <FinanceWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateFinanceStatus} />
           ) : null}
           </div>
         </>
