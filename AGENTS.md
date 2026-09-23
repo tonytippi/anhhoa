@@ -40,3 +40,7 @@ Nền tảng vận hành đa trường cho mầm non, thay thế clean-break cho
 ## Local test environment
 
 - Khi chạy test cần database, dùng cấu hình test database trong `.env.test`; không dùng database phát triển trong `.env`.
+
+## UX implementation
+
+- Bám sát UI/UX của các mockup đã được người dùng review trong `_bmad-output/planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/`; không tự thay đổi layout, interaction hoặc visual language đã có. Nếu mockup mâu thuẫn với UX spine hoặc yêu cầu mới, dừng lại để cập nhật decision/workflow phù hợp trước khi implementation.
