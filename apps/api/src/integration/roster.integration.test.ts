@@ -39,7 +39,7 @@ async function graph(prefix = 'S') {
 async function createStudent(input: Awaited<ReturnType<typeof graph>>, overrides: object = {}) {
   return roster.createStudent(input.admin.id, input.current.id, uuid(), uuid(), {
     fullName: 'Bé An', dateOfBirth: '2022-01-01', schoolYearId: input.year.id, classId: input.classroom.id,
-    lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', endedOn: null, ...overrides,
+    effectiveFrom: '2026-01-01', endedOn: null, intakeStatus: 'PLACED', ...overrides,
   });
 }
 
@@ -56,6 +56,7 @@ afterEach(async () => {
   await prisma.studentParent.deleteMany({ where: { schoolId: { in: schools } } });
   const profiles = await prisma.parentProfile.findMany({ where: { studentParents: { none: {} } }, select: { id: true } });
   await prisma.parentProfile.deleteMany({ where: { id: { in: profiles.map((profile) => profile.id) } } });
+  await prisma.studentPhoto.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.studentEnrollment.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.student.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.class.deleteMany({ where: { schoolId: { in: schools } } });
@@ -99,8 +100,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('generates immutable School-scoped codes, persists snapshots, and replays an identical student command', async () => {
     const a = await graph('PE'); const b = await graph('AB');
-    const key = uuid(); const first = await roster.createStudent(a.admin.id, a.current.id, key, uuid(), { fullName: 'Bé An', dateOfBirth: '2022-01-01', schoolYearId: a.year.id, classId: a.classroom.id, lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01' });
-    const replay = await roster.createStudent(a.admin.id, a.current.id, key, uuid(), { fullName: 'Bé An', dateOfBirth: '2022-01-01', schoolYearId: a.year.id, classId: a.classroom.id, lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01' });
+    const key = uuid(); const first = await roster.createStudent(a.admin.id, a.current.id, key, uuid(), { fullName: 'Bé An', dateOfBirth: '2022-01-01', schoolYearId: a.year.id, classId: a.classroom.id, intakeStatus: 'PLACED', effectiveFrom: '2026-01-01' });
+    const replay = await roster.createStudent(a.admin.id, a.current.id, key, uuid(), { fullName: 'Bé An', dateOfBirth: '2022-01-01', schoolYearId: a.year.id, classId: a.classroom.id, intakeStatus: 'PLACED', effectiveFrom: '2026-01-01' });
     const second = await createStudent(a, { fullName: 'Bé Bình' }); const other = await createStudent(b);
     expect(first.outcome).toMatchObject({ studentCode: 'PE1', enrollments: [{ schoolYear: { name: 'Năm 2026' }, classroom: { name: 'Mầm' } }] });
     expect(second.outcome).toMatchObject({ studentCode: 'PE2' }); expect(other.outcome).toMatchObject({ studentCode: 'AB1' }); expect(replay).toEqual(first);
@@ -109,15 +110,51 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     await expect(prisma.student.create({ data: { schoolId: a.current.id, studentCode: 'pe1', fullName: 'Trùng mã', dateOfBirth: new Date('2022-01-01T00:00:00Z') } })).rejects.toMatchObject({ code: 'P2002' });
   });
 
+  it('creates a classless waiting enrollment and permits its non-placement lifecycle changes', async () => {
+    const current = await graph();
+    const created = await createStudent(current, { classId: null, intakeStatus: 'WAITING_FOR_CLASS' });
+    const student = created.outcome as { id: string; enrollments: [{ id: string; lifecycle: string; classId: string | null; classroom: unknown; classAssignmentHistory: unknown[] }] };
+    expect(student.enrollments).toMatchObject([{ lifecycle: 'WAITING_FOR_CLASS', classId: null, classroom: null, classAssignmentHistory: [] }]);
+    await roster.changeLifecycle(current.admin.id, current.current.id, student.enrollments[0].id, uuid(), uuid(), { lifecycle: 'ON_LEAVE', endedOn: '2026-06-01' });
+    await expect(roster.changeLifecycle(current.admin.id, current.current.id, student.enrollments[0].id, uuid(), uuid(), { lifecycle: 'ENROLLED' })).rejects.toMatchObject({ status: 409, response: { code: 'ENROLLMENT_CLASS_REQUIRED' } });
+    expect(await prisma.enrollmentClassAssignment.count({ where: { schoolId: current.current.id, enrollmentId: student.enrollments[0].id } })).toBe(0);
+  });
+
+  it('places a waiting enrollment atomically with snapshot, history, audit, and idempotent replay', async () => {
+    const current = await graph();
+    const created = await createStudent(current, { classId: null, intakeStatus: 'WAITING_FOR_CLASS' });
+    const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    const key = uuid();
+    const placed = await roster.placeWaitingEnrollment(current.admin.id, current.current.id, enrollmentId, key, uuid(), { classId: current.classroom.id, effectiveFrom: '2026-02-01' });
+    expect(await roster.placeWaitingEnrollment(current.admin.id, current.current.id, enrollmentId, key, uuid(), { classId: current.classroom.id, effectiveFrom: '2026-02-01' })).toEqual(placed);
+    expect(placed.outcome).toMatchObject({ lifecycle: 'ENROLLED', classroom: { name: 'Mầm' }, classAssignmentHistory: [{ effectiveFrom: '2026-02-01', reason: 'Xếp lớp sau intake' }] });
+    expect(await prisma.auditRecord.findFirst({ where: { schoolId: current.current.id, action: 'STUDENT_ENROLLMENT_PLACED' } })).toBeTruthy();
+    await expect(roster.placeWaitingEnrollment(current.admin.id, current.current.id, enrollmentId, uuid(), uuid(), { classId: current.classroom.id, effectiveFrom: '2026-02-01' })).rejects.toMatchObject({ status: 409, response: { code: 'ENROLLMENT_NOT_WAITING_FOR_CLASS' } });
+  });
+
+  it('validates photo signatures, fingerprints photo content, and exposes only photo existence in Student DTOs', async () => {
+    const current = await graph();
+    const created = await createStudent(current); const studentId = (created.outcome as { id: string }).id;
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    await expect(roster.uploadStudentPhoto(current.admin.id, current.current.id, studentId, uuid(), uuid(), 'image/png', Buffer.from('not a png'))).rejects.toMatchObject({ status: 400 });
+    const key = uuid();
+    await roster.uploadStudentPhoto(current.admin.id, current.current.id, studentId, key, uuid(), 'image/png', png);
+    await expect(roster.uploadStudentPhoto(current.admin.id, current.current.id, studentId, key, uuid(), 'image/png', Buffer.from([...png, 0x01]))).rejects.toMatchObject({ status: 409, response: { code: 'IDEMPOTENCY_CONFLICT' } });
+    expect(await roster.student(current.admin.id, current.current.id, studentId)).toMatchObject({ hasPhoto: true });
+    const photo = await roster.studentPhoto(current.admin.id, current.current.id, studentId);
+    expect(photo.contentType).toBe('image/png');
+    expect(Buffer.from(photo.blob)).toEqual(png);
+  });
+
   it('rejects invalid lifecycle, interval, foreign graph, and archived enrollment without a durable write', async () => {
     const current = await graph(); const foreign = await graph(); const before = await prisma.operation.count({ where: { schoolId: current.current.id } });
-    await expect(createStudent(current, { lifecycle: 'UNKNOWN' })).rejects.toMatchObject({ status: 400 });
+    await expect(createStudent(current, { intakeStatus: 'UNKNOWN' })).rejects.toMatchObject({ status: 400 });
     await expect(createStudent(current, { endedOn: '2026-01-01' })).rejects.toMatchObject({ status: 400 });
     await expect(createStudent(current, { lifecycle: 'WITHDRAWN' })).rejects.toMatchObject({ status: 400 });
     await expect(createStudent(current, { classId: foreign.classroom.id })).rejects.toMatchObject({ status: 404 });
     await roster.archiveClass(current.admin.id, current.current.id, current.classroom.id, uuid(), uuid());
     await expect(createStudent(current)).rejects.toMatchObject({ status: 409 });
-    await expect(createStudent(current, { lifecycle: 'TRIAL' })).rejects.toMatchObject({ status: 409 });
+    await expect(createStudent(current)).rejects.toMatchObject({ status: 409 });
     await expect(prisma.student.count({ where: { schoolId: current.current.id } })).resolves.toBe(0);
     await expect(prisma.operation.count({ where: { schoolId: current.current.id } })).resolves.toBe(before + 1);
   });
@@ -147,7 +184,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
   });
 
   it('serializes archive against activation so no ENROLLED enrollment references an archived Class', async () => {
-    const current = await graph(); const created = await createStudent(current, { lifecycle: 'TRIAL' }); const enrollment = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0];
+    const current = await graph(); const created = await createStudent(current); const enrollment = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0];
+    await roster.changeLifecycle(current.admin.id, current.current.id, enrollment.id, uuid(), uuid(), { lifecycle: 'TRIAL' });
     const [archive, activate] = await Promise.allSettled([
       roster.archiveClass(current.admin.id, current.current.id, current.classroom.id, uuid(), uuid()),
       roster.changeLifecycle(current.admin.id, current.current.id, enrollment.id, uuid(), uuid(), { lifecycle: 'ENROLLED' }),

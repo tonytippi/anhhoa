@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
 } from "@nestjs/common";
 import { audienceConfig } from "../auth/auth.config.js";
 import { AuthService } from "../auth/auth.service.js";
@@ -15,6 +16,7 @@ import { RosterService } from "./roster.service.js";
 import { ParentsService } from "../parents/parents.service.js";
 
 type RequestLike = { headers: Record<string, string | undefined> };
+type ResponseLike = { setHeader(name: string, value: string): void; send(value: Uint8Array): void };
 const cookie = (request: RequestLike, name: string) =>
   request.headers.cookie
     ?.split(";")
@@ -264,6 +266,26 @@ export class RosterController {
         body,
       ),
     };
+  }
+  @Post("students/:studentId/photo") async uploadStudentPhoto(@Req() request: RequestLike & { body: unknown }, @Param("schoolId") schoolId: string, @Param("studentId") studentId: string, @Headers("idempotency-key") key: string, @Headers("x-operation-id") operationId: string) {
+    return { data: await this.roster.uploadStudentPhoto(this.identity(request), schoolId, studentId, this.mutation(request, key), operationId ?? "", request.headers["content-type"]?.split(";")[0], request.body) };
+  }
+  @Post("enrollments/:enrollmentId/placement") async placeWaitingEnrollment(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("enrollmentId") enrollmentId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return { data: await this.roster.placeWaitingEnrollment(this.identity(request), schoolId, enrollmentId, this.mutation(request, key), operationId ?? "", body) };
+  }
+  @Get("students/:studentId/photo") async studentPhoto(@Req() request: RequestLike, @Param("schoolId") schoolId: string, @Param("studentId") studentId: string, @Res() response: ResponseLike) {
+    const media = await this.roster.studentPhoto(this.identity(request), schoolId, studentId);
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.send(media.blob);
   }
   @Post("enrollments/:enrollmentId/lifecycle") async lifecycle(
     @Req() request: RequestLike,

@@ -28,17 +28,19 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
         initialOwnerIdentity: { emailNormalized: 'sonnh273@gmail.com' },
       });
       expect(school.memberships).toHaveLength(1);
-      expect(school.memberships[0]).toMatchObject({
+      const membership = school.memberships[0];
+      if (!membership) throw new Error('Thiếu membership PeakLand đã seed.');
+      expect(membership).toMatchObject({
         status: 'ACTIVE',
         boundStaffProfile: {
           employmentStatus: 'ACTIVE',
           primaryPosition: {
             code: 'HIEU_TRUONG',
             status: 'ACTIVE',
-            grants: expect.arrayContaining([{ capability: 'SCHOOL_CONTEXT_READ' }]),
           },
         },
       });
+      expect(membership.boundStaffProfile?.primaryPosition.grants.some((grant) => grant.capability === 'SCHOOL_CONTEXT_READ')).toBe(true);
     } finally {
       await prisma.$disconnect();
     }

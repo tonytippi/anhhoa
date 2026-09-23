@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { auditData } from "../common/audit.js";
 import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
@@ -31,6 +32,10 @@ const route = {
   rename: "POST /api/app/schools/:schoolId/roster/classes/:classId/name",
   archive: "POST /api/app/schools/:schoolId/roster/classes/:classId/archive",
   student: "POST /api/app/schools/:schoolId/roster/students",
+  studentPhoto:
+    "POST /api/app/schools/:schoolId/roster/students/:studentId/photo",
+  placement:
+    "POST /api/app/schools/:schoolId/roster/enrollments/:enrollmentId/placement",
   lifecycle:
     "POST /api/app/schools/:schoolId/roster/enrollments/:enrollmentId/lifecycle",
   staff: "POST /api/app/schools/:schoolId/roster/staff",
@@ -143,7 +148,10 @@ export class RosterService {
         startsOn: value.schoolYearStartsOn.toISOString().slice(0, 10),
         endsOn: value.schoolYearEndsOn.toISOString().slice(0, 10),
       },
-      classroom: { name: current?.classroom?.name ?? value.className },
+      classroom:
+        current?.classroom?.name ?? value.className
+          ? { name: current?.classroom?.name ?? value.className }
+          : null,
       classAssignmentHistory: (value.classAssignments ?? []).map(
         (item: any) => ({
           id: item.id,
@@ -170,6 +178,10 @@ export class RosterService {
       studentCode: value.studentCode,
       fullName: value.fullName,
       dateOfBirth: value.dateOfBirth.toISOString().slice(0, 10),
+      preferredName: value.preferredName ?? null,
+      gender: value.gender ?? null,
+      address: value.address ?? null,
+      hasPhoto: Boolean(value.photo),
       enrollments: value.enrollments.map((item: any) =>
         this.enrollmentDto(item),
       ),
@@ -282,6 +294,7 @@ export class RosterService {
       include: {
         student: {
           include: {
+            photo: { select: { id: true } },
             enrollments: {
               where: { schoolId },
               orderBy: { createdAt: "asc" },
@@ -305,6 +318,7 @@ export class RosterService {
     const student = await this.prisma.student.findFirst({
       where: { id: studentId, schoolId },
       include: {
+        photo: { select: { id: true } },
         enrollments: {
           where: { schoolId },
           orderBy: { createdAt: "asc" },
@@ -1134,7 +1148,19 @@ export class RosterService {
     const schoolYearId =
       typeof body?.schoolYearId === "string" ? body.schoolYearId : "";
     const classId = typeof body?.classId === "string" ? body.classId : "";
-    const lifecycle = typeof body?.lifecycle === "string" ? body.lifecycle : "";
+    const intakeStatus = typeof body?.intakeStatus === "string" ? body.intakeStatus : "";
+    if (body?.lifecycle != null)
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: { intakeStatus: "Chỉ dùng lựa chọn nhập học khi tạo hồ sơ." },
+      });
+    if (!["PLACED", "WAITING_FOR_CLASS"].includes(intakeStatus))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { intakeStatus: "Lựa chọn nhập học không hợp lệ." } });
+    if ((intakeStatus === "PLACED" && !classId) || (intakeStatus === "WAITING_FOR_CLASS" && classId))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(intakeStatus === "PLACED" ? { classId: "Cần chọn lớp khi xếp lớp." } : { classId: "Chờ xếp lớp không được gán lớp." }) } });
+    const lifecycle = intakeStatus === "PLACED" ? "ENROLLED" : "WAITING_FOR_CLASS";
+    const profile = this.studentProfile(body);
     const effectiveFrom = this.dateValue(body?.effectiveFrom, "effectiveFrom");
     const endedOn =
       body?.endedOn == null || body.endedOn === ""
@@ -1151,9 +1177,9 @@ export class RosterService {
       {
         fullName,
         dateOfBirth: body.dateOfBirth,
+        ...profile,
         schoolYearId,
-        classId,
-        lifecycle,
+        intakeStatus,
         effectiveFrom: body.effectiveFrom,
         endedOn: body.endedOn ?? null,
       },
@@ -1162,17 +1188,11 @@ export class RosterService {
         const year = await this.year(schoolId, schoolYearId, tx);
         this.activeYear(year);
         this.yearInterval(year, effectiveFrom, endedOn);
-        const classroom = await this.lockClass(tx, schoolId, classId);
-        if (classroom.schoolYearId !== schoolYearId)
-          throw new NotFoundException({
-            code: "CLASS_NOT_FOUND",
-            message: "Không tìm thấy lớp.",
-          });
-        if (classroom.status === "ARCHIVED")
-          throw new ConflictException({
-            code: "CLASS_ARCHIVED",
-            message: "Lớp đã lưu trữ chỉ có thể xem.",
-          });
+        const classroom = intakeStatus === "PLACED" ? await this.lockClass(tx, schoolId, classId) : null;
+        if (classroom?.schoolYearId !== undefined && classroom.schoolYearId !== schoolYearId)
+          throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
+        if (classroom?.status === "ARCHIVED")
+          throw new ConflictException({ code: "CLASS_ARCHIVED", message: "Lớp đã lưu trữ chỉ có thể xem." });
         const school = await tx.school.update({
           where: { id: schoolId },
           data: { studentCodeSequence: { increment: 1 } },
@@ -1184,6 +1204,7 @@ export class RosterService {
             studentCode: `${school.studentCodePrefix}${school.studentCodeSequence}`,
             fullName,
             dateOfBirth,
+            ...profile,
           },
         });
         const enrollment = await tx.studentEnrollment.create({
@@ -1191,27 +1212,18 @@ export class RosterService {
             schoolId,
             studentId: student.id,
             schoolYearId,
-            classId,
+            classId: classroom?.id ?? null,
             lifecycle,
             effectiveFrom,
             endedOn,
             schoolYearName: year.name,
             schoolYearStartsOn: year.startsOn,
             schoolYearEndsOn: year.endsOn,
-            className: classroom.name,
+            className: classroom?.name ?? null,
           },
         });
-        await tx.enrollmentClassAssignment.create({
-          data: {
-            schoolId,
-            enrollmentId: enrollment.id,
-            schoolYearId,
-            classId,
-            effectiveFrom,
-            effectiveTo: endedOn,
-            reason: "Khởi tạo enrollment",
-          },
-        });
+        if (classroom)
+          await tx.enrollmentClassAssignment.create({ data: { schoolId, enrollmentId: enrollment.id, schoolYearId, classId: classroom.id, effectiveFrom, effectiveTo: endedOn, reason: "Khởi tạo enrollment" } });
         await this.transition(
           tx,
           schoolId,
@@ -1238,6 +1250,53 @@ export class RosterService {
         });
       },
     );
+  }
+  async uploadStudentPhoto(identityId: string, schoolId: string, studentId: string, key: string, operationId: string, contentType: string | undefined, media: unknown) {
+    const actor = await this.actor(identityId, schoolId);
+    const blob = Buffer.isBuffer(media) ? media : null;
+    if (!uuid.test(studentId) || !["image/jpeg", "image/png", "image/webp"].includes(contentType ?? "") || !blob?.length || blob.length > 5 * 1024 * 1024 || !this.photoSignature(contentType!, blob))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Tệp ảnh hồ sơ không hợp lệ.", fieldErrors: { photo: "Ảnh phải là JPEG, PNG hoặc WebP không rỗng, tối đa 5 MiB." } });
+    const digest = createHash("sha256").update(blob).digest("hex");
+    return this.mutate(actor, identityId, schoolId, route.studentPhoto, key, operationId, { studentId, contentType, size: blob.length, digest }, async (tx, operation) => {
+      const student = await tx.student.findFirst({ where: { id: studentId, schoolId }, select: { id: true } });
+      if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
+      const photo = await tx.studentPhoto.upsert({ where: { schoolId_studentId: { schoolId, studentId } }, create: { schoolId, studentId, contentType: contentType!, blob }, update: { contentType: contentType!, blob } });
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "STUDENT_PHOTO_UPLOADED", operation, { studentId, photoId: photo.id, contentType, size: blob.length });
+      return { id: photo.id, studentId, contentType: photo.contentType };
+    });
+  }
+  async studentPhoto(identityId: string, schoolId: string, studentId: string) {
+    await this.actor(identityId, schoolId);
+    if (!uuid.test(studentId)) throw new NotFoundException({ code: "STUDENT_PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh hồ sơ." });
+    const photo = await this.prisma.studentPhoto.findFirst({ where: { schoolId, studentId } });
+    if (!photo) throw new NotFoundException({ code: "STUDENT_PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh hồ sơ." });
+    return { contentType: photo.contentType, blob: photo.blob };
+  }
+  async placeWaitingEnrollment(identityId: string, schoolId: string, enrollmentId: string, key: string, operationId: string, body: any) {
+    const actor = await this.actor(identityId, schoolId);
+    const classId = typeof body?.classId === "string" ? body.classId : "";
+    const effectiveFrom = this.dateValue(body?.effectiveFrom, "effectiveFrom");
+    return this.mutate(actor, identityId, schoolId, route.placement, key, operationId, { enrollmentId, classId, effectiveFrom: body?.effectiveFrom }, async (tx, operation) => {
+      if (!uuid.test(enrollmentId)) throw new NotFoundException({ code: "ENROLLMENT_NOT_FOUND", message: "Không tìm thấy enrollment." });
+      await tx.$queryRaw`SELECT 1 FROM "StudentEnrollment" WHERE "id" = ${enrollmentId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const enrollment = await tx.studentEnrollment.findFirst({ where: { id: enrollmentId, schoolId } });
+      if (!enrollment) throw new NotFoundException({ code: "ENROLLMENT_NOT_FOUND", message: "Không tìm thấy enrollment." });
+      if (enrollment.lifecycle !== "WAITING_FOR_CLASS") throw new ConflictException({ code: "ENROLLMENT_NOT_WAITING_FOR_CLASS", message: "Enrollment không còn chờ xếp lớp." });
+      await this.lockYear(tx, schoolId, enrollment.schoolYearId);
+      const year = await this.year(schoolId, enrollment.schoolYearId, tx);
+      this.activeYear(year);
+      this.yearInterval(year, effectiveFrom, null);
+      if (effectiveFrom < enrollment.effectiveFrom) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { effectiveFrom: "Ngày xếp lớp không được trước ngày enrollment." } });
+      const classroom = await this.lockClass(tx, schoolId, classId);
+      if (classroom.schoolYearId !== enrollment.schoolYearId) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
+      if (classroom.status !== "ACTIVE") throw new ConflictException({ code: "CLASS_ARCHIVED", message: "Lớp đã lưu trữ chỉ có thể xem." });
+      if (await tx.enrollmentClassAssignment.count({ where: { schoolId, enrollmentId } })) throw new ConflictException({ code: "ENROLLMENT_ALREADY_PLACED", message: "Enrollment đã có lịch sử phân lớp." });
+      const updated = await tx.studentEnrollment.update({ where: { id: enrollmentId }, data: { classId: classroom.id, className: classroom.name, lifecycle: "ENROLLED", effectiveFrom } });
+      const assignment = await tx.enrollmentClassAssignment.create({ data: { schoolId, enrollmentId, schoolYearId: enrollment.schoolYearId, classId: classroom.id, effectiveFrom, reason: "Xếp lớp sau intake" }, include: { classroom: true } });
+      await this.transition(tx, schoolId, updated, enrollment.lifecycle, identityId, actor.membershipId, operation);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "STUDENT_ENROLLMENT_PLACED", operation, { enrollmentId, classId: classroom.id, effectiveFrom: body?.effectiveFrom });
+      return this.enrollmentDto({ ...updated, lifecycleTransitions: [], classAssignments: [assignment] });
+    });
   }
   async changeLifecycle(
     identityId: string,
@@ -1270,10 +1329,17 @@ export class RosterService {
             code: "ENROLLMENT_NOT_FOUND",
             message: "Không tìm thấy enrollment.",
           });
-        const classroom = await this.lockClass(tx, schoolId, enrollment.classId);
+        const classroom = enrollment.classId
+          ? await this.lockClass(tx, schoolId, enrollment.classId)
+          : null;
         await this.lockYear(tx, schoolId, enrollment.schoolYearId);
         this.openYear(await this.year(schoolId, enrollment.schoolYearId, tx));
-        if (lifecycle === "ENROLLED" && classroom.status === "ARCHIVED")
+        if (lifecycle === "ENROLLED" && !classroom)
+          throw new ConflictException({
+            code: "ENROLLMENT_CLASS_REQUIRED",
+            message: "Cần xếp lớp trước khi chuyển sang đang nhập học.",
+          });
+        if (lifecycle === "ENROLLED" && classroom?.status === "ARCHIVED")
           throw new ConflictException({
             code: "CLASS_ARCHIVED",
             message: "Lớp đã lưu trữ chỉ có thể xem.",
@@ -1298,7 +1364,11 @@ export class RosterService {
               data: { effectiveTo: endedOn },
             });
           }
-        } else if (!placement && enrollment.endedOn) {
+        } else if (
+          !placement &&
+          enrollment.endedOn &&
+          lifecycle !== "WAITING_FOR_CLASS"
+        ) {
           const prior = await tx.enrollmentClassAssignment.findFirst({
             where: { schoolId, enrollmentId },
             orderBy: { effectiveTo: "desc" },
@@ -1859,6 +1929,22 @@ export class RosterService {
         fieldErrors: { [field]: `${label} cần từ 1 đến ${limit} ký tự.` },
       });
     return text;
+  }
+  private optionalText(value: unknown, field: string, label: string, limit: number) {
+    if (value == null || value === "") return null;
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text || text.length > limit) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { [field]: `${label} cần từ 1 đến ${limit} ký tự.` } });
+    return text;
+  }
+  private studentProfile(body: any) {
+    const gender = body?.gender == null || body.gender === "" ? null : body.gender;
+    if (gender !== null && !["NAM", "NU", "KHAC"].includes(gender)) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { gender: "Giới tính không hợp lệ." } });
+    return { preferredName: this.optionalText(body?.preferredName, "preferredName", "Tên thường gọi", 100), gender, address: this.optionalText(body?.address, "address", "Địa chỉ", 500), personalIdentifier: this.optionalText(body?.personalIdentifier, "personalIdentifier", "Mã định danh cá nhân", 100) };
+  }
+  private photoSignature(contentType: string, blob: Buffer) {
+    if (contentType === "image/jpeg") return blob.length >= 3 && blob[0] === 0xff && blob[1] === 0xd8 && blob[2] === 0xff;
+    if (contentType === "image/png") return blob.length >= 8 && blob.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    return contentType === "image/webp" && blob.length >= 12 && blob.subarray(0, 4).equals(Buffer.from("RIFF")) && blob.subarray(8, 12).equals(Buffer.from("WEBP"));
   }
   private email(value: unknown) {
     const email = this.text(value, "email", "Email", 254).toLowerCase();
@@ -2496,6 +2582,8 @@ export class RosterService {
           code: "SCHOOL_YEAR_OVERLAP",
           message: "Năm học bị trùng khoảng thời gian.",
         });
+      if (command === route.student && this.personalIdentifierConflict(error))
+        throw new ConflictException({ code: "PERSONAL_IDENTIFIER_EXISTS", message: "Mã định danh cá nhân đã được dùng.", fieldErrors: { personalIdentifier: "Mã định danh cá nhân đã được dùng." } });
       throw error;
     }
   }
@@ -2518,5 +2606,8 @@ export class RosterService {
           "StaffClassAssignment_staff_class_interval_excl",
         ),
     );
+  }
+  private personalIdentifierConflict(error: unknown) {
+    return Boolean(error && typeof error === "object" && (error as { code?: string; meta?: unknown }).code === "P2002" && JSON.stringify((error as { meta?: unknown }).meta).includes("Student_personalIdentifier_ci_key"));
   }
 }

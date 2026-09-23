@@ -51,6 +51,7 @@ model School {
   collectionRunLifecycleTransitions CollectionRunLifecycleTransition[]
   invoices                          Invoice[]
   invoiceLines                      InvoiceLine[]
+  studentPhotos                     StudentPhoto[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
@@ -315,6 +316,10 @@ model Student {
   studentCode                 String
   fullName                    String
   dateOfBirth                 DateTime                  @db.Date
+  preferredName               String?
+  gender                      StudentGender?
+  address                     String?
+  personalIdentifier          String?
   createdAt                   DateTime                  @default(now())
   updatedAt                   DateTime                  @updatedAt
   school                      School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
@@ -328,6 +333,7 @@ model Student {
   notificationSourceEvents    NotificationSourceEvent[]
   collectionRunSelections     CollectionRunSelection[]
   invoices                    Invoice[]
+  photo                       StudentPhoto?
 
   @@unique([schoolId, id])
   @@index([schoolId, studentCode])
@@ -338,20 +344,20 @@ model StudentEnrollment {
   schoolId             String                                 @db.Uuid
   studentId            String                                 @db.Uuid
   schoolYearId         String                                 @db.Uuid
-  classId              String                                 @db.Uuid
+  classId              String?                                @db.Uuid
   lifecycle            StudentEnrollmentLifecycle
   effectiveFrom        DateTime                               @db.Date
   endedOn              DateTime?                              @db.Date
   schoolYearName       String
   schoolYearStartsOn   DateTime                               @db.Date
   schoolYearEndsOn     DateTime                               @db.Date
-  className            String
+  className            String?
   createdAt            DateTime                               @default(now())
   updatedAt            DateTime                               @updatedAt
   school               School                                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student              Student                                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   schoolYear           SchoolYear                             @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  classroom            Class                                  @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
+  classroom            Class?                                 @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
   lifecycleTransitions StudentEnrollmentLifecycleTransition[]
   classAssignments     EnrollmentClassAssignment[]
 
@@ -359,6 +365,27 @@ model StudentEnrollment {
   @@unique([schoolId, id])
   @@index([schoolId, classId, lifecycle])
   @@index([schoolId, studentId, createdAt])
+}
+
+enum StudentGender {
+  NAM
+  NU
+  KHAC
+}
+
+model StudentPhoto {
+  id          String   @id @default(uuid()) @db.Uuid
+  schoolId    String   @db.Uuid
+  studentId   String   @db.Uuid
+  contentType String
+  blob        Bytes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student     Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, studentId])
 }
 
 model EnrollmentClassAssignment {

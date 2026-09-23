@@ -133,6 +133,60 @@ describe('RosterWorkspace', () => {
     expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe(' ');
   });
 
+  it('links staged profile, photo, and Parent errors to their inputs', async () => {
+    const fetch = rosterFetch(error({ personalIdentifier: 'Mã định danh đã tồn tại.', photo: 'Ảnh không hợp lệ.' }));
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Mã định danh cá nhân'), { target: { value: 'ID-1' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
+    expect((await screen.findByLabelText('Mã định danh cá nhân')).getAttribute('aria-describedby')).toBe('personalIdentifier-error');
+    expect(screen.getByLabelText('Ảnh hồ sơ').getAttribute('aria-describedby')).toBe('photo-error');
+  });
+
+  it('does not recreate a confirmed Student when the staged photo fails, and retains the intake', async () => {
+    const created = { id: 'student-a', studentCode: 'S1', fullName: 'Bé An', dateOfBirth: '2022-01-01', enrollments: [{ id: 'enrollment-a', lifecycle: 'WAITING_FOR_CLASS', effectiveFrom: '2026-01-01', endedOn: null, schoolYear: { name: 'Năm 2026' }, classroom: null }] };
+    const file = new File(['photo'], 'photo.png', { type: 'image/png' });
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (url.endsWith('/students') && options?.method === 'POST') return Promise.resolve(response({ outcome: { id: 'student-a' } }));
+      if (url.endsWith('/photo') && options?.method === 'POST') return Promise.resolve(error({ photo: 'Tệp không hợp lệ.' }));
+      return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [created] : url.endsWith('/staff') || url.endsWith('/staff-assignments') ? [] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
+    fireEvent.change(screen.getByLabelText('Ngày sinh'), { target: { value: '2022-01-01' } });
+    fireEvent.click(screen.getByLabelText('Chờ xếp lớp'));
+    fireEvent.change(screen.getAllByLabelText('Ngày hiệu lực', { selector: 'input' }).at(-1)!, { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('Ảnh hồ sơ'), { target: { files: [file] } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
+    expect(await screen.findByText('Dữ liệu không hợp lệ.')).toBeTruthy();
+    expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
+    await waitFor(() => expect(fetch.mock.calls.filter(([url, options]) => url.endsWith('/students') && options?.method === 'POST')).toHaveLength(1));
+    expect(fetch.mock.calls.filter(([url, options]) => url.endsWith('/photo') && options?.method === 'POST')).toHaveLength(2);
+  });
+
+  it('does not recreate a confirmed Student when the staged Parent link fails', async () => {
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (url.endsWith('/students') && options?.method === 'POST') return Promise.resolve(response({ outcome: { id: 'student-a' } }));
+      if (url.endsWith('/parents') && options?.method === 'POST') return Promise.resolve(error({ email: 'Email không hợp lệ.' }));
+      return Promise.resolve(response(url.endsWith('/classes') ? [classroom] : url.endsWith('/students') ? [] : url.endsWith('/staff') || url.endsWith('/staff-assignments') ? [] : [year]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
+    fireEvent.change(screen.getByLabelText('Ngày sinh'), { target: { value: '2022-01-01' } });
+    fireEvent.change(screen.getAllByLabelText('Ngày hiệu lực', { selector: 'input' }).at(-1)!, { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('Họ và tên phụ huynh'), { target: { value: 'Mai Trần' } });
+    fireEvent.change(screen.getByLabelText('Email phụ huynh'), { target: { value: 'invalid' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
+    expect(await screen.findByText('Dữ liệu không hợp lệ.')).toBeTruthy();
+    expect((screen.getByLabelText('Email phụ huynh') as HTMLInputElement).value).toBe('invalid');
+    fireEvent.submit(screen.getByRole('button', { name: 'Tạo học sinh' }).closest('form')!);
+    await waitFor(() => expect(fetch.mock.calls.filter(([url, options]) => url.endsWith('/students') && options?.method === 'POST')).toHaveLength(1));
+    expect(fetch.mock.calls.filter(([url, options]) => url.endsWith('/parents') && options?.method === 'POST')).toHaveLength(2);
+  });
+
   it('creates and displays a Parent link only after server confirmation', async () => {
     const student = { id: 'student-a', studentCode: 'S1', fullName: 'Bé An', dateOfBirth: '2022-01-01', enrollments: [] };
     let linkReads = 0;

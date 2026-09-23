@@ -24,12 +24,12 @@ type Classroom = {
 };
 type Enrollment = {
   id: string;
-  classId: string;
+  classId: string | null;
   lifecycle: string;
   effectiveFrom: string;
   endedOn: string | null;
   schoolYear: { name: string };
-  classroom: { name: string };
+  classroom: { name: string } | null;
   classAssignmentHistory?: {
     id: string;
     className: string | null;
@@ -51,6 +51,10 @@ type Student = {
   studentCode: string;
   fullName: string;
   dateOfBirth: string;
+  preferredName: string | null;
+  gender: "NAM" | "NU" | "KHAC" | null;
+  address: string | null;
+  hasPhoto: boolean;
   enrollments: Enrollment[];
 };
 type ParentLink = {
@@ -107,11 +111,14 @@ type Assignment = {
 type Pending = {
   id: string;
   schoolId: string;
+  studentId?: string;
   kind:
     | "school-year"
     | "class"
     | "rename"
     | "student"
+    | "student-photo"
+    | "placement"
     | "archive"
     | "lifecycle"
     | "parent"
@@ -276,10 +283,17 @@ export function RosterWorkspace({
   const [student, setStudent] = useState({
     fullName: "",
     dateOfBirth: "",
+    preferredName: "",
+    gender: "",
+    address: "",
+    personalIdentifier: "",
     classId: "",
-    lifecycle: "ENROLLED",
+    intakeStatus: "PLACED",
     effectiveFrom: "",
-    endedOn: "",
+    photo: null as File | null,
+    parentFullName: "",
+    parentEmail: "",
+    parentPhone: "",
   });
   const [yearErrors, setYearErrors] = useState<Record<string, string>>({});
   const [classErrors, setClassErrors] = useState<Record<string, string>>({});
@@ -287,6 +301,8 @@ export function RosterWorkspace({
   const [studentErrors, setStudentErrors] = useState<Record<string, string>>(
     {},
   );
+  const [confirmedStudentId, setConfirmedStudentId] = useState<string>();
+  const confirmedStudent = useRef<string | undefined>(undefined);
   const [staffErrors, setStaffErrors] = useState<Record<string, string>>({});
   const [positionErrors, setPositionErrors] = useState<Record<string, string>>({});
   const [assignmentErrors, setAssignmentErrors] = useState<
@@ -294,6 +310,9 @@ export function RosterWorkspace({
   >({});
   const [endedOnByEnrollment, setEndedOnByEnrollment] = useState<
     Record<string, string>
+  >({});
+  const [placementByEnrollment, setPlacementByEnrollment] = useState<
+    Record<string, { classId: string; effectiveFrom: string }>
   >({});
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState<Pending>();
@@ -320,9 +339,16 @@ export function RosterWorkspace({
       renameName ||
       student.fullName ||
       student.dateOfBirth ||
+      student.preferredName ||
+      student.gender ||
+      student.address ||
+      student.personalIdentifier ||
       student.classId ||
       student.effectiveFrom ||
-      student.endedOn ||
+      student.photo ||
+      student.parentFullName ||
+      student.parentEmail ||
+      student.parentPhone ||
       staffInput.fullName ||
       staffInput.email ||
       staffInput.phone ||
@@ -424,7 +450,7 @@ export function RosterWorkspace({
       ),
     );
     setStudent((current) =>
-      current.classId
+      current.classId || current.intakeStatus === "WAITING_FOR_CLASS"
         ? current
         : {
             ...current,
@@ -488,7 +514,7 @@ export function RosterWorkspace({
         return;
       }
       if (!response.ok) throw new Error();
-      const result = ((await response.json()) as { data: { status: string } })
+      const result = ((await response.json()) as { data: { status: string; outcome?: unknown } })
         .data;
       if (result.status === "PENDING") {
         timer.current = window.setTimeout(
@@ -499,7 +525,21 @@ export function RosterWorkspace({
       }
       sessionStorage.removeItem(pendingKey);
       setPending(undefined);
-      if (result.status === "COMPLETED") await refresh(requestGeneration);
+      if (result.status === "COMPLETED") {
+        await refresh(requestGeneration);
+        const createdStudentId = operation.kind === "student"
+          ? (result.outcome as { id?: string } | undefined)?.id
+          : undefined;
+        if (createdStudentId) {
+          confirmedStudent.current = createdStudentId;
+          setConfirmedStudentId(createdStudentId);
+          await completeStudentIntake(createdStudentId);
+        } else if (operation.kind === "student-photo" && operation.studentId && operation.studentId === confirmedStudent.current) {
+          setStudent((current) => ({ ...current, photo: null }));
+          void completeStudentIntake(operation.studentId, true);
+        } else if (operation.kind === "parent" && operation.studentId === confirmedStudent.current)
+          clearStudentIntake();
+      }
       else setMessage("Thao tác không thành công.");
     } catch {
       if (valid(operation.schoolId, requestGeneration))
@@ -530,10 +570,17 @@ export function RosterWorkspace({
     setStudent({
       fullName: "",
       dateOfBirth: "",
+      preferredName: "",
+      gender: "",
+      address: "",
+      personalIdentifier: "",
       classId: "",
-      lifecycle: "ENROLLED",
+      intakeStatus: "PLACED",
       effectiveFrom: "",
-      endedOn: "",
+      photo: null,
+      parentFullName: "",
+      parentEmail: "",
+      parentPhone: "",
     });
     setStaffInput({
       fullName: "",
@@ -576,6 +623,8 @@ export function RosterWorkspace({
     setClassErrors({});
     setRenameErrors({});
     setStudentErrors({});
+    setConfirmedStudentId(undefined);
+    confirmedStudent.current = undefined;
     setStaffErrors({});
     setPositionErrors({});
     setAssignmentErrors({});
@@ -643,10 +692,10 @@ export function RosterWorkspace({
     }
   }, [endingAssignment]);
 
-  const post = async (path: string, body: object, kind: Pending["kind"]) => {
+  const post = async (path: string, body: object, kind: Pending["kind"], studentId?: string) => {
     if (pending) return false;
     const requestGeneration = generation.current;
-    const operation: Pending = { id: crypto.randomUUID(), schoolId, kind };
+    const operation: Pending = { id: crypto.randomUUID(), schoolId, kind, studentId };
     setMessage("");
     if (kind === "school-year") setYearErrors({});
     else if (kind === "class" || kind === "archive") setClassErrors({});
@@ -689,8 +738,9 @@ export function RosterWorkspace({
         setMessage(data.error?.message ?? "Thao tác không thành công.");
         return false;
       }
+      const result = (await response.json()) as { data?: { outcome?: unknown } };
       await refresh(requestGeneration);
-      return valid(schoolId, requestGeneration);
+      return valid(schoolId, requestGeneration) ? { outcome: result.data?.outcome } : false;
     } catch (error) {
       if (!valid(schoolId, requestGeneration)) return false;
       if (error instanceof TypeError) {
@@ -714,14 +764,11 @@ export function RosterWorkspace({
   };
   const createClass = async (event: FormEvent) => {
     event.preventDefault();
-    if (
-      yearId &&
-      (await post(
+    if (yearId && (await post(
         `/api/app/schools/${schoolId}/roster/school-years/${yearId}/classes`,
         { name: className },
         "class",
-      ))
-    )
+      )))
       setClassName("");
   };
   const submitRename = async (event: FormEvent) => {
@@ -740,22 +787,66 @@ export function RosterWorkspace({
   };
   const createStudent = async (event: FormEvent) => {
     event.preventDefault();
-    if (
-      yearId &&
-      (await post(
+    if (!yearId) return;
+    if (confirmedStudentId) {
+      await completeStudentIntake(confirmedStudentId);
+      return;
+    }
+    const result = await post(
         `/api/app/schools/${schoolId}/roster/students`,
-        { ...student, schoolYearId: yearId, endedOn: student.endedOn || null },
+        {
+          fullName: student.fullName,
+          dateOfBirth: student.dateOfBirth,
+          preferredName: student.preferredName || null,
+          gender: student.gender || null,
+          address: student.address || null,
+          personalIdentifier: student.personalIdentifier || null,
+          classId: student.intakeStatus === "PLACED" ? student.classId : null,
+          intakeStatus: student.intakeStatus,
+          effectiveFrom: student.effectiveFrom,
+          schoolYearId: yearId,
+        },
         "student",
-      ))
-    )
-      setStudent({
-        fullName: "",
-        dateOfBirth: "",
-        classId: classes.find((item) => item.status === "ACTIVE")?.id ?? "",
-        lifecycle: "ENROLLED",
-        effectiveFrom: "",
-        endedOn: "",
-      });
+      );
+    const created = result
+      ? (result as { outcome?: { id?: string } }).outcome
+      : undefined;
+    if (created?.id) {
+      confirmedStudent.current = created.id;
+      setConfirmedStudentId(created.id);
+      await completeStudentIntake(created.id);
+    }
+  };
+  const clearStudentIntake = () => {
+    setStudent({ fullName: "", dateOfBirth: "", preferredName: "", gender: "", address: "", personalIdentifier: "", classId: classes.find((item) => item.status === "ACTIVE")?.id ?? "", intakeStatus: "PLACED", effectiveFrom: "", photo: null, parentFullName: "", parentEmail: "", parentPhone: "" });
+    confirmedStudent.current = undefined;
+    setConfirmedStudentId(undefined);
+  };
+  const completeStudentIntake = async (studentId: string, photoComplete = false) => {
+    const photo = student.photo;
+    if (!photoComplete && photo && !(await uploadPhoto(studentId, photo))) return;
+    if (!photoComplete && photo) setStudent((current) => ({ ...current, photo: null }));
+    const hasParent = Boolean(student.parentFullName || student.parentEmail || student.parentPhone);
+    if (hasParent && !(await post(`/api/app/schools/${schoolId}/roster/students/${studentId}/parents`, { fullName: student.parentFullName, email: student.parentEmail, phone: student.parentPhone }, "parent", studentId))) return;
+    clearStudentIntake();
+  };
+  const uploadPhoto = async (studentId: string, photo: File) => {
+    if (pending) return false;
+    const operation: Pending = { id: crypto.randomUUID(), schoolId, studentId, kind: "student-photo" };
+    const requestGeneration = generation.current;
+    try {
+      const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/roster/students/${studentId}/photo`, { method: "POST", credentials: "include", headers: { "content-type": photo.type, "x-csrf-token": decodeURIComponent(csrf() ?? ""), "idempotency-key": crypto.randomUUID(), "x-operation-id": operation.id }, body: photo });
+      if (!valid(schoolId, requestGeneration)) return false;
+      if (deniedStatus(response.status)) { denied(); return false; }
+      if (uncertain(response.status)) throw new TypeError("Mutation outcome is uncertain.");
+      if (!response.ok) { const data = (await response.json()) as ErrorBody; setStudentErrors(data.error?.fieldErrors ?? {}); setMessage(data.error?.message ?? "Không thể tải ảnh hồ sơ."); return false; }
+      await refresh(requestGeneration);
+      return valid(schoolId, requestGeneration);
+    } catch (error) {
+      if (valid(schoolId, requestGeneration) && error instanceof TypeError) { sessionStorage.setItem(pendingKey, JSON.stringify(operation)); setPending(operation); void reconcile(operation, requestGeneration); }
+      else if (valid(schoolId, requestGeneration)) setMessage("Không thể tải ảnh hồ sơ.");
+      return false;
+    }
   };
   const changeLifecycle = async (enrollment: Enrollment, lifecycle: string) => {
     await post(
@@ -773,6 +864,15 @@ export function RosterWorkspace({
       },
       "lifecycle",
     );
+  };
+  const placeWaitingEnrollment = async (enrollment: Enrollment) => {
+    const input = placementByEnrollment[enrollment.id] ?? { classId: "", effectiveFrom: "" };
+    if (await post(`/api/app/schools/${schoolId}/roster/enrollments/${enrollment.id}/placement`, input, "placement"))
+      setPlacementByEnrollment((current) => {
+        const next = { ...current };
+        delete next[enrollment.id];
+        return next;
+      });
   };
   const createParent = async (event: FormEvent, studentId: string) => {
     event.preventDefault();
@@ -2033,7 +2133,22 @@ export function RosterWorkspace({
                     {studentErrors.dateOfBirth}
                   </small>
                 )}
-                <label>
+                <fieldset><legend>Thông tin học sinh</legend>
+                <label>Tên thường gọi<input value={student.preferredName} onChange={(event) => setStudent({ ...student, preferredName: event.target.value })} {...field(studentErrors, "preferredName")} /></label>
+                {studentErrors.preferredName && <small id="preferredName-error">{studentErrors.preferredName}</small>}
+                <label>Giới tính học sinh<select value={student.gender} onChange={(event) => setStudent({ ...student, gender: event.target.value })} {...field(studentErrors, "gender")}><option value="">Không khai báo</option><option value="NAM">Nam</option><option value="NU">Nữ</option><option value="KHAC">Khác</option></select></label>
+                {studentErrors.gender && <small id="gender-error">{studentErrors.gender}</small>}
+                <label>Địa chỉ học sinh<textarea value={student.address} onChange={(event) => setStudent({ ...student, address: event.target.value })} {...field(studentErrors, "address")} /></label>
+                {studentErrors.address && <small id="address-error">{studentErrors.address}</small>}
+                <label>Mã định danh cá nhân<input value={student.personalIdentifier} onChange={(event) => setStudent({ ...student, personalIdentifier: event.target.value })} {...field(studentErrors, "personalIdentifier")} /></label>
+                {studentErrors.personalIdentifier && <small id="personalIdentifier-error">{studentErrors.personalIdentifier}</small>}
+                <label>Ảnh hồ sơ<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setStudent({ ...student, photo: event.target.files?.[0] ?? null })} {...field(studentErrors, "photo")} /></label>
+                {studentErrors.photo && <small id="photo-error">{studentErrors.photo}</small>}
+                </fieldset>
+                <fieldset><legend>Nhập học</legend>
+                <label><input type="radio" name="intake-status" checked={student.intakeStatus === "PLACED"} onChange={() => setStudent({ ...student, intakeStatus: "PLACED" })} />Xếp lớp</label>
+                <label><input type="radio" name="intake-status" checked={student.intakeStatus === "WAITING_FOR_CLASS"} onChange={() => setStudent({ ...student, intakeStatus: "WAITING_FOR_CLASS", classId: "" })} />Chờ xếp lớp</label>
+                {student.intakeStatus === "PLACED" && <label>
                   Lớp
                   <select
                     value={student.classId}
@@ -2052,24 +2167,11 @@ export function RosterWorkspace({
                       ))}
                   </select>
                 </label>
+                }
                 {studentErrors.classId && (
                   <small id="classId-error">{studentErrors.classId}</small>
                 )}
-                <label>
-                  Trạng thái
-                  <select
-                    value={student.lifecycle}
-                    onChange={(event) =>
-                      setStudent({ ...student, lifecycle: event.target.value })
-                    }
-                  >
-                    {Object.entries(lifecycleLabel).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                </fieldset>
                 <label>
                   Ngày hiệu lực
                   <input
@@ -2089,20 +2191,7 @@ export function RosterWorkspace({
                     {studentErrors.effectiveFrom}
                   </small>
                 )}
-                <label>
-                  Ngày kết thúc
-                  <input
-                    type="date"
-                    value={student.endedOn}
-                    onChange={(event) =>
-                      setStudent({ ...student, endedOn: event.target.value })
-                    }
-                    {...field(studentErrors, "endedOn")}
-                  />
-                </label>
-                {studentErrors.endedOn && (
-                  <small id="endedOn-error">{studentErrors.endedOn}</small>
-                )}
+                <fieldset><legend>Phụ huynh (tùy chọn)</legend><label>Họ và tên phụ huynh<input value={student.parentFullName} onChange={(event) => setStudent({ ...student, parentFullName: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "fullName", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.fullName && <small id="parent-fullName-error">{studentErrors.fullName}</small>}<label>Email phụ huynh<input type="email" value={student.parentEmail} onChange={(event) => setStudent({ ...student, parentEmail: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "email", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.email && <small id="parent-email-error">{studentErrors.email}</small>}<label>Số điện thoại phụ huynh<input value={student.parentPhone} onChange={(event) => setStudent({ ...student, parentPhone: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "phone", "parent-") : {})} /></label>{confirmedStudentId && studentErrors.phone && <small id="parent-phone-error">{studentErrors.phone}</small>}</fieldset>
                 <button disabled={disabled}>Tạo học sinh</button>
               </form>
             ) : (
@@ -2127,7 +2216,7 @@ export function RosterWorkspace({
                     students.map((item) => (
                       <tr key={item.id}>
                         <td>{item.studentCode}</td>
-                        <th scope="row">{item.fullName}</th>
+                         <th scope="row">{item.hasPhoto && <img src={`${apiUrl}/api/app/schools/${schoolId}/roster/students/${item.id}/photo`} alt={`Ảnh hồ sơ ${item.fullName}`} />} {item.fullName}</th>
                         <td>
                           {item.enrollments.at(-1) &&
                             lifecycleLabel[item.enrollments.at(-1)!.lifecycle]}
@@ -2136,13 +2225,30 @@ export function RosterWorkspace({
                           {item.enrollments.map((enrollment) => (
                             <div key={enrollment.id}>
                               {enrollment.schoolYear.name} /{" "}
-                              {enrollment.classroom.name} /{" "}
+                               {enrollment.classroom?.name ?? "Chờ xếp lớp"} /{" "}
                               {lifecycleLabel[enrollment.lifecycle]} (
                               {enrollment.effectiveFrom}
-                              {enrollment.endedOn
-                                ? ` - ${enrollment.endedOn}`
-                                : ""}
-                              ){" "}
+                               {enrollment.endedOn
+                                 ? ` - ${enrollment.endedOn}`
+                                 : ""}
+                               ){" "}
+                              {enrollment.lifecycle === "WAITING_FOR_CLASS" && (
+                                <fieldset>
+                                  <legend>Xếp lớp</legend>
+                                  <label>
+                                    Lớp
+                                    <select aria-label={`Lớp xếp cho ${item.fullName}`} value={placementByEnrollment[enrollment.id]?.classId ?? ""} onChange={(event) => setPlacementByEnrollment({ ...placementByEnrollment, [enrollment.id]: { classId: event.target.value, effectiveFrom: placementByEnrollment[enrollment.id]?.effectiveFrom ?? "" } })}>
+                                      <option value="">Chọn lớp</option>
+                                      {classes.filter((classroom) => classroom.status === "ACTIVE").map((classroom) => <option key={classroom.id} value={classroom.id}>{classroom.name}</option>)}
+                                    </select>
+                                  </label>
+                                  <label>
+                                    Ngày hiệu lực xếp lớp
+                                    <input aria-label={`Ngày xếp lớp ${item.fullName}`} type="date" value={placementByEnrollment[enrollment.id]?.effectiveFrom ?? ""} onChange={(event) => setPlacementByEnrollment({ ...placementByEnrollment, [enrollment.id]: { classId: placementByEnrollment[enrollment.id]?.classId ?? "", effectiveFrom: event.target.value } })} />
+                                  </label>
+                                  <button type="button" disabled={disabled} onClick={() => void placeWaitingEnrollment(enrollment)}>Xếp lớp</button>
+                                </fieldset>
+                              )}
                               <label>
                                 Ngày kết thúc
                                 <input
