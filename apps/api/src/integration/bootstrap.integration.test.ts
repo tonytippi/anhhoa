@@ -20,6 +20,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
             where: { userIdentity: { emailNormalized: 'sonnh273@gmail.com' } },
             include: { boundStaffProfile: { include: { primaryPosition: { include: { grants: true } } } } },
           },
+          schoolYears: { where: { name: '2026-2027' } },
         },
       });
       expect(school).toMatchObject({
@@ -27,6 +28,13 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
         studentCodePrefix: 'PL',
         initialOwnerIdentity: { emailNormalized: 'sonnh273@gmail.com' },
       });
+      expect(school.schoolYears).toEqual([
+        expect.objectContaining({
+          name: '2026-2027',
+          startsOn: new Date('2026-08-01T00:00:00.000Z'),
+          endsOn: new Date('2027-07-31T00:00:00.000Z'),
+        }),
+      ]);
       expect(school.memberships).toHaveLength(1);
       const membership = school.memberships[0];
       if (!membership) throw new Error('Thiếu membership PeakLand đã seed.');

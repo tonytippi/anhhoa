@@ -48,6 +48,17 @@ export async function seed(): Promise<void> {
         },
         update: { name: peakLand.name, studentCodePrefix: peakLand.studentCodePrefix, initialOwnerIdentityId: owner.id },
       });
+      const schoolYearData = {
+        schoolId: school.id,
+        name: '2026-2027',
+        startsOn: new Date('2026-08-01T00:00:00.000Z'),
+        endsOn: new Date('2027-07-31T00:00:00.000Z'),
+      };
+      const schoolYear = await tx.schoolYear.findFirst({
+        where: { schoolId: school.id, name: schoolYearData.name },
+      });
+      if (schoolYear) await tx.schoolYear.update({ where: { id: schoolYear.id }, data: schoolYearData });
+      else await tx.schoolYear.create({ data: schoolYearData });
       const membership = await tx.schoolMembership.upsert({
         where: { schoolId_userIdentityId: { schoolId: school.id, userIdentityId: owner.id } },
         create: { schoolId: school.id, userIdentityId: owner.id },
