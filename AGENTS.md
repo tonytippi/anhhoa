@@ -36,3 +36,7 @@ Nền tảng vận hành đa trường cho mầm non, thay thế clean-break cho
 - Sau timeout của mutation idempotent, giữ Operation ID và đối soát trước retry; không coi timeout là thất bại.
 - `StudentPromotionalCoverage` chỉ issued sau source Invoice được settle; refund dùng snapshot calendar/service interval và không vượt paid source còn lại.
 <!-- /bmad:context -->
+
+## Local test environment
+
+- Khi chạy test cần database, dùng cấu hình test database trong `.env.test`; không dùng database phát triển trong `.env`.
