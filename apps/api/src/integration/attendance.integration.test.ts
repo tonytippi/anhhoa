@@ -146,6 +146,19 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: current.school.id, positionId: position.id, capability: 'LEAVE_REQUEST_DECIDE' } });
     await expect(attendance.appOperation(current.identity.id, current.school.id, operationId)).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
   });
+  it('returns a School-scoped operational queue with separate pending leave and attendance-gap destinations', async () => {
+    const current = await graph(); const foreign = await graph();
+    const position = await prisma.schoolPosition.create({ data: { schoolId: current.school.id, code: `QUEUE-${uuid()}`, name: `Hàng đợi ${uuid()}` } });
+    await prisma.positionCapabilityGrant.createMany({ data: ['OPERATIONAL_QUEUE_READ', 'SETTINGS_MANAGE'].map((capability) => ({ schoolId: current.school.id, positionId: position.id, capability })) });
+    await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Quản lý hàng đợi', email: `${uuid()}@example.com`, phone: '0900000010', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    const leave = await request(current);
+    await prisma.leaveRequestDay.create({ data: { schoolId: current.school.id, leaveRequestId: leave.id, operatingOn: date('2026-02-09'), calendarEffectiveFrom: date('2026-01-01') } });
+    await expect(attendance.operationalQueue(current.identity.id, current.school.id, '2026-02-09')).resolves.toMatchObject({ schoolId: current.school.id, operating: true, classes: [{ classId: current.classroom.id, attendanceGapCount: 0, pendingLeaveCount: 1 }] });
+    await expect(attendance.operationalQueueItems(current.identity.id, current.school.id, '2026-02-09', current.classroom.id, 'PENDING')).resolves.toMatchObject({ students: [{ studentId: current.student.id }] });
+    await expect(attendance.operationalQueueItems(current.identity.id, current.school.id, '2026-02-09', foreign.classroom.id, 'PENDING')).rejects.toMatchObject({ response: { code: 'CLASS_NOT_FOUND' } });
+    await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: current.school.id, positionId: position.id, capability: 'OPERATIONAL_QUEUE_READ' } });
+    await expect(attendance.operationalQueue(current.identity.id, current.school.id, '2026-02-09')).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+  });
   it('issues one AUTO_APPROVED source through the parent leave flow and excludes it after public PRESENT recording', async () => {
     const current = await graph();
     await prisma.parentProfile.update({ where: { id: current.parent.id }, data: { userIdentityId: current.identity.id, boundAt: new Date() } });

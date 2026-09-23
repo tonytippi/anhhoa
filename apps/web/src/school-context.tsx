@@ -11,6 +11,7 @@ import {
   type SettingsStatus,
 } from "./settings/settings-workspace";
 import { LeaveReviewWorkspace } from "./attendance/leave-review-workspace";
+import { OperationalQueueWorkspace } from "./attendance/operational-queue-workspace";
 import { FinanceWorkspace, type FinanceStatus } from "./finance/finance-workspace";
 
 type School = { schoolId: string; schoolName: string };
@@ -24,6 +25,7 @@ type Context = {
     | "SETTINGS_MANAGE"
     | "LEAVE_REQUEST_DECIDE"
     | "FINANCE_MANAGE"
+    | "OPERATIONAL_QUEUE_READ"
   >;
   navigation: Array<{ id: string; label: string }>;
 };
@@ -47,7 +49,7 @@ export function SchoolContext({
 }) {
   const [schools, setSchools] = useState<School[]>();
   const [context, setContext] = useState<Context>();
-  type View = "students" | "parents" | "staff" | "classes" | "years" | "positions" | "settings" | "leave-review" | "finance";
+  type View = "overview" | "students" | "parents" | "staff" | "classes" | "years" | "positions" | "settings" | "leave-review" | "finance";
   const [view, setView] = useState<View>("students");
   const [expanded, setExpanded] = useState<Record<"roster" | "settings", boolean>>({ roster: true, settings: false });
   const [rosterStatus, setRosterStatus] = useState<WorkspaceStatus>({
@@ -167,7 +169,8 @@ export function SchoolContext({
     setContext(next);
     setShowChooser(false);
     saveSchoolId(schoolId);
-    if (!next.navigation.some((item) => item.id === "roster") && next.navigation.some((item) => item.id === "settings")) {
+      if (next.navigation.some((item) => item.id === "overview")) setView("overview");
+      else if (!next.navigation.some((item) => item.id === "roster") && next.navigation.some((item) => item.id === "settings")) {
       setView("settings");
       setExpanded({ roster: false, settings: true });
     }
@@ -322,10 +325,10 @@ export function SchoolContext({
                   </div>}
                 </section>
               )}
-              {context.navigation.filter((item) => item.id === "leave-review" || item.id === "finance").map((item) => <button type="button" key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onClick={() => setView(item.id as View)}>{item.label}</button>)}
+               {context.navigation.filter((item) => item.id === "overview" || item.id === "leave-review" || item.id === "finance").map((item) => <button type="button" key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onClick={() => setView(item.id as View)}>{item.label}</button>)}
             </nav>
           <div className="school-context-workspace">
-          {(["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) &&
+           {view === "overview" && context.capabilities.includes("OPERATIONAL_QUEUE_READ") ? <OperationalQueueWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} /> : (["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) &&
           context.capabilities.includes("ROSTER_MANAGE") ? (
             <RosterWorkspace
               schoolId={context.schoolId}

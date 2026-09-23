@@ -72,6 +72,25 @@ describe('AttendanceService leave matrix', () => {
     });
     await expect(attendance.teacherRoster('teacher', school, 'class', '2026-02-09')).resolves.toMatchObject({ students: [{ studentId: student, state: 'PRESENT' }] });
   });
+  it('uses the roster precedence for the operational queue and returns a successful empty non-operating queue', async () => {
+    const classroom = { id: 'class-a', name: 'Mầm A' };
+    const placement = { classId: classroom.id, enrollment: { student: { id: student, fullName: 'Bé An', studentCode: 'AT-1' } } };
+    const { attendance } = service({
+      schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) },
+      class: { findMany: vi.fn().mockResolvedValue([classroom]) },
+      enrollmentClassAssignment: { findMany: vi.fn().mockResolvedValue([placement]) },
+      attendanceRecord: { findMany: vi.fn().mockResolvedValue([{ studentId: student }]) },
+      leaveRequest: { findMany: vi.fn().mockResolvedValue([{ studentId: student, status: 'PENDING' }]) },
+    });
+    await expect((attendance as any).queueRows(school, '2026-02-09')).resolves.toMatchObject({ operating: true, classes: [{ attendanceGapCount: 0, pendingLeaveCount: 1 }] });
+    await expect((attendance as any).queueRows(school, '2026-02-08')).resolves.toMatchObject({ operating: false, classes: [{ attendanceGapCount: 0, pendingLeaveCount: 0 }] });
+  });
+  it('keeps a pending leave out of attendance gaps while returning it as its own queue item', async () => {
+    const classroom = { id: 'class-a', name: 'Mầm A' };
+    const placement = { classId: classroom.id, enrollment: { student: { id: student, fullName: 'Bé An', studentCode: 'AT-1' } } };
+    const { attendance } = service({ schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) }, class: { findMany: vi.fn().mockResolvedValue([classroom]) }, enrollmentClassAssignment: { findMany: vi.fn().mockResolvedValue([placement]) }, attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) }, leaveRequest: { findMany: vi.fn().mockResolvedValue([{ studentId: student, status: 'PENDING' }]) } });
+    await expect((attendance as any).queueRows(school, '2026-02-09')).resolves.toMatchObject({ classes: [{ attendanceGapCount: 0, pendingLeaveCount: 1 }] });
+  });
   it('uses the HCM submission day policy, not the requested range start', async () => {
     const { attendance } = service(); vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '15:00' });
     const tx = { leavePolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-02-01'), nextDayDeadlineLocalTime: '15:00' }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({}) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({}) }, schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) } };
