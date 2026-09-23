@@ -112,6 +112,21 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     await expect(prisma.student.create({ data: { schoolId: a.current.id, studentCode: 'pe1', fullName: 'Trùng mã', dateOfBirth: new Date('2022-01-01T00:00:00Z') } })).rejects.toMatchObject({ code: 'P2002' });
   });
 
+  it('returns bounded paged roster rows with scoped filters, stable sort, and minimum parent summary', async () => {
+    const current = await graph(); const foreign = await graph();
+    const students = await Promise.all(Array.from({ length: 127 }, (_, index) => prisma.student.create({ data: { schoolId: current.current.id, studentCode: `PAGE-${index}`, fullName: `Bé ${String(127 - index).padStart(3, '0')}`, dateOfBirth: new Date('2022-01-01T00:00:00.000Z') } })));
+    await prisma.studentEnrollment.createMany({ data: students.map((student) => ({ schoolId: current.current.id, studentId: student.id, schoolYearId: current.year.id, classId: current.classroom.id, lifecycle: 'ENROLLED', effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), schoolYearName: 'Năm 2026', schoolYearStartsOn: new Date('2026-01-01T00:00:00.000Z'), schoolYearEndsOn: new Date('2027-01-01T00:00:00.000Z'), className: 'Mầm' })) });
+    const firstId = (await roster.students(current.admin.id, current.current.id, current.year.id, { page: '1', pageSize: '25', sort: 'name' })).data[0]!.id;
+    await parents.create(current.admin.id, current.current.id, firstId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai.roster@example.com', phone: '0900000000' });
+    const first = await roster.students(current.admin.id, current.current.id, current.year.id, { page: '1', pageSize: '1000', sort: 'name' });
+    expect(first.data).toHaveLength(100); expect(first.meta).toEqual({ page: 1, pageSize: 100, totalItems: 127, totalPages: 2 });
+    expect(first.data[0]).toMatchObject({ parentSummary: { fullName: 'Mai Trần', status: 'ACTIVE', linkCount: 1 } });
+    expect(first.data[0]).not.toHaveProperty('email'); expect(first.data[0]?.parentSummary).not.toHaveProperty('email'); expect(first.data[0]?.parentSummary).not.toHaveProperty('phone');
+    expect((await roster.students(current.admin.id, current.current.id, current.year.id, { q: 'Bé 001', lifecycle: 'ENROLLED', sort: 'class' })).data).toMatchObject([{ fullName: 'Bé 001' }]);
+    await expect(roster.students(current.admin.id, current.current.id, current.year.id, { classId: foreign.classroom.id })).rejects.toMatchObject({ status: 404, response: { code: 'CLASS_NOT_FOUND' } });
+    await expect(roster.students(current.admin.id, current.current.id, current.year.id, { page: 'bad' })).rejects.toMatchObject({ status: 400 });
+  });
+
   it('creates a classless waiting enrollment and permits its non-placement lifecycle changes', async () => {
     const current = await graph();
     const created = await createStudent(current, { classId: null, intakeStatus: 'WAITING_FOR_CLASS' });
@@ -391,8 +406,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const preview = await roster.previewTransition(current.admin.id, current.current.id, classInput);
     const key = uuid(); const command = { ...classInput, selectedEnrollmentIds: [enrollmentId], previewFingerprint: preview.fingerprint, confirmation: 'CHUYỂN DANH BỘ' };
     const moved = await roster.transitionEnrollments(current.admin.id, current.current.id, key, uuid(), command);
-    expect(await roster.students(current.admin.id, current.current.id, current.year.id, current.classroom.id)).toEqual([]);
-    expect(await roster.students(current.admin.id, current.current.id, current.year.id, (secondClass.outcome as { id: string }).id)).toMatchObject([{ id: (created.outcome as { id: string }).id }]);
+    expect((await roster.students(current.admin.id, current.current.id, current.year.id, { classId: current.classroom.id })).data).toEqual([]);
+    expect((await roster.students(current.admin.id, current.current.id, current.year.id, { classId: (secondClass.outcome as { id: string }).id })).data).toMatchObject([{ id: (created.outcome as { id: string }).id }]);
     expect(await roster.transitionEnrollments(current.admin.id, current.current.id, key, uuid(), command)).toEqual(moved);
     await expect(roster.transitionEnrollments(current.admin.id, current.current.id, key, uuid(), { ...command, reason: 'Khác' })).rejects.toMatchObject({ status: 409, response: { code: 'IDEMPOTENCY_CONFLICT' } });
     expect(await prisma.enrollmentClassAssignment.findMany({ where: { schoolId: current.current.id, enrollmentId }, orderBy: { effectiveFrom: 'asc' } })).toMatchObject([{ classId: current.classroom.id, effectiveTo: new Date('2026-06-01T00:00:00.000Z') }, { classId: (secondClass.outcome as { id: string }).id, effectiveTo: null }]);
@@ -420,7 +435,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     expect(await prisma.enrollmentClassAssignment.findFirstOrThrow({ where: { schoolId: current.current.id, enrollmentId } })).toMatchObject({ effectiveTo: new Date('2026-06-01T00:00:00.000Z') });
     const preview = await roster.previewCloseYear(current.admin.id, current.current.id, { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' });
     await roster.closeYear(current.admin.id, current.current.id, uuid(), uuid(), { schoolYearId: current.year.id, effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: preview.fingerprint, confirmation: 'ĐÓNG NĂM HỌC' });
-    expect(await roster.students(current.admin.id, current.current.id, current.year.id)).toMatchObject([{ id: (created.outcome as { id: string }).id, enrollments: [{ id: enrollmentId, classAssignmentHistory: [{ effectiveTo: '2026-06-01' }] }] }]);
+    expect((await roster.students(current.admin.id, current.current.id, current.year.id)).data).toMatchObject([{ id: (created.outcome as { id: string }).id, enrollment: { id: enrollmentId } }]);
     await expect(roster.renameClass(current.admin.id, current.current.id, current.classroom.id, uuid(), uuid(), { name: 'Không được' })).rejects.toMatchObject({ status: 409, response: { code: 'SCHOOL_YEAR_CLOSED' } });
     expect(await prisma.class.findUniqueOrThrow({ where: { id: current.classroom.id } })).toMatchObject({ name: 'Mầm' });
   });

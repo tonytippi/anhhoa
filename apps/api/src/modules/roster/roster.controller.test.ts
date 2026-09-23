@@ -38,4 +38,10 @@ describe('RosterController mutation boundary', () => {
     await expect(controller.operation(request({ cookie: 'app_session=session' }), 'school-id', 'operation-id')).resolves.toEqual({ data: { id: 'operation-id', status: 'PENDING' } });
     expect(operation).toHaveBeenCalledWith('actor-id', 'school-id', 'operation-id');
   });
+  it('forwards roster list query and preserves its data plus bounded pagination metadata', async () => {
+    const students = vi.fn().mockResolvedValue({ data: [{ id: 'student' }], meta: { page: 2, pageSize: 100, totalItems: 101, totalPages: 2 } });
+    const controller = new RosterController(auth as never, { students } as never);
+    await expect(controller.students(request({ cookie: 'app_session=session' }), 'school', 'year', { page: '2', pageSize: '100', q: 'An' })).resolves.toEqual({ data: [{ id: 'student' }], meta: { page: 2, pageSize: 100, totalItems: 101, totalPages: 2 } });
+    expect(students).toHaveBeenCalledWith('actor-id', 'school', 'year', { page: '2', pageSize: '100', q: 'An' });
+  });
 });

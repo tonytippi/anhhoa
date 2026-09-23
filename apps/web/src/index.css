@@ -1298,6 +1298,25 @@ tbody tr:last-child td {
   padding: 2px 0;
 }
 .student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
+.roster-list-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+.student-detail-panel {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+.student-detail-panel > section {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d7e2dc;
+  border-radius: 10px;
+  padding: 14px;
+}
+.student-detail-panel form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .student-empty-state {
   padding: 46px 24px !important;
   text-align: center;

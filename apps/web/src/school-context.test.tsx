@@ -27,10 +27,10 @@ describe('SchoolContext', () => {
     expect(await screen.findByText('Không thể tải danh sách trường.')).toBeTruthy();
     expect(clear).not.toHaveBeenCalled();
   });
-  it('revalidates the open School when the browser returns to the foreground', async () => {
+  it('keeps the open School when the browser returns to the foreground', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
     vi.stubGlobal('fetch', fetch); renderSchoolContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.focus(window);
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường A' })).toBeNull()); expect(screen.getByRole('option', { name: 'Trường B' })).toBeTruthy();
+    await new Promise((resolve) => window.setTimeout(resolve, 0)); expect(screen.getByRole('heading', { name: 'PassionEdu - Trường A' })).toBeTruthy();
   });
   it('does not let delayed success or denial for A overwrite selected School B', async () => {
     let resolveA!: (response: Response) => void; const delayedA = new Promise<Response>((resolve) => { resolveA = resolve; }); const contextB = { ...context, schoolId: 'b', schoolName: 'Trường B' };
@@ -65,6 +65,25 @@ describe('SchoolContext', () => {
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(fetch).toHaveBeenCalledTimes(callsBeforeFocus);
     expect(screen.getByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeTruthy();
+  });
+  it('keeps roster mounted without new context, list, or parent requests after foreground events', async () => {
+    const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };
+    let studentReads = 0;
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: rosterContext })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] })));
+      if (url.includes('/students?')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: `student-${studentReads}`, studentCode: `S${studentReads + 1}`, fullName: studentReads++ ? 'Bé Bình' : 'Bé An', hasPhoto: false, enrollment: { id: 'enrollment-a', lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', classroom: null }, parentSummary: null }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    expect(await screen.findByText('Bé An')).toBeTruthy();
+    const before = fetch.mock.calls.length;
+    fireEvent.focus(window); fireEvent(document, new Event('visibilitychange'));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(fetch).toHaveBeenCalledTimes(before);
+    expect(screen.getByText('Bé An')).toBeTruthy();
   });
   it('selects people and class destinations without rendering configuration controls', async () => {
     const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };

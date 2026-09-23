@@ -193,24 +193,6 @@ export function SchoolContext({
     heading.current?.focus();
   }, [context?.schoolId]);
   useEffect(() => {
-    const revalidate = () => {
-      if (
-        document.visibilityState === "visible" &&
-        selected.current &&
-        !rosterStatus.dialogOpen
-      )
-        void load(selected.current).catch((cause: Error) =>
-          setError(cause.message),
-        );
-    };
-    document.addEventListener("visibilitychange", revalidate);
-    window.addEventListener("focus", revalidate);
-    return () => {
-      document.removeEventListener("visibilitychange", revalidate);
-      window.removeEventListener("focus", revalidate);
-    };
-  }, [rosterStatus.dialogOpen]);
-  useEffect(() => {
     if (switchTo)
       dialog.current
         ?.querySelector<HTMLElement>("input, button, textarea")

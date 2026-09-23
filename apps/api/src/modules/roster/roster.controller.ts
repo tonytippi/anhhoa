@@ -144,17 +144,12 @@ export class RosterController {
     @Req() request: RequestLike,
     @Param("schoolId") schoolId: string,
     @Param("schoolYearId") schoolYearId: string,
-    @Query("classId") classId?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
-    return {
-      data: await this.roster.students(
-        this.identity(request),
-        schoolId,
-        schoolYearId,
-        classId,
-      ),
-      meta: {},
-    };
+    const result = await this.roster.students(
+      this.identity(request), schoolId, schoolYearId, query,
+    );
+    return { data: result.data, meta: result.meta };
   }
   @Get("students/:studentId") async student(
     @Req() request: RequestLike,
