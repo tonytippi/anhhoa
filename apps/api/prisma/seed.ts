@@ -1,5 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { assertDevelopmentEnvironment as assertDevelopment } from '../scripts/development-environment.js';
 
 const peakLand = {
@@ -20,6 +23,121 @@ const positions = [
 ] as const;
 
 const ownerCapabilities = ['SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAGE', 'SETTINGS_MANAGE', 'FINANCE_MANAGE', 'CLASS_LEAVE_READ', 'LEAVE_REQUEST_DECIDE'];
+const peakLandClassNames = ['Marie Curie', 'Einstein', 'Newton', 'Archimedes', 'Picasso', 'Mozart', 'Elizabeth'] as const;
+const rosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/hocsinh-peakland.csv', import.meta.url)));
+const rosterEffectiveFrom = new Date('2026-08-01T00:00:00.000Z');
+
+type PeakLandRosterRecord = {
+  studentCode: string;
+  fullName: string;
+  preferredName: string | null;
+  className: (typeof peakLandClassNames)[number] | null;
+  lifecycle: 'ENROLLED' | 'WAITING_FOR_CLASS';
+  dateOfBirth: Date;
+  gender: 'NAM' | 'NU';
+  address: string | null;
+};
+
+const rosterHeaders = ['STT', 'Học sinh', 'Tên thường gọi', 'Lớp', 'Trạng thái', 'Ngày sinh', 'Giới tính', 'Địa chỉ'] as const;
+
+function parseCsv(csv: string): { line: number; values: string[] }[] {
+  const rows: { line: number; values: string[] }[] = [];
+  let values: string[] = [];
+  let value = '';
+  let quoted = false;
+  let closedQuote = false;
+  let line = 1;
+  let rowLine = 1;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const character = csv[index]!;
+    if (quoted) {
+      if (character === '"' && csv[index + 1] === '"') {
+        value += '"';
+        index += 1;
+      } else if (character === '"') {
+        quoted = false;
+        closedQuote = true;
+      }
+      else {
+        value += character;
+        if (character === '\n') line += 1;
+      }
+      continue;
+    }
+    if (closedQuote && character !== ',' && character !== '\n' && character !== '\r') {
+      throw new Error(`CSV dòng ${line}, trường không hợp lệ sau dấu nháy đóng.`);
+    }
+    if (character === '"') {
+      if (value !== '') throw new Error(`CSV dòng ${line}, trường không hợp lệ: dấu nháy phải ở đầu giá trị.`);
+      quoted = true;
+    } else if (character === ',') {
+      values.push(value);
+      value = '';
+      closedQuote = false;
+    } else if (character === '\n' || character === '\r') {
+      if (character === '\r' && csv[index + 1] === '\n') index += 1;
+      values.push(value);
+      rows.push({ line: rowLine, values });
+      values = [];
+      value = '';
+      closedQuote = false;
+      line += 1;
+      rowLine = line;
+    } else value += character;
+  }
+  if (quoted) throw new Error(`CSV dòng ${rowLine}, trường không hợp lệ: thiếu dấu nháy đóng.`);
+  if (value !== '' || values.length > 0) rows.push({ line: rowLine, values: [...values, value] });
+  return rows.filter((row) => row.values.some((value) => value !== ''));
+}
+
+function parseDate(value: string, line: number): Date {
+  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value);
+  if (!match) throw new Error(`CSV dòng ${line}, trường Ngày sinh không hợp lệ.`);
+  const [, day, month, year] = match;
+  const date = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+  if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() !== Number(month) - 1 || date.getUTCDate() !== Number(day)) {
+    throw new Error(`CSV dòng ${line}, trường Ngày sinh không hợp lệ.`);
+  }
+  return date;
+}
+
+export function parsePeakLandRosterCsv(csv: string): PeakLandRosterRecord[] {
+  const rows = parseCsv(csv);
+  const header = rows.shift();
+  if (!header) throw new Error('CSV thiếu hàng tiêu đề.');
+  const normalizedHeaders = header.values.map((value) => value.trim());
+  if (new Set(normalizedHeaders).size !== normalizedHeaders.length) {
+    throw new Error('CSV cấu trúc cột không hợp lệ.');
+  }
+  const indexes = new Map(normalizedHeaders.map((value, index) => [value, index]));
+  for (const name of rosterHeaders) if (!indexes.has(name)) throw new Error(`CSV thiếu cột bắt buộc ${name}.`);
+  const records = rows.map(({ line, values }, index) => {
+    if (values.length !== header.values.length) throw new Error(`CSV dòng ${line}, cấu trúc cột không hợp lệ.`);
+    const field = (name: (typeof rosterHeaders)[number]) => values[indexes.get(name)!]!.trim();
+    const stt = field('STT');
+    if (stt !== String(index + 1)) throw new Error(`CSV dòng ${line}, trường STT phải tuần tự từ 1 đến 127.`);
+    const fullName = field('Học sinh');
+    if (!fullName) throw new Error(`CSV dòng ${line}, trường Học sinh là bắt buộc.`);
+    const gender: PeakLandRosterRecord['gender'] | null = field('Giới tính') === 'Nam' ? 'NAM' : field('Giới tính') === 'Nữ' ? 'NU' : null;
+    if (!gender) throw new Error(`CSV dòng ${line}, trường Giới tính không được hỗ trợ.`);
+    const status = field('Trạng thái');
+    const className = field('Lớp');
+    if (status === 'Trong lớp') {
+      if (!peakLandClassNames.includes(className as (typeof peakLandClassNames)[number])) throw new Error(`CSV dòng ${line}, trường Lớp không được hỗ trợ.`);
+      return { studentCode: `PL${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: className as (typeof peakLandClassNames)[number], lifecycle: 'ENROLLED' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null };
+    }
+    if (status === 'Chờ phân lớp') {
+      if (className) throw new Error(`CSV dòng ${line}, trường Lớp phải để trống khi Chờ phân lớp.`);
+      return { studentCode: `PL${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: null, lifecycle: 'WAITING_FOR_CLASS' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null };
+    }
+    throw new Error(`CSV dòng ${line}, trường Trạng thái không được hỗ trợ.`);
+  });
+  if (records.length !== 127) throw new Error(`CSV phải có đúng 127 học sinh, nhận được ${records.length}.`);
+  for (const className of peakLandClassNames) if (!records.some((record) => record.className === className)) throw new Error(`CSV thiếu lớp ${className}.`);
+  if (records.filter((record) => record.lifecycle === 'WAITING_FOR_CLASS').length !== 1) throw new Error('CSV phải có đúng một học sinh Chờ phân lớp.');
+  return records;
+}
 
 export function assertDevelopmentEnvironment(): void {
   assertDevelopment('Development seed');
@@ -27,6 +145,7 @@ export function assertDevelopmentEnvironment(): void {
 
 export async function seed(): Promise<void> {
   assertDevelopmentEnvironment();
+  const roster = parsePeakLandRosterCsv(await readFile(rosterCsvPath, 'utf8'));
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required to seed the database.');
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -54,11 +173,12 @@ export async function seed(): Promise<void> {
         startsOn: new Date('2026-08-01T00:00:00.000Z'),
         endsOn: new Date('2027-07-31T00:00:00.000Z'),
       };
-      const schoolYear = await tx.schoolYear.findFirst({
+      let schoolYear = await tx.schoolYear.findFirst({
         where: { schoolId: school.id, name: schoolYearData.name },
       });
-      if (schoolYear) await tx.schoolYear.update({ where: { id: schoolYear.id }, data: schoolYearData });
-      else await tx.schoolYear.create({ data: schoolYearData });
+      if (schoolYear?.closedAt) throw new Error('SchoolYear 2026-2027 đã đóng; hãy reset development database trước khi seed lại.');
+      if (schoolYear) schoolYear = await tx.schoolYear.update({ where: { id: schoolYear.id }, data: schoolYearData });
+      else schoolYear = await tx.schoolYear.create({ data: schoolYearData });
       const membership = await tx.schoolMembership.upsert({
         where: { schoolId_userIdentityId: { schoolId: school.id, userIdentityId: owner.id } },
         create: { schoolId: school.id, userIdentityId: owner.id },
@@ -101,6 +221,43 @@ export async function seed(): Promise<void> {
           address: 'Chưa cập nhật',
         },
       });
+      if (school.studentCodeSequence < roster.length) {
+        await tx.school.update({ where: { id: school.id }, data: { studentCodeSequence: roster.length } });
+      }
+      const classrooms = new Map(await Promise.all(peakLandClassNames.map(async (name) => {
+        const existingClasses = await tx.class.findMany({ where: { schoolId: school.id, schoolYearId: schoolYear.id, name } });
+        if (existingClasses.length > 1) throw new Error(`Lớp ${name} có nhiều bản ghi trong SchoolYear 2026-2027.`);
+        const existing = existingClasses[0];
+        const classroom = existing
+          ? await tx.class.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } })
+          : await tx.class.create({ data: { schoolId: school.id, schoolYearId: schoolYear.id, name, status: 'ACTIVE' } });
+        return [name, classroom] as const;
+      })));
+      for (const record of roster) {
+        const studentData = { fullName: record.fullName, preferredName: record.preferredName, dateOfBirth: record.dateOfBirth, gender: record.gender, address: record.address };
+        const students = await tx.student.findMany({ where: { schoolId: school.id, studentCode: record.studentCode } });
+        if (students.length > 1) throw new Error(`Fixture ${record.studentCode} có nhiều Student trong School pl.`);
+        const student = students[0]
+          ? await tx.student.update({ where: { id: students[0].id }, data: studentData })
+          : await tx.student.create({ data: { schoolId: school.id, studentCode: record.studentCode, ...studentData } });
+        const classroom = record.className ? classrooms.get(record.className)! : null;
+        const enrollmentData = { schoolId: school.id, studentId: student.id, schoolYearId: schoolYear.id, classId: classroom?.id ?? null, lifecycle: record.lifecycle, effectiveFrom: rosterEffectiveFrom, endedOn: null, schoolYearName: schoolYear.name, schoolYearStartsOn: schoolYear.startsOn, schoolYearEndsOn: schoolYear.endsOn, className: classroom?.name ?? null };
+        const existingEnrollment = await tx.studentEnrollment.findUnique({
+          where: { schoolId_studentId_schoolYearId: { schoolId: school.id, studentId: student.id, schoolYearId: schoolYear.id } },
+          include: { classAssignments: true },
+        });
+        if (existingEnrollment) {
+          const expectedAssignment = classroom ? { classId: classroom.id, effectiveFrom: rosterEffectiveFrom, effectiveTo: null, reason: 'Khởi tạo enrollment' } : null;
+          const enrollmentMatches = existingEnrollment.classId === enrollmentData.classId && existingEnrollment.lifecycle === enrollmentData.lifecycle && existingEnrollment.effectiveFrom.getTime() === rosterEffectiveFrom.getTime() && existingEnrollment.endedOn === null && existingEnrollment.className === enrollmentData.className;
+          const assignmentMatches = expectedAssignment
+            ? existingEnrollment.classAssignments.length === 1 && existingEnrollment.classAssignments[0]?.classId === expectedAssignment.classId && existingEnrollment.classAssignments[0]?.effectiveFrom.getTime() === expectedAssignment.effectiveFrom.getTime() && existingEnrollment.classAssignments[0]?.effectiveTo === expectedAssignment.effectiveTo && existingEnrollment.classAssignments[0]?.reason === expectedAssignment.reason
+            : existingEnrollment.classAssignments.length === 0;
+          if (!enrollmentMatches || !assignmentMatches) throw new Error(`Fixture ${record.studentCode} đã có enrollment hoặc lịch sử phân lớp khác snapshot; hãy reset development database trước khi seed lại.`);
+        } else {
+          const enrollment = await tx.studentEnrollment.create({ data: enrollmentData });
+          if (classroom) await tx.enrollmentClassAssignment.create({ data: { schoolId: school.id, enrollmentId: enrollment.id, schoolYearId: schoolYear.id, classId: classroom.id, effectiveFrom: rosterEffectiveFrom, reason: 'Khởi tạo enrollment' } });
+        }
+      }
     });
   } finally {
     await prisma.$disconnect();

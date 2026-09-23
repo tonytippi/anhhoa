@@ -28,6 +28,11 @@ describe('target platform structure', () => {
     expect(seed).toContain("studentCodePrefix: 'PL'");
     expect(seed).toContain("ownerEmail: 'sonnh273@gmail.com'");
     expect(seed).toContain("assertDevelopment('Development seed')");
+    expect(seed).toContain("hocsinh-peakland.csv");
+    expect(seed).toContain('parsePeakLandRosterCsv');
+    expect(seed).toContain('studentCode: `PL${stt}`');
+    expect(seed).not.toContain('parentProfile.create');
+    expect(seed).not.toContain('studentParent.create');
     const apiPackage = JSON.parse(await read('apps/api/package.json'));
     expect(apiPackage.scripts['db:reset:dev']).toBe('tsx scripts/reset-development-database.ts');
     const reset = await read('apps/api/scripts/reset-development-database.ts');
