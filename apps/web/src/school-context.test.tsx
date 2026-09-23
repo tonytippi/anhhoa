@@ -73,7 +73,7 @@ describe('SchoolContext', () => {
       if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
       if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: rosterContext })));
       if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] })));
-      if (url.includes('/students?')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: `student-${studentReads}`, studentCode: `S${studentReads + 1}`, fullName: studentReads++ ? 'Bé Bình' : 'Bé An', hasPhoto: false, enrollment: { id: 'enrollment-a', lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', classroom: null }, parentSummary: null }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } })));
+      if (url.includes('/students?')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: `student-${studentReads}`, studentCode: `S${studentReads + 1}`, fullName: studentReads++ ? 'Bé Bình' : 'Bé An', hasPhoto: false, enrollment: { id: 'enrollment-a', lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', classroom: null }, relatives: { mother: null, father: null, otherRelativeCount: 0 } }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } })));
       return Promise.resolve(new Response(JSON.stringify({ data: [] })));
     });
     vi.stubGlobal('fetch', fetch);

@@ -33,13 +33,17 @@ type RosterRow = {
     effectiveFrom: string;
     classroom: { id: string; name: string } | null;
   };
-  parentSummary: { fullName: string; status: "ACTIVE"; linkCount: number } | null;
+  relatives: {
+    mother: string | null;
+    father: string | null;
+    otherRelativeCount: number;
+  };
 };
 type RosterPageMeta = { page: number; pageSize: number; totalItems: number; totalPages: number };
 type StudentDetail = RosterRow & {
   enrollments: Array<{ id: string; lifecycle: string; effectiveFrom: string; endedOn: string | null; classroom: { name: string } | null }>;
 };
-type ParentLink = { id: string; status: "ACTIVE" | "REVOKED"; parent: { fullName: string; email: string; phone: string; bound: boolean } };
+type ParentLink = { id: string; relationshipLabel: string; status: "ACTIVE" | "REVOKED"; parent: { fullName: string; email: string; phone: string; bound: boolean } };
 type Staff = {
   id: string;
   fullName: string;
@@ -196,7 +200,8 @@ export function RosterWorkspace({
   const [rosterQuery, setRosterQuery] = useState({ q: "", classId: "", lifecycle: "", sort: "name" as "name" | "class" });
   const [studentDetail, setStudentDetail] = useState<StudentDetail>();
   const [parentLinks, setParentLinks] = useState<ParentLink[]>([]);
-  const [parentInput, setParentInput] = useState({ fullName: "", email: "", phone: "" });
+  const [parentInput, setParentInput] = useState({ fullName: "", email: "", phone: "", relationshipLabel: "" });
+  const [rowMenu, setRowMenu] = useState<string>();
   const [detailPlacement, setDetailPlacement] = useState({ classId: "", effectiveFrom: "" });
   const [detailEndedOn, setDetailEndedOn] = useState<Record<string, string>>({});
   const [detailLoading, setDetailLoading] = useState(false);
@@ -279,6 +284,7 @@ export function RosterWorkspace({
     parentFullName: "",
     parentEmail: "",
     parentPhone: "",
+    parentRelationshipLabel: "",
   });
   const [yearErrors, setYearErrors] = useState<Record<string, string>>({});
   const [classErrors, setClassErrors] = useState<Record<string, string>>({});
@@ -314,6 +320,9 @@ export function RosterWorkspace({
   const rosterRequest = useRef(0);
   const detailRequest = useRef(0);
   const selectedDetailStudent = useRef<string | undefined>(undefined);
+  const rowMenuTrigger = useRef<HTMLButtonElement>(null);
+  const rowMenuElement = useRef<HTMLDivElement>(null);
+  const rowMenuKeyboardOpen = useRef(false);
   const valid = (school: string, requestGeneration: number) =>
     currentSchool.current === school &&
     generation.current === requestGeneration;
@@ -329,6 +338,8 @@ export function RosterWorkspace({
     setDetailLoading(false);
     setStudentDetail(undefined);
     setParentLinks([]);
+    setParentInput({ fullName: "", email: "", phone: "", relationshipLabel: "" });
+    setStudentErrors({});
     trigger?.focus();
   };
   const dirty = Boolean(
@@ -346,9 +357,10 @@ export function RosterWorkspace({
       student.classId ||
       student.effectiveFrom ||
       student.photo ||
-      student.parentFullName ||
-      student.parentEmail ||
-      student.parentPhone ||
+       student.parentFullName ||
+       student.parentEmail ||
+       student.parentPhone ||
+       student.parentRelationshipLabel ||
       staffInput.fullName ||
       staffInput.email ||
       staffInput.phone ||
@@ -414,6 +426,7 @@ export function RosterWorkspace({
     page = rosterMeta.page,
   ) => {
     const request = ++rosterRequest.current;
+    setRowMenu(undefined);
     setClasses([]);
     setStudents([]);
     setAssignments([]);
@@ -599,7 +612,10 @@ export function RosterWorkspace({
       parentFullName: "",
       parentEmail: "",
       parentPhone: "",
+      parentRelationshipLabel: "",
     });
+    setParentInput({ fullName: "", email: "", phone: "", relationshipLabel: "" });
+    setRowMenu(undefined);
     setStaffInput({
       fullName: "",
       email: "",
@@ -676,6 +692,9 @@ export function RosterWorkspace({
     setDetailLoading(false);
     setStudentDetail(undefined);
     setParentLinks([]);
+    setParentInput({ fullName: "", email: "", phone: "", relationshipLabel: "" });
+    setStudentErrors({});
+    setRowMenu(undefined);
     loadedYear.current = yearId;
     const requestGeneration = generation.current;
     void loadYear(yearId, requestGeneration);
@@ -847,7 +866,7 @@ export function RosterWorkspace({
     }
   };
   const clearStudentIntake = () => {
-    setStudent({ fullName: "", dateOfBirth: "", preferredName: "", gender: "", address: "", personalIdentifier: "", classId: classes.find((item) => item.status === "ACTIVE")?.id ?? "", intakeStatus: "PLACED", effectiveFrom: "", photo: null, parentFullName: "", parentEmail: "", parentPhone: "" });
+    setStudent({ fullName: "", dateOfBirth: "", preferredName: "", gender: "", address: "", personalIdentifier: "", classId: classes.find((item) => item.status === "ACTIVE")?.id ?? "", intakeStatus: "PLACED", effectiveFrom: "", photo: null, parentFullName: "", parentEmail: "", parentPhone: "", parentRelationshipLabel: "" });
     confirmedStudent.current = undefined;
     setConfirmedStudentId(undefined);
     setStudentIntakeOpen(false);
@@ -856,8 +875,16 @@ export function RosterWorkspace({
     const photo = student.photo;
     if (!photoComplete && photo && !(await uploadPhoto(studentId, photo))) return;
     if (!photoComplete && photo) setStudent((current) => ({ ...current, photo: null }));
-    const hasParent = Boolean(student.parentFullName || student.parentEmail || student.parentPhone);
-    if (hasParent && !(await post(`/api/app/schools/${schoolId}/roster/students/${studentId}/parents`, { fullName: student.parentFullName, email: student.parentEmail, phone: student.parentPhone }, "parent", studentId))) return;
+    const hasParentInput = Boolean(student.parentFullName || student.parentEmail || student.parentPhone || student.parentRelationshipLabel);
+    if (hasParentInput && (!student.parentFullName || !student.parentEmail || !student.parentPhone)) {
+      setStudentErrors({
+        ...(student.parentFullName ? {} : { fullName: "Cần họ và tên người thân." }),
+        ...(student.parentEmail ? {} : { email: "Cần email người thân." }),
+        ...(student.parentPhone ? {} : { phone: "Cần số điện thoại người thân." }),
+      });
+      return;
+    }
+    if (hasParentInput && !(await post(`/api/app/schools/${schoolId}/roster/students/${studentId}/parents`, { fullName: student.parentFullName, email: student.parentEmail, phone: student.parentPhone, relationshipLabel: student.parentRelationshipLabel }, "parent", studentId))) return;
     clearStudentIntake();
   };
   const openStudentDetail = async (studentId: string) => {
@@ -868,6 +895,8 @@ export function RosterWorkspace({
     setDetailLoading(true);
     setStudentDetail(undefined);
     setParentLinks([]);
+    setParentInput({ fullName: "", email: "", phone: "", relationshipLabel: "" });
+    setStudentErrors({});
     try {
       const detail = await read<StudentDetail>(`/api/app/schools/${schoolId}/roster/students/${studentId}`, requestGeneration);
       const links = await read<ParentLink[]>(`/api/app/schools/${schoolId}/roster/students/${studentId}/parents`, requestGeneration);
@@ -885,7 +914,7 @@ export function RosterWorkspace({
     event.preventDefault();
     if (!studentDetail) return;
     if (await post(`/api/app/schools/${schoolId}/roster/students/${studentDetail.id}/parents`, parentInput, "parent", studentDetail.id)) {
-      setParentInput({ fullName: "", email: "", phone: "" });
+      setParentInput({ fullName: "", email: "", phone: "", relationshipLabel: "" });
       await openStudentDetail(studentDetail.id);
     }
   };
@@ -1290,6 +1319,12 @@ export function RosterWorkspace({
     if (!studentDetail || detailLoading) return;
     studentDetailDialog.current?.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled])")?.focus();
   }, [studentDetail, detailLoading]);
+  useEffect(() => {
+    if (rowMenu && rowMenuKeyboardOpen.current)
+      rowMenuElement.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    rowMenuKeyboardOpen.current = false;
+  }, [rowMenu]);
+  useEffect(() => setRowMenu(undefined), [section]);
   const studentIntakeForm = (radioName: string, inDialog = false) => (
     <form className="roster-form student-intake-form" onSubmit={createStudent}>
       <h3 id={inDialog ? "student-intake-title" : undefined}>
@@ -1334,6 +1369,8 @@ export function RosterWorkspace({
         {confirmedStudentId && studentErrors.email && <small id="parent-email-error">{studentErrors.email}</small>}
         <label>Số điện thoại phụ huynh<input value={student.parentPhone} onChange={(event) => setStudent({ ...student, parentPhone: event.target.value })} {...(confirmedStudentId ? field(studentErrors, "phone", "parent-") : {})} /></label>
         {confirmedStudentId && studentErrors.phone && <small id="parent-phone-error">{studentErrors.phone}</small>}
+        <label>Quan hệ<input value={student.parentRelationshipLabel} onChange={(event) => setStudent({ ...student, parentRelationshipLabel: event.target.value })} placeholder="Ví dụ: Mẹ, Bố, Bà ngoại" {...(confirmedStudentId ? field(studentErrors, "relationshipLabel", "parent-") : {})} /></label>
+        {confirmedStudentId && studentErrors.relationshipLabel && <small id="parent-relationshipLabel-error">{studentErrors.relationshipLabel}</small>}
       </fieldset>
       {inDialog ? <div className="student-intake-actions"><button type="button" disabled={disabled} onClick={() => setStudentIntakeOpen(false)}>Đóng</button><button disabled={disabled}>Tạo học sinh</button></div> : <button disabled={disabled}>Tạo học sinh</button>}
     </form>
@@ -2248,35 +2285,83 @@ export function RosterWorkspace({
                 <caption>Danh bộ {schoolName} · {selected?.name ?? "Chưa chọn năm học"} · Trang {rosterMeta.page}</caption>
                 <thead>
                   <tr>
+                    <th>STT</th>
+                    <th>Mã</th>
                     <th>Học sinh</th>
                     <th>Lớp</th>
+                    <th>Mẹ</th>
+                    <th>Bố</th>
                     <th>Trạng thái</th>
-                    <th>Liên kết phụ huynh</th>
-                    <th>Hiệu lực từ</th>
                     <th>Tùy chọn</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rosterLoading ? (
                     <tr>
-                      <td colSpan={6} role="status" className="student-empty-state">
+                        <td colSpan={8} role="status" className="student-empty-state">
                         Đang tải danh sách học sinh...
                       </td>
                     </tr>
                     ) : students.length ? (
-                      students.map((item) => (
+                      students.map((item, index) => (
                         <tr key={item.id}>
-                          <th scope="row">{item.hasPhoto && <img src={`${apiUrl}/api/app/schools/${schoolId}/roster/students/${item.id}/photo`} alt={`Ảnh hồ sơ ${item.fullName}`} />} {item.fullName}<br /><small>{item.studentCode}</small></th>
+                          <td>{(rosterMeta.page - 1) * rosterMeta.pageSize + index + 1}</td>
+                          <td>{item.studentCode}</td>
+                          <th scope="row">{item.hasPhoto && <img src={`${apiUrl}/api/app/schools/${schoolId}/roster/students/${item.id}/photo`} alt={`Ảnh hồ sơ ${item.fullName}`} />} {item.fullName}</th>
                           <td>{item.enrollment.classroom?.name ?? "Chưa xếp lớp"}</td>
+                          <td>{item.relatives.mother ?? "-"}</td>
+                          <td>{item.relatives.father ?? "-"}{item.relatives.otherRelativeCount ? <small className="relative-count">+{item.relatives.otherRelativeCount} người thân khác</small> : null}</td>
                           <td>{lifecycleLabel[item.enrollment.lifecycle]}</td>
-                          <td>{item.parentSummary ? <>{item.parentSummary.fullName} · Đang hiệu lực{item.parentSummary.linkCount > 1 ? ` · ${item.parentSummary.linkCount} liên kết` : ""}</> : "Chưa có liên kết"}</td>
-                          <td>{item.enrollment.effectiveFrom}</td>
-                          <td><button ref={selectedDetailStudent.current === item.id ? studentDetailTrigger : undefined} type="button" onClick={(event) => { studentDetailTrigger.current = event.currentTarget; void openStudentDetail(item.id); }}>Xem hồ sơ</button></td>
+                          <td className="roster-row-actions">
+                            <button
+                              ref={rowMenu === item.id ? rowMenuTrigger : undefined}
+                              type="button"
+                              aria-label={`Tùy chọn cho ${item.fullName}`}
+                              aria-haspopup="menu"
+                              aria-expanded={rowMenu === item.id}
+                              onKeyDown={(event) => {
+                                if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key))
+                                  rowMenuKeyboardOpen.current = true;
+                                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                                  event.preventDefault();
+                                  setRowMenu(item.id);
+                                }
+                              }}
+                              onClick={() => setRowMenu(rowMenu === item.id ? undefined : item.id)}
+                            >...</button>
+                            {rowMenu === item.id && <div
+                              ref={rowMenuElement}
+                              className="roster-action-menu"
+                              role="menu"
+                              onBlur={(event) => {
+                                if (!event.currentTarget.contains(event.relatedTarget as Node))
+                                  setRowMenu(undefined);
+                              }}
+                              onKeyDown={(event) => {
+                                const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+                                const current = items.indexOf(document.activeElement as HTMLButtonElement);
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  setRowMenu(undefined);
+                                  rowMenuTrigger.current?.focus();
+                                } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                                  event.preventDefault();
+                                  items[(current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+                                } else if (event.key === "Home" || event.key === "End") {
+                                  event.preventDefault();
+                                  items[event.key === "Home" ? 0 : items.length - 1]?.focus();
+                                } else if (event.key === "Tab") setRowMenu(undefined);
+                              }}
+                            >
+                              <button ref={selectedDetailStudent.current === item.id ? studentDetailTrigger : undefined} type="button" role="menuitem" onClick={(event) => { studentDetailTrigger.current = event.currentTarget; setRowMenu(undefined); void openStudentDetail(item.id); }}>Xem hồ sơ</button>
+                              <button type="button" role="menuitem" onClick={(event) => { studentDetailTrigger.current = event.currentTarget; setRowMenu(undefined); void openStudentDetail(item.id); }}>Quản lý liên kết người thân</button>
+                            </div>}
+                          </td>
                         </tr>
                       ))
                   ) : !rosterLoadFailed && (
                     <tr>
-                      <td colSpan={6} className="student-empty-state">
+                      <td colSpan={8} className="student-empty-state">
                         <strong>Chưa có học sinh trong năm học này</strong>
                         <span>Thêm hồ sơ đầu tiên để bắt đầu quản lý danh sách và phân lớp.</span>
                         {selected?.isActive && <button type="button" onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh đầu tiên</button>}
@@ -2391,8 +2476,8 @@ export function RosterWorkspace({
               <div className="student-list-toolbar"><h3 id="student-detail-title">Hồ sơ {studentDetail.fullName}</h3><button type="button" disabled={disabled} onClick={closeStudentDetail}>Đóng</button></div>
               <p>Mã học sinh: {studentDetail.studentCode}</p>
               <section><h4>Ghi danh</h4>{studentDetail.enrollments.map((enrollment) => <div key={enrollment.id}><p>{enrollment.classroom?.name ?? "Chưa xếp lớp"} · {lifecycleLabel[enrollment.lifecycle]} · {enrollment.effectiveFrom}{enrollment.endedOn ? ` - ${enrollment.endedOn}` : ""}</p>{enrollment.lifecycle === "WAITING_FOR_CLASS" && <fieldset><label>Lớp<select value={detailPlacement.classId} onChange={(event) => setDetailPlacement({ ...detailPlacement, classId: event.target.value })}><option value="">Chọn lớp</option>{classes.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Ngày hiệu lực xếp lớp<input type="date" value={detailPlacement.effectiveFrom} onChange={(event) => setDetailPlacement({ ...detailPlacement, effectiveFrom: event.target.value })} /></label><button type="button" disabled={disabled} onClick={() => void placeDetailEnrollment(enrollment.id)}>Xếp lớp</button></fieldset>}<label>Ngày kết thúc<input type="date" value={detailEndedOn[enrollment.id] ?? enrollment.endedOn ?? ""} onChange={(event) => setDetailEndedOn({ ...detailEndedOn, [enrollment.id]: event.target.value })} /></label><label>Đổi trạng thái<select value={enrollment.lifecycle} disabled={disabled} onChange={(event) => void changeDetailLifecycle(enrollment, event.target.value)}>{Object.entries(lifecycleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>)}</section>
-              <section><h4>Liên kết phụ huynh</h4><ul>{parentLinks.map((link) => <li key={link.id}>{link.parent.fullName} ({link.parent.email}) · {link.status === "ACTIVE" ? (link.parent.bound ? "Đã xác nhận" : "Đang chờ") : "Đã thu hồi"}{link.status === "ACTIVE" && <button type="button" disabled={disabled} onClick={() => void revokeParentLink(link)}>Thu hồi</button>}</li>)}</ul>
-                <form onSubmit={saveParentLink}><label>Họ và tên phụ huynh<input value={parentInput.fullName} onChange={(event) => setParentInput({ ...parentInput, fullName: event.target.value })} /></label><label>Email phụ huynh<input type="email" value={parentInput.email} onChange={(event) => setParentInput({ ...parentInput, email: event.target.value })} /></label><label>Số điện thoại phụ huynh<input value={parentInput.phone} onChange={(event) => setParentInput({ ...parentInput, phone: event.target.value })} /></label><button disabled={disabled}>Tạo liên kết</button></form>
+              <section><h4>Liên kết người thân</h4><ul>{parentLinks.map((link) => <li key={link.id}>{link.parent.fullName} · {link.relationshipLabel} · {link.parent.email} · {link.status === "ACTIVE" ? (link.parent.bound ? "Đã xác nhận" : "Đang chờ") : "Đã thu hồi"}{link.status === "ACTIVE" && <button type="button" disabled={disabled} onClick={() => void revokeParentLink(link)}>Thu hồi</button>}</li>)}</ul>
+                <form onSubmit={saveParentLink}><label>Họ và tên người thân<input value={parentInput.fullName} onChange={(event) => setParentInput({ ...parentInput, fullName: event.target.value })} /></label><label>Email người thân<input type="email" value={parentInput.email} onChange={(event) => setParentInput({ ...parentInput, email: event.target.value })} /></label><label>Số điện thoại người thân<input value={parentInput.phone} onChange={(event) => setParentInput({ ...parentInput, phone: event.target.value })} /></label><label>Quan hệ<input value={parentInput.relationshipLabel} onChange={(event) => setParentInput({ ...parentInput, relationshipLabel: event.target.value })} placeholder="Ví dụ: Mẹ, Bố, Ông, Bà" {...field(studentErrors, "relationshipLabel", "parent-")} /></label>{studentErrors.relationshipLabel && <small id="parent-relationshipLabel-error">{studentErrors.relationshipLabel}</small>}<button disabled={disabled}>Tạo liên kết</button></form>
               </section>
             </>}
           </section>

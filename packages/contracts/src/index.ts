@@ -21,11 +21,6 @@ export type RosterListQuery = {
   lifecycle?: string;
   sort?: 'name' | 'class';
 };
-export type RosterParentSummary = {
-  fullName: string;
-  status: 'ACTIVE';
-  linkCount: number;
-} | null;
 export type RosterListRow = {
   id: string;
   studentCode: string;
@@ -37,7 +32,11 @@ export type RosterListRow = {
     effectiveFrom: string;
     classroom: { id: string; name: string } | null;
   };
-  parentSummary: RosterParentSummary;
+  relatives: {
+    mother: string | null;
+    father: string | null;
+    otherRelativeCount: number;
+  };
 };
 export type OffsetPaginationMeta = {
   page: number;

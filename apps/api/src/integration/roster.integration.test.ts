@@ -117,11 +117,13 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const students = await Promise.all(Array.from({ length: 127 }, (_, index) => prisma.student.create({ data: { schoolId: current.current.id, studentCode: `PAGE-${index}`, fullName: `Bé ${String(127 - index).padStart(3, '0')}`, dateOfBirth: new Date('2022-01-01T00:00:00.000Z') } })));
     await prisma.studentEnrollment.createMany({ data: students.map((student) => ({ schoolId: current.current.id, studentId: student.id, schoolYearId: current.year.id, classId: current.classroom.id, lifecycle: 'ENROLLED', effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), schoolYearName: 'Năm 2026', schoolYearStartsOn: new Date('2026-01-01T00:00:00.000Z'), schoolYearEndsOn: new Date('2027-01-01T00:00:00.000Z'), className: 'Mầm' })) });
     const firstId = (await roster.students(current.admin.id, current.current.id, current.year.id, { page: '1', pageSize: '25', sort: 'name' })).data[0]!.id;
-    await parents.create(current.admin.id, current.current.id, firstId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai.roster@example.com', phone: '0900000000' });
+    await parents.create(current.admin.id, current.current.id, firstId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai.roster@example.com', phone: '0900000000', relationshipLabel: 'Mẹ' });
+    await parents.create(current.admin.id, current.current.id, firstId, uuid(), uuid(), { fullName: 'Ông Trần', email: 'ong.roster@example.com', phone: '0900000001', relationshipLabel: 'Ông' });
+    await parents.create(current.admin.id, current.current.id, firstId, uuid(), uuid(), { fullName: 'Mai Lê', email: 'mai.le.roster@example.com', phone: '0900000002', relationshipLabel: 'Mẹ' });
     const first = await roster.students(current.admin.id, current.current.id, current.year.id, { page: '1', pageSize: '1000', sort: 'name' });
     expect(first.data).toHaveLength(100); expect(first.meta).toEqual({ page: 1, pageSize: 100, totalItems: 127, totalPages: 2 });
-    expect(first.data[0]).toMatchObject({ parentSummary: { fullName: 'Mai Trần', status: 'ACTIVE', linkCount: 1 } });
-    expect(first.data[0]).not.toHaveProperty('email'); expect(first.data[0]?.parentSummary).not.toHaveProperty('email'); expect(first.data[0]?.parentSummary).not.toHaveProperty('phone');
+    expect(first.data[0]).toMatchObject({ relatives: { mother: 'Mai Trần', father: null, otherRelativeCount: 2 } });
+    expect(first.data[0]).not.toHaveProperty('email'); expect(first.data[0]?.relatives).not.toHaveProperty('email'); expect(first.data[0]?.relatives).not.toHaveProperty('phone');
     expect((await roster.students(current.admin.id, current.current.id, current.year.id, { q: 'Bé 001', lifecycle: 'ENROLLED', sort: 'class' })).data).toMatchObject([{ fullName: 'Bé 001' }]);
     await expect(roster.students(current.admin.id, current.current.id, current.year.id, { classId: foreign.classroom.id })).rejects.toMatchObject({ status: 404, response: { code: 'CLASS_NOT_FOUND' } });
     await expect(roster.students(current.admin.id, current.current.id, current.year.id, { page: 'bad' })).rejects.toMatchObject({ status: 400 });
@@ -252,18 +254,27 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
 
   it('persists normalized pending links, retains revoke history, and isolates foreign StudentParent IDs', async () => {
     const current = await graph(); const foreign = await graph(); const created = await createStudent(current); const other = await createStudent(foreign); const studentId = (created.outcome as { id: string }).id; const otherStudentId = (other.outcome as { id: string }).id;
-    const key = uuid(); const linked = await parents.create(current.admin.id, current.current.id, studentId, key, uuid(), { fullName: 'Mai Trần', email: ' MAI@Example.com ', phone: '0900000000' });
-    const replay = await parents.create(current.admin.id, current.current.id, studentId, key, uuid(), { fullName: 'Mai Trần', email: ' MAI@Example.com ', phone: '0900000000' });
-    expect(linked).toEqual(replay); expect(linked.outcome).toMatchObject({ status: 'ACTIVE', parent: { email: 'mai@example.com', bound: false } });
+    const key = uuid(); const linked = await parents.create(current.admin.id, current.current.id, studentId, key, uuid(), { fullName: 'Mai Trần', email: ' MAI@Example.com ', phone: '0900000000', relationshipLabel: ' Mẹ ' });
+    const replay = await parents.create(current.admin.id, current.current.id, studentId, key, uuid(), { fullName: 'Mai Trần', email: ' MAI@Example.com ', phone: '0900000000', relationshipLabel: ' Mẹ ' });
+    expect(linked).toEqual(replay); expect(linked.outcome).toMatchObject({ status: 'ACTIVE', relationshipLabel: 'Mẹ', parent: { email: 'mai@example.com', bound: false } });
+    await expect(parents.create(current.admin.id, current.current.id, studentId, key, uuid(), { fullName: 'Mai Trần', email: ' MAI@Example.com ', phone: '0900000000', relationshipLabel: 'Bố' })).rejects.toMatchObject({ status: 409, response: { code: 'IDEMPOTENCY_CONFLICT' } });
     expect(await prisma.userIdentity.count({ where: { emailNormalized: 'mai@example.com' } })).toBe(0);
     const profile = await prisma.parentProfile.findUniqueOrThrow({ where: { emailNormalized: 'mai@example.com' } }); const linkId = (linked.outcome as { id: string }).id;
-    const foreignLink = await parents.create(foreign.admin.id, foreign.current.id, otherStudentId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai@example.com', phone: '0900000000' });
+    const foreignLink = await parents.create(foreign.admin.id, foreign.current.id, otherStudentId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai@example.com', phone: '0900000000', relationshipLabel: 'Mẹ' });
     await expect(parents.revoke(current.admin.id, current.current.id, (foreignLink.outcome as { id: string }).id, uuid(), uuid())).rejects.toMatchObject({ status: 404 });
     await parents.revoke(current.admin.id, current.current.id, linkId, uuid(), uuid());
     expect(await prisma.studentParent.findUniqueOrThrow({ where: { id: linkId } })).toMatchObject({ status: 'REVOKED', revokedAt: expect.any(Date), parentProfileId: profile.id });
-    const reactivated = await parents.create(current.admin.id, current.current.id, studentId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai@example.com', phone: '0900000000' });
-    expect(reactivated.outcome).toMatchObject({ id: linkId, status: 'ACTIVE' });
+    const reactivated = await parents.create(current.admin.id, current.current.id, studentId, uuid(), uuid(), { fullName: 'Mai Trần', email: 'mai@example.com', phone: '0900000000', relationshipLabel: 'Bố' });
+    expect(reactivated.outcome).toMatchObject({ id: linkId, status: 'ACTIVE', relationshipLabel: 'Bố' });
     expect(await prisma.auditRecord.count({ where: { schoolId: current.current.id, action: { in: ['STUDENT_PARENT_CREATED', 'STUDENT_PARENT_REVOKED', 'STUDENT_PARENT_REACTIVATED'] } } })).toBe(3);
+  });
+
+  it('requires a trimmed relationship label and retains it in link detail and audit', async () => {
+    const current = await graph(); const created = await createStudent(current); const studentId = (created.outcome as { id: string }).id;
+    await expect(parents.create(current.admin.id, current.current.id, studentId, uuid(), uuid(), { fullName: 'Bà Trần', email: 'ba@example.com', phone: '0900000000', relationshipLabel: '   ' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { relationshipLabel: expect.any(String) } } });
+    const link = await parents.create(current.admin.id, current.current.id, studentId, uuid(), uuid(), { fullName: 'Bà Trần', email: 'ba@example.com', phone: '0900000000', relationshipLabel: ' Bà ngoại ' });
+    expect(await parents.links(current.admin.id, current.current.id, studentId)).toMatchObject([{ id: (link.outcome as { id: string }).id, relationshipLabel: 'Bà ngoại' }]);
+    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STUDENT_PARENT_CREATED' } })).toMatchObject({ provenance: { relationshipLabel: 'Bà ngoại' } });
   });
 
   it('persists only Staff profile fields and retains School-scoped assignment history with audit and replay', async () => {

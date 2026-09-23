@@ -324,7 +324,11 @@ export class RosterService {
         student: {
           include: {
             photo: { select: { id: true } },
-            parentLinks: { where: { schoolId, status: "ACTIVE" }, orderBy: { createdAt: "asc" }, include: { parentProfile: { select: { fullName: true } } } },
+            parentLinks: {
+              where: { schoolId, status: "ACTIVE" },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              include: { parentProfile: { select: { fullName: true } } },
+            },
           },
         },
       },
@@ -337,6 +341,8 @@ export class RosterService {
     return {
       data: enrollments.map((item) => {
         const links = item.student.parentLinks;
+        const mother = links.find((link) => link.relationshipLabel === "Mẹ");
+        const father = links.find((link) => link.relationshipLabel === "Bố");
         return {
           id: item.student.id,
           studentCode: item.student.studentCode,
@@ -348,9 +354,12 @@ export class RosterService {
             effectiveFrom: item.effectiveFrom.toISOString().slice(0, 10),
             classroom: item.classId && item.className ? { id: item.classId, name: item.className } : null,
           },
-          parentSummary: links[0]
-            ? { fullName: links[0].parentProfile.fullName, status: "ACTIVE" as const, linkCount: links.length }
-            : null,
+          relatives: {
+            mother: mother?.parentProfile.fullName ?? null,
+            father: father?.parentProfile.fullName ?? null,
+            otherRelativeCount:
+              links.length - Number(Boolean(mother)) - Number(Boolean(father)),
+          },
         };
       }),
       meta: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) },
