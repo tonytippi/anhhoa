@@ -39,4 +39,41 @@ describe('OperationalQueueWorkspace', () => {
     resolveOlder(response(queue('2026-02-09')));
     await waitFor(() => expect(screen.queryByText('2026-02-09 / Dữ liệu từ máy chủ.')).toBeNull());
   });
+  it('suppresses stale JSON parsing failures after the selected date changes', async () => {
+    let rejectOlder!: (reason?: unknown) => void;
+    const olderJson = new Promise<unknown>((_, reject) => { rejectOlder = reject; });
+    void olderJson.catch(() => undefined);
+    const fetch = vi.fn((url: string) => url.includes('date=2026-02-09') ? Promise.resolve({ ok: true, status: 200, json: () => olderJson }) : Promise.resolve(response(queue('2026-02-10'))));
+    vi.stubGlobal('fetch', fetch);
+    render(<OperationalQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText('Ngày'), { target: { value: '2026-02-10' } });
+    await screen.findByText('2026-02-10 / Dữ liệu từ máy chủ.');
+    rejectOlder(new Error('stale parse failure'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+  it('keeps School context for a class-not-found destination error', async () => {
+    const denied = vi.fn();
+    const fetch = vi.fn((url: string) => Promise.resolve(url.includes('/items?') ? new Response(JSON.stringify({ error: { code: 'CLASS_NOT_FOUND' } }), { status: 404, headers: { 'content-type': 'application/json' } }) : response(queue())));
+    vi.stubGlobal('fetch', fetch);
+    render(<OperationalQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={denied} />);
+    fireEvent.click(await screen.findByRole('button', { name: '1 học sinh' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Lớp đã chọn');
+    expect(denied).not.toHaveBeenCalled();
+  });
+  it('suppresses stale destination parsing failures after another queue request starts', async () => {
+    let rejectOlder!: (reason?: unknown) => void;
+    const olderJson = new Promise<unknown>((_, reject) => { rejectOlder = reject; });
+    void olderJson.catch(() => undefined);
+    const fetch = vi.fn((url: string) => {
+      if (url.includes('/items?')) return Promise.resolve({ ok: true, status: 200, json: () => olderJson });
+      return Promise.resolve(response(queue(url.includes('date=2026-02-10') ? '2026-02-10' : '2026-02-09')));
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<OperationalQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '1 học sinh' }));
+    fireEvent.change(screen.getByLabelText('Ngày'), { target: { value: '2026-02-10' } });
+    await screen.findByText('2026-02-10 / Dữ liệu từ máy chủ.');
+    rejectOlder(new Error('stale destination failure'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
 });

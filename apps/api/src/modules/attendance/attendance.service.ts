@@ -337,7 +337,7 @@ export class AttendanceService {
     const actor = await this.queueActor(identityId, schoolId, attendanceOn);
     if (classId && !uuid.test(classId)) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { classId: "Lớp không hợp lệ." } });
     const queue = await this.queueRows(schoolId, attendanceOn, actor.classIds, classId);
-    if (classId && !queue.classes.length) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
+    if (classId && !queue.classFound) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
     return { schoolId, attendanceOn, operating: queue.operating, explanation: queue.explanation, classes: queue.classes.map(({ classId: id, className, attendanceGapCount, pendingLeaveCount }) => ({ classId: id, className, attendanceGapCount, pendingLeaveCount })) };
   }
   async operationalQueueItems(identityId: string, schoolId: string, date?: string, classId?: string, status?: string) {
@@ -345,8 +345,9 @@ export class AttendanceService {
     if (!classId || !uuid.test(classId) || (status !== "NOT_RECORDED" && status !== "PENDING")) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(!classId || !uuid.test(classId) ? { classId: "Lớp không hợp lệ." } : {}), ...(status !== "NOT_RECORDED" && status !== "PENDING" ? { status: "Trạng thái không hợp lệ." } : {}) } });
     const actor = await this.queueActor(identityId, schoolId, attendanceOn);
     const queue = await this.queueRows(schoolId, attendanceOn, actor.classIds, classId);
+    if (!queue.classFound) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
     const classroom = queue.classes[0];
-    if (!classroom) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
+    if (!classroom) return { schoolId, attendanceOn, classId, className: queue.requestedClassName, status, operating: queue.operating, explanation: queue.explanation, students: [] };
     return { schoolId, attendanceOn, classId, className: classroom.className, status, operating: queue.operating, explanation: queue.explanation, students: status === "NOT_RECORDED" ? classroom.attendanceGaps : classroom.pendingLeaves };
   }
   async appOperation(identityId: string, schoolId: string, operationId: string) {
@@ -833,19 +834,24 @@ export class AttendanceService {
   }
   private async queueRows(schoolId: string, attendanceOn: string, allowedClassIds?: string[], requestedClassId?: string) {
     const on = this.day(attendanceOn);
-    const calendar = await this.calendar(this.prisma, schoolId, attendanceOn);
-    const operating = on.getUTCDay() !== 0 && !calendar.holidays.some((holiday: { startsOn: Date; endsOn: Date }) => holiday.startsOn <= on && holiday.endsOn >= on);
-    const classWhere = { schoolId, ...(allowedClassIds ? { id: { in: allowedClassIds } } : {}), ...(requestedClassId ? { id: requestedClassId } : {}) };
-    const classes = await this.prisma.class.findMany({ where: classWhere, select: { id: true, name: true }, orderBy: { name: "asc" } });
-    if (!operating) return { operating, explanation: "Ngày đã chọn không vận hành; hàng đợi không có công việc.", classes: classes.map((classroom) => ({ classId: classroom.id, className: classroom.name, attendanceGapCount: 0, pendingLeaveCount: 0, attendanceGaps: [], pendingLeaves: [] })) };
-    const placements = await this.prisma.enrollmentClassAssignment.findMany({ where: { schoolId, classId: { in: classes.map((item) => item.id) }, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }], enrollment: { lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }] } }, select: { classId: true, enrollment: { select: { student: { select: { id: true, fullName: true, studentCode: true } } } } }, orderBy: [{ enrollment: { student: { fullName: "asc" } } }, { enrollment: { studentId: "asc" } }] });
-    const studentIds = placements.map((placement) => placement.enrollment.student.id);
-    const [records, leaves] = await Promise.all([
-      this.prisma.attendanceRecord.findMany({ where: { schoolId, attendanceOn: on, classId: { in: classes.map((item) => item.id) } }, select: { studentId: true } }),
-      this.prisma.leaveRequest.findMany({ where: { schoolId, days: { some: { operatingOn: on } }, studentId: { in: studentIds } }, select: { studentId: true, status: true } }),
-    ]);
-    const recorded = new Set(records.map((record) => record.studentId)); const confirmed = new Set(leaves.filter((leave) => leave.status === "AUTO_APPROVED" || leave.status === "APPROVED").map((leave) => leave.studentId)); const pending = new Set(leaves.filter((leave) => leave.status === "PENDING").map((leave) => leave.studentId));
-    return { operating, explanation: "Thiếu điểm danh là học sinh đang nhập học chưa có bản ghi hoặc đơn nghỉ trong ngày.", classes: classes.map((classroom) => { const students = placements.filter((placement) => placement.classId === classroom.id).map((placement) => placement.enrollment.student); const attendanceGaps = students.filter((student) => !recorded.has(student.id) && !confirmed.has(student.id) && !pending.has(student.id)).map((student) => ({ studentId: student.id, studentName: student.fullName, studentCode: student.studentCode })); const pendingLeaves = students.filter((student) => pending.has(student.id)).map((student) => ({ studentId: student.id, studentName: student.fullName, studentCode: student.studentCode })); return { classId: classroom.id, className: classroom.name, attendanceGapCount: attendanceGaps.length, pendingLeaveCount: pendingLeaves.length, attendanceGaps, pendingLeaves }; }) };
+    return this.prisma.$transaction(async (tx) => {
+      const classWhere = { schoolId, ...(allowedClassIds ? { id: { in: allowedClassIds } } : {}), ...(requestedClassId ? { id: requestedClassId } : {}) };
+      // Resolve the requested Class before returning an intentionally empty non-operating queue.
+      const classes = await tx.class.findMany({ where: classWhere, select: { id: true, name: true }, orderBy: { name: "asc" } });
+      const classFound = !requestedClassId || classes.length === 1;
+      const requestedClassName = requestedClassId ? classes[0]?.name ?? "" : "";
+      const calendar = await this.calendar(tx, schoolId, attendanceOn);
+      const operating = on.getUTCDay() !== 0 && !calendar.holidays.some((holiday: { startsOn: Date; endsOn: Date }) => holiday.startsOn <= on && holiday.endsOn >= on);
+      if (!operating) return { classFound, requestedClassName, operating, explanation: "Ngày đã chọn không vận hành; hàng đợi không có công việc.", classes: [] };
+      const placements = await tx.enrollmentClassAssignment.findMany({ where: { schoolId, classId: { in: classes.map((item) => item.id) }, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }], enrollment: { lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }] } }, select: { classId: true, enrollment: { select: { student: { select: { id: true, fullName: true, studentCode: true } } } } }, orderBy: [{ enrollment: { student: { fullName: "asc" } } }, { enrollment: { studentId: "asc" } }] });
+      const studentIds = placements.map((placement) => placement.enrollment.student.id);
+      const [records, leaves] = await Promise.all([
+        tx.attendanceRecord.findMany({ where: { schoolId, attendanceOn: on, classId: { in: classes.map((item) => item.id) } }, select: { studentId: true } }),
+        tx.leaveRequest.findMany({ where: { schoolId, days: { some: { operatingOn: on } }, studentId: { in: studentIds } }, select: { studentId: true, status: true } }),
+      ]);
+      const recorded = new Set(records.map((record) => record.studentId)); const confirmed = new Set(leaves.filter((leave) => leave.status === "AUTO_APPROVED" || leave.status === "APPROVED").map((leave) => leave.studentId)); const pending = new Set(leaves.filter((leave) => leave.status === "PENDING").map((leave) => leave.studentId));
+      return { classFound, requestedClassName, operating, explanation: "Thiếu điểm danh là học sinh đang nhập học chưa có bản ghi hoặc đơn nghỉ trong ngày.", classes: classes.map((classroom) => { const students = placements.filter((placement) => placement.classId === classroom.id).map((placement) => placement.enrollment.student); const attendanceGaps = students.filter((student) => !recorded.has(student.id) && !confirmed.has(student.id) && !pending.has(student.id)).map((student) => ({ studentId: student.id, studentName: student.fullName, studentCode: student.studentCode })); const pendingLeaves = students.filter((student) => pending.has(student.id)).map((student) => ({ studentId: student.id, studentName: student.fullName, studentCode: student.studentCode })); return { classId: classroom.id, className: classroom.name, attendanceGapCount: attendanceGaps.length, pendingLeaveCount: pendingLeaves.length, attendanceGaps, pendingLeaves }; }) };
+    }, { isolationLevel: "RepeatableRead" });
   }
   private async handoverTeacher(identityId: string, schoolId: string, tx: Db = this.prisma) {
     const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "HANDOVER_WRITE" } } } } }, select: { id: true, boundStaffProfile: { select: { id: true } } } });

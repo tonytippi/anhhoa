@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-23 # Story 4.6 morning operational queue completed and ready for review.
+last_updated: 2026-09-23 # Story 4.6 morning operational queue review fixes completed.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -44,7 +44,7 @@ development_status:
   4-3-evidence-lifecycle-va-notification-source-an-toan: done
   4-4-ghi-handover-nhu-operational-reference: done
   4-5-quyet-dinh-leave-ngan-va-nguon-immutable-cho-finance: done
-  4-6-hang-doi-van-hanh-buoi-sang: review
+  4-6-hang-doi-van-hanh-buoi-sang: done
   4-7-kiem-thu-release-gate-cho-van-hanh-lop: backlog
   4-8-teacher-ghi-dailyjournal-co-version-va-media-duoc-kiem-soat: backlog
   4-9-dailyjournal-media-lifecycle-va-parent-projection-an-toan: backlog

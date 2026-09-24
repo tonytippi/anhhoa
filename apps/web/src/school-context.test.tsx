@@ -12,6 +12,17 @@ describe('SchoolContext', () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
     const clear = vi.fn(); vi.stubGlobal('fetch', fetch); renderSchoolContext(clear); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } }); await waitFor(() => expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường A' })).toBeNull()); expect(screen.getByRole('option', { name: 'Trường B' })).toBeTruthy(); expect(localStorage.getItem(storageKey)).toBeNull(); expect(clear).not.toHaveBeenCalled();
   });
+  it('defaults an authorized queue-only School to Overview and mounts its queue workspace', async () => {
+    const queueContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'OPERATIONAL_QUEUE_READ'] as const, navigation: [{ id: 'overview', label: 'Tổng quan' }] };
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: queueContext })));
+      return Promise.resolve(new Response(JSON.stringify({ data: { schoolId: 'a', attendanceOn: '2026-02-09', operating: false, explanation: 'Không vận hành.', classes: [] } })));
+    });
+    vi.stubGlobal('fetch', fetch); renderSchoolContext();
+    await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
+    expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/app\/schools\/a\/operational-queue\?date=/), { credentials: 'include' });
+  });
   it('exposes semantic presentation hooks for the chooser and school workspace', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context })));
     vi.stubGlobal('fetch', fetch); const { container } = renderSchoolContext();

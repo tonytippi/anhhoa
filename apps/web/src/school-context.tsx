@@ -328,7 +328,7 @@ export function SchoolContext({
                {context.navigation.filter((item) => item.id === "overview" || item.id === "leave-review" || item.id === "finance").map((item) => <button type="button" key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onClick={() => setView(item.id as View)}>{item.label}</button>)}
             </nav>
           <div className="school-context-workspace">
-           {view === "overview" && context.capabilities.includes("OPERATIONAL_QUEUE_READ") ? <OperationalQueueWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} /> : (["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) &&
+           {view === "overview" && context.capabilities.includes("OPERATIONAL_QUEUE_READ") ? <OperationalQueueWorkspace key={context.schoolId} schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} /> : (["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) &&
           context.capabilities.includes("ROSTER_MANAGE") ? (
             <RosterWorkspace
               schoolId={context.schoolId}

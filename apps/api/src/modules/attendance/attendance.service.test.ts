@@ -20,9 +20,12 @@ function service(overrides: Record<string, unknown> = {}) {
     leaveRequest: { create: vi.fn() }, leaveDaySource: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) }, leaveDaySourceExclusion: { createMany: vi.fn() },
     auditRecord: { create: vi.fn() },
     evidenceReference: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    class: { findMany: vi.fn().mockResolvedValue([]) },
+    enrollmentClassAssignment: { findMany: vi.fn().mockResolvedValue([]) },
+    attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) },
   };
   const prisma = {
-    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() }, leaveDaySourceExclusion: { createMany: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, evidenceReference: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, $transaction: vi.fn(async (work) => work(transaction)), ...overrides,
+    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() }, leaveDaySourceExclusion: { createMany: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, evidenceReference: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, $transaction: vi.fn(async (work) => work({ ...transaction, ...overrides })), ...overrides,
   };
   return { prisma, attendance: new AttendanceService(prisma as never) };
 }
@@ -64,7 +67,7 @@ describe('AttendanceService leave matrix', () => {
     const { attendance } = service({
       schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) },
       staffClassAssignment: { findFirst: vi.fn().mockResolvedValue({ id: 'assignment' }) },
-      schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) },
+    schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) },
       attendancePolicy: { findFirst: vi.fn().mockResolvedValue({ photoEvidenceMode: 'OPTIONAL' }) },
       studentEnrollment: { findMany: vi.fn().mockResolvedValue([{ studentId: student, student: { id: student, fullName: 'Bé An' } }]) },
       attendanceRecord: { findMany: vi.fn().mockResolvedValue([record]) },
@@ -75,15 +78,16 @@ describe('AttendanceService leave matrix', () => {
   it('uses the roster precedence for the operational queue and returns a successful empty non-operating queue', async () => {
     const classroom = { id: 'class-a', name: 'Mầm A' };
     const placement = { classId: classroom.id, enrollment: { student: { id: student, fullName: 'Bé An', studentCode: 'AT-1' } } };
-    const { attendance } = service({
+    const { attendance, prisma } = service({
       schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) },
       class: { findMany: vi.fn().mockResolvedValue([classroom]) },
       enrollmentClassAssignment: { findMany: vi.fn().mockResolvedValue([placement]) },
-      attendanceRecord: { findMany: vi.fn().mockResolvedValue([{ studentId: student }]) },
+    attendanceRecord: { findMany: vi.fn().mockResolvedValue([{ studentId: student }]) },
       leaveRequest: { findMany: vi.fn().mockResolvedValue([{ studentId: student, status: 'PENDING' }]) },
     });
     await expect((attendance as any).queueRows(school, '2026-02-09')).resolves.toMatchObject({ operating: true, classes: [{ attendanceGapCount: 0, pendingLeaveCount: 1 }] });
-    await expect((attendance as any).queueRows(school, '2026-02-08')).resolves.toMatchObject({ operating: false, classes: [{ attendanceGapCount: 0, pendingLeaveCount: 0 }] });
+    expect((prisma as any).$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'RepeatableRead' });
+    await expect((attendance as any).queueRows(school, '2026-02-08')).resolves.toMatchObject({ operating: false, classes: [] });
   });
   it('keeps a pending leave out of attendance gaps while returning it as its own queue item', async () => {
     const classroom = { id: 'class-a', name: 'Mầm A' };

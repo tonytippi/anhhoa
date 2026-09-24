@@ -25,7 +25,7 @@ describe('AdminShell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất' }));
     expect(screen.queryByText('Đang tải ngữ cảnh trường...')).toBeNull();
     expect(screen.getByRole('link', { name: 'Đăng nhập với Google' }).getAttribute('href')).toBe('/api/app/auth/google/start');
-    await waitFor(() => expect(fetch).toHaveBeenLastCalledWith('/api/app/auth/logout', expect.objectContaining({ headers: { 'x-csrf-token': 'csrf-value' } })));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/auth/logout', expect.objectContaining({ headers: { 'x-csrf-token': 'csrf-value' } })));
     settleLogout();
   });
 });

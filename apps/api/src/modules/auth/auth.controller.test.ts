@@ -73,15 +73,19 @@ describe('AuthController', () => {
   });
   it('requires an HTTPS callback URL in production', () => {
     const nodeEnv = process.env.NODE_ENV;
+    const origin = process.env.APP_WEB_ORIGIN;
     const callbackUrl = process.env.APP_GOOGLE_CALLBACK_URL;
     try {
       process.env.NODE_ENV = 'production';
+      process.env.APP_WEB_ORIGIN = 'https://admin.passionedu.org';
       process.env.APP_GOOGLE_CALLBACK_URL = 'http://localhost:3000/api/app/auth/google/callback';
       expect(() => audienceConfig('app', true)).toThrow('APP_GOOGLE_CALLBACK_URL must use HTTPS in production.');
       process.env.APP_GOOGLE_CALLBACK_URL = 'https://api.passionedu.org/api/app/auth/google/callback';
       expect(cookieSecure('app')).toBe(true);
     } finally {
       process.env.NODE_ENV = nodeEnv;
+      if (origin === undefined) delete process.env.APP_WEB_ORIGIN;
+      else process.env.APP_WEB_ORIGIN = origin;
       if (callbackUrl === undefined) delete process.env.APP_GOOGLE_CALLBACK_URL;
       else process.env.APP_GOOGLE_CALLBACK_URL = callbackUrl;
     }
