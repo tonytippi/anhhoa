@@ -179,6 +179,16 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     await prisma.leaveDaySourceExclusion.create({ data: { schoolId: current.school.id, leaveDaySourceId: source.id, attendanceRecordId: attendanceRecord.id } });
     await expect(attendance.leaveDaySources(current.identity.id, current.school.id)).resolves.toEqual({ data: [], nextCursor: null });
   });
+  it('projects overview facts only from the authorized School and effective enrollment placement', async () => {
+    const current = await graph(); const foreign = await graph();
+    const position = await prisma.schoolPosition.create({ data: { schoolId: current.school.id, code: `OVERVIEW-${uuid()}`, name: `Tổng quan ${uuid()}` } });
+    await prisma.positionCapabilityGrant.create({ data: { schoolId: current.school.id, positionId: position.id, capability: 'SCHOOL_CONTEXT_READ' } });
+    await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Quản trị', email: `${uuid()}@example.com`, phone: '0900000009', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    await prisma.staffProfile.create({ data: { schoolId: foreign.school.id, primaryPositionId: (await prisma.schoolPosition.create({ data: { schoolId: foreign.school.id, code: `FOREIGN-${uuid()}`, name: `Ngoài ${uuid()}` } })).id, fullName: 'Ngoài trường', email: `${uuid()}@example.com`, phone: '0900000010', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    const result = await attendance.overview(current.identity.id, current.school.id, '2026-02-09');
+    expect(result.metrics).toMatchObject({ students: 1, staff: 1, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: 'Nghỉ không phép', count: 0 }, notRecorded: 1 });
+    expect(result.classes).toEqual([expect.objectContaining({ classId: current.classroom.id, students: 1, notRecorded: 1 })]);
+  });
   it('expires confirmed evidence after two calendar months while retaining its audit handle and source fact', async () => {
     const current = await graph();
     const evidence = await prisma.evidenceReference.create({ data: { schoolId: current.school.id, contentType: 'image/jpeg', blob: new Uint8Array([1]), preview: new Uint8Array([1]), confirmedAt: new Date('2026-01-31T04:00:00.000Z'), confirmedStudentId: current.student.id, confirmedAttendanceOn: date('2026-01-30') } });

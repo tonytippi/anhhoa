@@ -1501,6 +1501,20 @@ tbody tr:last-child td {
   padding: 5px 8px;
   font-size: 12px;
 }
+.overview-workspace { gap: 18px !important; }
+.overview-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.overview-heading p, .overview-heading span { margin: 0; color: #5f746e; font-size: 14px; }
+.overview-heading h2 { margin: 4px 0; }
+.overview-date { min-width: 170px; }
+.overview-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.overview-metrics article { display: grid; gap: 6px; min-height: 112px; align-content: center; border: 1px solid #d7e2dc; border-radius: 12px; background: #fff; padding: 18px; }
+.overview-metrics strong { color: #18332d; font-size: 28px; line-height: 1; font-variant-numeric: tabular-nums; }
+.overview-metrics span { color: #5f746e; font-size: 13px; font-weight: 700; }
+.overview-status { display: inline-flex; border-radius: 999px; background: #eef6f1; color: #185d3d; padding: 4px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.overview-state { display: grid; min-height: 160px; place-content: center; gap: 14px; border: 1px solid #d7e2dc; border-radius: 12px; background: #fff; color: #5f746e; padding: 24px; text-align: center; }
+.overview-state p { margin: 0; }
+.overview-loading { background: linear-gradient(100deg, #fff 30%, #f2f7f4 50%, #fff 70%); }
+@media (max-width: 767px) { .overview-metrics { grid-template-columns: 1fr 1fr; } .overview-metrics article { min-height: 96px; padding: 14px; } }
 .school-context-workspace small {
   color: #922e2e;
   font-size: 12px;

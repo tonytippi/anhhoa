@@ -404,6 +404,59 @@ export class AttendanceService {
       nextCursor: sources.length > limit ? page.at(-1)?.id ?? null : null,
     };
   }
+  async overview(identityId: string, schoolId: string, requestedDate?: string) {
+    const now = this.now();
+    await this.overviewActor(identityId, schoolId);
+    const date = requestedDate === undefined ? now.day : this.date(requestedDate, "date");
+    const on = this.day(date);
+    const enrollments = await this.prisma.studentEnrollment.findMany({
+      where: {
+        schoolId,
+        lifecycle: "ENROLLED",
+        effectiveFrom: { lte: on },
+        OR: [{ endedOn: null }, { endedOn: { gt: on } }],
+        classAssignments: { some: { effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } },
+      },
+      select: {
+        studentId: true,
+        classAssignments: {
+          where: { effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] },
+          select: { classId: true, effectiveFrom: true, classroom: { select: { name: true } } },
+        },
+      },
+    });
+    // Historical overlap must not inflate a School's operational counts. The latest effective placement wins.
+    const roster = enrollments.flatMap((enrollment) => enrollment.classAssignments.sort((left, right) => right.effectiveFrom.getTime() - left.effectiveFrom.getTime() || left.classId.localeCompare(right.classId)).slice(0, 1).map((assignment) => ({ studentId: enrollment.studentId, classId: assignment.classId, className: assignment.classroom.name })));
+    const studentIds = roster.map((row) => row.studentId);
+    const staff = await this.prisma.staffProfile.count({ where: { schoolId, employmentStatus: "ACTIVE" } });
+    const [attendance, leaves, handovers] = studentIds.length
+      ? await Promise.all([
+          this.prisma.attendanceRecord.findMany({ where: { schoolId, attendanceOn: on, studentId: { in: studentIds } }, select: { studentId: true, state: true } }),
+          this.prisma.leaveDaySource.findMany({ where: { schoolId, operatingOn: on, studentId: { in: studentIds }, exclusions: { none: {} } }, select: { studentId: true } }),
+          this.prisma.handoverRecord.findMany({ where: { schoolId, handoverOn: on, studentId: { in: studentIds } }, select: { studentId: true } }),
+        ])
+      : [[], [], []] as const;
+    const records = new Map(attendance.map((record) => [record.studentId, record.state]));
+    const approvedLeaves = new Set(leaves.map((source) => source.studentId));
+    const pickedUp = new Set(handovers.map((record) => record.studentId));
+    const isToday = date === now.day;
+    const unresolvedLabel = isToday ? "Chưa đến lớp" : "Nghỉ không phép";
+    const classes = new Map<string, { classId: string; className: string; students: number; present: number; approvedLeave: number; pickedUp: number; unresolved: { label: string; count: number }; notRecorded: number }>();
+    for (const row of roster) {
+      const item = classes.get(row.classId) ?? { classId: row.classId, className: row.className, students: 0, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: unresolvedLabel, count: 0 }, notRecorded: 0 };
+      item.students += 1;
+      const state = records.get(row.studentId);
+      if (state === "PRESENT") item.present += 1;
+      else if (approvedLeaves.has(row.studentId)) item.approvedLeave += 1;
+      else if (isToday || state === "ABSENT") item.unresolved.count += 1;
+      else item.notRecorded += 1;
+      if (pickedUp.has(row.studentId)) item.pickedUp += 1;
+      classes.set(row.classId, item);
+    }
+    const rows = [...classes.values()].sort((left, right) => left.className.localeCompare(right.className, "vi"));
+    const metrics = rows.reduce((total, item) => ({ students: total.students + item.students, staff, present: total.present + item.present, approvedLeave: total.approvedLeave + item.approvedLeave, pickedUp: total.pickedUp + item.pickedUp, unresolved: { label: unresolvedLabel, count: total.unresolved.count + item.unresolved.count }, notRecorded: total.notRecorded + item.notRecorded }), { students: 0, staff, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: unresolvedLabel, count: 0 }, notRecorded: 0 });
+    return { date, isToday, metrics, classes: rows };
+  }
   async teacherList(identityId: string, schoolId: string, classId?: string) {
     const membership = await this.prisma.schoolMembership.findFirst({
       where: {
@@ -802,6 +855,11 @@ export class AttendanceService {
       if (!assignment) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
     }
     return { id: actor.id, staffProfileId: actor.boundStaffProfile.id };
+  }
+  private async overviewActor(identityId: string, schoolId: string, tx: Db = this.prisma) {
+    const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SCHOOL_CONTEXT_READ" } } } } }, select: { id: true } });
+    if (!actor) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
+    return actor;
   }
   private async handoverTeacher(identityId: string, schoolId: string, tx: Db = this.prisma) {
     const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "HANDOVER_WRITE" } } } } }, select: { id: true, boundStaffProfile: { select: { id: true } } } });
