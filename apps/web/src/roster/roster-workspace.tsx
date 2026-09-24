@@ -2340,12 +2340,6 @@ export function RosterWorkspace({
             )}
             </>}
             {(section === "all" || section === "students") && <>
-            {section === "students" && selected?.isActive && (
-              <div className="student-list-toolbar">
-                <h3>Học sinh của {selected.name}</h3>
-                <button type="button" className="primary-action" disabled={disabled} onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh</button>
-              </div>
-            )}
             {section === "students" && selected?.isActive && studentIntakeOpen && (
               <div className="student-intake-backdrop" role="presentation">
               <div ref={studentIntakeDialog} className="student-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="student-intake-title">
@@ -2361,9 +2355,16 @@ export function RosterWorkspace({
                 Chỉ có thể tạo ghi danh trong năm học đang hoạt động.
               </p>
             )}
+            <form className="roster-list-filters" aria-label="Lọc danh bộ" onSubmit={(event) => { event.preventDefault(); reloadRoster(1); }}>
+              <label>Tìm kiếm<input type="search" value={rosterQuery.q} onChange={(event) => setRosterQuery({ ...rosterQuery, q: event.target.value })} placeholder="Tên hoặc mã học sinh" /></label>
+              <label>Lớp<select value={rosterQuery.classId} onChange={(event) => setRosterQuery({ ...rosterQuery, classId: event.target.value })}><option value="">Tất cả lớp</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label>Trạng thái<select value={rosterQuery.lifecycle} onChange={(event) => setRosterQuery({ ...rosterQuery, lifecycle: event.target.value })}><option value="">Tất cả trạng thái</option>{Object.entries(lifecycleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label>Sắp xếp<select value={rosterQuery.sort} onChange={(event) => setRosterQuery({ ...rosterQuery, sort: event.target.value as "name" | "class" })}><option value="name">Tên học sinh</option><option value="class">Lớp</option></select></label>
+              <button>Áp dụng</button><button type="button" disabled={rosterLoading} onClick={() => reloadRoster()}>Làm mới danh sách</button>
+              {section === "students" && selected?.isActive && <button type="button" className="primary-action" disabled={disabled} onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh</button>}
+            </form>
             <div className="table-scroll student-list-table">
-              <table>
-                <caption>Danh bộ {schoolName} · {selected?.name ?? "Chưa chọn năm học"} · Trang {rosterMeta.page}</caption>
+              <table aria-label="Danh sách học sinh">
                 <thead>
                   <tr>
                     <th>STT</th>
@@ -2452,19 +2453,21 @@ export function RosterWorkspace({
                 </tbody>
               </table>
             </div>
-            <form className="roster-list-filters" aria-label="Lọc danh bộ" onSubmit={(event) => { event.preventDefault(); reloadRoster(1); }}>
-              <label>Tìm kiếm<input type="search" value={rosterQuery.q} onChange={(event) => setRosterQuery({ ...rosterQuery, q: event.target.value })} placeholder="Tên hoặc mã học sinh" /></label>
-              <label>Lớp<select value={rosterQuery.classId} onChange={(event) => setRosterQuery({ ...rosterQuery, classId: event.target.value })}><option value="">Tất cả lớp</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <label>Trạng thái<select value={rosterQuery.lifecycle} onChange={(event) => setRosterQuery({ ...rosterQuery, lifecycle: event.target.value })}><option value="">Tất cả trạng thái</option>{Object.entries(lifecycleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-              <label>Sắp xếp<select value={rosterQuery.sort} onChange={(event) => setRosterQuery({ ...rosterQuery, sort: event.target.value as "name" | "class" })}><option value="name">Tên học sinh</option><option value="class">Lớp</option></select></label>
-              <button>Áp dụng</button><button type="button" disabled={rosterLoading} onClick={() => reloadRoster()}>Làm mới danh sách</button>
-            </form>
             {rosterMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang danh bộ"><button type="button" disabled={rosterLoading || rosterMeta.page === 1} onClick={() => reloadRoster(rosterMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, rosterMeta.totalPages) }, (_, index) => rosterMeta.totalPages <= 5 ? index + 1 : Math.min(rosterMeta.totalPages - 4, Math.max(1, rosterMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === rosterMeta.page} aria-current={page === rosterMeta.page ? "page" : undefined} onClick={() => reloadRoster(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || rosterMeta.page === rosterMeta.totalPages} onClick={() => reloadRoster(rosterMeta.page + 1)}>Sau</button></nav>}
             </>}
             {section === "parents" && <>
+              <div className="parent-list-controls">
+                <form className="parent-list-search" aria-label="Lọc phụ huynh" onSubmit={(event) => { event.preventDefault(); reloadParents(1); }}>
+                  <label>
+                    <span>Tìm kiếm</span>
+                    <input type="search" value={parentQuery.q} onChange={(event) => { const next = { q: event.target.value }; parentQueryRef.current = next; setParentQuery(next); }} placeholder="Tên, con, số điện thoại hoặc email" />
+                  </label>
+                  <button>Áp dụng</button>
+                  <button type="button" disabled={rosterLoading} onClick={() => reloadParents()}>Làm mới</button>
+                </form>
+              </div>
               <div className="table-scroll student-list-table parent-list-table">
-                <table>
-                  <caption>Phụ huynh {schoolName} · {selected?.name ?? "Chưa chọn năm học"} · Trang {parentMeta.page}</caption>
+                <table aria-label="Danh sách phụ huynh">
                   <thead><tr><th>STT</th><th>Phụ huynh</th><th>Số điện thoại</th><th>Email</th><th>Con / lớp</th><th>Tùy chọn</th></tr></thead>
                   <tbody>
                     {rosterLoading ? <tr><td colSpan={6} role="status" className="student-empty-state">Đang tải danh sách phụ huynh...</td></tr>
@@ -2479,17 +2482,7 @@ export function RosterWorkspace({
                   </tbody>
                 </table>
               </div>
-              <div className="parent-list-controls">
-                <form className="parent-list-search" aria-label="Lọc phụ huynh" onSubmit={(event) => { event.preventDefault(); reloadParents(1); }}>
-                  <label>
-                    <span>Tìm kiếm</span>
-                    <input type="search" value={parentQuery.q} onChange={(event) => { const next = { q: event.target.value }; parentQueryRef.current = next; setParentQuery(next); }} placeholder="Tên, con, số điện thoại hoặc email" />
-                  </label>
-                  <button>Áp dụng</button>
-                  <button type="button" disabled={rosterLoading} onClick={() => reloadParents()}>Làm mới</button>
-                </form>
-                {parentMeta.totalPages > 1 && <nav className="pagination parent-list-pagination" aria-label="Phân trang phụ huynh"><button type="button" disabled={rosterLoading || parentMeta.page === 1} onClick={() => reloadParents(parentMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, parentMeta.totalPages) }, (_, index) => parentMeta.totalPages <= 5 ? index + 1 : Math.min(parentMeta.totalPages - 4, Math.max(1, parentMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === parentMeta.page} aria-current={page === parentMeta.page ? "page" : undefined} onClick={() => reloadParents(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || parentMeta.page === parentMeta.totalPages} onClick={() => reloadParents(parentMeta.page + 1)}>Sau</button></nav>}
-              </div>
+              {parentMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang phụ huynh"><button type="button" disabled={rosterLoading || parentMeta.page === 1} onClick={() => reloadParents(parentMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, parentMeta.totalPages) }, (_, index) => parentMeta.totalPages <= 5 ? index + 1 : Math.min(parentMeta.totalPages - 4, Math.max(1, parentMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === parentMeta.page} aria-current={page === parentMeta.page ? "page" : undefined} onClick={() => reloadParents(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || parentMeta.page === parentMeta.totalPages} onClick={() => reloadParents(parentMeta.page + 1)}>Sau</button></nav>}
             </>}
           </fieldset>
         </>

@@ -87,7 +87,7 @@ describe("RosterWorkspace paged read model", () => {
     const fetch = fetcher(); vi.stubGlobal("fetch", fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
     expect(await screen.findByText("Bé An")).toBeTruthy();
-    expect(screen.getByText(/Trang 1/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "1" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("Mai Trần")).toBeTruthy();
     expect(screen.getByText("Minh Trần")).toBeTruthy();
     expect(screen.getByText("+2 người thân khác")).toBeTruthy();

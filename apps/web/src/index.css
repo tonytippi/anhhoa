@@ -1316,8 +1316,7 @@ tbody tr:last-child td {
 }
 .parent-list-search label {
   display: grid;
-  flex: 1 1 320px;
-  max-width: 440px;
+  flex: 1 1 auto;
   gap: 5px;
 }
 .parent-list-search label span {
@@ -1327,7 +1326,6 @@ tbody tr:last-child td {
 }
 .parent-list-search input { min-width: 0; }
 .parent-list-search button { flex: 0 0 auto; }
-.parent-list-pagination { flex: 0 0 auto; }
 .relative-count { display: block; color: #5f746e !important; white-space: nowrap; }
 .roster-row-actions { position: relative; width: 72px; }
 .roster-action-menu {
@@ -1492,7 +1490,6 @@ tbody tr:last-child td {
     flex-direction: column;
   }
   .parent-list-search label { max-width: none; }
-  .parent-list-pagination { justify-content: flex-start; }
 }
 
 /* Desktop navigation belongs to the persistent Admin sidebar.  The navigation
