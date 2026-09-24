@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 import {
   bootstrapSession,
   googleLoginUrl,
@@ -118,7 +119,9 @@ export function AdminShell() {
       <main className="admin-main">
         <a className="admin-skip-link" href="#school-content">Bỏ qua điều hướng</a>
         <div id="school-content">
-          <SchoolContext clear={clear} userIdentityId={session.userIdentityId} />
+          <BrowserRouter>
+            <SchoolContext clear={clear} userIdentityId={session.userIdentityId} />
+          </BrowserRouter>
         </div>
       </main>
     </div>
