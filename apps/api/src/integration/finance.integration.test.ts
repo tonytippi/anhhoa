@@ -1107,6 +1107,27 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       );
       expect(JSON.stringify(generatedRun.templateSnapshot)).not.toContain("receivableStatus");
       expect(JSON.stringify(generatedRun.templateSnapshot)).not.toContain("receivableGroupStatus");
+      const firstInvoice = await prisma.invoice.findFirstOrThrow({
+        where: {
+          schoolId: current.school.id,
+          collectionRunId: runId,
+          studentId: first.student.id,
+        },
+        include: { lines: true },
+      });
+      expect(firstInvoice.total).toBe(770000n);
+      expect(firstInvoice.lines).toEqual([
+        expect.objectContaining({
+          receivableId: mealId,
+          receivableCodeSnapshot: "MEAL",
+          receivableNameSnapshot: "Tiền ăn",
+          unitLabelSnapshot: "ngày",
+          defaultUnitPriceSnapshot: 35000n,
+          unitPrice: 35000n,
+          quantity: 22,
+          amount: 770000n,
+        }),
+      ]);
       await finance.transitionReceivable(current.identity.id, current.school.id, mealId, uuid(), uuid(), { status: "INACTIVE", reason: "Đổi catalog" });
       const added = await finance.addGeneratedStudent(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentId: later.student.id });
       expect(added.outcome).toMatchObject({ created: [{ studentId: later.student.id }] });
@@ -1188,6 +1209,115 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         response: { code: "PREVIEW_STALE" },
       });
       expect((await finance.run(current.identity.id, current.school.id, runId)).status).toBe("DRAFT");
+    });
+
+    it("rejects generate when READY template catalog facts no longer match the confirmed preview", async () => {
+      const current = await roster(await graph());
+      const student = await enrolled(current);
+      const groupId = outcomeId(await group(current, "Catalog READY"));
+      const receivableId = outcomeId(await finance.createReceivable(
+        current.identity.id,
+        current.school.id,
+        uuid(),
+        uuid(),
+        {
+          groupId,
+          code: "READY_MEAL",
+          displayName: "Tiền ăn",
+          unitLabel: "ngày",
+          defaultUnitPrice: "35000",
+        },
+      ));
+      const runId = outcomeId(await open(current));
+      await finance.saveTemplateLine(
+        current.identity.id,
+        current.school.id,
+        runId,
+        uuid(),
+        uuid(),
+        { receivableId, quantity: "22", expectedVersion: 1 },
+      );
+      await finance.replaceSelection(
+        current.identity.id,
+        current.school.id,
+        runId,
+        uuid(),
+        uuid(),
+        { studentIds: [student.student.id] },
+      );
+      const preview = await finance.preview(current.identity.id, current.school.id, runId);
+      await finance.readyRun(
+        current.identity.id,
+        current.school.id,
+        runId,
+        uuid(),
+        uuid(),
+        { previewFingerprint: preview.fingerprint },
+      );
+      const ready = await prisma.collectionRun.findUniqueOrThrow({ where: { id: runId } });
+      expect(ready.readyPreviewFingerprint).toBe(preview.fingerprint);
+      await expect(prisma.collectionRun.update({
+        where: { id: runId },
+        data: { readyPreviewFingerprint: "forged-fingerprint" },
+      })).rejects.toThrow(/fingerprint is immutable/);
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+        await tx.receivable.update({
+          where: { id: receivableId },
+          data: { defaultUnitPrice: 36000n },
+        });
+      });
+      await expect(generate(current, runId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: "PREVIEW_STALE" },
+      });
+      expect(await prisma.collectionRunGeneration.count({
+        where: { schoolId: current.school.id, collectionRunId: runId },
+      })).toBe(0);
+      expect(await prisma.invoice.count({
+        where: { schoolId: current.school.id, collectionRunId: runId },
+      })).toBe(0);
+      expect((await finance.run(current.identity.id, current.school.id, runId)).status).toBe("READY");
+    });
+
+    it("rejects generate when a template receivable becomes inactive after READY", async () => {
+      const current = await roster(await graph());
+      const student = await enrolled(current);
+      const groupId = outcomeId(await group(current, "Lifecycle READY"));
+      const receivableId = outcomeId(await finance.createReceivable(
+        current.identity.id,
+        current.school.id,
+        uuid(),
+        uuid(),
+        { groupId, code: "READY_LIFECYCLE", displayName: "Khoản thu", unitLabel: "lần", defaultUnitPrice: "35000" },
+      ));
+      const runId = outcomeId(await open(current));
+      await finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), {
+        receivableId,
+        quantity: "1",
+        expectedVersion: 1,
+      });
+      await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), {
+        studentIds: [student.student.id],
+      });
+      const preview = await finance.preview(current.identity.id, current.school.id, runId);
+      await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), {
+        previewFingerprint: preview.fingerprint,
+      });
+      await finance.transitionReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), {
+        status: "INACTIVE",
+        reason: "Ngừng sau xác nhận",
+      });
+      await expect(generate(current, runId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: "PREVIEW_STALE" },
+      });
+      expect(await prisma.collectionRunGeneration.count({
+        where: { schoolId: current.school.id, collectionRunId: runId },
+      })).toBe(0);
+      expect(await prisma.invoice.count({
+        where: { schoolId: current.school.id, collectionRunId: runId },
+      })).toBe(0);
     });
 
     it("invalidates a DRAFT preview when an owning ReceivableGroup lifecycle changes", async () => {
@@ -1327,7 +1457,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(prisma.invoice.create({ data: { schoolId: fixture.current.school.id, studentId: fixture.student.student.id, collectionRunId: fixture.invoice.collectionRunId, schoolYearId: fixture.invoice.schoolYearId, billingMonth: fixture.invoice.billingMonth, rosterAsOf: fixture.invoice.rosterAsOf, studentCodeSnapshot: fixture.invoice.studentCodeSnapshot, studentNameSnapshot: fixture.invoice.studentNameSnapshot, enrollmentIdSnapshot: fixture.invoice.enrollmentIdSnapshot, enrollmentLifecycleSnapshot: fixture.invoice.enrollmentLifecycleSnapshot, enrollmentEffectiveFromSnapshot: fixture.invoice.enrollmentEffectiveFromSnapshot, enrollmentEndedOnSnapshot: fixture.invoice.enrollmentEndedOnSnapshot, classAssignmentIdSnapshot: fixture.invoice.classAssignmentIdSnapshot, classAssignmentEffectiveFromSnapshot: fixture.invoice.classAssignmentEffectiveFromSnapshot, classAssignmentEffectiveToSnapshot: fixture.invoice.classAssignmentEffectiveToSnapshot, classIdSnapshot: fixture.invoice.classIdSnapshot, classNameSnapshot: fixture.invoice.classNameSnapshot, selectionProvenance: fixture.invoice.selectionProvenance as Prisma.InputJsonValue, status: "ISSUED" } })).rejects.toThrow(/DRAFT/);
     });
 
-    it("uses the generate-time roster once, skips a Student changed after READY, and persists no stale snapshot", async () => {
+    it("rejects generate when the roster changes after READY and persists no stale snapshot", async () => {
       const current = await roster(await graph());
       const student = await enrolled(current);
       const runId = outcomeId(await open(current));
@@ -1339,10 +1469,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         data: { lifecycle: "WITHDRAWN", endedOn: date("2026-09-01") },
       });
 
-      const generated = await generate(current, runId);
-      expect(generated.outcome).toMatchObject({
-        created: [],
-        skipped: [{ studentId: student.student.id, studentCode: student.student.studentCode, fullName: student.student.fullName, reason: "ENROLLMENT_NOT_EFFECTIVE" }],
+      await expect(generate(current, runId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: "PREVIEW_STALE" },
       });
       expect(await prisma.invoice.count({ where: { schoolId: current.school.id, collectionRunId: runId } })).toBe(0);
     });

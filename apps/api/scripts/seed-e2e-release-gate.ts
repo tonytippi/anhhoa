@@ -39,6 +39,8 @@ try {
     await tx.collectionRunGeneration.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.collectionRunSelection.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.collectionRunLifecycleTransition.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.$executeRawUnsafe("SET LOCAL passionedu.allow_collection_run_template_cleanup = 'on'");
+    await tx.collectionRunTemplateLine.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.collectionRun.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.receivableLifecycleTransition.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.receivable.deleteMany({ where: { schoolId: { in: schoolIds } } });

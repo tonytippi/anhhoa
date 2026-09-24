@@ -746,6 +746,7 @@ model CollectionRun {
   generation           CollectionRunGeneration?
   templateLines        CollectionRunTemplateLine[]
   templateSnapshot     Json?
+  readyPreviewFingerprint String?
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, billingMonth])

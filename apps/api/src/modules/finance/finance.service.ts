@@ -1041,7 +1041,6 @@ export class FinanceService {
     const eligibleRows = eligible.map(({ enrollment, assignment, ...item }) => item);
     const facts = {
       runId: run.id,
-      version: run.version,
       billingMonth: run.billingMonth,
       schoolYear: {
         id: run.schoolYear.id,
@@ -1142,7 +1141,11 @@ export class FinanceService {
         await this.templateSnapshot(tx, schoolId, run);
         const updated = await tx.collectionRun.update({
           where: { id: run.id },
-          data: { status: "READY", version: { increment: 1 } },
+          data: {
+            status: "READY",
+            version: { increment: 1 },
+            readyPreviewFingerprint: preview.fingerprint,
+          },
         });
         const transition = await tx.collectionRunLifecycleTransition.create({
           data: {
@@ -1218,9 +1221,16 @@ export class FinanceService {
             code: "COLLECTION_RUN_STATE_CONFLICT",
             message: "Chỉ có thể tạo hóa đơn khi đợt thu đã sẵn sàng.",
           });
+        // Recheck every live fact confirmed by READY before any generation writes.
+        const currentTemplate = await this.templateSnapshot(tx, schoolId, run, false, true);
+        const roster = await this.selectionPreview(tx, schoolId, run, undefined, currentTemplate);
+        if (!run.readyPreviewFingerprint || roster.fingerprint !== run.readyPreviewFingerprint)
+          throw new ConflictException({
+            code: "PREVIEW_STALE",
+            message: "Bản xem trước đã cũ. Hãy tải lại trước khi tiếp tục.",
+          });
         // One authoritative roster read supplies both eligibility and immutable snapshots.
-        const templateLines = await this.templateSnapshot(tx, schoolId, run);
-        const roster = await this.selectionPreview(tx, schoolId, run, undefined, templateLines);
+        const templateLines = currentTemplate.map(({ receivableStatus, receivableGroupStatus, ...line }: any) => line);
         const snapshots = roster.snapshots as any[];
         await tx.collectionRun.update({ where: { id: run.id }, data: { templateSnapshot: templateLines } });
         const generation = await tx.collectionRunGeneration.create({ data: { schoolId, collectionRunId: run.id, operationId: operation.id, actorIdentityId: identityId, membershipId: actor.membershipId, totalCount: snapshots.length + roster.skips.length, processedCount: roster.skips.length, eligibleCount: 0, skippedCount: roster.skips.length } });
