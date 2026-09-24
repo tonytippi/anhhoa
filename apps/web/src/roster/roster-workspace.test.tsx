@@ -246,4 +246,69 @@ describe("RosterWorkspace paged read model", () => {
     expect(screen.getByRole("button", { name: "Sau" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^\d+$/ })).toHaveLength(5);
   });
+
+  it("pages staff, drops stale responses, opens the edit menu, and reloads after an edit", async () => {
+    const staff = { id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", phone: "0900", classNames: ["Lớp Mầm"], staffCode: "NV-01", hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" } };
+    let resolvePageTwo!: (value: Response) => void;
+    const pageTwo = new Promise<Response>((resolve) => { resolvePageTwo = resolve; });
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") return Promise.resolve(response({ outcome: { id: "staff-a" } }));
+      if (url.includes("/roster/staff?") && url.includes("page=2")) return pageTwo;
+      if (url.includes("/roster/staff?") && url.includes("q=Lan")) return Promise.resolve(pagedResponse({ data: [{ ...staff, id: "staff-b", fullName: "Cô Lan" }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } }));
+      if (url.includes("/roster/staff?")) return Promise.resolve(pagedResponse({ data: [staff], meta: { page: 1, pageSize: 25, totalItems: 26, totalPages: 2 } }));
+      if (/\/roster\/staff\/staff-[ab]$/.test(url)) return Promise.resolve(response({ ...staff, id: url.endsWith("staff-b") ? "staff-b" : "staff-a", fullName: url.endsWith("staff-b") ? "Cô Lan" : "Cô Mai", dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, schoolMembershipId: null }));
+      if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
+      if (url.endsWith("/positions")) return Promise.resolve(response([staff.primaryPosition]));
+      return Promise.resolve(response([]));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="staff" />);
+    await screen.findByRole("button", { name: "Tùy chọn cho Cô Mai" });
+    expect(screen.getByText("0900")).toBeTruthy();
+    expect(screen.getByText("Lớp Mầm")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sau" }));
+    fireEvent.change(screen.getByLabelText("Tìm kiếm"), { target: { value: "Lan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Áp dụng" }));
+    expect(await screen.findByRole("button", { name: "Tùy chọn cho Cô Lan" })).toBeTruthy();
+    resolvePageTwo(pagedResponse({ data: [{ ...staff, fullName: "Cũ" }], meta: { page: 2, pageSize: 25, totalItems: 26, totalPages: 2 } }));
+    await waitFor(() => expect(screen.queryByText("Cũ")).toBeNull());
+    fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Cô Lan" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Sửa hồ sơ" }));
+    expect(await screen.findByRole("dialog", { name: "Sửa hồ sơ nhân viên" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Lưu thay đổi hồ sơ" }));
+    await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).includes("/roster/staff?") && String(url).includes("q=Lan")).length).toBeGreaterThan(1));
+  });
+
+  it("drops stale staff detail, traps edit dialog focus, and reports list loading errors in the table", async () => {
+    const staff = { id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", phone: "0900", classNames: [], staffCode: "NV-01", hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" } };
+    let resolveA!: (value: Response) => void;
+    const detailA = new Promise<Response>((resolve) => { resolveA = resolve; });
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/roster/staff?")) return Promise.resolve(pagedResponse({ data: [staff, { ...staff, id: "staff-b", fullName: "Cô Lan" }], meta: { page: 1, pageSize: 25, totalItems: 2, totalPages: 1 } }));
+      if (url.endsWith("/roster/staff/staff-a")) return detailA;
+      if (url.endsWith("/roster/staff/staff-b")) return Promise.resolve(response({ ...staff, id: "staff-b", fullName: "Cô Lan", dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, schoolMembershipId: null }));
+      if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
+      if (url.endsWith("/positions")) return Promise.resolve(response([staff.primaryPosition]));
+      return Promise.resolve(response([]));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="staff" />);
+    const menus = await screen.findAllByRole("button", { name: /Tùy chọn cho Cô/ });
+    fireEvent.click(menus[0]!); fireEvent.click(screen.getByRole("menuitem", { name: "Sửa hồ sơ" }));
+    fireEvent.click(menus[1]!); fireEvent.click(screen.getByRole("menuitem", { name: "Sửa hồ sơ" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sửa hồ sơ nhân viên" });
+    expect((screen.getByLabelText("Họ và tên nhân sự") as HTMLInputElement).value).toBe("Cô Lan");
+    resolveA(response({ ...staff, dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, schoolMembershipId: null }));
+    await waitFor(() => expect((screen.getByLabelText("Họ và tên nhân sự") as HTMLInputElement).value).toBe("Cô Lan"));
+    expect(document.activeElement).toBe(screen.getByLabelText("Họ và tên nhân sự"));
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Lưu thay đổi hồ sơ" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sửa hồ sơ nhân viên" })).toBeNull());
+
+    const errorFetch = vi.fn((url: string) => url.includes("/roster/staff?") ? Promise.resolve(new Response(null, { status: 500 })) : url.endsWith("/school-years") ? Promise.resolve(response([year])) : Promise.resolve(response([])));
+    vi.stubGlobal("fetch", errorFetch);
+    render(<RosterWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} section="staff" />);
+    expect(await screen.findByText("Không thể tải danh sách nhân viên")).toBeTruthy();
+  });
 });

@@ -1299,6 +1299,15 @@ tbody tr:last-child td {
 }
 .student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
 .student-list-table table { min-width: 940px; }
+.staff-list-table table { min-width: 1180px; }
+.staff-list-table th,
+.staff-list-table td { white-space: nowrap; }
+.staff-list-table th:nth-child(2) { min-width: 220px; }
+.staff-list-table th:nth-child(3) { min-width: 130px; }
+.staff-list-table th:nth-child(4) { min-width: 250px; }
+.staff-list-table th:nth-child(5) { min-width: 150px; }
+.staff-list-table th:nth-child(6) { min-width: 130px; }
+.staff-contact { display: block; color: #5f746e; font-weight: 400; }
 .parent-list-table table { min-width: 860px; }
 .parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }
 .parent-children span { color: #5f746e; }
@@ -1308,6 +1317,13 @@ tbody tr:last-child td {
   justify-content: space-between;
   gap: 16px;
 }
+.staff-list-controls { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.staff-list-search { display: flex; flex: 1 1 360px; align-items: end; gap: 8px; }
+.staff-list-search label { display: grid; flex: 1 1 auto; gap: 5px; }
+.staff-list-search label span { color: #527067; font-size: 12px; font-weight: 800; }
+.staff-list-search input { min-width: 0; }
+.staff-list-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: end; gap: 8px; }
+.staff-list-actions label { display: grid; gap: 5px; color: #527067; font-size: 12px; font-weight: 800; }
 .parent-list-search {
   display: flex;
   flex: 1 1 auto;
@@ -1349,6 +1365,13 @@ tbody tr:last-child td {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   align-items: end;
   gap: 12px;
+}
+.roster-workspace-staff .roster-list-filters button { min-height: 42px; }
+@media (max-width: 767px) {
+  .staff-list-controls { display: grid; }
+  .staff-list-search { width: 100%; }
+  .staff-list-actions { display: grid; grid-template-columns: 1fr 1fr; justify-content: stretch; }
+  .staff-list-actions .primary-action { grid-column: 1 / -1; }
 }
 .student-detail-panel {
   display: grid;

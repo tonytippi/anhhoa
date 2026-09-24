@@ -44,6 +44,27 @@ export type OffsetPaginationMeta = {
   totalItems: number;
   totalPages: number;
 };
+export type StaffListQuery = {
+  schoolYearId?: string;
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  employmentStatus?: 'ACTIVE' | 'INACTIVE';
+  primaryPositionId?: string;
+  sort?: 'name' | 'position' | 'status';
+};
+export type StaffListRow = {
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  classNames: string[];
+  staffCode: string | null;
+  hasPhoto: boolean;
+  employmentStatus: 'ACTIVE' | 'INACTIVE';
+  primaryPositionId: string;
+  primaryPosition: { id: string; code: string; name: string; status: 'ACTIVE' | 'INACTIVE' } | null;
+};
 export type ParentListQuery = {
   page?: number;
   pageSize?: number;
