@@ -15,4 +15,17 @@ describe('AttendanceController daily journal media', () => {
     expect(response.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
     expect(response.send).toHaveBeenCalledWith(new Uint8Array([1]));
   });
+  it('uses the Parent audience and applies no-store headers to protected journal bytes', async () => {
+    const attendance = { parentDailyJournals: vi.fn().mockResolvedValue([]), parentDailyJournal: vi.fn().mockResolvedValue(null), readParentDailyJournalMedia: vi.fn().mockResolvedValue({ contentType: 'image/webp', blob: new Uint8Array([2]) }) };
+    const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'parent' }) };
+    const controller = new AttendanceController(auth as never, attendance as never);
+    const request = { headers: { cookie: 'parent_session=session' } };
+    await expect(controller.parentDailyJournals(request, 'school', 'student', '2026-02-09')).resolves.toEqual({ data: [], meta: {} });
+    await expect(controller.parentDailyJournal(request, 'school', 'student', '2026-02-09')).resolves.toEqual({ data: null });
+    const response = { setHeader: vi.fn(), send: vi.fn() };
+    await controller.parentDailyJournalMedia(request, 'school', 'media', response);
+    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
+    expect(response.send).toHaveBeenCalledWith(new Uint8Array([2]));
+  });
 });

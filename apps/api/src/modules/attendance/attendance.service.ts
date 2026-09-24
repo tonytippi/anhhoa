@@ -259,6 +259,74 @@ export class AttendanceService {
       })
     ).map((request) => this.dto(request, true));
   }
+  async parentDailyJournals(
+    identityId: string,
+    schoolId: string,
+    studentId?: string,
+    journalDate?: string,
+  ) {
+    if (studentId && !uuid.test(studentId))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { studentId: "Học sinh không hợp lệ." } });
+    const date = journalDate ? this.date(journalDate, "journalDate") : this.now().day;
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const journals = await tx.dailyJournal.findMany({
+        where: { schoolId, journalDate: this.day(date), ...(studentId ? { studentId } : {}), student: { parentLinks: { some: { schoolId, parentProfileId: parent.id, status: "ACTIVE" } } } },
+        select: { studentId: true, journalDate: true, text: true, currentVersion: true, updatedAt: true, enrollmentEndedOnSnapshot: true, student: { select: { fullName: true } }, versions: { select: { version: true, media: { select: { media: { select: { id: true, contentType: true } } } } } } },
+        orderBy: { studentId: "asc" },
+      });
+      return journals.flatMap((journal) => {
+        const version = journal.versions.find((item) => item.version === journal.currentVersion);
+        if (!this.parentJournalRetained(journal.enrollmentEndedOnSnapshot)) return [];
+        return [{ studentId: journal.studentId, studentDisplayName: journal.student.fullName, journalDate: journal.journalDate.toISOString().slice(0, 10), text: journal.text, updatedAt: journal.updatedAt.toISOString(), media: version?.media.map((item) => ({ id: item.media.id, contentType: item.media.contentType })) ?? [] }];
+      });
+    }, { isolationLevel: "RepeatableRead" });
+  }
+  async parentDailyJournal(identityId: string, schoolId: string, studentId: string, journalDate?: string) {
+    if (!uuid.test(studentId)) throw new NotFoundException({ code: "DAILY_JOURNAL_NOT_FOUND", message: "Không tìm thấy nhận xét." });
+    const date = journalDate ? this.date(journalDate, "journalDate") : this.now().day;
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const link = await tx.studentParent.findFirst({ where: { schoolId, studentId, parentProfileId: parent.id, status: "ACTIVE" }, select: { id: true } });
+      if (!link) throw new NotFoundException({ code: "DAILY_JOURNAL_NOT_FOUND", message: "Không tìm thấy nhận xét." });
+      const journal = await tx.dailyJournal.findFirst({ where: { schoolId, studentId, journalDate: this.day(date) }, select: { studentId: true, journalDate: true, text: true, currentVersion: true, updatedAt: true, enrollmentEndedOnSnapshot: true, student: { select: { fullName: true } }, versions: { select: { version: true, media: { select: { media: { select: { id: true, contentType: true } } } } } } } });
+      if (!journal) return null;
+      if (!this.parentJournalRetained(journal.enrollmentEndedOnSnapshot)) throw new NotFoundException({ code: "DAILY_JOURNAL_NOT_FOUND", message: "Không tìm thấy nhận xét." });
+      const version = journal.versions.find((item) => item.version === journal.currentVersion);
+      return { studentId: journal.studentId, studentDisplayName: journal.student.fullName, journalDate: journal.journalDate.toISOString().slice(0, 10), text: journal.text, updatedAt: journal.updatedAt.toISOString(), media: version?.media.map((item) => ({ id: item.media.id, contentType: item.media.contentType })) ?? [] };
+    }, { isolationLevel: "RepeatableRead" });
+  }
+  async readParentDailyJournalMedia(identityId: string, schoolId: string, mediaId: string) {
+    if (!uuid.test(mediaId)) throw new NotFoundException({ code: "DAILY_JOURNAL_MEDIA_NOT_FOUND", message: "Không tìm thấy ảnh nhận xét." });
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const media = await tx.dailyJournalMedia.findFirst({
+        where: { id: mediaId, schoolId, versionMedia: { some: {} } },
+        include: {
+          versionMedia: {
+            include: {
+              dailyJournalVersion: {
+                include: {
+                  dailyJournal: {
+                    include: {
+                      student: {
+                        include: {
+                          parentLinks: { where: { schoolId, parentProfileId: parent.id, status: "ACTIVE" }, select: { id: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      const journal = media?.versionMedia.find((entry) => entry.dailyJournalVersion.version === entry.dailyJournalVersion.dailyJournal.currentVersion)?.dailyJournalVersion.dailyJournal;
+      if (!media || !journal || !journal.student.parentLinks.length || !this.parentJournalRetained(journal.enrollmentEndedOnSnapshot)) throw new NotFoundException({ code: "DAILY_JOURNAL_MEDIA_NOT_FOUND", message: "Không tìm thấy ảnh nhận xét." });
+      return { contentType: media.contentType, blob: media.blob };
+    }, { isolationLevel: "RepeatableRead" });
+  }
   async parentRead(identityId: string, schoolId: string, id: string) {
     const parent = await this.parent(identityId, schoolId);
     const request = await this.prisma.leaveRequest.findFirst({
@@ -586,7 +654,7 @@ export class AttendanceService {
       let journal = await tx.dailyJournal.findFirst({ where: { schoolId, studentId, journalDate: on } });
       if (journal && journal.classId !== classId) throw new ConflictException({ code: "ROSTER_CONFLICT", message: "Học sinh đã có nhận xét thuộc lớp khác trong ngày này." });
       const version = (journal?.currentVersion ?? 0) + 1;
-      if (!journal) journal = await tx.dailyJournal.create({ data: { schoolId, classId, studentId, journalDate: on, text, currentVersion: version, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId } });
+      if (!journal) journal = await tx.dailyJournal.create({ data: { schoolId, classId, studentId, journalDate: on, text, currentVersion: version, enrollmentIdSnapshot: facts.enrollment!.id, enrollmentEndedOnSnapshot: facts.enrollment!.endedOn, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId } });
       else journal = await tx.dailyJournal.update({ where: { schoolId_id: { schoolId, id: journal.id } }, data: { text, currentVersion: version, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId } });
       const media = await tx.dailyJournalMedia.findMany({ where: { id: { in: mediaIds }, schoolId, classId, studentId, journalDate: on, OR: [{ attachedDailyJournalId: null, uploadedByMembershipId: current.id, uploadedByStaffProfileId: current.staffProfileId }, { attachedDailyJournalId: journal.id }] } }); if (media.length !== mediaIds.length) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { mediaIds: "Ảnh không thuộc nhận xét này." } });
       await tx.dailyJournalMedia.updateMany({ where: { schoolId, id: { in: mediaIds }, attachedDailyJournalId: null }, data: { attachedDailyJournalId: journal.id } });
@@ -914,11 +982,18 @@ export class AttendanceService {
     await this.operatingDay(tx, schoolId, journalDate, "Không thể ghi nhận nhận xét ngày không vận hành.");
     const on = this.day(journalDate); const policy = await tx.dailyJournalPolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: on } }, orderBy: { effectiveFrom: "desc" } });
     if (!policy) throw new ConflictException({ code: "DAILY_JOURNAL_POLICY_NOT_CONFIGURED", message: "Trường chưa cấu hình chính sách nhận xét hằng ngày." });
+    let enrollment: { id: string; endedOn: Date | null } | null = null;
     if (studentId) {
-      const enrollment = await tx.studentEnrollment.findFirst({ where: { schoolId, studentId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }], classAssignments: { some: { classId, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } } } });
+      enrollment = await tx.studentEnrollment.findFirst({ where: { schoolId, studentId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }], classAssignments: { some: { classId, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } } }, select: { id: true, endedOn: true } });
       if (!enrollment) throw new ConflictException({ code: "ROSTER_CONFLICT", message: "Học sinh không thuộc danh sách lớp trong ngày này." });
     }
-    return { policy };
+    return { policy, enrollment };
+  }
+  private parentJournalRetained(endedOn: Date | null) {
+    if (!endedOn) return true;
+    const expiry = new Date(`${endedOn.toISOString().slice(0, 10)}T00:00:00.000Z`);
+    expiry.setUTCDate(expiry.getUTCDate() + 30);
+    return this.now().day <= expiry.toISOString().slice(0, 10);
   }
   private async handoverAdmin(identityId: string, schoolId: string, tx: Db = this.prisma) {
     const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SETTINGS_MANAGE" } } } } }, select: { id: true } });

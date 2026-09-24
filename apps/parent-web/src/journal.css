@@ -1,0 +1,8 @@
+.context-header, .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.back, .secondary { background: #edf4eb; color: #1d6538; }
+.muted { color: #6a786d; }
+.journal-card { border: 1px solid #e4e2d8; border-radius: 14px; padding: 16px; background: #fff; }
+.journal-image { display: block; width: 100%; margin-top: 16px; border-radius: 10px; }
+.journal-media { display: grid; gap: 12px; }
+.context-list { display: grid; gap: 12px; padding: 0; list-style: none; }
+.child-card { display: grid; width: 100%; gap: 6px; text-align: left; background: #fff; color: #203528; border: 1px solid #e4e2d8; }

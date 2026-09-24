@@ -1232,6 +1232,8 @@ model DailyJournal {
   schoolId            String               @db.Uuid
   classId             String               @db.Uuid
   studentId           String               @db.Uuid
+  enrollmentIdSnapshot String              @db.Uuid
+  enrollmentEndedOnSnapshot DateTime?      @db.Date
   journalDate         DateTime             @db.Date
   text                String
   currentVersion      Int                  @default(1)

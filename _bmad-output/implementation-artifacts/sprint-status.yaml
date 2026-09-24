@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-24 # Story 4.8 DailyJournal implementation started.
+last_updated: 2026-09-24 # Story 4.9 DailyJournal Parent projection completed.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -47,7 +47,7 @@ development_status:
   4-6-hang-doi-van-hanh-buoi-sang: done
   4-7-kiem-thu-release-gate-cho-van-hanh-lop: done
   4-8-teacher-ghi-dailyjournal-co-version-va-media-duoc-kiem-soat: done
-  4-9-dailyjournal-media-lifecycle-va-parent-projection-an-toan: backlog
+  4-9-dailyjournal-media-lifecycle-va-parent-projection-an-toan: done
   4-10-teacher-portal-queue-va-release-gate-van-hanh-lop: backlog
   epic-4-retrospective: optional
 

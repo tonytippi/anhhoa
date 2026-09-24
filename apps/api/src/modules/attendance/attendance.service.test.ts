@@ -43,6 +43,14 @@ describe('AttendanceService leave matrix', () => {
     await expect(attendance.uploadDailyJournalMedia('teacher', school, key, operation, student, student, '2026-02-09', 'image/png', Buffer.from('spoofed'))).rejects.toMatchObject({ response: { fieldErrors: { media: expect.any(String) } } });
     expect((prisma as any).schoolMembership.findFirst).not.toHaveBeenCalled();
   });
+  it('projects only the current journal version and removes it at the HCM enrollment retention boundary', async () => {
+    const current = { studentId: student, journalDate: day('2026-02-09'), text: 'Ăn ngủ tốt', currentVersion: 2, updatedAt: new Date('2026-02-09T09:00:00.000Z'), enrollmentEndedOnSnapshot: day('2026-01-10'), student: { fullName: 'Bé An' }, versions: [{ version: 1, media: [{ media: { id: 'old-media', contentType: 'image/png' } }] }, { version: 2, media: [{ media: { id: 'current-media', contentType: 'image/webp' } }] }] };
+    const { attendance } = service({ dailyJournal: { findMany: vi.fn().mockResolvedValue([current]) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ endedOn: day('2026-01-10') }) } });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '09:00' });
+    await expect(attendance.parentDailyJournals('parent-identity', school, student, '2026-02-09')).resolves.toEqual([{ studentId: student, studentDisplayName: 'Bé An', journalDate: '2026-02-09', text: 'Ăn ngủ tốt', updatedAt: '2026-02-09T09:00:00.000Z', media: [{ id: 'current-media', contentType: 'image/webp' }] }]);
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '09:00' });
+    await expect(attendance.parentDailyJournals('parent-identity', school, student, '2026-02-09')).resolves.toEqual([]);
+  });
   it('requires the current operating day, effective policy, and placed enrollment before journal persistence', async () => {
     const { attendance } = service();
     vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '09:00' });
