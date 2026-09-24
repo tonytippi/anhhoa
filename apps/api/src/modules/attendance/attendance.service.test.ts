@@ -23,6 +23,10 @@ function service(overrides: Record<string, unknown> = {}) {
     class: { findMany: vi.fn().mockResolvedValue([]) },
     enrollmentClassAssignment: { findMany: vi.fn().mockResolvedValue([]) },
     attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) },
+    dailyJournalPolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01') }) },
+    dailyJournal: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    dailyJournalMedia: { findMany: vi.fn(), create: vi.fn() },
+    dailyJournalVersion: { create: vi.fn() },
   };
   const prisma = {
     parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() }, leaveDaySourceExclusion: { createMany: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, evidenceReference: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, $transaction: vi.fn(async (work) => work({ ...transaction, ...overrides })), ...overrides,
@@ -31,6 +35,31 @@ function service(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AttendanceService leave matrix', () => {
+  it('accepts only byte-verified journal images and rejects spoofed media before authorization or persistence', async () => {
+    const { attendance, prisma } = service();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect((attendance as any).journalMime('image/png', png)).toBe(true);
+    expect((attendance as any).journalMime('image/png', Buffer.from('not-a-png'))).toBe(false);
+    await expect(attendance.uploadDailyJournalMedia('teacher', school, key, operation, student, student, '2026-02-09', 'image/png', Buffer.from('spoofed'))).rejects.toMatchObject({ response: { fieldErrors: { media: expect.any(String) } } });
+    expect((prisma as any).schoolMembership.findFirst).not.toHaveBeenCalled();
+  });
+  it('requires the current operating day, effective policy, and placed enrollment before journal persistence', async () => {
+    const { attendance } = service();
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '09:00' });
+    const facts = { schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) }, dailyJournalPolicy: { findFirst: vi.fn().mockResolvedValue(null) }, studentEnrollment: { findFirst: vi.fn() } };
+    await expect((attendance as any).journalFacts(facts, school, 'class', student, '2026-02-08')).rejects.toMatchObject({ response: { code: 'JOURNAL_DATE_NOT_CURRENT' } });
+    await expect((attendance as any).journalFacts(facts, school, 'class', student, '2026-02-09')).rejects.toMatchObject({ response: { code: 'DAILY_JOURNAL_POLICY_NOT_CONFIGURED' } });
+    facts.dailyJournalPolicy.findFirst.mockResolvedValue({ effectiveFrom: day('2026-01-01') });
+    facts.studentEnrollment.findFirst.mockResolvedValue(null);
+    await expect((attendance as any).journalFacts(facts, school, 'class', student, '2026-02-09')).rejects.toMatchObject({ response: { code: 'ROSTER_CONFLICT' } });
+  });
+  it('enforces the effective journal MIME and byte-size policy instead of fixed upload limits', async () => {
+    const { attendance } = service();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(() => (attendance as any).assertJournalMediaPolicy('image/png', png, { acceptedImageMimeTypes: ['PNG'], maxImageSizeBytes: 7 })).toThrow();
+    expect(() => (attendance as any).assertJournalMediaPolicy('image/png', png, { acceptedImageMimeTypes: ['JPEG'], maxImageSizeBytes: 10 })).toThrow();
+    expect(() => (attendance as any).assertJournalMediaPolicy('image/png', png, { acceptedImageMimeTypes: ['PNG'], maxImageSizeBytes: 10 })).not.toThrow();
+  });
   it('expires each eligible evidence once at the two-calendar-month boundary', async () => {
     const { attendance, prisma } = service({ evidenceReference: { findMany: vi.fn().mockResolvedValue([{ id: operation, schoolId: school, confirmedAt: day('2026-01-31') }]), updateMany: vi.fn().mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 0 }) }, auditRecord: { create: vi.fn() } });
     await expect(attendance.cleanupExpiredEvidence(day('2026-03-31'))).resolves.toEqual({ deleted: 1 });

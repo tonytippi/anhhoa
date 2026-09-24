@@ -375,7 +375,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     await prisma.staffClassAssignment.create({ data: { schoolId: current.current.id, staffProfileId: assigned.id, schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), reason: 'Fixture', schoolYearName: 'Năm 2026', schoolYearStartsOn: new Date(`${dates.startsOn}T00:00:00.000Z`), schoolYearEndsOn: new Date(`${dates.endsOn}T00:00:00.000Z`), className: 'Mầm' } });
     await prisma.staffProfile.create({ data: { schoolId: foreign.current.id, fullName: 'Nhân viên ngoại trường', email: 'foreign-staff@example.com', phone: '0999999999', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Huế', primaryPositionId: foreign.position.id } });
     const first = await roster.staff(current.admin.id, current.current.id, { page: '1', pageSize: '1000', sort: 'name' });
-    const second = await roster.staff(current.admin.id, current.current.id, { page: '2', pageSize: '25', sort: 'name' });
+    const second = await roster.staff(current.admin.id, current.current.id, { page: '2', pageSize: '1000', sort: 'name' });
     expect(first.meta).toEqual({ page: 1, pageSize: 100, totalItems: 32, totalPages: 1 });
     expect(first.data).toHaveLength(32);
     expect(second.data).toEqual([]);

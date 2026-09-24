@@ -10,6 +10,7 @@ try {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(9162027)`;
     // This transaction rebuilds deterministic test data; production history remains append-only.
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
+    await tx.$executeRaw`SELECT set_config('passionedu.allow_daily_journal_history_cleanup', 'on', true)`;
     const fixtureSchools = await tx.school.findMany({ where: { slug: { in: slugs } }, select: { id: true } });
     const schoolIds = fixtureSchools.map((school) => school.id);
     const fixtureIdentities = await tx.userIdentity.findMany({ where: { emailNormalized: { in: emails } }, select: { id: true } });
@@ -23,8 +24,13 @@ try {
     await tx.attendanceRecord.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.handoverRecord.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.evidenceReference.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.dailyJournalVersionMedia.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.dailyJournalVersion.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.dailyJournalMedia.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.dailyJournal.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.attendancePolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.handoverPolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.dailyJournalPolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.leavePolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.schoolCalendarVersion.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.invoiceLine.deleteMany({ where: { schoolId: { in: schoolIds } } });
@@ -71,7 +77,7 @@ try {
       for (const [userIdentityId, code, capability] of [[admin.id, 'ADMIN', 'ROSTER_MANAGE'], [teacher.id, 'GIAO_VIEN', 'ATTENDANCE_WRITE']] as const) {
         const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId } });
         const position = await tx.schoolPosition.create({ data: { schoolId: school.id, code, name: code === 'ADMIN' ? 'Quản lý trường' : 'Giáo viên' } });
-        await tx.positionCapabilityGrant.createMany({ data: ['SCHOOL_CONTEXT_READ', capability, ...(userIdentityId === teacher.id ? ['HANDOVER_WRITE'] : []), ...(userIdentityId === admin.id ? ['FINANCE_MANAGE'] : [])].map((value) => ({ schoolId: school.id, positionId: position.id, capability: value })) });
+        await tx.positionCapabilityGrant.createMany({ data: ['SCHOOL_CONTEXT_READ', capability, ...(userIdentityId === teacher.id ? ['HANDOVER_WRITE', 'DAILY_JOURNAL_WRITE'] : []), ...(userIdentityId === admin.id ? ['FINANCE_MANAGE'] : [])].map((value) => ({ schoolId: school.id, positionId: position.id, capability: value })) });
         const identity = userIdentityId === admin.id ? admin : teacher;
         await tx.staffProfile.create({ data: { schoolId: school.id, fullName: identity.emailNormalized, email: identity.emailNormalized, phone: '0900000000', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Release fixture', primaryPositionId: position.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
         if (userIdentityId === admin.id) adminMembershipId = membership.id;
@@ -88,6 +94,7 @@ try {
       await tx.schoolCalendarVersion.create({ data: { schoolId: school.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), actorIdentityId: admin.id, membershipId: adminMembershipId } });
       await tx.attendancePolicy.create({ data: { schoolId: school.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), photoEvidenceMode: 'OPTIONAL', reason: 'Release attendance fixture', actorIdentityId: admin.id, membershipId: adminMembershipId } });
       await tx.handoverPolicy.create({ data: { schoolId: school.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), photoEvidenceMode: 'OPTIONAL', reason: 'Release handover fixture', actorIdentityId: admin.id, membershipId: adminMembershipId } });
+      await tx.dailyJournalPolicy.create({ data: { schoolId: school.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), reason: 'Release daily journal fixture', parentRetentionDaysAfterEnrollmentEnded: 30, acceptedImageMimeTypes: ['JPEG', 'PNG', 'WEBP'], maxImageSizeBytes: 10 * 1024 * 1024, imageCountLimit: null, actorIdentityId: admin.id, membershipId: adminMembershipId } });
       const operation = await tx.operation.create({ data: { schoolId: school.id, membershipId: adminMembershipId, actorIdentityId: admin.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: adminMembershipId, route: 'release-gate-fixture', fingerprint: `release-gate-fixture-${index}`, idempotencyKey: crypto.randomUUID(), status: 'COMPLETED' } });
       await tx.financePolicy.create({ data: { schoolId: school.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), dueDaysAfterIssue: 7, taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: 'Release Finance fixture', actorIdentityId: admin.id, membershipId: adminMembershipId } });
       const bankAccount = await tx.bankAccount.create({ data: { schoolId: school.id, receivingBank: `Ngân hàng Release ${index + 1}`, accountNumber: `10000000${index + 1}`, accountHolderName: `Release Gate ${index + 1}`, transferTemplate: '{{studentName}} {{className}}', actorIdentityId: admin.id, membershipId: adminMembershipId } });

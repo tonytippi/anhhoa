@@ -34,6 +34,7 @@ afterEach(async () => {
   const ids = schools.splice(0);
   if (ids.length) await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
+    await tx.$executeRaw`SELECT set_config('passionedu.allow_daily_journal_history_cleanup', 'on', true)`;
     await tx.auditRecord.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.operation.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.notificationSourceEvent.deleteMany({ where: { schoolId: { in: ids } } });
@@ -43,9 +44,14 @@ afterEach(async () => {
     await tx.leaveRequest.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.attendanceRecord.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.handoverRecord.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.dailyJournalVersionMedia.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.dailyJournalVersion.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.dailyJournalMedia.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.dailyJournal.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.evidenceReference.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.attendancePolicy.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.handoverPolicy.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.dailyJournalPolicy.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.leavePolicy.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.schoolCalendarVersion.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.studentParent.deleteMany({ where: { schoolId: { in: ids } } });
@@ -160,6 +166,44 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     await expect(attendance.record(current.identity.id, current.school.id, uuid(), uuid(), { classId: current.classroom.id, studentId: current.student.id, attendanceOn: '2026-02-09', state: 'PRESENT', evidenceId: null })).rejects.toMatchObject({ response: { fieldErrors: { evidenceId: expect.any(String) } } });
     expect(await prisma.attendanceRecord.count({ where: { schoolId: current.school.id } })).toBe(0);
     expect(await prisma.operation.count({ where: { schoolId: current.school.id } })).toBe(0);
+  });
+  it('persists only authorized current-day journal versions and opaque byte-verified media', async () => {
+    const current = await graph(); const foreign = await graph();
+    const position = await prisma.schoolPosition.create({ data: { schoolId: current.school.id, code: `JOURNAL-${uuid()}`, name: `Nhận xét ${uuid()}` } });
+    await prisma.positionCapabilityGrant.create({ data: { schoolId: current.school.id, positionId: position.id, capability: 'DAILY_JOURNAL_WRITE' } });
+    const staff = await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Cô Nhật ký', email: `${uuid()}@example.com`, phone: '0900000020', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    await prisma.staffClassAssignment.create({ data: { schoolId: current.school.id, staffProfileId: staff.id, schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: date('2026-01-01'), reason: 'Dạy lớp', schoolYearName: current.year.name, schoolYearStartsOn: current.year.startsOn, schoolYearEndsOn: current.year.endsOn, className: current.classroom.name } });
+    await prisma.dailyJournalPolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date('2026-01-01'), reason: 'Nhận xét hằng ngày', parentRetentionDaysAfterEnrollmentEnded: 30, maxImageSizeBytes: 10485760, actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '09:00' });
+    const secondIdentity = await prisma.userIdentity.create({ data: { emailNormalized: `${uuid()}@example.com` } });
+    const secondMembership = await prisma.schoolMembership.create({ data: { schoolId: current.school.id, userIdentityId: secondIdentity.id } });
+    const secondStaff = await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: secondMembership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Cô Đọc', email: `${uuid()}@example.com`, phone: '0900000021', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    await prisma.staffClassAssignment.create({ data: { schoolId: current.school.id, staffProfileId: secondStaff.id, schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: date('2026-01-01'), reason: 'Dạy lớp', schoolYearName: current.year.name, schoolYearStartsOn: current.year.startsOn, schoolYearEndsOn: current.year.endsOn, className: current.classroom.name } });
+    const body = { classId: current.classroom.id, studentId: current.student.id, journalDate: '2026-02-09', text: 'Ăn ngủ tốt', mediaIds: [] as string[] };
+    await expect(attendance.dailyJournalRoster(current.identity.id, current.school.id, current.classroom.id, body.journalDate)).resolves.toMatchObject({ schoolId: current.school.id, students: [{ studentId: current.student.id, status: 'MISSING' }] });
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const uploaded = await attendance.uploadDailyJournalMedia(current.identity.id, current.school.id, uuid(), uuid(), current.classroom.id, current.student.id, body.journalDate, 'image/png', png);
+    const mediaId = (uploaded.outcome as { id: string }).id;
+    expect(uploaded.outcome).toMatchObject({ id: mediaId, classId: current.classroom.id, studentId: current.student.id, journalDate: body.journalDate, contentType: 'image/png' });
+    await expect(attendance.readDailyJournalMedia(current.identity.id, current.school.id, mediaId)).resolves.toMatchObject({ contentType: 'image/png', blob: new Uint8Array(png) });
+    await expect(attendance.readDailyJournalMedia(secondIdentity.id, current.school.id, mediaId)).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+    const saveKey = uuid(); const saveOperation = uuid();
+    const first = await attendance.saveDailyJournal(current.identity.id, current.school.id, saveKey, saveOperation, { ...body, mediaIds: [mediaId] });
+    const replay = await attendance.saveDailyJournal(current.identity.id, current.school.id, saveKey, saveOperation, { ...body, mediaIds: [mediaId] });
+    expect((first as any).outcome).toMatchObject({ version: 1, media: [{ id: mediaId, contentType: 'image/png' }] });
+    expect(replay).toEqual(first);
+    const second = await attendance.saveDailyJournal(current.identity.id, current.school.id, uuid(), uuid(), { ...body, text: 'Ăn ngủ rất tốt' });
+    expect((second as any).outcome.version).toBe(2);
+    expect(await prisma.dailyJournalVersion.count({ where: { schoolId: current.school.id } })).toBe(2);
+    await expect(prisma.dailyJournalVersion.updateMany({ where: { schoolId: current.school.id }, data: { text: 'sửa lịch sử' } })).rejects.toBeTruthy();
+    await expect(prisma.dailyJournalVersionMedia.updateMany({ where: { schoolId: current.school.id }, data: { mediaId } })).rejects.toBeTruthy();
+    await expect(attendance.readDailyJournalMedia(secondIdentity.id, current.school.id, mediaId)).resolves.toMatchObject({ contentType: 'image/png', blob: new Uint8Array(png) });
+    expect((await prisma.dailyJournalVersion.findFirstOrThrow({ where: { schoolId: current.school.id, version: 1 } })).policyEffectiveFrom).toEqual(date('2026-01-01'));
+    await expect(attendance.saveDailyJournal(current.identity.id, current.school.id, uuid(), uuid(), { ...body, studentId: foreign.student.id })).rejects.toMatchObject({ response: { code: 'ROSTER_CONFLICT' } });
+    await expect(attendance.uploadDailyJournalMedia(current.identity.id, current.school.id, uuid(), uuid(), current.classroom.id, current.student.id, body.journalDate, 'image/png', Buffer.from('spoofed'))).rejects.toMatchObject({ response: { fieldErrors: { media: expect.any(String) } } });
+    await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: current.school.id, positionId: position.id, capability: 'DAILY_JOURNAL_WRITE' } });
+    await expect(attendance.dailyJournalRoster(current.identity.id, current.school.id, current.classroom.id, body.journalDate)).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+    vi.restoreAllMocks();
   });
   it('decides a pending leave with the capability, replays once, blocks revoke, and exports a Finance-free source', async () => {
     const current = await graph();

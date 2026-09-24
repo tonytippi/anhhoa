@@ -87,7 +87,7 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   await page.getByLabel('Ngày sinh nhân sự').fill('1990-01-01');
   await page.getByLabel('Giới tính').selectOption({ label: 'Khác' });
   await page.getByLabel('Địa chỉ').fill('Release Gate B');
-  await page.getByLabel('Chức danh chính').selectOption({ label: 'Quản lý trường' });
+  await page.locator('form').filter({ has: page.getByRole('button', { name: 'Lưu hồ sơ nhân sự' }) }).getByLabel('Chức danh chính').selectOption({ label: 'Quản lý trường' });
   let intercepted = false;
   await page.route('**/api/app/schools/*/roster/staff', async (route) => {
     if (route.request().method() !== 'POST' || intercepted) return route.continue();
@@ -157,7 +157,7 @@ test('Teacher attendance and handover use server capability, confirmed errors, a
 
   const classId = '00000000-0000-4000-8000-000000000001';
   const rosterRequest = page.waitForResponse((response) => response.url().includes('/attendance-roster?') && response.status() === 200);
-  await page.getByLabel('Mã lớp').fill(classId);
+  await page.getByLabel('Mã lớp', { exact: true }).fill(classId);
   await page.getByLabel('Ngày điểm danh').fill(attendanceDate);
   await page.getByRole('button', { name: 'Tải danh sách' }).first().click();
   await rosterRequest;
@@ -172,7 +172,7 @@ test('Teacher attendance and handover use server capability, confirmed errors, a
   expect(handoverRoster.students).toEqual(expect.arrayContaining([expect.objectContaining({ fullName: 'Bé An' })]));
 
   await page.getByLabel('Ngày bàn giao').fill(attendanceDate);
-  await page.getByRole('button', { name: 'Tải danh sách' }).last().click();
+  await page.getByRole('region', { name: 'Bàn giao - tham chiếu vận hành' }).getByRole('button', { name: 'Tải danh sách' }).click();
   await expect(page.getByText('Bé An')).toBeVisible();
 
   let handoverIntercepted = false;
@@ -228,6 +228,65 @@ test('Teacher attendance and handover use server capability, confirmed errors, a
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await page.getByRole('button', { name: 'Bỏ nội dung và đổi trường' }).click();
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate B' })).toBeVisible();
-  await expect(page.getByLabel('Mã lớp')).toHaveValue('');
+  await expect(page.getByLabel('Mã lớp', { exact: true })).toHaveValue('');
   await expect(page.getByText('Bé An')).toHaveCount(0);
+});
+
+test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and clears stale data after a guarded School switch', async ({ page }) => {
+  await login(page.context(), 'teacher');
+  await page.goto('http://localhost:5175');
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
+  await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeFocused();
+  await expect(page.getByRole('navigation', { name: 'Điều hướng trường' })).toContainText('Nhận xét trong ngày');
+
+  const journalDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+  const classId = '00000000-0000-4000-8000-000000000001';
+  const rosterRequest = page.waitForResponse((response) => response.url().includes('/daily-journal-roster?') && response.status() === 200);
+  await page.getByLabel('Mã lớp nhận xét').fill(classId);
+  await page.getByLabel('Ngày nhận xét').fill(journalDate);
+  await page.getByRole('button', { name: 'Tải danh sách' }).last().click();
+  await rosterRequest;
+  await page.getByRole('button', { name: 'Viết nhận xét' }).click();
+
+  let validationIntercepted = false;
+  await page.route('**/api/teacher/schools/*/daily-journals', async (route) => {
+    if (route.request().method() !== 'POST' || validationIntercepted) return route.continue();
+    validationIntercepted = true;
+    await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'Nhận xét cần từ 1 đến 5000 ký tự.', fieldErrors: { text: 'Nhận xét cần từ 1 đến 5000 ký tự.' } } }) });
+  });
+  await page.getByRole('button', { name: 'Lưu nhận xét' }).click();
+  const validationError = page.getByRole('alert').first();
+  await expect(validationError).toHaveText('Nhận xét cần từ 1 đến 5000 ký tự.');
+  await expect(validationError).toBeFocused();
+  await expect(page.getByRole('cell', { name: 'Chưa có nhận xét' })).toBeVisible();
+  await page.unroute('**/api/teacher/schools/*/daily-journals');
+
+  await page.locator('textarea').fill('Bé An tham gia hoạt động rất tích cực.');
+  let intercepted = false;
+  let reconciled = false;
+  await page.route('**/api/teacher/schools/*/daily-journals', async (route) => {
+    if (route.request().method() !== 'POST' || intercepted) return route.continue();
+    intercepted = true;
+    await route.fetch();
+    await route.fulfill({ status: 504 });
+  });
+  await page.route('**/api/teacher/schools/*/operations/*', async (route) => { reconciled = true; await route.continue(); });
+  await page.getByRole('button', { name: 'Lưu nhận xét' }).click();
+  await expect.poll(() => reconciled).toBe(true);
+  await expect(page.getByRole('cell', { name: 'Đã có nhận xét' })).toBeVisible();
+  await page.unroute('**/api/teacher/schools/*/daily-journals');
+  await page.unroute('**/api/teacher/schools/*/operations/*');
+
+  await page.getByRole('button', { name: 'Xem/Sửa' }).click();
+  await page.locator('textarea').fill('Bản nháp không được mang sang trường khác.');
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+  await expect(page.getByRole('dialog', { name: 'Đổi trường?' })).toContainText('Thay đổi chưa gửi sẽ không được tự lưu.');
+  await page.getByRole('button', { name: 'Ở lại' }).click();
+  await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeVisible();
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+  await page.getByRole('button', { name: 'Bỏ nội dung và đổi trường' }).click();
+  await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate B' })).toBeVisible();
+  await expect(page.getByLabel('Mã lớp nhận xét')).toHaveValue('');
+  await expect(page.getByText('Bé An')).toHaveCount(0);
+  await expect(page.getByText('Bản nháp không được mang sang trường khác.')).toHaveCount(0);
 });
