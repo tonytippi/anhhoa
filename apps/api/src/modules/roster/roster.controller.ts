@@ -151,6 +151,17 @@ export class RosterController {
     );
     return { data: result.data, meta: result.meta };
   }
+  @Get("school-years/:schoolYearId/parents") async parentsList(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("schoolYearId") schoolYearId: string,
+    @Query() query: Record<string, string | undefined>,
+  ) {
+    const result = await this.parents!.list(
+      this.identity(request), schoolId, schoolYearId, query,
+    );
+    return { data: result.data, meta: result.meta };
+  }
   @Get("students/:studentId") async student(
     @Req() request: RequestLike,
     @Param("schoolId") schoolId: string,

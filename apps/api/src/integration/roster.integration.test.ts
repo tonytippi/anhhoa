@@ -286,6 +286,49 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     expect(await prisma.studentParent.count({ where: { schoolId: current.current.id, studentId } })).toBe(1);
   });
 
+  it('returns a tenant and SchoolYear-scoped parent-first page with active child links only', async () => {
+    const current = await graph(); const foreign = await graph();
+    const first = await createStudent(current, { fullName: 'Bé An' });
+    const second = await createStudent(current, { fullName: 'Bé Bình' });
+    const foreignStudent = await createStudent(foreign, { fullName: 'Bé Ngoại' });
+    const firstId = (first.outcome as { id: string }).id;
+    const secondId = (second.outcome as { id: string }).id;
+    const parent = await parents.create(current.admin.id, current.current.id, firstId, uuid(), uuid(), { fullName: 'Mai Trần', phone: '0900000000', relationshipLabel: 'Mẹ' });
+    const profileId = (await prisma.studentParent.findUniqueOrThrow({ where: { id: (parent.outcome as { id: string }).id } })).parentProfileId;
+    await prisma.studentParent.create({ data: { schoolId: current.current.id, studentId: secondId, parentProfileId: profileId, relationshipLabel: 'Mẹ' } });
+    await parents.create(foreign.admin.id, foreign.current.id, (foreignStudent.outcome as { id: string }).id, uuid(), uuid(), { fullName: 'Mai Trần', phone: '0900000000', relationshipLabel: 'Mẹ' });
+    const firstPage = await parents.list(current.admin.id, current.current.id, current.year.id, { q: '0900', pageSize: '1' });
+    expect(firstPage.meta).toEqual({ page: 1, pageSize: 1, totalItems: 1, totalPages: 1 });
+    expect(firstPage.data).toMatchObject([{ fullName: 'Mai Trần', phone: '0900000000', email: null, children: expect.arrayContaining([{ linkId: expect.any(String), studentName: 'Bé An', className: 'Mầm', relationshipLabel: 'Mẹ' }, { linkId: expect.any(String), studentName: 'Bé Bình', className: 'Mầm', relationshipLabel: 'Mẹ' }]) }]);
+    const linkId = (parent.outcome as { id: string }).id;
+    await parents.revoke(current.admin.id, current.current.id, linkId, uuid(), uuid());
+    expect((await parents.list(current.admin.id, current.current.id, current.year.id)).data).toMatchObject([{ fullName: 'Mai Trần', children: [{ studentName: 'Bé Bình' }] }]);
+    await expect(parents.list(current.admin.id, current.current.id, foreign.year.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('paginates parent profiles stably, searches every permitted contact field, and rejects invalid pages', async () => {
+    const current = await graph(); const foreign = await graph();
+    const an = await createStudent(current, { fullName: 'Bé An' }); const binh = await createStudent(current, { fullName: 'Bé Bình' }); const foreignStudent = await createStudent(foreign, { fullName: 'Bé Ngoại' });
+    const anId = (an.outcome as { id: string }).id; const binhId = (binh.outcome as { id: string }).id;
+    const shared = await parents.create(current.admin.id, current.current.id, anId, uuid(), uuid(), { fullName: 'Ánh Nguyễn', email: 'shared.parent@example.com', phone: '0900111222', relationshipLabel: 'Mẹ' });
+    await parents.create(current.admin.id, current.current.id, binhId, uuid(), uuid(), { fullName: 'Bình Trần', email: 'binh.parent@example.com', phone: '0900333444', relationshipLabel: 'Bố' });
+    const sharedProfileId = (await prisma.studentParent.findUniqueOrThrow({ where: { id: (shared.outcome as { id: string }).id } })).parentProfileId;
+    await prisma.studentParent.create({ data: { schoolId: foreign.current.id, studentId: (foreignStudent.outcome as { id: string }).id, parentProfileId: sharedProfileId, relationshipLabel: 'Mẹ' } });
+    const first = await parents.list(current.admin.id, current.current.id, current.year.id, { page: '1', pageSize: '1' });
+    const second = await parents.list(current.admin.id, current.current.id, current.year.id, { page: '2', pageSize: '1' });
+    const replay = await parents.list(current.admin.id, current.current.id, current.year.id, { page: '1', pageSize: '1' });
+    expect(first.meta).toEqual({ page: 1, pageSize: 1, totalItems: 2, totalPages: 2 });
+    expect(first.data[0]?.fullName).not.toBe(second.data[0]?.fullName);
+    expect(replay.data[0]?.id).toBe(first.data[0]?.id);
+    await expect(parents.list(current.admin.id, current.current.id, current.year.id, { q: 'Ánh Nguyễn' })).resolves.toMatchObject({ data: [{ fullName: 'Ánh Nguyễn' }] });
+    await expect(parents.list(current.admin.id, current.current.id, current.year.id, { q: 'Bé Bình' })).resolves.toMatchObject({ data: [{ fullName: 'Bình Trần' }] });
+    await expect(parents.list(current.admin.id, current.current.id, current.year.id, { q: '0900111222' })).resolves.toMatchObject({ data: [{ fullName: 'Ánh Nguyễn' }] });
+    await expect(parents.list(current.admin.id, current.current.id, current.year.id, { q: 'binh.parent@example.com' })).resolves.toMatchObject({ data: [{ fullName: 'Bình Trần' }] });
+    await expect(parents.list(current.admin.id, current.current.id, current.year.id, { page: 'bad' })).rejects.toMatchObject({ status: 400 });
+    await expect(parents.list(current.admin.id, current.current.id, current.year.id, { page: String(Number.MAX_SAFE_INTEGER), pageSize: '100' })).rejects.toMatchObject({ status: 400 });
+    expect((await parents.list(current.admin.id, current.current.id, current.year.id, { q: 'Bé Ngoại' })).data).toEqual([]);
+  });
+
   it('persists only Staff profile fields and retains School-scoped assignment history with audit and replay', async () => {
     const current = await graph();
     const profile = { fullName: 'Cô Mai', email: ' MAI@Example.com ', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id };

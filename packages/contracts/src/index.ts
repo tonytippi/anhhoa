@@ -44,6 +44,23 @@ export type OffsetPaginationMeta = {
   totalItems: number;
   totalPages: number;
 };
+export type ParentListQuery = {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+};
+export type ParentListRow = {
+  id: string;
+  fullName: string;
+  phone: string;
+  email: string | null;
+  children: Array<{
+    linkId: string;
+    studentName: string;
+    className: string | null;
+    relationshipLabel: string;
+  }>;
+};
 
 export function isApiResponse(value: unknown): value is ApiResponse<unknown> {
   return typeof value === 'object' && value !== null && 'data' in value;

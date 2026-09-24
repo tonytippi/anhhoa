@@ -1299,6 +1299,9 @@ tbody tr:last-child td {
 }
 .student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
 .student-list-table table { min-width: 940px; }
+.parent-list-table table { min-width: 860px; }
+.parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }
+.parent-children span { color: #5f746e; }
 .relative-count { display: block; color: #5f746e !important; white-space: nowrap; }
 .roster-row-actions { position: relative; width: 72px; }
 .roster-action-menu {

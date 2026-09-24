@@ -40,6 +40,13 @@ type RosterRow = {
   };
 };
 type RosterPageMeta = { page: number; pageSize: number; totalItems: number; totalPages: number };
+type ParentRow = {
+  id: string;
+  fullName: string;
+  phone: string;
+  email: string | null;
+  children: Array<{ linkId: string; studentName: string; className: string | null; relationshipLabel: string }>;
+};
 type StudentDetail = RosterRow & {
   enrollments: Array<{ id: string; lifecycle: string; effectiveFrom: string; endedOn: string | null; classroom: { name: string } | null }>;
 };
@@ -198,6 +205,10 @@ export function RosterWorkspace({
   const [students, setStudents] = useState<RosterRow[]>([]);
   const [rosterMeta, setRosterMeta] = useState({ page: 1, pageSize: 25, totalItems: 0, totalPages: 0 });
   const [rosterQuery, setRosterQuery] = useState({ q: "", classId: "", lifecycle: "", sort: "name" as "name" | "class" });
+  const [parents, setParents] = useState<ParentRow[]>([]);
+  const [parentMeta, setParentMeta] = useState<RosterPageMeta>({ page: 1, pageSize: 25, totalItems: 0, totalPages: 0 });
+  const [parentQuery, setParentQuery] = useState({ q: "" });
+  const [parentDetail, setParentDetail] = useState<ParentRow>();
   const [studentDetail, setStudentDetail] = useState<StudentDetail>();
   const [parentLinks, setParentLinks] = useState<ParentLink[]>([]);
   const [parentInput, setParentInput] = useState({ fullName: "", email: "", phone: "", relationshipLabel: "" });
@@ -309,6 +320,8 @@ export function RosterWorkspace({
   const studentIntakeDialog = useRef<HTMLDivElement>(null);
   const studentDetailDialog = useRef<HTMLElement>(null);
   const studentDetailTrigger = useRef<HTMLButtonElement>(null);
+  const parentDetailDialog = useRef<HTMLElement>(null);
+  const parentDetailTrigger = useRef<HTMLButtonElement>(null);
   const staffIntakeDialog = useRef<HTMLDivElement>(null);
   const endTrigger = useRef<HTMLButtonElement>(null);
   const restoreEndFocus = useRef(false);
@@ -323,6 +336,10 @@ export function RosterWorkspace({
   const rowMenuTrigger = useRef<HTMLButtonElement>(null);
   const rowMenuElement = useRef<HTMLDivElement>(null);
   const rowMenuKeyboardOpen = useRef(false);
+  const sectionRef = useRef(section);
+  const parentQueryRef = useRef(parentQuery);
+  const parentPageRef = useRef(parentMeta.page);
+  const parentYearRef = useRef(yearId);
   const valid = (school: string, requestGeneration: number) =>
     currentSchool.current === school &&
     generation.current === requestGeneration;
@@ -341,6 +358,11 @@ export function RosterWorkspace({
     setParentInput({ fullName: "", email: "", phone: "", relationshipLabel: "" });
     setStudentErrors({});
     trigger?.focus();
+  };
+  const closeParentDetail = () => {
+    if (pending) return;
+    setParentDetail(undefined);
+    parentDetailTrigger.current?.focus();
   };
   const dirty = Boolean(
     year.name ||
@@ -390,6 +412,10 @@ export function RosterWorkspace({
       reconcile: pending ? () => void reconcile(pending) : undefined,
     });
   }, [dirty, pending, studentIntakeOpen, staffIntakeOpen, onStatusChange]);
+  useEffect(() => { sectionRef.current = section; }, [section]);
+  useEffect(() => { parentQueryRef.current = parentQuery; }, [parentQuery]);
+  useEffect(() => { parentPageRef.current = parentMeta.page; }, [parentMeta.page]);
+  useEffect(() => { parentYearRef.current = yearId; }, [yearId]);
 
   const read = async <T,>(
     path: string,
@@ -419,6 +445,10 @@ export function RosterWorkspace({
     if (!response.ok) throw new Error("Không thể tải danh bộ.");
     return (await response.json()) as { data: RosterRow[]; meta: RosterPageMeta };
   };
+  const readParentPage = readRosterPage as (
+    path: string,
+    requestGeneration?: number,
+  ) => Promise<{ data: ParentRow[]; meta: RosterPageMeta } | undefined>;
   const loadYear = async (
     selected: string,
     requestGeneration = generation.current,
@@ -427,38 +457,50 @@ export function RosterWorkspace({
   ) => {
     const request = ++rosterRequest.current;
     setRowMenu(undefined);
-    setClasses([]);
-    setStudents([]);
-    setAssignments([]);
+    if (section === "parents") setParents([]);
+    else {
+      setClasses([]);
+      setStudents([]);
+      setAssignments([]);
+    }
     setRosterLoading(true);
     setRosterLoadFailed(false);
     try {
-      const [nextClasses, nextStudents, nextAssignments] = await Promise.all([
-        read<Classroom[]>(
+      const [nextClasses, nextStudents, nextParents, nextAssignments] = await Promise.all([
+        section === "parents" ? Promise.resolve(undefined) : read<Classroom[]>(
           `/api/app/schools/${schoolId}/roster/school-years/${selected}/classes`,
           requestGeneration,
         ),
-        readRosterPage(
+        section === "parents"
+          ? Promise.resolve(undefined)
+          : readRosterPage(
           `/api/app/schools/${schoolId}/roster/school-years/${selected}/students?${new URLSearchParams({ page: String(page), pageSize: "25", ...(query.q ? { q: query.q } : {}), ...(query.classId ? { classId: query.classId } : {}), ...(query.lifecycle ? { lifecycle: query.lifecycle } : {}), sort: query.sort })}`,
           requestGeneration,
-        ),
-        read<Assignment[]>(
+            ),
+        section === "parents"
+          ? readParentPage(
+              `/api/app/schools/${schoolId}/roster/school-years/${selected}/parents?${new URLSearchParams({ page: String(page), pageSize: "25", ...(parentQueryRef.current.q ? { q: parentQueryRef.current.q } : {}) })}`,
+              requestGeneration,
+            )
+          : Promise.resolve(undefined),
+        section === "parents" ? Promise.resolve(undefined) : read<Assignment[]>(
           `/api/app/schools/${schoolId}/roster/school-years/${selected}/staff-assignments`,
           requestGeneration,
         ),
       ]);
       if (!valid(schoolId, requestGeneration) || selectedYear.current !== selected || rosterRequest.current !== request)
         return;
-      setClasses(nextClasses ?? []);
-       setStudents(nextStudents?.data ?? []);
-       setRosterMeta(nextStudents?.meta ?? { page, pageSize: 25, totalItems: 0, totalPages: 0 });
-      setAssignments(
-        (nextAssignments ?? []).filter((item): item is Assignment =>
-          Boolean(item?.staff && item?.schoolYear && item?.classroom),
-        ),
-      );
+       if (section === "parents") {
+         setParents(nextParents?.data ?? []);
+         setParentMeta(nextParents?.meta ?? { page, pageSize: 25, totalItems: 0, totalPages: 0 });
+       } else {
+         setClasses(nextClasses ?? []);
+         setStudents(nextStudents?.data ?? []);
+         setRosterMeta(nextStudents?.meta ?? { page, pageSize: 25, totalItems: 0, totalPages: 0 });
+         setAssignments((nextAssignments ?? []).filter((item): item is Assignment => Boolean(item?.staff && item?.schoolYear && item?.classroom)));
+       }
       setRosterLoading(false);
-      setStudent((current) =>
+      if (section !== "parents") setStudent((current) =>
         current.classId || current.intakeStatus === "WAITING_FOR_CLASS"
           ? current
           : {
@@ -484,23 +526,23 @@ export function RosterWorkspace({
         `/api/app/schools/${schoolId}/roster/school-years`,
         requestGeneration,
       ),
-      read<Staff[]>(
+      section === "parents" ? Promise.resolve(undefined) : read<Staff[]>(
         `/api/app/schools/${schoolId}/roster/staff`,
         requestGeneration,
       ),
-      read<Position[]>(
+      section === "parents" ? Promise.resolve(undefined) : read<Position[]>(
         `/api/app/schools/${schoolId}/roster/positions`,
         requestGeneration,
       ),
     ]);
     if (!nextYears || !valid(schoolId, requestGeneration)) return;
     setYears(nextYears);
-    setStaff(
+    if (section !== "parents") setStaff(
       (nextStaff ?? []).filter((item): item is Staff =>
         Boolean(item?.email && item?.phone && item?.fullName),
       ),
     );
-    setPositions((nextPositions ?? []).filter((item): item is Position => Boolean(item && Array.isArray(item.capabilities) && typeof item.id === 'string')));
+    if (section !== "parents") setPositions((nextPositions ?? []).filter((item): item is Position => Boolean(item && Array.isArray(item.capabilities) && typeof item.id === 'string')));
     const selected = nextYears.some((item) => item.id === selectedYear.current)
       ? selectedYear.current
       : (nextYears[0]?.id ?? "");
@@ -511,11 +553,12 @@ export function RosterWorkspace({
     if (!selected) {
       setClasses([]);
       setStudents([]);
+      setParents([]);
       setRosterLoading(false);
       return;
     }
     loadedYear.current = selected;
-    await loadYear(selected, requestGeneration);
+    await loadYear(selected, requestGeneration, rosterQuery, section === "parents" ? parentMeta.page : rosterMeta.page);
   };
   const reconcile = async (
     operation: Pending,
@@ -546,7 +589,9 @@ export function RosterWorkspace({
       sessionStorage.removeItem(pendingKey);
       setPending(undefined);
       if (result.status === "COMPLETED") {
-        await refresh(requestGeneration);
+        if (operation.kind === "parent-revoke" && sectionRef.current === "parents" && parentYearRef.current) {
+          await loadYear(parentYearRef.current, requestGeneration, rosterQuery, parentPageRef.current);
+        } else await refresh(requestGeneration);
         const createdStudentId = operation.kind === "student"
           ? (result.outcome as { id?: string } | undefined)?.id
           : undefined;
@@ -591,6 +636,8 @@ export function RosterWorkspace({
     setYearId("");
     setClasses([]);
     setStudents([]);
+    setParents([]);
+    setParentDetail(undefined);
     setStaff([]);
     setPositions([]);
     setAssignments([]);
@@ -691,13 +738,14 @@ export function RosterWorkspace({
     selectedDetailStudent.current = undefined;
     setDetailLoading(false);
     setStudentDetail(undefined);
+    setParentDetail(undefined);
     setParentLinks([]);
     setParentInput({ fullName: "", email: "", phone: "", relationshipLabel: "" });
     setStudentErrors({});
     setRowMenu(undefined);
     loadedYear.current = yearId;
     const requestGeneration = generation.current;
-    void loadYear(yearId, requestGeneration);
+    void loadYear(yearId, requestGeneration, rosterQuery, section === "parents" ? parentMeta.page : rosterMeta.page);
   }, [yearId, schoolId]);
   useEffect(() => {
     if (
@@ -787,7 +835,9 @@ export function RosterWorkspace({
         return false;
       }
       const result = (await response.json()) as { data?: { outcome?: unknown } };
-      await refresh(requestGeneration);
+      if (kind === "parent-revoke" && sectionRef.current === "parents" && parentYearRef.current)
+        await loadYear(parentYearRef.current, requestGeneration, rosterQuery, parentPageRef.current);
+      else await refresh(requestGeneration);
       return valid(schoolId, requestGeneration) ? { outcome: result.data?.outcome } : false;
     } catch (error) {
       if (!valid(schoolId, requestGeneration)) return false;
@@ -922,6 +972,12 @@ export function RosterWorkspace({
     if (!studentDetail || !window.confirm(`Thu hồi liên kết của ${link.parent.fullName}?`)) return;
     if (await post(`/api/app/schools/${schoolId}/roster/student-parents/${link.id}/revoke`, {}, "parent-revoke", studentDetail.id))
       await openStudentDetail(studentDetail.id);
+  };
+  const revokeParentListLink = async (linkId: string, studentName: string) => {
+    if (!parentDetail || !window.confirm(`Thu hồi liên kết với ${studentName}?`)) return;
+    if (await post(`/api/app/schools/${schoolId}/roster/student-parents/${linkId}/revoke`, {}, "parent-revoke")) {
+      closeParentDetail();
+    }
   };
   const changeDetailLifecycle = async (enrollment: StudentDetail["enrollments"][number], lifecycle: string) => {
     if (!studentDetail) return;
@@ -1275,6 +1331,9 @@ export function RosterWorkspace({
   const reloadRoster = (page = rosterMeta.page) => {
     if (yearId) void loadYear(yearId, generation.current, rosterQuery, page);
   };
+  const reloadParents = (page = parentMeta.page) => {
+    if (yearId) void loadYear(yearId, generation.current, rosterQuery, page);
+  };
   const field = (errors: Record<string, string>, name: string, prefix = "") =>
     errors[name]
       ? { "aria-invalid": true, "aria-describedby": `${prefix}${name}-error` }
@@ -1310,6 +1369,19 @@ export function RosterWorkspace({
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   };
+  const trapParentDetailDialog = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      closeParentDetail();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(parentDetailDialog.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? [])];
+    if (!focusable.length) return;
+    const first = focusable[0]!;
+    const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
   useEffect(() => {
     if (!studentIntakeOpen) return;
     studentIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus();
@@ -1320,11 +1392,20 @@ export function RosterWorkspace({
     studentDetailDialog.current?.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled])")?.focus();
   }, [studentDetail, detailLoading]);
   useEffect(() => {
+    if (!parentDetail) return;
+    parentDetailDialog.current?.querySelector<HTMLElement>("button:not([disabled])")?.focus();
+  }, [parentDetail]);
+  useEffect(() => {
     if (rowMenu && rowMenuKeyboardOpen.current)
       rowMenuElement.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
     rowMenuKeyboardOpen.current = false;
   }, [rowMenu]);
-  useEffect(() => setRowMenu(undefined), [section]);
+  useEffect(() => {
+    setRowMenu(undefined);
+    setParentDetail(undefined);
+    if (yearId)
+      void loadYear(yearId, generation.current, rosterQuery, section === "parents" ? parentMeta.page : rosterMeta.page);
+  }, [section]);
   const studentIntakeForm = (radioName: string, inDialog = false) => (
     <form className="roster-form student-intake-form" onSubmit={createStudent}>
       <h3 id={inDialog ? "student-intake-title" : undefined}>
@@ -2258,7 +2339,7 @@ export function RosterWorkspace({
               </section>
             )}
             </>}
-            {(section === "all" || section === "students" || section === "parents") && <>
+            {(section === "all" || section === "students") && <>
             {section === "students" && selected?.isActive && (
               <div className="student-list-toolbar">
                 <h3>Học sinh của {selected.name}</h3>
@@ -2272,10 +2353,10 @@ export function RosterWorkspace({
               </div>
               </div>
             )}
-            {section !== "parents" && selected?.isActive && showStudentIntake && section === "all" && (
+            {selected?.isActive && showStudentIntake && section === "all" && (
               studentIntakeForm("intake-status-all")
             )}
-            {section !== "parents" && !selected?.isActive && (
+            {!selected?.isActive && (
               <p role="status">
                 Chỉ có thể tạo ghi danh trong năm học đang hoạt động.
               </p>
@@ -2380,6 +2461,33 @@ export function RosterWorkspace({
             </form>
             {rosterMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang danh bộ"><button type="button" disabled={rosterLoading || rosterMeta.page === 1} onClick={() => reloadRoster(rosterMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, rosterMeta.totalPages) }, (_, index) => rosterMeta.totalPages <= 5 ? index + 1 : Math.min(rosterMeta.totalPages - 4, Math.max(1, rosterMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === rosterMeta.page} aria-current={page === rosterMeta.page ? "page" : undefined} onClick={() => reloadRoster(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || rosterMeta.page === rosterMeta.totalPages} onClick={() => reloadRoster(rosterMeta.page + 1)}>Sau</button></nav>}
             </>}
+            {section === "parents" && <>
+              <div className="student-list-toolbar">
+                <h3>Phụ huynh của {selected?.name}</h3>
+              </div>
+              <div className="table-scroll student-list-table parent-list-table">
+                <table>
+                  <caption>Phụ huynh {schoolName} · {selected?.name ?? "Chưa chọn năm học"} · Trang {parentMeta.page}</caption>
+                  <thead><tr><th>STT</th><th>Phụ huynh</th><th>Số điện thoại</th><th>Email</th><th>Con / lớp</th><th>Tùy chọn</th></tr></thead>
+                  <tbody>
+                    {rosterLoading ? <tr><td colSpan={6} role="status" className="student-empty-state">Đang tải danh sách phụ huynh...</td></tr>
+                      : parents.length ? parents.map((item, index) => <tr key={item.id}>
+                        <td>{(parentMeta.page - 1) * parentMeta.pageSize + index + 1}</td>
+                        <th scope="row">{item.fullName}</th><td>{item.phone}</td><td>{item.email ?? "-"}</td>
+                        <td><ul className="parent-children">{item.children.map((child) => <li key={child.linkId}>{child.studentName} · {child.className ?? "Chưa xếp lớp"} <span>({child.relationshipLabel})</span></li>)}</ul></td>
+                        <td className="roster-row-actions"><button ref={rowMenu === item.id ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.fullName}`} aria-haspopup="menu" aria-expanded={rowMenu === item.id} onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setRowMenu(item.id); } }} onClick={() => setRowMenu(rowMenu === item.id ? undefined : item.id)}>...</button>
+                          {rowMenu === item.id && <div ref={rowMenuElement} className="roster-action-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); } else if (event.key === "Tab") setRowMenu(undefined); }}><button type="button" role="menuitem" onClick={() => { parentDetailTrigger.current = rowMenuTrigger.current; setRowMenu(undefined); setParentDetail(item); }}>Xem chi tiết phụ huynh</button></div>}
+                        </td>
+                      </tr>) : !rosterLoadFailed && <tr><td colSpan={6} className="student-empty-state"><strong>Chưa có phụ huynh liên kết trong năm học này</strong><span>Danh sách chỉ hiển thị liên kết đang hiệu lực.</span></td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <form className="roster-list-filters" aria-label="Lọc phụ huynh" onSubmit={(event) => { event.preventDefault(); reloadParents(1); }}>
+                <label>Tìm kiếm<input type="search" value={parentQuery.q} onChange={(event) => { const next = { q: event.target.value }; parentQueryRef.current = next; setParentQuery(next); }} placeholder="Tên, con, số điện thoại hoặc email" /></label>
+                <button>Áp dụng</button><button type="button" disabled={rosterLoading} onClick={() => reloadParents()}>Làm mới danh sách</button>
+              </form>
+              {parentMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang phụ huynh"><button type="button" disabled={rosterLoading || parentMeta.page === 1} onClick={() => reloadParents(parentMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, parentMeta.totalPages) }, (_, index) => parentMeta.totalPages <= 5 ? index + 1 : Math.min(parentMeta.totalPages - 4, Math.max(1, parentMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === parentMeta.page} aria-current={page === parentMeta.page ? "page" : undefined} onClick={() => reloadParents(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || parentMeta.page === parentMeta.totalPages} onClick={() => reloadParents(parentMeta.page + 1)}>Sau</button></nav>}
+            </>}
           </fieldset>
         </>
       )}
@@ -2467,6 +2575,15 @@ export function RosterWorkspace({
             </button>
             <button disabled={disabled}>Lưu tên lớp</button>
           </form>
+        </div>
+      )}
+      {parentDetail && (
+        <div className="student-intake-backdrop" role="presentation">
+          <section ref={parentDetailDialog} className="student-intake-dialog student-detail-panel" role="dialog" aria-modal="true" aria-labelledby="parent-detail-title" onKeyDown={trapParentDetailDialog}>
+            <div className="student-list-toolbar"><h3 id="parent-detail-title">Hồ sơ {parentDetail.fullName}</h3><button type="button" disabled={disabled} onClick={closeParentDetail}>Đóng</button></div>
+            <p>{parentDetail.phone} · {parentDetail.email ?? "Không có email"}</p>
+            <section><h4>Liên kết với học sinh</h4><ul>{parentDetail.children.map((child) => <li key={child.linkId}>{child.studentName} · {child.className ?? "Chưa xếp lớp"} · {child.relationshipLabel}<button type="button" disabled={disabled} onClick={() => void revokeParentListLink(child.linkId, child.studentName)}>Thu hồi</button></li>)}</ul></section>
+          </section>
         </div>
       )}
       {(detailLoading || studentDetail) && (

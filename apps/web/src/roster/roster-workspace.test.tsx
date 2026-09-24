@@ -7,7 +7,9 @@ const classroom = { id: "class-a", schoolYearId: "year-a", name: "Lớp Mầm", 
 const row = { id: "student-a", studentCode: "S1", fullName: "Bé An", hasPhoto: false, enrollment: { id: "enrollment-a", lifecycle: "ENROLLED", effectiveFrom: "2026-01-01", classroom: { id: "class-a", name: "Lớp Mầm" } }, relatives: { mother: "Mai Trần", father: "Minh Trần", otherRelativeCount: 2 } };
 const list = (data = [row], meta = { page: 1, pageSize: 25, totalItems: 27, totalPages: 2 }) => ({ data, meta });
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
-const pagedResponse = (page = list()) => new Response(JSON.stringify(page));
+const pagedResponse = (page: unknown = list()) => new Response(JSON.stringify(page));
+const parentRow = { id: "parent-a", fullName: "Mai Trần", phone: "0900", email: null, children: [{ linkId: "link-a", studentName: "Bé An", className: "Lớp Mầm", relationshipLabel: "Mẹ" }] };
+const parentPage = (data = [parentRow], meta = { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 }) => ({ data, meta });
 const fetcher = (overrides: Record<string, unknown> = {}) => vi.fn((url: string, options?: RequestInit) => {
   if (options?.method === "POST") return Promise.resolve(response({ id: "operation" }));
   if (url.includes("/school-years/year-a/students?")) return Promise.resolve(pagedResponse(list()));
@@ -22,6 +24,65 @@ const fetcher = (overrides: Record<string, unknown> = {}) => vi.fn((url: string,
 afterEach(() => vi.unstubAllGlobals());
 
 describe("RosterWorkspace paged read model", () => {
+  it("renders an independent paged parent table without loading student rows", async () => {
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/school-years/year-a/parents?")) return Promise.resolve(pagedResponse({ data: [parentRow], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } }));
+      if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
+      if (url.endsWith("/classes") || url.endsWith("/staff-assignments") || url.endsWith("/staff") || url.endsWith("/positions")) return Promise.resolve(response([]));
+      return Promise.resolve(response([]));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="parents" />);
+    expect(await screen.findByText("Mai Trần")).toBeTruthy();
+    expect(screen.getByText("Bé An · Lớp Mầm")).toBeTruthy();
+    expect(screen.getByText("-")).toBeTruthy();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/students?"))).toBe(false);
+  });
+  it("pages and searches parents without allowing an older page response to overwrite the query", async () => {
+    let resolvePageTwo!: (value: Response) => void;
+    const pageTwo = new Promise<Response>((resolve) => { resolvePageTwo = resolve; });
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/parents?") && url.includes("page=2")) return pageTwo;
+      if (url.includes("/parents?") && url.includes("q=")) return Promise.resolve(pagedResponse(parentPage([{ ...parentRow, id: "parent-b", fullName: "Bình Lê" }])));
+      if (url.includes("/parents?")) return Promise.resolve(pagedResponse(parentPage([parentRow], { page: 1, pageSize: 25, totalItems: 26, totalPages: 2 })));
+      if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
+      return Promise.resolve(response([]));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="parents" />);
+    await screen.findByText("Mai Trần");
+    fireEvent.click(screen.getByRole("button", { name: "Sau" }));
+    fireEvent.change(screen.getByLabelText("Tìm kiếm"), { target: { value: "Bình" } });
+    fireEvent.click(screen.getByRole("button", { name: "Áp dụng" }));
+    expect(await screen.findByText("Bình Lê")).toBeTruthy();
+    resolvePageTwo(pagedResponse(parentPage([{ ...parentRow, fullName: "Cũ" }], { page: 2, pageSize: 25, totalItems: 26, totalPages: 2 })));
+    await waitFor(() => expect(screen.queryByText("Cũ")).toBeNull());
+  });
+  it("shows parent empty and error states without treating an error as empty", async () => {
+    const emptyFetch = vi.fn((url: string) => url.includes("/parents?") ? Promise.resolve(pagedResponse(parentPage([]))) : url.endsWith("/school-years") ? Promise.resolve(response([year])) : Promise.resolve(response([])));
+    vi.stubGlobal("fetch", emptyFetch);
+    const view = render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="parents" />);
+    expect(await screen.findByText("Chưa có phụ huynh liên kết trong năm học này")).toBeTruthy();
+    const errorFetch = vi.fn((url: string) => url.includes("/parents?") ? Promise.resolve(new Response(null, { status: 500 })) : url.endsWith("/school-years") ? Promise.resolve(response([year])) : Promise.resolve(response([])));
+    vi.stubGlobal("fetch", errorFetch);
+    view.rerender(<RosterWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} section="parents" />);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("Chưa có phụ huynh liên kết trong năm học này")).toBeNull();
+  });
+  it("opens, traps, dismisses, and restores focus for parent detail", async () => {
+    const fetch = vi.fn((url: string) => url.includes("/parents?") ? Promise.resolve(pagedResponse(parentPage())) : url.endsWith("/school-years") ? Promise.resolve(response([year])) : Promise.resolve(response([])));
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="parents" />);
+    const menu = await screen.findByRole("button", { name: "Tùy chọn cho Mai Trần" });
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    const action = await screen.findByRole("menuitem", { name: "Xem chi tiết phụ huynh" });
+    fireEvent.click(action);
+    const dialog = await screen.findByRole("dialog", { name: "Hồ sơ Mai Trần" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Đóng" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Hồ sơ Mai Trần" })).toBeNull());
+    expect(document.activeElement).toBe(menu);
+  });
   it("renders only the returned page and relationship projections without detail requests", async () => {
     const fetch = fetcher(); vi.stubGlobal("fetch", fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
