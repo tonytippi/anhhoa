@@ -44,6 +44,9 @@ model School {
   handoverRecords                   HandoverRecord[]
   evidenceReferences                EvidenceReference[]
   notificationSourceEvents          NotificationSourceEvent[]
+  dailyJournals                     DailyJournal[]
+  dailyJournalVersions              DailyJournalVersion[]
+  dailyJournalMedia                 DailyJournalMedia[]
   bankAccounts                      BankAccount[]
   receivableGroups                  ReceivableGroup[]
   receivables                       Receivable[]
@@ -111,6 +114,8 @@ model Class {
   enrollmentClassAssignments EnrollmentClassAssignment[]
   attendanceRecords          AttendanceRecord[]
   uploadedEvidenceReferences EvidenceReference[]         @relation("EvidenceUploadedClass")
+  dailyJournals             DailyJournal[]
+  dailyJournalMedia         DailyJournalMedia[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, id])
@@ -143,6 +148,9 @@ model StaffProfile {
   attendanceRecords          AttendanceRecord[]
   handoverRecords            HandoverRecord[]
   uploadedEvidenceReferences EvidenceReference[]    @relation("EvidenceUploadedStaffProfile")
+  dailyJournals             DailyJournal[]
+  dailyJournalVersions      DailyJournalVersion[]
+  uploadedDailyJournalMedia DailyJournalMedia[]     @relation("DailyJournalMediaUploader")
   photo                      StaffPhoto?
   issuedCodes                StaffCodeRegistry[]
 
@@ -365,6 +373,8 @@ model Student {
   attendanceRecords           AttendanceRecord[]
   confirmedEvidenceReferences EvidenceReference[]       @relation("EvidenceConfirmedStudent")
   handoverRecords             HandoverRecord[]
+  dailyJournals               DailyJournal[]
+  dailyJournalMedia           DailyJournalMedia[]
   notificationSourceEvents    NotificationSourceEvent[]
   collectionRunSelections     CollectionRunSelection[]
   invoices                    Invoice[]
@@ -619,6 +629,9 @@ model SchoolMembership {
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
   collectionRunLifecycleTransitions   CollectionRunLifecycleTransition[]
   uploadedEvidenceReferences          EvidenceReference[]                  @relation("EvidenceUploadedMembership")
+  dailyJournals                       DailyJournal[]
+  dailyJournalVersions                DailyJournalVersion[]
+  uploadedDailyJournalMedia           DailyJournalMedia[]                  @relation("DailyJournalMediaUploaderMembership")
 
   @@unique([schoolId, userIdentityId])
   @@unique([schoolId, id])
@@ -1224,10 +1237,101 @@ model DailyJournalPolicy {
   createdAt                               DateTime                    @default(now())
   school                                  School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership                              SchoolMembership            @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  journals                                DailyJournal[]
+  journalVersions                         DailyJournalVersion[]
+  media                                   DailyJournalMedia[]
 
   @@unique([schoolId, effectiveFrom])
   @@unique([schoolId, id])
   @@index([schoolId, effectiveFrom])
+}
+
+model DailyJournal {
+  id                  String               @id @default(uuid()) @db.Uuid
+  schoolId            String               @db.Uuid
+  classId             String               @db.Uuid
+  studentId           String               @db.Uuid
+  enrollmentIdSnapshot String              @db.Uuid
+  enrollmentEndedOnSnapshot DateTime?      @db.Date
+  journalDate         DateTime             @db.Date
+  text                String
+  currentVersion      Int                  @default(1)
+  policyEffectiveFrom DateTime             @db.Date
+  actorIdentityId     String               @db.Uuid
+  membershipId        String               @db.Uuid
+  staffProfileId      String               @db.Uuid
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  school              School               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classroom           Class                @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
+  student             Student              @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  policy              DailyJournalPolicy   @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  membership          SchoolMembership     @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  staffProfile        StaffProfile         @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+  versions            DailyJournalVersion[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, studentId, journalDate])
+  @@index([schoolId, classId, journalDate])
+}
+
+model DailyJournalVersion {
+  id                String              @id @default(uuid()) @db.Uuid
+  schoolId          String              @db.Uuid
+  dailyJournalId    String              @db.Uuid
+  version           Int
+  text              String
+  policyEffectiveFrom DateTime          @db.Date
+  actorIdentityId   String              @db.Uuid
+  membershipId      String              @db.Uuid
+  staffProfileId    String              @db.Uuid
+  createdAt         DateTime            @default(now())
+  school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  dailyJournal      DailyJournal        @relation(fields: [schoolId, dailyJournalId], references: [schoolId, id], onDelete: Restrict)
+  membership        SchoolMembership    @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  staffProfile      StaffProfile        @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+  policy            DailyJournalPolicy  @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  media             DailyJournalVersionMedia[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, dailyJournalId, version])
+}
+
+model DailyJournalMedia {
+  id                String              @id @default(uuid()) @db.Uuid
+  schoolId          String              @db.Uuid
+  classId           String              @db.Uuid
+  studentId         String              @db.Uuid
+  journalDate       DateTime            @db.Date
+  contentType       String
+  blob              Bytes
+  uploadedByMembershipId String         @db.Uuid
+  uploadedByStaffProfileId String       @db.Uuid
+  policyEffectiveFrom DateTime          @db.Date
+  attachedDailyJournalId String?        @db.Uuid
+  createdAt         DateTime            @default(now())
+  school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classroom         Class               @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
+  student           Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  policy            DailyJournalPolicy  @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  uploadedByMembership SchoolMembership @relation("DailyJournalMediaUploaderMembership", fields: [schoolId, uploadedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  uploadedByStaffProfile StaffProfile   @relation("DailyJournalMediaUploader", fields: [schoolId, uploadedByStaffProfileId], references: [schoolId, id], onDelete: Restrict)
+  versionMedia      DailyJournalVersionMedia[]
+
+  @@unique([schoolId, id])
+  @@index([schoolId, classId, studentId, journalDate])
+  @@index([schoolId, attachedDailyJournalId])
+}
+
+model DailyJournalVersionMedia {
+  schoolId              String              @db.Uuid
+  dailyJournalVersionId String              @db.Uuid
+  mediaId               String              @db.Uuid
+  dailyJournalVersion   DailyJournalVersion @relation(fields: [schoolId, dailyJournalVersionId], references: [schoolId, id], onDelete: Restrict)
+  media                 DailyJournalMedia   @relation(fields: [schoolId, mediaId], references: [schoolId, id], onDelete: Restrict)
+
+  @@id([schoolId, dailyJournalVersionId, mediaId])
+  @@index([schoolId, mediaId])
 }
 
 model BankAccount {

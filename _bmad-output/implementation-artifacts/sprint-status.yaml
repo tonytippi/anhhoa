@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-24 # Approved Pha 1b promotion-policy follow-up follows CollectionRun template release gate.
+last_updated: 2026-09-24 # Epic 4 complete; Pha 1b promotion-policy follow-up remains queued after CollectionRun template gate.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -38,17 +38,17 @@ development_status:
   3-4-audit-va-verification-cho-policy-isolation-versioning: done
   epic-3-retrospective: optional
 
-  epic-4: in-progress
+  epic-4: done
   4-1-leave-domain-theo-calendar-policy-va-capability: done
   4-2-ghi-attendance-co-conflict-validation-va-evidence-policy: done
   4-3-evidence-lifecycle-va-notification-source-an-toan: done
   4-4-ghi-handover-nhu-operational-reference: done
   4-5-quyet-dinh-leave-ngan-va-nguon-immutable-cho-finance: done
-  4-6-hang-doi-van-hanh-buoi-sang: backlog
-  4-7-kiem-thu-release-gate-cho-van-hanh-lop: backlog
-  4-8-teacher-ghi-dailyjournal-co-version-va-media-duoc-kiem-soat: backlog
-  4-9-dailyjournal-media-lifecycle-va-parent-projection-an-toan: backlog
-  4-10-teacher-portal-queue-va-release-gate-van-hanh-lop: backlog
+  4-6-hang-doi-van-hanh-buoi-sang: done
+  4-7-kiem-thu-release-gate-cho-van-hanh-lop: done
+  4-8-teacher-ghi-dailyjournal-co-version-va-media-duoc-kiem-soat: done
+  4-9-dailyjournal-media-lifecycle-va-parent-projection-an-toan: done
+  4-10-teacher-portal-queue-va-release-gate-van-hanh-lop: done
   epic-4-retrospective: optional
 
   epic-5: in-progress

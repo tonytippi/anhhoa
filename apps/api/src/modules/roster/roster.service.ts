@@ -400,17 +400,19 @@ export class RosterService {
         throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
       return input;
     };
-    const integer = (input: string | undefined, fallback: number, maximum: number) => {
+    const integer = (input: string | undefined, fallback: number, maximum: number, clamp = true) => {
       if (input === undefined || input === "") return fallback;
       if (!/^\d+$/.test(input))
         throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
       const parsed = Number(input);
       if (!Number.isSafeInteger(parsed) || parsed < 1)
         throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+      if (parsed > maximum && !clamp)
+        throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
       return Math.min(parsed, maximum);
     };
     const pageSize = integer(value("pageSize"), 25, 100);
-    const page = integer(value("page"), 1, Math.floor(Number.MAX_SAFE_INTEGER / pageSize) + 1);
+    const page = integer(value("page"), 1, Math.floor(Number.MAX_SAFE_INTEGER / pageSize) + 1, false);
     const schoolYearId = value("schoolYearId") || undefined;
     const employmentStatus = value("employmentStatus") || undefined;
     const primaryPositionId = value("primaryPositionId") || undefined;
@@ -2185,7 +2187,8 @@ export class RosterService {
       "LEAVE_REQUEST_DECIDE",
       "ATTENDANCE_WRITE",
       "DAILY_JOURNAL_WRITE",
-      "HANDOVER_WRITE",
+       "HANDOVER_WRITE",
+       "OPERATIONAL_QUEUE_READ",
       "WORKFORCE_MANAGE",
       "TIMEKEEPING_IMPORT",
       "TIMEKEEPING_REVIEW",
@@ -2226,7 +2229,8 @@ export class RosterService {
       "LEAVE_REQUEST_DECIDE",
       "ATTENDANCE_WRITE",
       "DAILY_JOURNAL_WRITE",
-      "HANDOVER_WRITE",
+       "HANDOVER_WRITE",
+       "OPERATIONAL_QUEUE_READ",
       "WORKFORCE_MANAGE",
       "TIMEKEEPING_IMPORT",
       "TIMEKEEPING_REVIEW",

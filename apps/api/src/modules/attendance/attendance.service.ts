@@ -23,6 +23,8 @@ const attendanceRoute = "POST /api/teacher/schools/:schoolId/attendance";
 const evidenceUploadRoute = "POST /api/teacher/schools/:schoolId/attendance-evidence";
 const handoverRoute = "POST /api/teacher/schools/:schoolId/handovers";
 const handoverEvidenceUploadRoute = "POST /api/teacher/schools/:schoolId/handover-evidence";
+const journalSaveRoute = "POST /api/teacher/schools/:schoolId/daily-journals";
+const journalMediaUploadRoute = "POST /api/teacher/schools/:schoolId/daily-journal-media";
 const expiredEvidenceMessage = "Tệp bằng chứng đã hết hạn";
 type Db =
   | PrismaService
@@ -257,6 +259,74 @@ export class AttendanceService {
       })
     ).map((request) => this.dto(request, true));
   }
+  async parentDailyJournals(
+    identityId: string,
+    schoolId: string,
+    studentId?: string,
+    journalDate?: string,
+  ) {
+    if (studentId && !uuid.test(studentId))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { studentId: "Học sinh không hợp lệ." } });
+    const date = journalDate ? this.date(journalDate, "journalDate") : this.now().day;
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const journals = await tx.dailyJournal.findMany({
+        where: { schoolId, journalDate: this.day(date), ...(studentId ? { studentId } : {}), student: { parentLinks: { some: { schoolId, parentProfileId: parent.id, status: "ACTIVE" } } } },
+        select: { studentId: true, journalDate: true, text: true, currentVersion: true, updatedAt: true, enrollmentEndedOnSnapshot: true, student: { select: { fullName: true } }, versions: { select: { version: true, media: { select: { media: { select: { id: true, contentType: true } } } } } } },
+        orderBy: { studentId: "asc" },
+      });
+      return journals.flatMap((journal) => {
+        const version = journal.versions.find((item) => item.version === journal.currentVersion);
+        if (!this.parentJournalRetained(journal.enrollmentEndedOnSnapshot)) return [];
+        return [{ studentId: journal.studentId, studentDisplayName: journal.student.fullName, journalDate: journal.journalDate.toISOString().slice(0, 10), text: journal.text, updatedAt: journal.updatedAt.toISOString(), media: version?.media.map((item) => ({ id: item.media.id, contentType: item.media.contentType })) ?? [] }];
+      });
+    }, { isolationLevel: "RepeatableRead" });
+  }
+  async parentDailyJournal(identityId: string, schoolId: string, studentId: string, journalDate?: string) {
+    if (!uuid.test(studentId)) throw new NotFoundException({ code: "DAILY_JOURNAL_NOT_FOUND", message: "Không tìm thấy nhận xét." });
+    const date = journalDate ? this.date(journalDate, "journalDate") : this.now().day;
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const link = await tx.studentParent.findFirst({ where: { schoolId, studentId, parentProfileId: parent.id, status: "ACTIVE" }, select: { id: true } });
+      if (!link) throw new NotFoundException({ code: "DAILY_JOURNAL_NOT_FOUND", message: "Không tìm thấy nhận xét." });
+      const journal = await tx.dailyJournal.findFirst({ where: { schoolId, studentId, journalDate: this.day(date) }, select: { studentId: true, journalDate: true, text: true, currentVersion: true, updatedAt: true, enrollmentEndedOnSnapshot: true, student: { select: { fullName: true } }, versions: { select: { version: true, media: { select: { media: { select: { id: true, contentType: true } } } } } } } });
+      if (!journal) return null;
+      if (!this.parentJournalRetained(journal.enrollmentEndedOnSnapshot)) throw new NotFoundException({ code: "DAILY_JOURNAL_NOT_FOUND", message: "Không tìm thấy nhận xét." });
+      const version = journal.versions.find((item) => item.version === journal.currentVersion);
+      return { studentId: journal.studentId, studentDisplayName: journal.student.fullName, journalDate: journal.journalDate.toISOString().slice(0, 10), text: journal.text, updatedAt: journal.updatedAt.toISOString(), media: version?.media.map((item) => ({ id: item.media.id, contentType: item.media.contentType })) ?? [] };
+    }, { isolationLevel: "RepeatableRead" });
+  }
+  async readParentDailyJournalMedia(identityId: string, schoolId: string, mediaId: string) {
+    if (!uuid.test(mediaId)) throw new NotFoundException({ code: "DAILY_JOURNAL_MEDIA_NOT_FOUND", message: "Không tìm thấy ảnh nhận xét." });
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const media = await tx.dailyJournalMedia.findFirst({
+        where: { id: mediaId, schoolId, versionMedia: { some: {} } },
+        include: {
+          versionMedia: {
+            include: {
+              dailyJournalVersion: {
+                include: {
+                  dailyJournal: {
+                    include: {
+                      student: {
+                        include: {
+                          parentLinks: { where: { schoolId, parentProfileId: parent.id, status: "ACTIVE" }, select: { id: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      const journal = media?.versionMedia.find((entry) => entry.dailyJournalVersion.version === entry.dailyJournalVersion.dailyJournal.currentVersion)?.dailyJournalVersion.dailyJournal;
+      if (!media || !journal || !journal.student.parentLinks.length || !this.parentJournalRetained(journal.enrollmentEndedOnSnapshot)) throw new NotFoundException({ code: "DAILY_JOURNAL_MEDIA_NOT_FOUND", message: "Không tìm thấy ảnh nhận xét." });
+      return { contentType: media.contentType, blob: media.blob };
+    }, { isolationLevel: "RepeatableRead" });
+  }
   async parentRead(identityId: string, schoolId: string, id: string) {
     const parent = await this.parent(identityId, schoolId);
     const request = await this.prisma.leaveRequest.findFirst({
@@ -331,6 +401,24 @@ export class AttendanceService {
         orderBy: { createdAt: "desc" },
       })
     ).map((request) => this.dto(request));
+  }
+  async operationalQueue(identityId: string, schoolId: string, date?: string, classId?: string) {
+    const attendanceOn = date === undefined ? this.now().day : this.date(date, "date");
+    const actor = await this.queueActor(identityId, schoolId, attendanceOn);
+    if (classId && !uuid.test(classId)) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { classId: "Lớp không hợp lệ." } });
+    const queue = await this.queueRows(schoolId, attendanceOn, actor.classIds, classId);
+    if (classId && !queue.classFound) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
+    return { schoolId, attendanceOn, operating: queue.operating, explanation: queue.explanation, classes: queue.classes.map(({ classId: id, className, attendanceGapCount, pendingLeaveCount }) => ({ classId: id, className, attendanceGapCount, pendingLeaveCount })) };
+  }
+  async operationalQueueItems(identityId: string, schoolId: string, date?: string, classId?: string, status?: string) {
+    const attendanceOn = date === undefined ? this.now().day : this.date(date, "date");
+    if (!classId || !uuid.test(classId) || (status !== "NOT_RECORDED" && status !== "PENDING")) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(!classId || !uuid.test(classId) ? { classId: "Lớp không hợp lệ." } : {}), ...(status !== "NOT_RECORDED" && status !== "PENDING" ? { status: "Trạng thái không hợp lệ." } : {}) } });
+    const actor = await this.queueActor(identityId, schoolId, attendanceOn);
+    const queue = await this.queueRows(schoolId, attendanceOn, actor.classIds, classId);
+    if (!queue.classFound) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
+    const classroom = queue.classes[0];
+    if (!classroom) return { schoolId, attendanceOn, classId, className: queue.requestedClassName, status, operating: queue.operating, explanation: queue.explanation, students: [] };
+    return { schoolId, attendanceOn, classId, className: classroom.className, status, operating: queue.operating, explanation: queue.explanation, students: status === "NOT_RECORDED" ? classroom.attendanceGaps : classroom.pendingLeaves };
   }
   async appOperation(identityId: string, schoolId: string, operationId: string) {
     if (!uuid.test(operationId))
@@ -578,16 +666,55 @@ export class AttendanceService {
   async teacherOperation(identityId: string, schoolId: string, operationId: string) {
     if (!uuid.test(operationId)) throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
     const actor = await this.teacher(identityId, schoolId);
-    const operation = await this.prisma.operation.findFirst({ where: { id: operationId, schoolId, actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, route: { in: [attendanceRoute, evidenceUploadRoute, handoverRoute, handoverEvidenceUploadRoute] } } });
+    const operation = await this.prisma.operation.findFirst({ where: { id: operationId, schoolId, actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, route: { in: [attendanceRoute, evidenceUploadRoute, handoverRoute, handoverEvidenceUploadRoute, journalSaveRoute, journalMediaUploadRoute] } } });
     if (!operation) throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
-    const outcome = operation.outcome as { classId?: unknown; attendanceOn?: unknown } | null;
+    const outcome = operation.outcome as { classId?: unknown; attendanceOn?: unknown; journalDate?: unknown } | null;
     if (operation.route === handoverRoute || operation.route === handoverEvidenceUploadRoute) await this.handoverTeacher(identityId, schoolId);
     else {
-      if (typeof outcome?.classId !== "string" || typeof outcome.attendanceOn !== "string") throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
-      await this.teacher(identityId, schoolId, outcome.classId, outcome.attendanceOn);
+      const journal = operation.route.startsWith("POST /api/teacher/schools/:schoolId/daily-journal"); const date = journal ? outcome?.journalDate : outcome?.attendanceOn;
+      if (typeof outcome?.classId !== "string" || typeof date !== "string") throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
+      await this.teacher(identityId, schoolId, outcome.classId, date, this.prisma, journal ? "DAILY_JOURNAL_WRITE" : "ATTENDANCE_WRITE");
     }
     return { id: operation.id, status: operation.status, outcome: operation.outcome };
   }
+  async dailyJournalRoster(identityId: string, schoolId: string, classId: string, journalDate: string) {
+    this.date(journalDate, "journalDate");
+    await this.teacher(identityId, schoolId, classId, journalDate, this.prisma, "DAILY_JOURNAL_WRITE");
+    await this.journalFacts(this.prisma, schoolId, classId, undefined, journalDate);
+    const on = this.day(journalDate);
+    const rows = await this.prisma.studentEnrollment.findMany({ where: { schoolId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }], classAssignments: { some: { classId, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } } }, include: { student: { select: { id: true, fullName: true, studentCode: true } } }, orderBy: [{ student: { fullName: "asc" } }] });
+    const journals = await this.prisma.dailyJournal.findMany({ where: { schoolId, classId, journalDate: on }, select: { id: true, studentId: true, currentVersion: true, updatedAt: true, text: true, versions: { select: { version: true, media: { select: { media: { select: { id: true, contentType: true } } } } } } } });
+    const current = new Map(journals.map((journal) => [journal.studentId, journal]));
+    return { schoolId, classId, journalDate, students: rows.map((row) => { const journal = current.get(row.studentId); const version = journal?.versions.find((entry) => entry.version === journal.currentVersion); return { studentId: row.studentId, fullName: row.student.fullName, studentCode: row.student.studentCode, status: journal ? "CURRENT" : "MISSING", version: journal?.currentVersion ?? null, updatedAt: journal?.updatedAt.toISOString() ?? null, text: journal?.text ?? null, media: version?.media.map((entry) => entry.media) ?? [] }; }) };
+  }
+  async uploadDailyJournalMedia(identityId: string, schoolId: string, key: string, operationId: string, classId: string, studentId: string, journalDate: string, contentType: string | undefined, media: unknown) {
+    this.date(journalDate, "journalDate");
+    if (!uuid.test(classId) || !uuid.test(studentId) || !Buffer.isBuffer(media) || media.length === 0 || !this.journalMime(contentType, media)) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Tệp ảnh không hợp lệ.", fieldErrors: { media: "Tệp ảnh không hợp lệ." } });
+    const actor = await this.teacher(identityId, schoolId, classId, journalDate, this.prisma, "DAILY_JOURNAL_WRITE"); const facts = await this.journalFacts(this.prisma, schoolId, classId, studentId, journalDate); this.assertJournalMediaPolicy(contentType, media, facts.policy); const bytes = new Uint8Array(media);
+    return this.mutate({ actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, membershipId: actor.id, route: journalMediaUploadRoute, identityId, schoolId, key, operationId, body: { classId, studentId, journalDate, contentType, size: bytes.byteLength }, valid: (tx) => this.teacher(identityId, schoolId, classId, journalDate, tx, "DAILY_JOURNAL_WRITE") }, async (tx, op) => {
+      const current = await this.teacher(identityId, schoolId, classId, journalDate, tx, "DAILY_JOURNAL_WRITE"); const currentFacts = await this.journalFacts(tx, schoolId, classId, studentId, journalDate); this.assertJournalMediaPolicy(contentType, media, currentFacts.policy);
+      const record = await tx.dailyJournalMedia.create({ data: { schoolId, classId, studentId, journalDate: this.day(journalDate), contentType: contentType!, blob: bytes, uploadedByMembershipId: current.id, uploadedByStaffProfileId: current.staffProfileId, policyEffectiveFrom: currentFacts.policy.effectiveFrom } });
+      const outcome = { id: record.id, contentType: record.contentType, classId, studentId, journalDate }; await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: "SCHOOL_MEMBERSHIP", reference: current.id, membershipId: current.id }, "DAILY_JOURNAL_MEDIA_UPLOADED", { operationId: op, mediaId: record.id, classId, studentId, journalDate, contentType, size: bytes.byteLength }) }); return outcome;
+    });
+  }
+  async saveDailyJournal(identityId: string, schoolId: string, key: string, operationId: string, body: unknown) {
+    const input = body as { classId?: unknown; studentId?: unknown; journalDate?: unknown; text?: unknown; mediaIds?: unknown }; const classId = typeof input?.classId === "string" ? input.classId : ""; const studentId = typeof input?.studentId === "string" ? input.studentId : ""; const journalDate = this.date(input?.journalDate, "journalDate"); const text = typeof input?.text === "string" ? input.text.trim() : ""; const mediaIds = Array.isArray(input?.mediaIds) && input.mediaIds.every((id) => typeof id === "string" && uuid.test(id)) ? input.mediaIds as string[] : null;
+    if (!uuid.test(classId) || !uuid.test(studentId) || !text || text.length > 5000 || !mediaIds || new Set(mediaIds).size !== mediaIds.length) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(!uuid.test(classId) ? { classId: "Lớp không hợp lệ." } : {}), ...(!uuid.test(studentId) ? { studentId: "Học sinh không hợp lệ." } : {}), ...(!text || text.length > 5000 ? { text: "Nhận xét cần từ 1 đến 5000 ký tự." } : {}), ...(!mediaIds ? { mediaIds: "Ảnh không hợp lệ." } : {}) } });
+    const actor = await this.teacher(identityId, schoolId, classId, journalDate, this.prisma, "DAILY_JOURNAL_WRITE");
+    return this.mutate({ actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.id, membershipId: actor.id, route: journalSaveRoute, identityId, schoolId, key, operationId, body: { classId, studentId, journalDate, text, mediaIds }, valid: (tx) => this.teacher(identityId, schoolId, classId, journalDate, tx, "DAILY_JOURNAL_WRITE") }, async (tx, op) => {
+      const current = await this.teacher(identityId, schoolId, classId, journalDate, tx, "DAILY_JOURNAL_WRITE"); const facts = await this.journalFacts(tx, schoolId, classId, studentId, journalDate); const on = this.day(journalDate);
+      if (facts.policy.imageCountLimit !== null && mediaIds.length > facts.policy.imageCountLimit) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { mediaIds: `Chỉ được đính kèm tối đa ${facts.policy.imageCountLimit} ảnh.` } });
+      let journal = await tx.dailyJournal.findFirst({ where: { schoolId, studentId, journalDate: on } });
+      if (journal && journal.classId !== classId) throw new ConflictException({ code: "ROSTER_CONFLICT", message: "Học sinh đã có nhận xét thuộc lớp khác trong ngày này." });
+      const version = (journal?.currentVersion ?? 0) + 1;
+      if (!journal) journal = await tx.dailyJournal.create({ data: { schoolId, classId, studentId, journalDate: on, text, currentVersion: version, enrollmentIdSnapshot: facts.enrollment!.id, enrollmentEndedOnSnapshot: facts.enrollment!.endedOn, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId } });
+      else journal = await tx.dailyJournal.update({ where: { schoolId_id: { schoolId, id: journal.id } }, data: { text, currentVersion: version, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId } });
+      const media = await tx.dailyJournalMedia.findMany({ where: { id: { in: mediaIds }, schoolId, classId, studentId, journalDate: on, OR: [{ attachedDailyJournalId: null, uploadedByMembershipId: current.id, uploadedByStaffProfileId: current.staffProfileId }, { attachedDailyJournalId: journal.id }] } }); if (media.length !== mediaIds.length) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { mediaIds: "Ảnh không thuộc nhận xét này." } });
+      await tx.dailyJournalMedia.updateMany({ where: { schoolId, id: { in: mediaIds }, attachedDailyJournalId: null }, data: { attachedDailyJournalId: journal.id } });
+      const entry = await tx.dailyJournalVersion.create({ data: { schoolId, dailyJournalId: journal.id, version, text, policyEffectiveFrom: facts.policy.effectiveFrom, actorIdentityId: identityId, membershipId: current.id, staffProfileId: current.staffProfileId, media: { create: mediaIds.map((mediaId) => ({ mediaId })) } } }); const outcome = { id: journal.id, studentId, classId, journalDate, version: entry.version, updatedAt: journal.updatedAt.toISOString(), media: media.map((item: { id: string; contentType: string }) => ({ id: item.id, contentType: item.contentType })) }; await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: "SCHOOL_MEMBERSHIP", reference: current.id, membershipId: current.id }, "DAILY_JOURNAL_SAVED", { operationId: op, dailyJournalId: journal.id, version, classId, studentId, journalDate, mediaIds }) }); return outcome;
+    });
+  }
+  async readDailyJournalMedia(identityId: string, schoolId: string, mediaId: string) { if (!uuid.test(mediaId)) throw new NotFoundException({ code: "DAILY_JOURNAL_MEDIA_NOT_FOUND", message: "Không tìm thấy ảnh nhận xét." }); const media = await this.prisma.dailyJournalMedia.findFirst({ where: { id: mediaId, schoolId } }); if (!media) throw new NotFoundException({ code: "DAILY_JOURNAL_MEDIA_NOT_FOUND", message: "Không tìm thấy ảnh nhận xét." }); const journalDate = media.journalDate.toISOString().slice(0, 10); const actor = await this.teacher(identityId, schoolId, media.classId, journalDate, this.prisma, "DAILY_JOURNAL_WRITE"); await this.journalFacts(this.prisma, schoolId, media.classId, media.studentId, journalDate); if (!media.attachedDailyJournalId && (media.uploadedByMembershipId !== actor.id || media.uploadedByStaffProfileId !== actor.staffProfileId)) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." }); return { contentType: media.contentType, blob: media.blob }; }
   async handoverRoster(identityId: string, schoolId: string, handoverOn: string) {
     this.date(handoverOn, "handoverOn");
     await this.handoverTeacher(identityId, schoolId);
@@ -847,14 +974,47 @@ export class AttendanceService {
         skipDuplicates: true,
       });
   }
-  private async teacher(identityId: string, schoolId: string, classId?: string, attendanceOn?: string, tx: Db = this.prisma) {
-    const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "ATTENDANCE_WRITE" } } } } }, select: { id: true, boundStaffProfile: { select: { id: true } } } });
+  private async teacher(identityId: string, schoolId: string, classId?: string, attendanceOn?: string, tx: Db = this.prisma, capability: "ATTENDANCE_WRITE" | "DAILY_JOURNAL_WRITE" = "ATTENDANCE_WRITE") {
+    const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability } } } } }, select: { id: true, boundStaffProfile: { select: { id: true } } } });
     if (!actor?.boundStaffProfile) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
     if (classId && attendanceOn) {
       const assignment = await tx.staffClassAssignment.findFirst({ where: { schoolId, staffProfileId: actor.boundStaffProfile.id, classId, effectiveFrom: { lte: this.day(attendanceOn) }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: this.day(attendanceOn) } }] } });
       if (!assignment) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
     }
     return { id: actor.id, staffProfileId: actor.boundStaffProfile.id };
+  }
+  private async queueActor(identityId: string, schoolId: string, attendanceOn: string) {
+    const actor = await this.prisma.schoolMembership.findFirst({
+      where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "OPERATIONAL_QUEUE_READ" } } } } },
+      select: { boundStaffProfile: { select: { id: true, primaryPosition: { select: { grants: { select: { capability: true } } } } } } },
+    });
+    if (!actor?.boundStaffProfile) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
+    // School-wide management capabilities distinguish Admin/Finance from Staff without trusting Position names.
+    if (actor.boundStaffProfile.primaryPosition.grants.some((grant) => grant.capability === "SETTINGS_MANAGE" || grant.capability === "FINANCE_MANAGE")) return { classIds: undefined as string[] | undefined };
+    const assignments = await this.prisma.staffClassAssignment.findMany({ where: { schoolId, staffProfileId: actor.boundStaffProfile.id, effectiveFrom: { lte: this.day(attendanceOn) }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: this.day(attendanceOn) } }] }, select: { classId: true } });
+    if (!assignments.length) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
+    return { classIds: assignments.map((assignment) => assignment.classId) };
+  }
+  private async queueRows(schoolId: string, attendanceOn: string, allowedClassIds?: string[], requestedClassId?: string) {
+    const on = this.day(attendanceOn);
+    return this.prisma.$transaction(async (tx) => {
+      const classWhere = { schoolId, ...(allowedClassIds ? { id: { in: allowedClassIds } } : {}), ...(requestedClassId ? { id: requestedClassId } : {}) };
+      // Resolve the requested Class before returning an intentionally empty non-operating queue.
+      const classes = await tx.class.findMany({ where: classWhere, select: { id: true, name: true }, orderBy: { name: "asc" } });
+      const classFound = !requestedClassId || classes.length === 1;
+      const requestedClassName = requestedClassId ? classes[0]?.name ?? "" : "";
+      const calendar = await this.calendar(tx, schoolId, attendanceOn);
+      const operating = on.getUTCDay() !== 0 && !calendar.holidays.some((holiday: { startsOn: Date; endsOn: Date }) => holiday.startsOn <= on && holiday.endsOn >= on);
+      if (!operating) return { classFound, requestedClassName, operating, explanation: "Ngày đã chọn không vận hành; hàng đợi không có công việc.", classes: [] };
+      const placements = await tx.enrollmentClassAssignment.findMany({ where: { schoolId, classId: { in: classes.map((item) => item.id) }, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }], enrollment: { lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }] } }, select: { classId: true, enrollment: { select: { student: { select: { id: true, fullName: true, studentCode: true } } } } }, orderBy: [{ enrollment: { student: { fullName: "asc" } } }, { enrollment: { studentId: "asc" } }] });
+      const studentIds = placements.map((placement) => placement.enrollment.student.id);
+      const [records, leaves] = await Promise.all([
+        tx.attendanceRecord.findMany({ where: { schoolId, attendanceOn: on, classId: { in: classes.map((item) => item.id) } }, select: { studentId: true } }),
+        tx.leaveRequest.findMany({ where: { schoolId, days: { some: { operatingOn: on } }, studentId: { in: studentIds } }, select: { studentId: true, status: true } }),
+      ]);
+      const recorded = new Set(records.map((record) => record.studentId)); const confirmed = new Set(leaves.filter((leave) => leave.status === "AUTO_APPROVED" || leave.status === "APPROVED").map((leave) => leave.studentId)); const pending = new Set(leaves.filter((leave) => leave.status === "PENDING").map((leave) => leave.studentId));
+      return { classFound, requestedClassName, operating, explanation: "Thiếu điểm danh là học sinh đang nhập học chưa có bản ghi hoặc đơn nghỉ trong ngày.", classes: classes.map((classroom) => { const students = placements.filter((placement) => placement.classId === classroom.id).map((placement) => placement.enrollment.student); const attendanceGaps = students.filter((student) => !recorded.has(student.id) && !confirmed.has(student.id) && !pending.has(student.id)).map((student) => ({ studentId: student.id, studentName: student.fullName, studentCode: student.studentCode })); const pendingLeaves = students.filter((student) => pending.has(student.id)).map((student) => ({ studentId: student.id, studentName: student.fullName, studentCode: student.studentCode })); return { classId: classroom.id, className: classroom.name, attendanceGapCount: attendanceGaps.length, pendingLeaveCount: pendingLeaves.length, attendanceGaps, pendingLeaves }; }) };
+    }, { isolationLevel: "RepeatableRead" });
   }
   private async overviewActor(identityId: string, schoolId: string, tx: Db = this.prisma) {
     const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SCHOOL_CONTEXT_READ" } } } } }, select: { id: true } });
@@ -865,6 +1025,34 @@ export class AttendanceService {
     const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "HANDOVER_WRITE" } } } } }, select: { id: true, boundStaffProfile: { select: { id: true } } } });
     if (!actor?.boundStaffProfile) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
     return { id: actor.id, staffProfileId: actor.boundStaffProfile.id };
+  }
+  private journalMime(contentType: string | undefined, media: Buffer) {
+    const jpeg = media.length >= 3 && media[0] === 0xff && media[1] === 0xd8 && media[2] === 0xff;
+    const png = media.length >= 8 && media.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const webp = media.length >= 12 && media.subarray(0, 4).toString("ascii") === "RIFF" && media.subarray(8, 12).toString("ascii") === "WEBP";
+    return (contentType === "image/jpeg" && jpeg) || (contentType === "image/png" && png) || (contentType === "image/webp" && webp);
+  }
+  private assertJournalMediaPolicy(contentType: string | undefined, media: Buffer, policy: { acceptedImageMimeTypes: Array<"JPEG" | "PNG" | "WEBP">; maxImageSizeBytes: number }) {
+    const mime = contentType === "image/jpeg" ? "JPEG" : contentType === "image/png" ? "PNG" : contentType === "image/webp" ? "WEBP" : null;
+    if (!mime || !this.journalMime(contentType, media) || media.length > policy.maxImageSizeBytes || !policy.acceptedImageMimeTypes.includes(mime)) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Tệp ảnh không hợp lệ.", fieldErrors: { media: "Ảnh không đáp ứng chính sách của trường." } });
+  }
+  private async journalFacts(tx: Db, schoolId: string, classId: string, studentId: string | undefined, journalDate: string) {
+    if (journalDate !== this.now().day) throw new ConflictException({ code: "JOURNAL_DATE_NOT_CURRENT", message: "Chỉ có thể ghi nhận xét trong ngày hiện tại." });
+    await this.operatingDay(tx, schoolId, journalDate, "Không thể ghi nhận nhận xét ngày không vận hành.");
+    const on = this.day(journalDate); const policy = await tx.dailyJournalPolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: on } }, orderBy: { effectiveFrom: "desc" } });
+    if (!policy) throw new ConflictException({ code: "DAILY_JOURNAL_POLICY_NOT_CONFIGURED", message: "Trường chưa cấu hình chính sách nhận xét hằng ngày." });
+    let enrollment: { id: string; endedOn: Date | null } | null = null;
+    if (studentId) {
+      enrollment = await tx.studentEnrollment.findFirst({ where: { schoolId, studentId, lifecycle: "ENROLLED", effectiveFrom: { lte: on }, OR: [{ endedOn: null }, { endedOn: { gt: on } }], classAssignments: { some: { classId, effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: on } }] } } }, select: { id: true, endedOn: true } });
+      if (!enrollment) throw new ConflictException({ code: "ROSTER_CONFLICT", message: "Học sinh không thuộc danh sách lớp trong ngày này." });
+    }
+    return { policy, enrollment };
+  }
+  private parentJournalRetained(endedOn: Date | null) {
+    if (!endedOn) return true;
+    const expiry = new Date(`${endedOn.toISOString().slice(0, 10)}T00:00:00.000Z`);
+    expiry.setUTCDate(expiry.getUTCDate() + 30);
+    return this.now().day <= expiry.toISOString().slice(0, 10);
   }
   private async handoverAdmin(identityId: string, schoolId: string, tx: Db = this.prisma) {
     const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SETTINGS_MANAGE" } } } } }, select: { id: true } });
@@ -1179,6 +1367,8 @@ export class AttendanceService {
         const value = await replay();
         if (value) return value;
       }
+      if ((error as { code?: unknown })?.code === "P2002" && JSON.stringify((error as { meta?: unknown })?.meta).includes("DailyJournal_current_key"))
+        throw new ConflictException({ code: "DAILY_JOURNAL_CONCURRENT_SAVE", message: "Nhận xét vừa được cập nhật. Hãy tải lại trước khi lưu tiếp." });
       throw error;
     }
   }

@@ -850,6 +850,80 @@ So that attendance/handover khong lam lo du lieu tre em hoac bien thanh pricing 
 **Then** chi mot idempotent event source ton tai cho attendance event
 **And** Parent projection/delivery chi duoc kiem thu tai Epic 7 voi active StudentParent recheck.
 
+### Story 4.8: Teacher ghi DailyJournal co version va media duoc kiem soat
+
+As a Teacher with `DAILY_JOURNAL_WRITE`,
+I want to tao va sua nhan xet trong ngay cho tung Student trong Class duoc phan cong,
+So that School co current journal da duoc server xac nhan ma van giu lich su va media tre em an toan.
+
+**Acceptance Criteria:**
+
+**Given** Teacher audience co StaffProfile, primary SchoolPosition, membership binding, `DAILY_JOURNAL_WRITE` va StaffClassAssignment active theo School/Class/journalDate
+**When** Teacher tao hoac cap nhat DailyJournal cua Student `ENROLLED` trong Class duoc phan cong
+**Then** server re-authorize tenant graph va assignment truoc lookup/write, luu mot current journal theo School/Student/date va immutable version/audit cho moi lan sua trong ngay
+**And** School, Class, Student, date, actor, current version va thoi diem server xac nhan duoc tra ve; browser khong tu xac nhan local draft hoac dung Student/Class UUID de vuot quyen.
+
+**Given** Teacher upload media cho current DailyJournal
+**When** server xu ly tung file
+**Then** chi JPEG, PNG hoac WEBP da duoc server verify, toi da 10 MB moi file, duoc chap nhan; media la journal-owned, School/Class/Student/date scoped va khong gioi han so anh
+**And** media khong tai su dung EvidenceReference, attendance/handover evidence, permanent blob URL hay Parent DTO; invalid MIME, size, tenant, Class, capability hoac assignment bi tu choi truoc khi persist.
+
+**Given** capability, binding, Position hoac StaffClassAssignment bi revoke/inactive sau khi Teacher mo editor
+**When** request doc, upload hoac write ke tiep chay
+**Then** API tu choi va portal xoa draft/protected state truoc safe fallback
+**And** Parent projection, notification va retention access khong thuoc story nay.
+
+### Story 4.9: DailyJournal media lifecycle va Parent projection an toan
+
+As a Parent co lien ket Student hop le,
+I want to xem current DailyJournal va mo media qua protected request,
+So that toi nhan duoc nhan xet cua dung con ma khong truy cap evidence hay du lieu noi bo.
+
+**Acceptance Criteria:**
+
+**Given** Parent session co active School context va active `StudentParent` cua Student, va current DailyJournal con trong retention
+**When** Parent mo home hoac child detail
+**Then** API re-authorize tung Student/request va chi tra current journal minimum DTO: Student display-name snapshot, date, text, updatedAt va opaque media metadata
+**And** historical version, audit, Teacher/Class identity, storage key, direct URL va attendance/handover evidence khong xuat hien trong API hoac DOM.
+
+**Given** Parent mo mot media ID cua current journal duoc uy quyen
+**When** protected request duoc xu ly
+**Then** server re-authorize School, `StudentParent`, current-version ownership va retention truoc khi tra bytes voi `private, no-store` va `nosniff`
+**And** portal chi tai media sau thao tac cua nguoi dung, khong service-worker cache hay preload authenticated response.
+
+**Given** `StudentParent` bi revoke, School/Student context thay doi hoac da qua 30 ngay lich sau `StudentEnrollment.endedOn`
+**When** Parent request, foreground return hoac deep link duoc xu ly
+**Then** API khong tra journal/media va portal xoa text, thumbnail va dialog truoc safe fallback
+**And** retention chi het quyen Parent doc, khong hard-delete immutable journal/blob noi bo.
+
+### Story 4.10: Teacher portal queue va release gate van hanh lop
+
+As a Teacher co `OPERATIONAL_QUEUE_READ`,
+I want to xem hang doi read-only cua cac Class duoc phan cong theo ngay,
+So that toi biet cac tre chua ghi nhan attendance hoac leave dang cho xu ly ma khong phai tu tim tung Class/day view.
+
+**Acceptance Criteria:**
+
+**Given** Teacher audience co StaffProfile, primary SchoolPosition, membership binding, `OPERATIONAL_QUEUE_READ` va StaffClassAssignment effective trong selected School/date
+**When** Teacher mo route Hang doi lop
+**Then** server resolve actor va Class scope tren moi request, tra attendance-gap (`NOT_RECORDED`) va pending-leave counts theo School/date/Class tu state hien hanh
+**And** UI mobile-first chi hien School, date, Class duoc phan cong, text count va mot dong giai thich; `NOT_RECORDED` la neutral “Chua ghi nhan”, khong suy dien absence hoac optimistic count.
+
+**Given** Teacher chon count cua mot Class
+**When** app mo detail destination
+**Then** date, classId va status duoc luu tren URL va API re-authorize School, capability va assignment truoc khi tra list
+**And** queue/detail la read-only: khong co attendance, handover, DailyJournal, leave decision, Finance, fee hay local state-override CTA trong surface nay.
+
+**Given** queue/detail rong, request loi, capability/assignment bi revoke, Class inaccessible hoac Teacher doi School
+**When** UI render hay request ke tiep chay
+**Then** empty/error giu School/date context, khong thay response loi bang zero da xac nhan, va xoa rows cua School cu truoc safe fallback
+**And** dirty/pending mutation o workspace khac van dung switch guard va Operation reconciliation; queue khong tao mutation rieng.
+
+**Given** release gate van hanh lop chay voi fixture PostgreSQL nhieu School va browser Teacher thuc
+**When** suite kiem tra queue cung attendance, handover va DailyJournal
+**Then** integration prove tenant/Class/capability/Position/binding revoke deny truoc protected queue/list data, va E2E prove URL destination, loading/error focus, guarded School switch va khong stale cross-School data
+**And** release proof xac nhan queue khong co mutation/fee UI, timeout cua operational mutation duoc reconcile qua Operation truoc retry, va Teacher session/audience khong dung cheo portal khac.
+
 ## Epic 5: Tạo và phát hành nghĩa vụ thu
 
 Finance cau hinh catalog va template khoan thu chung cho CollectionRun, chon Student, tao Invoice DRAFT co san dong template chong trung, ra soat ngoai le tung Student va issue immutable Payment instruction snapshot. Sau template gate, Pha 1b them PromotionPolicy giam tru theo tung Receivable va Student assignment; ChargeRule automation va `PREPAID_COVERAGE` van la enhancement sau do.

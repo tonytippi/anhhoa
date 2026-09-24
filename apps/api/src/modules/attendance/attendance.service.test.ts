@@ -20,14 +20,54 @@ function service(overrides: Record<string, unknown> = {}) {
     leaveRequest: { create: vi.fn() }, leaveDaySource: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) }, leaveDaySourceExclusion: { createMany: vi.fn() },
     auditRecord: { create: vi.fn() },
     evidenceReference: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    class: { findMany: vi.fn().mockResolvedValue([]) },
+    enrollmentClassAssignment: { findMany: vi.fn().mockResolvedValue([]) },
+    attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) },
+    dailyJournalPolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01') }) },
+    dailyJournal: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    dailyJournalMedia: { findMany: vi.fn(), create: vi.fn() },
+    dailyJournalVersion: { create: vi.fn() },
   };
   const prisma = {
-    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() }, leaveDaySourceExclusion: { createMany: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, evidenceReference: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, $transaction: vi.fn(async (work) => work(transaction)), ...overrides,
+    parentProfile: { findFirst: vi.fn().mockResolvedValue({ id: 'parent' }) }, school: { findFirst: vi.fn().mockResolvedValue({ id: school }) }, studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link' }), findMany: vi.fn().mockResolvedValue([{ studentId: student }]) }, operation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: operation }), update: vi.fn().mockResolvedValue({ id: operation, status: 'COMPLETED', outcome: {} }) }, leaveRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn() }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() }, leaveDaySourceExclusion: { createMany: vi.fn() }, schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) }, staffClassAssignment: { findMany: vi.fn().mockResolvedValue([]) }, evidenceReference: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, $transaction: vi.fn(async (work) => work({ ...transaction, ...overrides })), ...overrides,
   };
   return { prisma, attendance: new AttendanceService(prisma as never) };
 }
 
 describe('AttendanceService leave matrix', () => {
+  it('accepts only byte-verified journal images and rejects spoofed media before authorization or persistence', async () => {
+    const { attendance, prisma } = service();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect((attendance as any).journalMime('image/png', png)).toBe(true);
+    expect((attendance as any).journalMime('image/png', Buffer.from('not-a-png'))).toBe(false);
+    await expect(attendance.uploadDailyJournalMedia('teacher', school, key, operation, student, student, '2026-02-09', 'image/png', Buffer.from('spoofed'))).rejects.toMatchObject({ response: { fieldErrors: { media: expect.any(String) } } });
+    expect((prisma as any).schoolMembership.findFirst).not.toHaveBeenCalled();
+  });
+  it('projects only the current journal version and removes it at the HCM enrollment retention boundary', async () => {
+    const current = { studentId: student, journalDate: day('2026-02-09'), text: 'Ăn ngủ tốt', currentVersion: 2, updatedAt: new Date('2026-02-09T09:00:00.000Z'), enrollmentEndedOnSnapshot: day('2026-01-10'), student: { fullName: 'Bé An' }, versions: [{ version: 1, media: [{ media: { id: 'old-media', contentType: 'image/png' } }] }, { version: 2, media: [{ media: { id: 'current-media', contentType: 'image/webp' } }] }] };
+    const { attendance } = service({ dailyJournal: { findMany: vi.fn().mockResolvedValue([current]) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ endedOn: day('2026-01-10') }) } });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '09:00' });
+    await expect(attendance.parentDailyJournals('parent-identity', school, student, '2026-02-09')).resolves.toEqual([{ studentId: student, studentDisplayName: 'Bé An', journalDate: '2026-02-09', text: 'Ăn ngủ tốt', updatedAt: '2026-02-09T09:00:00.000Z', media: [{ id: 'current-media', contentType: 'image/webp' }] }]);
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '09:00' });
+    await expect(attendance.parentDailyJournals('parent-identity', school, student, '2026-02-09')).resolves.toEqual([]);
+  });
+  it('requires the current operating day, effective policy, and placed enrollment before journal persistence', async () => {
+    const { attendance } = service();
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '09:00' });
+    const facts = { schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) }, dailyJournalPolicy: { findFirst: vi.fn().mockResolvedValue(null) }, studentEnrollment: { findFirst: vi.fn() } };
+    await expect((attendance as any).journalFacts(facts, school, 'class', student, '2026-02-08')).rejects.toMatchObject({ response: { code: 'JOURNAL_DATE_NOT_CURRENT' } });
+    await expect((attendance as any).journalFacts(facts, school, 'class', student, '2026-02-09')).rejects.toMatchObject({ response: { code: 'DAILY_JOURNAL_POLICY_NOT_CONFIGURED' } });
+    facts.dailyJournalPolicy.findFirst.mockResolvedValue({ effectiveFrom: day('2026-01-01') });
+    facts.studentEnrollment.findFirst.mockResolvedValue(null);
+    await expect((attendance as any).journalFacts(facts, school, 'class', student, '2026-02-09')).rejects.toMatchObject({ response: { code: 'ROSTER_CONFLICT' } });
+  });
+  it('enforces the effective journal MIME and byte-size policy instead of fixed upload limits', async () => {
+    const { attendance } = service();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(() => (attendance as any).assertJournalMediaPolicy('image/png', png, { acceptedImageMimeTypes: ['PNG'], maxImageSizeBytes: 7 })).toThrow();
+    expect(() => (attendance as any).assertJournalMediaPolicy('image/png', png, { acceptedImageMimeTypes: ['JPEG'], maxImageSizeBytes: 10 })).toThrow();
+    expect(() => (attendance as any).assertJournalMediaPolicy('image/png', png, { acceptedImageMimeTypes: ['PNG'], maxImageSizeBytes: 10 })).not.toThrow();
+  });
   it('expires each eligible evidence once at the two-calendar-month boundary', async () => {
     const { attendance, prisma } = service({ evidenceReference: { findMany: vi.fn().mockResolvedValue([{ id: operation, schoolId: school, confirmedAt: day('2026-01-31') }]), updateMany: vi.fn().mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 0 }) }, auditRecord: { create: vi.fn() } });
     await expect(attendance.cleanupExpiredEvidence(day('2026-03-31'))).resolves.toEqual({ deleted: 1 });
@@ -64,13 +104,33 @@ describe('AttendanceService leave matrix', () => {
     const { attendance } = service({
       schoolMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'member', boundStaffProfile: { id: 'staff-profile' } }) },
       staffClassAssignment: { findFirst: vi.fn().mockResolvedValue({ id: 'assignment' }) },
-      schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) },
+    schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) },
       attendancePolicy: { findFirst: vi.fn().mockResolvedValue({ photoEvidenceMode: 'OPTIONAL' }) },
       studentEnrollment: { findMany: vi.fn().mockResolvedValue([{ studentId: student, student: { id: student, fullName: 'Bé An' } }]) },
       attendanceRecord: { findMany: vi.fn().mockResolvedValue([record]) },
       leaveRequestDay: { findMany: vi.fn().mockResolvedValue([{ leaveRequest: { studentId: student } }]) },
     });
     await expect(attendance.teacherRoster('teacher', school, 'class', '2026-02-09')).resolves.toMatchObject({ students: [{ studentId: student, state: 'PRESENT' }] });
+  });
+  it('uses the roster precedence for the operational queue and returns a successful empty non-operating queue', async () => {
+    const classroom = { id: 'class-a', name: 'Mầm A' };
+    const placement = { classId: classroom.id, enrollment: { student: { id: student, fullName: 'Bé An', studentCode: 'AT-1' } } };
+    const { attendance, prisma } = service({
+      schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) },
+      class: { findMany: vi.fn().mockResolvedValue([classroom]) },
+      enrollmentClassAssignment: { findMany: vi.fn().mockResolvedValue([placement]) },
+    attendanceRecord: { findMany: vi.fn().mockResolvedValue([{ studentId: student }]) },
+      leaveRequest: { findMany: vi.fn().mockResolvedValue([{ studentId: student, status: 'PENDING' }]) },
+    });
+    await expect((attendance as any).queueRows(school, '2026-02-09')).resolves.toMatchObject({ operating: true, classes: [{ attendanceGapCount: 0, pendingLeaveCount: 1 }] });
+    expect((prisma as any).$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'RepeatableRead' });
+    await expect((attendance as any).queueRows(school, '2026-02-08')).resolves.toMatchObject({ operating: false, classes: [] });
+  });
+  it('keeps a pending leave out of attendance gaps while returning it as its own queue item', async () => {
+    const classroom = { id: 'class-a', name: 'Mầm A' };
+    const placement = { classId: classroom.id, enrollment: { student: { id: student, fullName: 'Bé An', studentCode: 'AT-1' } } };
+    const { attendance } = service({ schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }) }, class: { findMany: vi.fn().mockResolvedValue([classroom]) }, enrollmentClassAssignment: { findMany: vi.fn().mockResolvedValue([placement]) }, attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) }, leaveRequest: { findMany: vi.fn().mockResolvedValue([{ studentId: student, status: 'PENDING' }]) } });
+    await expect((attendance as any).queueRows(school, '2026-02-09')).resolves.toMatchObject({ classes: [{ attendanceGapCount: 0, pendingLeaveCount: 1 }] });
   });
   it('uses the HCM submission day policy, not the requested range start', async () => {
     const { attendance } = service(); vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '15:00' });

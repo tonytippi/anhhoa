@@ -35,4 +35,25 @@ describe('HandoverWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Ngày bàn giao'), { target: { value: '2026-02-10' } });
     expect(screen.queryByText('Bé An')).toBeNull();
   });
+  it('reconciles a 504 handover response after server processing and renders confirmed pickup state', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { handoverOn: '2026-09-24', photoEvidenceMode: 'OPTIONAL', students: [{ studentId: 'student', fullName: 'Bé An', pickedUpAt: null, evidenceId: null }] } })))
+      .mockResolvedValueOnce(new Response(null, { status: 504 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { status: 'COMPLETED', outcome: { id: 'handover' } } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { handoverOn: '2026-09-24', photoEvidenceMode: 'OPTIONAL', students: [{ studentId: 'student', fullName: 'Bé An', pickedUpAt: '2026-09-24T03:00:00.000Z', evidenceId: null }] } })));
+    vi.stubGlobal('fetch', fetch); render(<HandoverWorkspace schoolId="school" onDirty={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tải danh sách' })); await screen.findByText('Bé An'); fireEvent.click(screen.getByRole('button', { name: 'Xác nhận trả trẻ' }));
+    await screen.findByText(/Đã trả trẻ lúc/); expect(fetch.mock.calls[2]![0]).toContain('/operations/');
+  });
+  it('releases the pending lock after a PENDING operation and failed reconciliation without retrying the mutation', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { handoverOn: '2026-09-24', photoEvidenceMode: 'OPTIONAL', students: [{ studentId: 'student', fullName: 'Bé An', pickedUpAt: null, evidenceId: null }] } })))
+      .mockResolvedValueOnce(new Response(null, { status: 504 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { status: 'PENDING' } })))
+      .mockRejectedValueOnce(new Error('offline'));
+    vi.stubGlobal('fetch', fetch); render(<HandoverWorkspace schoolId="school" onDirty={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tải danh sách' })); await screen.findByText('Bé An'); fireEvent.click(screen.getByRole('button', { name: 'Xác nhận trả trẻ' }));
+    await screen.findByText('Kết quả chưa hoàn tất. Hãy kiểm tra lại kết quả với hệ thống.'); expect(screen.getByRole('button', { name: 'Xác nhận trả trẻ' }).hasAttribute('disabled')).toBe(false);
+    await new Promise((resolve) => window.setTimeout(resolve, 1100)); await screen.findByText('Không thể xác nhận kết quả. Hãy kiểm tra lại kết quả với hệ thống.'); expect(fetch.mock.calls.filter(([url]) => String(url).includes('/handovers'))).toHaveLength(1);
+  });
 });

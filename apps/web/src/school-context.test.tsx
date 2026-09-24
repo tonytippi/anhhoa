@@ -47,6 +47,14 @@ describe('SchoolContext slug routes', () => {
     expect(fetch.mock.calls.some(([url]) => String(url).includes('/api/app/schools/uuid-a/roster/staff?'))).toBe(true);
     expect(fetch.mock.calls.some(([url]) => String(url).includes('/schools/peakland/'))).toBe(false);
   });
+  it('renders an authorized overview route', async () => {
+    const overviewContext = { ...contextA, navigation: [{ id: 'overview', label: 'Tổng quan vận hành' }] };
+    window.history.replaceState({}, '', '/schools/peakland/overview');
+    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]));
+    vi.stubGlobal('fetch', fetch); renderContext();
+    await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/uuid-a/overview', expect.objectContaining({ credentials: 'include' })));
+  });
   it('canonicalizes an authorized legacy UUID bookmark before rendering protected UI', async () => {
     window.history.replaceState({}, '', '/schools/uuid-a/students'); let resolveContext!: (value: Response) => void;
     const fetch = vi.fn((url: string) => url === '/api/app/schools' ? Promise.resolve(new Response(JSON.stringify({ data: [schoolA] }))) : new Promise<Response>((resolve) => { resolveContext = resolve; })); vi.stubGlobal('fetch', fetch); renderContext();
@@ -74,10 +82,10 @@ describe('SchoolContext slug routes', () => {
     window.history.replaceState({}, '', '/schools/peakland/students'); const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); window.history.pushState({}, '', '/schools/sunrise/students'); fireEvent.popState(window); await screen.findByRole('dialog', { name: 'Đổi trường?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); await waitFor(() => expect(window.location.pathname).toBe('/schools/peakland/students')); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
   });
   it('does not remount an open intake after focus or file-picker return', async () => {
-    const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); const before = fetch.mock.calls.length; fireEvent.focus(window); await new Promise((resolve) => window.setTimeout(resolve, 0)); expect(fetch).toHaveBeenCalledTimes(before); expect(screen.getByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeTruthy();
+    const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); const before = fetch.mock.calls.length; fireEvent.focus(window); await waitFor(() => expect(fetch).toHaveBeenCalledTimes(before + 1)); expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/app/schools'); expect(screen.getByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeTruthy();
   });
-  it('does not issue context, list, or data requests on foreground events', async () => {
-    const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByText('Bé An'); const before = fetch.mock.calls.length; fireEvent.focus(window); fireEvent(document, new Event('visibilitychange')); await new Promise((resolve) => window.setTimeout(resolve, 0)); expect(fetch).toHaveBeenCalledTimes(before);
+  it('re-authorizes the School chooser on foreground events without remounting workspace data', async () => {
+    const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByText('Bé An'); const before = fetch.mock.calls.length; fireEvent.focus(window); await waitFor(() => expect(fetch).toHaveBeenCalledTimes(before + 1)); expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/app/schools');
   });
   it('keeps shell for chooser 500 but clears shell for chooser 401', async () => {
     const clear500 = vi.fn(); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 500 }))); renderContext(clear500); await screen.findByText('Không thể tải danh sách trường.'); expect(clear500).not.toHaveBeenCalled();
@@ -87,7 +95,7 @@ describe('SchoolContext slug routes', () => {
     localStorage.setItem(storageKey(), 'uuid-a'); let reads = 0; const fetch = rosterFetch(); fetch.mockImplementation((url: string) => url === '/api/app/schools' ? Promise.resolve(new Response(JSON.stringify({ data: reads++ ? [schoolB] : [schoolA] }))) : url === '/api/app/schools/uuid-b' ? Promise.resolve(new Response(JSON.stringify({ data: contextB }))) : url === '/api/app/schools/uuid-a' ? Promise.resolve(new Response(JSON.stringify({ data: contextA }))) : Promise.resolve(new Response(JSON.stringify({ data: [] })))); vi.stubGlobal('fetch', fetch); const view = renderContext(); await screen.findByRole('heading', { name: 'PassionEdu - Trường Peakland' }); view.rerender(<BrowserRouter><SchoolContext clear={vi.fn()} userIdentityId="identity-b" /></BrowserRouter>); await screen.findByRole('option', { name: 'Trường Sunrise' }); expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường Peakland' })).toBeNull();
   });
   it('restores only a same-identity persisted UUID selection', async () => {
-    localStorage.setItem(storageKey(), 'uuid-a'); const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByRole('heading', { name: 'PassionEdu - Trường Peakland' }); expect(window.location.pathname).toBe('/schools/peakland/students'); const second = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', second); renderContext(vi.fn(), 'identity-b'); await screen.findAllByLabelText('Chọn trường'); expect(second).toHaveBeenCalledTimes(1);
+    localStorage.setItem(storageKey(), 'uuid-a'); const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); const first = renderContext(); await screen.findByRole('heading', { name: 'PassionEdu - Trường Peakland' }); expect(window.location.pathname).toBe('/schools/peakland/students'); first.unmount(); window.history.replaceState({}, '', '/'); const second = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', second); renderContext(vi.fn(), 'identity-b'); await screen.findByLabelText('Chọn trường'); expect(second).toHaveBeenCalledTimes(1);
   });
   it('forgets a stale persisted selection and keeps the chooser open', async () => {
     localStorage.setItem(storageKey(), 'uuid-stale'); const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByLabelText('Chọn trường'); expect(localStorage.getItem(storageKey())).toBeNull(); expect(fetch).toHaveBeenCalledTimes(1);
