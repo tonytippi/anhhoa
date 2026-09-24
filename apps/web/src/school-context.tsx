@@ -5,20 +5,20 @@ import { FinanceWorkspace } from "./finance/finance-workspace";
 import { RosterWorkspace } from "./roster/roster-workspace";
 import { SettingsWorkspace, type SettingsStatus } from "./settings/settings-workspace";
 
-type School = { schoolId: string; schoolName: string };
+type School = { schoolId: string; schoolSlug: string; schoolName: string };
 type View = "students" | "parents" | "staff" | "classes" | "years" | "positions" | "settings" | "leave-review" | "finance";
-type Context = { schoolId: string; schoolName: string; membershipId: string; capabilities: Array<"SCHOOL_CONTEXT_READ" | "ROSTER_MANAGE" | "SETTINGS_MANAGE" | "LEAVE_REQUEST_DECIDE" | "FINANCE_MANAGE">; navigation: Array<{ id: string; label: string }> };
+type Context = { schoolId: string; schoolSlug: string; schoolName: string; membershipId: string; capabilities: Array<"SCHOOL_CONTEXT_READ" | "ROSTER_MANAGE" | "SETTINGS_MANAGE" | "LEAVE_REQUEST_DECIDE" | "FINANCE_MANAGE">; navigation: Array<{ id: string; label: string }> };
 type WorkspaceStatus = { dirty: boolean; pending: boolean; dialogOpen?: boolean; reconcile?: () => void };
-type Destination = { schoolId: string; page: View };
+type Destination = { schoolSlug: string; page: View };
 
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const pages: View[] = ["students", "parents", "staff", "classes", "years", "positions", "settings", "leave-review", "finance"];
 const denied = (status: number) => [401, 403, 404].includes(status);
 const selectionKey = (userIdentityId: string) => `passionedu:app:selected-school:${userIdentityId}`;
-const pathFor = ({ schoolId, page }: Destination) => `/schools/${schoolId}/${page}`;
+const pathFor = ({ schoolSlug, page }: Destination) => `/schools/${schoolSlug}/${page}`;
 const destinationFromPath = (pathname: string): Destination | undefined => {
   const match = /^\/schools\/([^/]+)\/([^/]+)$/.exec(pathname);
-  return match && pages.includes(match[2] as View) ? { schoolId: match[1]!, page: match[2] as View } : undefined;
+  return match && pages.includes(match[2] as View) ? { schoolSlug: match[1]!, page: match[2] as View } : undefined;
 };
 const allowedPages = (context: Context): View[] => {
   const has = (id: string) => context.navigation.some((item) => item.id === id);
@@ -79,12 +79,15 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     const response = await fetch(`${apiUrl}/api/app/schools`, { credentials: "include" });
     if (response.status === 401) { clearProtectedState(); clear(); return; }
     if (!response.ok) throw new Error("Không thể tải danh sách trường.");
-    const next = ((await response.json()) as { data: School[] }).data;
+    const payload: unknown = await response.json();
+    if (!payload || typeof payload !== "object" || !("data" in payload) || !Array.isArray(payload.data)) throw new Error("Không thể tải danh sách trường.");
+    const next = payload.data as School[];
     if (!mounted.current) return;
     setSchools(next);
     const saved = savedSchoolId();
     const schoolId = next.length === 1 ? next[0]?.schoolId : saved && next.some((school) => school.schoolId === saved) ? saved : undefined;
-    if (restoreSelection && schoolId) navigate(pathFor({ schoolId, page: "students" }), { replace: true });
+    const school = schoolId ? next.find((item) => item.schoolId === schoolId) : undefined;
+    if (restoreSelection && school) navigate(pathFor({ schoolSlug: school.schoolSlug, page: "students" }), { replace: true });
     else {
       if (saved && !next.some((school) => school.schoolId === saved)) forgetSchoolId();
       setShowChooser(true);
@@ -100,17 +103,17 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     }
     setContext(next);
     setPage(page);
-    committed.current = { schoolId: next.schoolId, page };
+    committed.current = { schoolSlug: next.schoolSlug, page };
     setShowChooser(false);
     saveSchoolId(next.schoolId);
-    if (page !== destination.page) navigate(pathFor({ schoolId: next.schoolId, page }), { replace: true });
+    if (page !== destination.page) navigate(pathFor({ schoolSlug: next.schoolSlug, page }), { replace: true });
   };
-  const load = async (destination: Destination) => {
+  const load = async (destination: Destination, school: School) => {
     clearProtectedState();
     const requestVersion = ++version.current;
-    selected.current = destination.schoolId;
-    const response = await fetch(`${apiUrl}/api/app/schools/${destination.schoolId}`, { credentials: "include" });
-    if (!mounted.current || selected.current !== destination.schoolId || version.current !== requestVersion) return;
+    selected.current = school.schoolId;
+    const response = await fetch(`${apiUrl}/api/app/schools/${school.schoolId}`, { credentials: "include" });
+    if (!mounted.current || selected.current !== school.schoolId || version.current !== requestVersion) return;
     if (denied(response.status)) {
       forgetSchoolId();
       clearProtectedState();
@@ -120,10 +123,17 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
       return;
     }
     if (!response.ok) throw new Error("Không thể tải ngữ cảnh trường.");
-    const next = ((await response.json()) as { data: Context }).data;
-    // A response for a different school must never authorize the URL selector.
-    if (!mounted.current || selected.current !== destination.schoolId || next.schoolId !== destination.schoolId) {
-      if (mounted.current && next.schoolId !== destination.schoolId) {
+    const payload: unknown = await response.json();
+    if (!payload || typeof payload !== "object" || !("data" in payload) || !payload.data || typeof payload.data !== "object") {
+      clearProtectedState();
+      setShowChooser(true);
+      navigate("/", { replace: true });
+      return;
+    }
+    const next = payload.data as Context;
+    // Both server-authorized selector values must match before protected UI renders.
+    if (!mounted.current || selected.current !== school.schoolId || next.schoolId !== school.schoolId || next.schoolSlug !== school.schoolSlug) {
+      if (mounted.current && (next.schoolId !== school.schoolId || next.schoolSlug !== school.schoolSlug)) {
         clearProtectedState();
         setShowChooser(true);
         navigate("/", { replace: true });
@@ -133,7 +143,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     applyDestination(next, destination);
   };
   const requestDestination = (destination: Destination) => {
-    if (context && destination.schoolId !== context.schoolId && unresolved()) { setSwitchTo(destination); return; }
+    if (context && destination.schoolSlug !== context.schoolSlug && unresolved()) { setSwitchTo(destination); return; }
     navigate(pathFor(destination));
   };
   const retryRoute = () => {
@@ -161,14 +171,20 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
       if (location.pathname !== "/") navigate("/", { replace: true });
       return;
     }
-    // The chooser list is the first authorization gate; do not resolve stale IDs.
-    if (!schools.some((school) => school.schoolId === destination.schoolId)) {
+    // Prefer an exact authorized slug; UUIDs are only accepted to canonicalize legacy bookmarks.
+    const slugMatch = schools.find((item) => item.schoolSlug === destination.schoolSlug);
+    const school = slugMatch ?? schools.find((item) => item.schoolId === destination.schoolSlug);
+    if (!school) {
       clearProtectedState();
       setShowChooser(true);
       navigate("/", { replace: true });
       return;
     }
-    if (context?.schoolId === destination.schoolId) {
+    if (!slugMatch && school.schoolId === destination.schoolSlug) {
+      navigate(pathFor({ schoolSlug: school.schoolSlug, page: destination.page }), { replace: true });
+      return;
+    }
+    if (context?.schoolId === school.schoolId) {
       if (!allowedPages(context).includes(destination.page)) applyDestination(context, destination);
       else { setPage(destination.page); committed.current = destination; }
       return;
@@ -181,7 +197,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     const key = `${location.pathname}:${retry}`;
     if (loadedPath.current === key) return;
     loadedPath.current = key;
-    void load(destination).catch((cause: Error) => {
+    void load(destination, school).catch((cause: Error) => {
       loadedPath.current = undefined;
       if (mounted.current) setError(cause.message);
     });
@@ -203,12 +219,12 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
   if (!schools) return <section className="school-context school-context-loading" aria-live="polite"><p role={error ? "alert" : undefined}>{error || "Đang tải ngữ cảnh trường..."}</p>{error && <button type="button" onClick={retryRoute}>Thử lại</button>}</section>;
   if (!schools.length) return <section className="school-context school-context-empty"><p className="school-context-kicker">NGỮ CẢNH TRƯỜNG</p><h1>Chưa có trường được cấp quyền</h1><p>Không có trường nào đang cấp quyền cho tài khoản này.</p></section>;
   return <section className="school-context">
-    {(schools.length > 1 || showChooser) && <div className="school-context-switcher"><label className="school-context-label"><span>Chọn trường</span><select aria-label="Chọn trường" value={context?.schoolId ?? ""} disabled={hasPending()} onChange={(event) => requestDestination({ schoolId: event.target.value, page: "students" })}><option value="" disabled>Chọn trường</option>{schools.map((school) => <option key={school.schoolId} value={school.schoolId}>{school.schoolName}</option>)}</select></label>{!context && <p className="school-context-hint">Chọn một trường để bắt đầu công việc.</p>}</div>}
+    {(schools.length > 1 || showChooser) && <div className="school-context-switcher"><label className="school-context-label"><span>Chọn trường</span><select aria-label="Chọn trường" value={context?.schoolId ?? ""} disabled={hasPending()} onChange={(event) => { const school = schools.find((item) => item.schoolId === event.target.value); if (school) requestDestination({ schoolSlug: school.schoolSlug, page: "students" }); }}><option value="" disabled>Chọn trường</option>{schools.map((school) => <option key={school.schoolId} value={school.schoolId}>{school.schoolName}</option>)}</select></label>{!context && <p className="school-context-hint">Chọn một trường để bắt đầu công việc.</p>}</div>}
     {error && <p className="school-context-error" role="alert">{error} <button type="button" onClick={retryRoute}>Thử lại</button></p>}
     {context && <><header className="school-context-heading"><p className="school-context-kicker">NGỮ CẢNH ĐANG LÀM VIỆC</p><h1 ref={heading} tabIndex={-1}>PassionEdu - {context.schoolName}</h1></header><nav className="school-context-navigation" aria-label="Điều hướng quản trị và nhân sự">
-      {allowedPages(context).some((page) => ["students", "parents", "staff", "classes"].includes(page)) && <section className="school-context-nav-group"><button type="button" className="school-context-nav-group-toggle" aria-controls="roster-submenu" aria-expanded={expanded.roster} onClick={() => setExpanded((value) => ({ ...value, roster: !value.roster }))}>Danh bộ</button>{expanded.roster && <div id="roster-submenu" className="school-context-nav-submenu">{([['students', 'Học sinh'], ['parents', 'Phụ huynh'], ['staff', 'Nhân viên'], ['classes', 'Lớp học']] as const).filter(([page]) => allowedPages(context).includes(page)).map(([page, label]) => <button type="button" key={page} aria-current={view === page ? "page" : undefined} onClick={() => requestDestination({ schoolId: context.schoolId, page })}>{label}</button>)}</div>}</section>}
-      {allowedPages(context).some((page) => ["years", "positions", "settings"].includes(page)) && <section className="school-context-nav-group"><button type="button" className="school-context-nav-group-toggle" aria-controls="settings-submenu" aria-expanded={expanded.settings} onClick={() => setExpanded((value) => ({ ...value, settings: !value.settings }))}>Cấu hình trường</button>{expanded.settings && <div id="settings-submenu">{([['years', 'Năm học'], ['positions', 'Chức danh & capability'], ['settings', 'Chính sách trường']] as const).filter(([page]) => allowedPages(context).includes(page)).map(([page, label]) => <button type="button" key={page} aria-current={view === page ? "page" : undefined} onClick={() => requestDestination({ schoolId: context.schoolId, page })}>{label}</button>)}</div>}</section>}
-      {context.navigation.filter((item) => item.id === "leave-review" || item.id === "finance").filter((item) => allowedPages(context).includes(item.id as View)).map((item) => <button type="button" key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onClick={() => requestDestination({ schoolId: context.schoolId, page: item.id as View })}>{item.label}</button>)}</nav>
+      {allowedPages(context).some((page) => ["students", "parents", "staff", "classes"].includes(page)) && <section className="school-context-nav-group"><button type="button" className="school-context-nav-group-toggle" aria-controls="roster-submenu" aria-expanded={expanded.roster} onClick={() => setExpanded((value) => ({ ...value, roster: !value.roster }))}>Danh bộ</button>{expanded.roster && <div id="roster-submenu" className="school-context-nav-submenu">{([['students', 'Học sinh'], ['parents', 'Phụ huynh'], ['staff', 'Nhân viên'], ['classes', 'Lớp học']] as const).filter(([page]) => allowedPages(context).includes(page)).map(([page, label]) => <button type="button" key={page} aria-current={view === page ? "page" : undefined} onClick={() => requestDestination({ schoolSlug: context.schoolSlug, page })}>{label}</button>)}</div>}</section>}
+      {allowedPages(context).some((page) => ["years", "positions", "settings"].includes(page)) && <section className="school-context-nav-group"><button type="button" className="school-context-nav-group-toggle" aria-controls="settings-submenu" aria-expanded={expanded.settings} onClick={() => setExpanded((value) => ({ ...value, settings: !value.settings }))}>Cấu hình trường</button>{expanded.settings && <div id="settings-submenu">{([['years', 'Năm học'], ['positions', 'Chức danh & capability'], ['settings', 'Chính sách trường']] as const).filter(([page]) => allowedPages(context).includes(page)).map(([page, label]) => <button type="button" key={page} aria-current={view === page ? "page" : undefined} onClick={() => requestDestination({ schoolSlug: context.schoolSlug, page })}>{label}</button>)}</div>}</section>}
+      {context.navigation.filter((item) => item.id === "leave-review" || item.id === "finance").filter((item) => allowedPages(context).includes(item.id as View)).map((item) => <button type="button" key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onClick={() => requestDestination({ schoolSlug: context.schoolSlug, page: item.id as View })}>{item.label}</button>)}</nav>
       <div className="school-context-workspace">{(["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) && allowedPages(context).includes(view) ? <RosterWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateRosterStatus} section={view as "students" | "parents" | "staff" | "classes" | "years" | "positions"} /> : view === "settings" && allowedPages(context).includes(view) ? <SettingsWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateSettingsStatus} /> : view === "leave-review" && allowedPages(context).includes(view) ? <LeaveReviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={setLeaveReviewStatus} /> : view === "finance" && allowedPages(context).includes(view) ? <FinanceWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={setFinanceStatus} /> : null}</div></>}
     {switchTo && <div className="school-switch-backdrop"><div className="school-switch-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="school-switch-title"><h2 id="school-switch-title">Đổi trường?</h2><p>Biểu mẫu đang có nội dung chưa gửi hoặc thao tác đang được đối soát.</p><div className="school-switch-actions"><button className="school-switch-stay" onClick={stay}>Ở lại</button>{hasPending() ? <button className="school-switch-reconcile" onClick={reconcile}>Đối soát thao tác</button> : <button className="school-switch-discard" onClick={() => { const target = switchTo; clearProtectedState(); setSwitchTo(undefined); navigate(pathFor(target)); }}>Bỏ nội dung và đổi trường</button>}</div></div></div>}
   </section>;

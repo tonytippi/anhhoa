@@ -9,9 +9,29 @@ export type SchoolLifecycleStatus = 'ACTIVE' | 'SUSPENDED';
 export type OpsSchoolDto = { id: string; name: string; slug: string; status: SchoolLifecycleStatus; ownerEmail: string; ownerBound: boolean; updatedAt: string };
 export type OperationDto = { id: string; status: 'PENDING' | 'COMPLETED' | 'FAILED'; outcome: unknown };
 export type ProvisionSchoolInput = { name: string; slug: string; ownerEmail: string };
-export type SchoolCapability = 'SCHOOL_CONTEXT_READ' | 'ACCESS_MANAGE';
-export type SchoolChooserItem = { schoolId: string; schoolName: string };
-export type SchoolContextDto = { schoolId: string; schoolName: string; membershipId: string; capabilities: SchoolCapability[]; navigation: Array<{ id: string; label: string }> };
+export type SchoolCapability =
+  | 'SCHOOL_CONTEXT_READ'
+  | 'ACCESS_MANAGE'
+  | 'ROSTER_MANAGE'
+  | 'SETTINGS_MANAGE'
+  | 'FINANCE_MANAGE'
+  | 'CLASS_LEAVE_READ'
+  | 'LEAVE_REQUEST_DECIDE'
+  | 'ATTENDANCE_WRITE'
+  | 'DAILY_JOURNAL_WRITE'
+  | 'HANDOVER_WRITE'
+  | 'WORKFORCE_MANAGE'
+  | 'TIMEKEEPING_IMPORT'
+  | 'TIMEKEEPING_REVIEW'
+  | 'LATE_CARE_MANAGE'
+  | 'PAYROLL_PREPARE'
+  | 'PAYROLL_RECONCILE'
+  | 'PAYROLL_APPROVE'
+  | 'PAYROLL_REOPEN'
+  | 'PAYROLL_PAYOUT_CONFIRM'
+  | 'PAYROLL_REPORT_READ';
+export type SchoolChooserItem = { schoolId: string; schoolSlug: string; schoolName: string };
+export type SchoolContextDto = { schoolId: string; schoolSlug: string; schoolName: string; membershipId: string; capabilities: SchoolCapability[]; navigation: Array<{ id: string; label: string }> };
 export type SchoolMembershipDto = { id: string; email: string; status: 'ACTIVE' | 'REVOKED'; roles: Array<'SCHOOL_ADMIN' | 'FINANCE_MANAGER' | 'CLASS_TEACHER'> };
 export type RosterListQuery = {
   page?: number;

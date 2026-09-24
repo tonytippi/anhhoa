@@ -10,7 +10,7 @@ export const capabilityCatalog = [
 ] as const;
 export type Capability = typeof capabilityCatalog[number];
 export type SchoolAudience = 'app' | 'teacher';
-export type SchoolContext = { schoolId: string; schoolName: string; membershipId: string; staffProfileId: string; capabilities: Capability[]; navigation: Array<{ id: string; label: string }> };
+export type SchoolContext = { schoolId: string; schoolSlug: string; schoolName: string; membershipId: string; staffProfileId: string; capabilities: Capability[]; navigation: Array<{ id: string; label: string }> };
 
 @Injectable()
 export class AuthorizationService {
@@ -42,7 +42,7 @@ export class AuthorizationService {
     });
     return memberships.flatMap((membership) => {
       const capabilities = this.capabilities(membership.boundStaffProfile!.primaryPosition.grants, audience);
-      return capabilities.includes('SCHOOL_CONTEXT_READ') ? [{ schoolId: membership.schoolId, schoolName: membership.school.name }] : [];
+      return capabilities.includes('SCHOOL_CONTEXT_READ') ? [{ schoolId: membership.schoolId, schoolSlug: membership.school.slug, schoolName: membership.school.name }] : [];
     });
   }
 
@@ -54,6 +54,6 @@ export class AuthorizationService {
     if (!membership?.boundStaffProfile) throw new NotFoundException({ code: 'SCHOOL_CONTEXT_DENIED', message: 'Không thể truy cập ngữ cảnh trường này.' });
     const capabilities = this.capabilities(membership.boundStaffProfile.primaryPosition.grants, audience);
     if (!capabilities.includes(required)) throw new ForbiddenException({ code: 'CAPABILITY_DENIED', message: 'Bạn không có quyền thực hiện thao tác này.' });
-    return { schoolId, schoolName: membership.school.name, membershipId: membership.id, staffProfileId: membership.boundStaffProfile.id, capabilities, navigation: this.navigation(capabilities) };
+    return { schoolId, schoolSlug: membership.school.slug, schoolName: membership.school.name, membershipId: membership.id, staffProfileId: membership.boundStaffProfile.id, capabilities, navigation: this.navigation(capabilities) };
   }
 }
