@@ -1298,6 +1298,44 @@ tbody tr:last-child td {
   padding: 2px 0;
 }
 .student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
+.student-list-table table { min-width: 940px; }
+.relative-count { display: block; color: #5f746e !important; white-space: nowrap; }
+.roster-row-actions { position: relative; width: 72px; }
+.roster-action-menu {
+  position: absolute;
+  z-index: 4;
+  right: 12px;
+  top: calc(100% - 8px);
+  display: grid;
+  min-width: 210px;
+  border: 1px solid #d7e2dc;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgb(24 51 45 / 18%);
+  padding: 4px;
+}
+.roster-action-menu button { border: 0 !important; background: transparent !important; color: #18332d !important; text-align: left; }
+.roster-action-menu button:hover,
+.roster-action-menu button:focus-visible { background: #eef6f1 !important; }
+.roster-list-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+.student-detail-panel {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+.student-detail-panel > section {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d7e2dc;
+  border-radius: 10px;
+  padding: 14px;
+}
+.student-detail-panel form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .student-empty-state {
   padding: 46px 24px !important;
   text-align: center;

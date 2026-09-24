@@ -53,4 +53,34 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
       await prisma.$disconnect();
     }
   });
+
+  it('seeds the PeakLand roster and reserves the fixture student code sequence', async () => {
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl! }) });
+    try {
+      const school = await prisma.school.findUniqueOrThrow({
+        where: { slug: 'pl' },
+        include: {
+          classes: { where: { schoolYear: { name: '2026-2027' } } },
+          students: {
+            where: { studentCode: { in: Array.from({ length: 127 }, (_, index) => `PL${index + 1}`) } },
+            include: { enrollments: { where: { schoolYear: { name: '2026-2027' } }, include: { classAssignments: true } } },
+          },
+        },
+      });
+      expect(school.studentCodeSequence).toBe(127);
+      expect(school.classes).toHaveLength(7);
+      expect(school.students).toHaveLength(127);
+      expect(school.students.filter((student) => student.enrollments[0]?.lifecycle === 'ENROLLED')).toHaveLength(126);
+      expect(school.students.filter((student) => student.enrollments[0]?.lifecycle === 'WAITING_FOR_CLASS')).toHaveLength(1);
+      expect(school.students.filter((student) => student.enrollments[0]?.classAssignments).flatMap((student) => student.enrollments[0]!.classAssignments)).toHaveLength(126);
+      expect(school.students.find((student) => student.studentCode === 'PL1')).toMatchObject({
+        fullName: 'Nguyễn Minh An',
+        preferredName: 'Sữa',
+        gender: 'NAM',
+        address: 'căn hộ GSB 2110B, toà nhà Geleximco 897 Giải Phóng',
+      });
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
 });

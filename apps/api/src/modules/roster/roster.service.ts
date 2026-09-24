@@ -272,10 +272,28 @@ export class RosterService {
     identityId: string,
     schoolId: string,
     schoolYearId: string,
-    classId?: string,
+    query: Record<string, string | undefined> = {},
   ) {
     await this.actor(identityId, schoolId);
     await this.year(schoolId, schoolYearId);
+    const integer = (value: string | undefined, fallback: number, maximum: number) => {
+      if (value === undefined || value === "") return fallback;
+      if (!/^\d+$/.test(value))
+        throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed < 1)
+        throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+      return Math.min(parsed, maximum);
+    };
+    const page = integer(query.page, 1, Number.MAX_SAFE_INTEGER);
+    const pageSize = integer(query.pageSize, 25, 100);
+    const classId = query.classId || undefined;
+    const lifecycle = query.lifecycle || undefined;
+    const sort = query.sort || "name";
+    if (lifecycle && !lifecycles.has(lifecycle))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+    if (sort !== "name" && sort !== "class")
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
     if (
       classId &&
       (!uuid.test(classId) ||
@@ -287,35 +305,65 @@ export class RosterService {
         code: "CLASS_NOT_FOUND",
         message: "Không tìm thấy lớp.",
       });
-    const enrollments = await this.prisma.studentEnrollment.findMany({
-      where: {
+    const where = {
         schoolId,
         schoolYearId,
+        ...(lifecycle ? { lifecycle: lifecycle as any } : {}),
+        ...(query.q?.trim()
+          ? { student: { OR: [{ fullName: { contains: query.q.trim(), mode: "insensitive" as const } }, { studentCode: { contains: query.q.trim(), mode: "insensitive" as const } }] } }
+          : {}),
         ...(classId
           ? { classAssignments: { some: { classId, effectiveTo: null } } }
           : {}),
-      },
+      };
+    const [totalItems, enrollments] = await Promise.all([
+      this.prisma.studentEnrollment.count({ where }),
+      this.prisma.studentEnrollment.findMany({
+      where,
       include: {
         student: {
           include: {
             photo: { select: { id: true } },
-            enrollments: {
-              where: { schoolId },
-              orderBy: { createdAt: "asc" },
-              include: {
-                lifecycleTransitions: { orderBy: { createdAt: "asc" } },
-                classAssignments: {
-                  orderBy: { effectiveFrom: "asc" },
-                  include: { classroom: true },
-                },
-              },
+            parentLinks: {
+              where: { schoolId, status: "ACTIVE" },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              include: { parentProfile: { select: { fullName: true } } },
             },
           },
         },
       },
-      orderBy: { createdAt: "asc" },
-    });
-    return enrollments.map((item) => this.studentDto(item.student));
+      orderBy: sort === "class"
+        ? [{ className: "asc" }, { student: { fullName: "asc" } }, { id: "asc" }]
+        : [{ student: { fullName: "asc" } }, { id: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    })]);
+    return {
+      data: enrollments.map((item) => {
+        const links = item.student.parentLinks;
+        const mother = links.find((link) => link.relationshipLabel === "Mẹ");
+        const father = links.find((link) => link.relationshipLabel === "Bố");
+        return {
+          id: item.student.id,
+          studentCode: item.student.studentCode,
+          fullName: item.student.fullName,
+          hasPhoto: Boolean(item.student.photo),
+          enrollment: {
+            id: item.id,
+            lifecycle: item.lifecycle,
+            effectiveFrom: item.effectiveFrom.toISOString().slice(0, 10),
+            classroom: item.classId && item.className ? { id: item.classId, name: item.className } : null,
+          },
+          relatives: {
+            mother: mother?.parentProfile.fullName ?? null,
+            father: father?.parentProfile.fullName ?? null,
+            otherRelativeCount:
+              links.length - Number(Boolean(mother)) - Number(Boolean(father)),
+          },
+        };
+      }),
+      meta: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) },
+    };
   }
   async student(identityId: string, schoolId: string, studentId: string) {
     await this.actor(identityId, schoolId);

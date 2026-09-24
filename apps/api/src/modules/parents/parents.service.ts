@@ -36,24 +36,31 @@ export class ParentsService {
     const fullName =
       typeof body?.fullName === "string" ? body.fullName.trim() : "";
     const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
+    const relationshipLabel =
+      typeof body?.relationshipLabel === "string"
+        ? body.relationshipLabel.trim()
+        : "";
     const fieldErrors: Record<string, string> = {};
     if (!emailPattern.test(email)) fieldErrors.email = "Email không hợp lệ.";
     if (!fullName || fullName.length > 100)
       fieldErrors.fullName = "Họ và tên cần từ 1 đến 100 ký tự.";
     if (!/^[0-9+() .-]{6,30}$/.test(phone))
       fieldErrors.phone = "Số điện thoại không hợp lệ.";
+    if (!relationshipLabel || relationshipLabel.length > 50)
+      fieldErrors.relationshipLabel = "Quan hệ cần từ 1 đến 50 ký tự.";
     if (Object.keys(fieldErrors).length)
       throw new BadRequestException({
         code: "VALIDATION_ERROR",
         message: "Dữ liệu không hợp lệ.",
         fieldErrors,
       });
-    return { email, fullName, phone };
+    return { email, fullName, phone, relationshipLabel };
   }
   private dto(link: any) {
     return {
       id: link.id,
       studentId: link.studentId,
+      relationshipLabel: link.relationshipLabel,
       status: link.status,
       createdAt: link.createdAt.toISOString(),
       revokedAt: link.revokedAt?.toISOString() ?? null,
@@ -134,11 +141,20 @@ export class ParentsService {
         const link = existing
           ? await tx.studentParent.update({
               where: { id: existing.id },
-              data: { status: "ACTIVE", revokedAt: null },
+              data: {
+                status: "ACTIVE",
+                revokedAt: null,
+                relationshipLabel: contact.relationshipLabel,
+              },
               include: { parentProfile: true },
             })
           : await tx.studentParent.create({
-              data: { schoolId, studentId, parentProfileId: profile.id },
+              data: {
+                schoolId,
+                studentId,
+                parentProfileId: profile.id,
+                relationshipLabel: contact.relationshipLabel,
+              },
               include: { parentProfile: true },
             });
         await tx.auditRecord.create({
@@ -156,6 +172,7 @@ export class ParentsService {
               studentId,
               studentParentId: link.id,
               parentProfileId: profile.id,
+              relationshipLabel: link.relationshipLabel,
             },
           ),
         });

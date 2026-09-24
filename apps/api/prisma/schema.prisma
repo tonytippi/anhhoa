@@ -554,6 +554,7 @@ model StudentParent {
   schoolId        String              @db.Uuid
   studentId       String              @db.Uuid
   parentProfileId String              @db.Uuid
+  relationshipLabel String            @default("Người thân")
   status          StudentParentStatus @default(ACTIVE)
   createdAt       DateTime            @default(now())
   revokedAt       DateTime?
