@@ -1757,7 +1757,7 @@ export function RosterWorkspace({
               Năm học đã đóng. Danh bộ và lịch sử chỉ có thể xem.
             </p>
           )}
-          <fieldset className={section === "students" ? "student-roster-surface" : undefined} disabled={readOnly || disabled}>
+          <fieldset className={section === "students" || section === "parents" ? "student-roster-surface" : undefined} disabled={readOnly || disabled}>
             {(section === "all" || section === "classes") && !readOnly && (
               <form className="roster-form" onSubmit={createClass}>
                 <h3>Thêm lớp cho {selected?.name}</h3>
@@ -2462,9 +2462,6 @@ export function RosterWorkspace({
             {rosterMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang danh bộ"><button type="button" disabled={rosterLoading || rosterMeta.page === 1} onClick={() => reloadRoster(rosterMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, rosterMeta.totalPages) }, (_, index) => rosterMeta.totalPages <= 5 ? index + 1 : Math.min(rosterMeta.totalPages - 4, Math.max(1, rosterMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === rosterMeta.page} aria-current={page === rosterMeta.page ? "page" : undefined} onClick={() => reloadRoster(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || rosterMeta.page === rosterMeta.totalPages} onClick={() => reloadRoster(rosterMeta.page + 1)}>Sau</button></nav>}
             </>}
             {section === "parents" && <>
-              <div className="student-list-toolbar">
-                <h3>Phụ huynh của {selected?.name}</h3>
-              </div>
               <div className="table-scroll student-list-table parent-list-table">
                 <table>
                   <caption>Phụ huynh {schoolName} · {selected?.name ?? "Chưa chọn năm học"} · Trang {parentMeta.page}</caption>
@@ -2482,11 +2479,17 @@ export function RosterWorkspace({
                   </tbody>
                 </table>
               </div>
-              <form className="roster-list-filters" aria-label="Lọc phụ huynh" onSubmit={(event) => { event.preventDefault(); reloadParents(1); }}>
-                <label>Tìm kiếm<input type="search" value={parentQuery.q} onChange={(event) => { const next = { q: event.target.value }; parentQueryRef.current = next; setParentQuery(next); }} placeholder="Tên, con, số điện thoại hoặc email" /></label>
-                <button>Áp dụng</button><button type="button" disabled={rosterLoading} onClick={() => reloadParents()}>Làm mới danh sách</button>
-              </form>
-              {parentMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang phụ huynh"><button type="button" disabled={rosterLoading || parentMeta.page === 1} onClick={() => reloadParents(parentMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, parentMeta.totalPages) }, (_, index) => parentMeta.totalPages <= 5 ? index + 1 : Math.min(parentMeta.totalPages - 4, Math.max(1, parentMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === parentMeta.page} aria-current={page === parentMeta.page ? "page" : undefined} onClick={() => reloadParents(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || parentMeta.page === parentMeta.totalPages} onClick={() => reloadParents(parentMeta.page + 1)}>Sau</button></nav>}
+              <div className="parent-list-controls">
+                <form className="parent-list-search" aria-label="Lọc phụ huynh" onSubmit={(event) => { event.preventDefault(); reloadParents(1); }}>
+                  <label>
+                    <span>Tìm kiếm</span>
+                    <input type="search" value={parentQuery.q} onChange={(event) => { const next = { q: event.target.value }; parentQueryRef.current = next; setParentQuery(next); }} placeholder="Tên, con, số điện thoại hoặc email" />
+                  </label>
+                  <button>Áp dụng</button>
+                  <button type="button" disabled={rosterLoading} onClick={() => reloadParents()}>Làm mới</button>
+                </form>
+                {parentMeta.totalPages > 1 && <nav className="pagination parent-list-pagination" aria-label="Phân trang phụ huynh"><button type="button" disabled={rosterLoading || parentMeta.page === 1} onClick={() => reloadParents(parentMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, parentMeta.totalPages) }, (_, index) => parentMeta.totalPages <= 5 ? index + 1 : Math.min(parentMeta.totalPages - 4, Math.max(1, parentMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === parentMeta.page} aria-current={page === parentMeta.page ? "page" : undefined} onClick={() => reloadParents(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || parentMeta.page === parentMeta.totalPages} onClick={() => reloadParents(parentMeta.page + 1)}>Sau</button></nav>}
+              </div>
             </>}
           </fieldset>
         </>
