@@ -1722,7 +1722,7 @@ export function RosterWorkspace({
                   <td>
                     {item.employmentStatus === 'ACTIVE' ? 'Đang hiệu lực' : 'Không hiệu lực'}
                   </td>
-                  <td>
+                  <td className="roster-row-actions">
                     <button
                       ref={rowMenu === item.id ? rowMenuTrigger : undefined}
                       type="button"
@@ -1882,7 +1882,7 @@ export function RosterWorkspace({
                 <button disabled={disabled}>Tạo lớp</button>
               </form>
             )}
-            {(section === "all" || section === "staff") && <>
+            {section === "all" && <>
             <form className="roster-form" onSubmit={saveAssignment}>
               <h3>
                 {editingAssignmentId
