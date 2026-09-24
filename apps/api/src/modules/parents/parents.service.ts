@@ -41,7 +41,7 @@ export class ParentsService {
         ? body.relationshipLabel.trim()
         : "";
     const fieldErrors: Record<string, string> = {};
-    if (!emailPattern.test(email)) fieldErrors.email = "Email không hợp lệ.";
+    if (email && !emailPattern.test(email)) fieldErrors.email = "Email không hợp lệ.";
     if (!fullName || fullName.length > 100)
       fieldErrors.fullName = "Họ và tên cần từ 1 đến 100 ký tự.";
     if (!/^[0-9+() .-]{6,30}$/.test(phone))
@@ -54,7 +54,7 @@ export class ParentsService {
         message: "Dữ liệu không hợp lệ.",
         fieldErrors,
       });
-    return { email, fullName, phone, relationshipLabel };
+    return { email: email || null, fullName, phone, relationshipLabel };
   }
   private dto(link: any) {
     return {
@@ -119,15 +119,23 @@ export class ParentsService {
             code: "STUDENT_NOT_FOUND",
             message: "Không tìm thấy học sinh.",
           });
-        const profile = await tx.parentProfile.upsert({
-          where: { emailNormalized: contact.email },
-          create: {
-            emailNormalized: contact.email,
-            fullName: contact.fullName,
-            phone: contact.phone,
-          },
-          update: { fullName: contact.fullName, phone: contact.phone },
-        });
+        const existingContact = contact.email
+          ? null
+          : await tx.studentParent.findFirst({
+              where: {
+                schoolId,
+                studentId,
+                parentProfile: { emailNormalized: null, fullName: contact.fullName, phone: contact.phone },
+              },
+              include: { parentProfile: true },
+            });
+        const profile = contact.email
+          ? await tx.parentProfile.upsert({
+              where: { emailNormalized: contact.email },
+              create: { emailNormalized: contact.email, fullName: contact.fullName, phone: contact.phone },
+              update: { fullName: contact.fullName, phone: contact.phone },
+            })
+          : existingContact?.parentProfile ?? await tx.parentProfile.create({ data: { fullName: contact.fullName, phone: contact.phone } });
         const existing = await tx.studentParent.findUnique({
           where: {
             schoolId_studentId_parentProfileId: {

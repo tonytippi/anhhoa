@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { assertDevelopmentEnvironment as assertDevelopment } from '../scripts/development-environment.js';
@@ -26,6 +27,7 @@ const ownerCapabilities = ['SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAG
 const peakLandClassNames = ['Marie Curie', 'Einstein', 'Newton', 'Archimedes', 'Picasso', 'Mozart', 'Elizabeth'] as const;
 const rosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/hocsinh-peakland.csv', import.meta.url)));
 const rosterEffectiveFrom = new Date('2026-08-01T00:00:00.000Z');
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type PeakLandRosterRecord = {
   studentCode: string;
@@ -36,9 +38,43 @@ type PeakLandRosterRecord = {
   dateOfBirth: Date;
   gender: 'NAM' | 'NU';
   address: string | null;
+  mother: PeakLandParentContact | null;
+  father: PeakLandParentContact | null;
 };
 
-const rosterHeaders = ['STT', 'Học sinh', 'Tên thường gọi', 'Lớp', 'Trạng thái', 'Ngày sinh', 'Giới tính', 'Địa chỉ'] as const;
+type PeakLandParentContact = {
+  fullName: string;
+  phone: string;
+  emailNormalized: string | null;
+  address: string | null;
+};
+
+const rosterHeaders = ['STT', 'Học sinh', 'Tên thường gọi', 'Lớp', 'Trạng thái', 'Ngày sinh', 'Giới tính', 'Địa chỉ', 'Họ và tên mẹ', 'SĐT mẹ', 'Email mẹ', 'Địa chỉ mẹ', 'Họ và tên bố', 'SĐT bố', 'Email bố', 'Địa chỉ bố'] as const;
+
+function normalizePhone(phone: string): string {
+  return phone.replace(/[^0-9]/g, '');
+}
+
+function contact(values: { name: string; phone: string; email: string; address: string }): PeakLandParentContact | null {
+  const fullName = values.name.trim();
+  const phone = values.phone.trim();
+  if (!fullName || !phone) return null;
+  const emailNormalized = values.email.trim().toLowerCase() || null;
+  if (emailNormalized && !emailPattern.test(emailNormalized)) throw new Error(`Email phụ huynh ${emailNormalized} không hợp lệ.`);
+  return {
+    fullName,
+    phone,
+    emailNormalized,
+    address: values.address.trim() || null,
+  };
+}
+
+function stableParentId(contact: PeakLandParentContact): string {
+  const hash = createHash('sha256')
+    .update(`peakland-parent:${normalizePhone(contact.phone)}`)
+    .digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-${((Number.parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80).toString(16)}${hash.slice(18, 20)}-${hash.slice(20, 32)}`;
+}
 
 function parseCsv(csv: string): { line: number; values: string[] }[] {
   const rows: { line: number; values: string[] }[] = [];
@@ -125,17 +161,34 @@ export function parsePeakLandRosterCsv(csv: string): PeakLandRosterRecord[] {
     const className = field('Lớp');
     if (status === 'Trong lớp') {
       if (!peakLandClassNames.includes(className as (typeof peakLandClassNames)[number])) throw new Error(`CSV dòng ${line}, trường Lớp không được hỗ trợ.`);
-      return { studentCode: `PL${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: className as (typeof peakLandClassNames)[number], lifecycle: 'ENROLLED' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null };
+      return { studentCode: `PL${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: className as (typeof peakLandClassNames)[number], lifecycle: 'ENROLLED' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null, mother: contact({ name: field('Họ và tên mẹ'), phone: field('SĐT mẹ'), email: field('Email mẹ'), address: field('Địa chỉ mẹ') }), father: contact({ name: field('Họ và tên bố'), phone: field('SĐT bố'), email: field('Email bố'), address: field('Địa chỉ bố') }) };
     }
     if (status === 'Chờ phân lớp') {
       if (className) throw new Error(`CSV dòng ${line}, trường Lớp phải để trống khi Chờ phân lớp.`);
-      return { studentCode: `PL${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: null, lifecycle: 'WAITING_FOR_CLASS' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null };
+      return { studentCode: `PL${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: null, lifecycle: 'WAITING_FOR_CLASS' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null, mother: contact({ name: field('Họ và tên mẹ'), phone: field('SĐT mẹ'), email: field('Email mẹ'), address: field('Địa chỉ mẹ') }), father: contact({ name: field('Họ và tên bố'), phone: field('SĐT bố'), email: field('Email bố'), address: field('Địa chỉ bố') }) };
     }
     throw new Error(`CSV dòng ${line}, trường Trạng thái không được hỗ trợ.`);
   });
   if (records.length !== 127) throw new Error(`CSV phải có đúng 127 học sinh, nhận được ${records.length}.`);
   for (const className of peakLandClassNames) if (!records.some((record) => record.className === className)) throw new Error(`CSV thiếu lớp ${className}.`);
   if (records.filter((record) => record.lifecycle === 'WAITING_FOR_CLASS').length !== 1) throw new Error('CSV phải có đúng một học sinh Chờ phân lớp.');
+  const contacts = records.flatMap((record) => [record.mother, record.father]).filter((item): item is PeakLandParentContact => item !== null);
+  const contactsByEmail = new Map<string, PeakLandParentContact>();
+  const contactsByPhone = new Map<string, PeakLandParentContact>();
+  for (const item of contacts) {
+    const normalizedPhone = normalizePhone(item.phone);
+    const samePhone = contactsByPhone.get(normalizedPhone);
+    if (samePhone && samePhone.fullName !== item.fullName) {
+      throw new Error(`CSV có số điện thoại phụ huynh ${item.phone} mâu thuẫn họ tên.`);
+    }
+    contactsByPhone.set(normalizedPhone, item);
+    if (!item.emailNormalized) continue;
+    const previous = contactsByEmail.get(item.emailNormalized);
+    if (previous && (previous.fullName !== item.fullName || normalizePhone(previous.phone) !== normalizePhone(item.phone))) {
+      throw new Error(`CSV có email phụ huynh ${item.emailNormalized} mâu thuẫn họ tên hoặc số điện thoại.`);
+    }
+    contactsByEmail.set(item.emailNormalized, item);
+  }
   return records;
 }
 
@@ -256,6 +309,31 @@ export async function seed(): Promise<void> {
         } else {
           const enrollment = await tx.studentEnrollment.create({ data: enrollmentData });
           if (classroom) await tx.enrollmentClassAssignment.create({ data: { schoolId: school.id, enrollmentId: enrollment.id, schoolYearId: schoolYear.id, classId: classroom.id, effectiveFrom: rosterEffectiveFrom, reason: 'Khởi tạo enrollment' } });
+        }
+        for (const [relationshipLabel, parent] of [['Mẹ', record.mother], ['Bố', record.father]] as const) {
+          if (!parent) continue;
+          const profile = parent.emailNormalized
+            ? await tx.parentProfile.findUnique({ where: { emailNormalized: parent.emailNormalized } })
+            : await tx.parentProfile.findFirst({
+                where: { emailNormalized: null, fullName: parent.fullName, phone: parent.phone },
+              }) ?? await tx.parentProfile.findUnique({ where: { id: stableParentId(parent) } });
+          if (profile && (profile.fullName !== parent.fullName || normalizePhone(profile.phone) !== normalizePhone(parent.phone))) {
+            throw new Error(`Phụ huynh ${parent.emailNormalized ?? `${parent.fullName}/${parent.phone}`} đã tồn tại với họ tên hoặc số điện thoại khác.`);
+          }
+          const parentProfile = profile ?? await tx.parentProfile.create({
+            data: parent.emailNormalized
+              ? { emailNormalized: parent.emailNormalized, fullName: parent.fullName, phone: parent.phone }
+              : { id: stableParentId(parent), fullName: parent.fullName, phone: parent.phone },
+          });
+          const existingLink = await tx.studentParent.findUnique({
+            where: { schoolId_studentId_parentProfileId: { schoolId: school.id, studentId: student.id, parentProfileId: parentProfile.id } },
+          });
+          if (existingLink?.status === 'REVOKED') throw new Error(`Liên kết ${relationshipLabel} của ${record.studentCode} đã bị revoke; seed không thể kích hoạt lại.`);
+          if (existingLink) {
+            if (existingLink.relationshipLabel !== relationshipLabel) await tx.studentParent.update({ where: { id: existingLink.id }, data: { relationshipLabel } });
+          } else {
+            await tx.studentParent.create({ data: { schoolId: school.id, studentId: student.id, parentProfileId: parentProfile.id, relationshipLabel } });
+          }
         }
       }
     });

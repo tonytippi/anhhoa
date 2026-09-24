@@ -277,6 +277,15 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STUDENT_PARENT_CREATED' } })).toMatchObject({ provenance: { relationshipLabel: 'Bà ngoại' } });
   });
 
+  it('creates a school contact without email', async () => {
+    const current = await graph(); const created = await createStudent(current); const studentId = (created.outcome as { id: string }).id;
+    const link = await parents.create(current.admin.id, current.current.id, studentId, uuid(), uuid(), { fullName: 'Nguyễn Thị Liên', phone: '0900000003', relationshipLabel: 'Mẹ' });
+    expect(link.outcome).toMatchObject({ status: 'ACTIVE', relationshipLabel: 'Mẹ', parent: { fullName: 'Nguyễn Thị Liên', email: null, phone: '0900000003', bound: false } });
+    const replay = await parents.create(current.admin.id, current.current.id, studentId, uuid(), uuid(), { fullName: 'Nguyễn Thị Liên', phone: '0900000003', relationshipLabel: 'Bố' });
+    expect(replay.outcome).toMatchObject({ id: (link.outcome as { id: string }).id, relationshipLabel: 'Bố' });
+    expect(await prisma.studentParent.count({ where: { schoolId: current.current.id, studentId } })).toBe(1);
+  });
+
   it('persists only Staff profile fields and retains School-scoped assignment history with audit and replay', async () => {
     const current = await graph();
     const profile = { fullName: 'Cô Mai', email: ' MAI@Example.com ', phone: '0900000000', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id };
