@@ -12,12 +12,12 @@ describe('ParentShell', () => {
     expect(screen.queryByText('Cổng phụ huynh đang được khởi tạo.')).toBeNull();
   });
 
-  it('renders only server-authorized Parent contexts as a chooser', async () => {
+  it('renders only server-authorized Parent contexts in the workspace switcher', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }, { schoolId: 'school-b', schoolName: 'Trường B', student: { id: 'student-b', fullName: 'Bé Bình' } }] } }))));
     render(<ParentShell />);
-    expect(await screen.findByRole('heading', { name: 'Chọn trường và học sinh' })).toBeTruthy();
-    expect(screen.getByText('Trường A: Bé An')).toBeTruthy();
-    expect(screen.getByText('Trường B: Bé Bình')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Hôm nay của các con' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Trường A · Bé An' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Trường B · Bé Bình' })).toBeTruthy();
   });
 
 });

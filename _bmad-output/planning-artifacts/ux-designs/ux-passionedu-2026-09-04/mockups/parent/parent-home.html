@@ -1,2 +1,192 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>PassionEdu Parent - Hôm nay</title><style>body{margin:0;background:#f7f8f3;color:#18332d;font:16px Inter,Arial;max-width:640px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center}.school{background:#eef6f1;padding:9px 12px;border-radius:999px;font-weight:700}.bell{font-size:24px}.hero{background:#eef6f1;border-radius:24px;padding:18px;margin:18px 0}.card{background:#fff;border:1px solid #d7e2dc;border-radius:18px;padding:18px;margin:14px 0}.status{color:#247a51;font-weight:700}.muted{color:#5f746e}button{background:#247a51;color:#fff;border:0;border-radius:12px;padding:12px 15px;font-weight:700;width:100%}.art{float:right;font-size:44px}</style></head><body><header class="top"><button class="school" aria-label="Đổi trường, hiện tại Ánh Hoa">Ánh Hoa ▾</button><button class="bell" aria-label="2 thông báo chưa đọc">🔔<sup>2</sup></button></header><main><div class="hero"><span class="art" aria-hidden="true">🌿</span><h1>Chào Mai</h1><p>Hôm nay của các con tại trường</p></div><article class="card"><h2>Bé An</h2><p class="muted">Hôm nay, 05 tháng 09 · 08:12</p><p class="status">Đã ghi nhận có mặt</p><button>Xem lịch sử và xin nghỉ</button></article><article class="card"><h2>Bé Minh</h2><p class="muted">Hôm nay, 05 tháng 09</p><p class="muted"><b>Trường chưa ghi nhận</b></p><button>Xem lịch sử và xin nghỉ</button></article><article class="card"><h2>Khoản cần thanh toán</h2><p>Bé An · MH-202609-018 · Tháng 09</p><p><b>2.100.000 đ</b> · Đang chờ thanh toán</p><p class="muted">Cập nhật 05 tháng 09 · 08:12</p><button>Xem hướng dẫn thanh toán</button></article></main></body></html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="oklch(0.51 0.105 151)">
+  <title>PassionEdu · Hôm nay của các con</title>
+  <style>
+    :root {
+      --bg: oklch(0.975 0.009 142);
+      --surface: oklch(1 0 0);
+      --fg: oklch(0.285 0.045 161);
+      --muted: oklch(0.49 0.028 163);
+      --border: oklch(0.89 0.018 156);
+      --accent: oklch(0.51 0.105 151);
+      --accent-soft: color-mix(in oklch, var(--accent) 10%, var(--surface));
+      --info: oklch(0.43 0.075 240);
+      --warn: oklch(0.46 0.09 80);
+      --radius: 14px;
+      --display: 'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif;
+      --body: Inter, 'Segoe UI', system-ui, sans-serif;
+      --mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); }
+    button, a { font: inherit; }
+    button { cursor: pointer; }
+    a { color: inherit; text-decoration: none; }
+    button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in oklch, var(--accent) 42%, var(--surface)); outline-offset: 3px; }
+    .app { display: grid; grid-template-columns: 252px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; height: 100vh; padding: 24px 16px; background: var(--surface); border-right: 1px solid var(--border); }
+    .brand { display: flex; align-items: center; gap: 9px; margin: 0 8px 3px; font: 700 20px var(--display); letter-spacing: -.035em; }
+    .brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--accent); color: var(--surface); font: 700 14px var(--body); }
+    .role { margin: 0 0 28px 47px; color: var(--muted); font: 11px var(--mono); letter-spacing: .07em; }
+    .nav-label { margin: 24px 10px 7px; color: var(--muted); font: 700 11px var(--mono); letter-spacing: .08em; }
+    .nav-link { display: flex; align-items: center; gap: 11px; min-height: 44px; margin: 2px 0; padding: 10px 12px; border-radius: 10px; color: var(--muted); font-weight: 650; }
+    .nav-link:hover, .nav-link.active { background: var(--accent-soft); color: var(--fg); }
+    .nav-link svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+    .notice-count { display: grid; place-items: center; min-width: 20px; height: 20px; margin-left: auto; border-radius: 999px; background: var(--accent); color: var(--surface); font: 700 11px var(--mono); }
+    .account { position: absolute; right: 16px; bottom: 28px; left: 16px; display: flex; align-items: center; gap: 10px; padding-top: 20px; border-top: 1px solid var(--border); }
+    .avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 700 12px var(--mono); }
+    .account strong, .account small { display: block; }
+    .account small { color: var(--muted); font-size: 12px; }
+    .main { width: min(1180px, 100%); margin: 0 auto; padding: 0 38px 48px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; min-height: 74px; border-bottom: 1px solid var(--border); }
+    .school-switcher { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--fg); font-weight: 700; }
+    .school-switcher:hover { border-color: var(--border); background: var(--surface); }
+    .school-switcher svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+    .freshness { color: var(--muted); font-size: 13px; }
+    .freshness strong { color: var(--fg); }
+    .page-header { display: flex; justify-content: space-between; align-items: end; gap: 24px; padding: 42px 0 28px; }
+    .eyebrow { margin: 0 0 7px; color: var(--accent); font: 700 11px var(--mono); letter-spacing: .08em; }
+    .page-title { margin: 0; font: 700 clamp(30px, 4vw, 42px)/1.1 var(--display); letter-spacing: -.035em; }
+    .intro { max-width: 620px; margin: 9px 0 0; color: var(--muted); font-size: 16px; }
+    .child-tabs { display: flex; gap: 8px; margin: 0 0 22px; }
+    .child-tab { min-width: 148px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); color: var(--muted); text-align: left; }
+    .child-tab strong, .child-tab small { display: block; }
+    .child-tab small { margin-top: 2px; font-size: 12px; }
+    .child-tab:hover, .child-tab.active { border-color: var(--accent); background: var(--accent-soft); color: var(--fg); }
+    .grid { display: grid; gap: 20px; }
+    .home-grid { grid-template-columns: minmax(0, 1.45fr) minmax(290px, .8fr); }
+    .panel { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 22px; border-bottom: 1px solid var(--border); }
+    .panel h2 { margin: 0; font: 700 18px var(--display); letter-spacing: -.02em; }
+    .panel-body { padding: 0 22px; }
+    .status-row { display: grid; grid-template-columns: minmax(120px, 1fr) auto minmax(130px, 1fr) auto; align-items: center; gap: 18px; padding: 18px 0; border-bottom: 1px solid var(--border); }
+    .status-row:last-child { border-bottom: 0; }
+    .child-name, .child-class, .status-title, .status-detail { display: block; }
+    .child-name, .status-title { font-weight: 700; }
+    .child-class, .status-detail { margin-top: 2px; color: var(--muted); font-size: 13px; }
+    .badge { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 9px; border-radius: 999px; font: 700 11px var(--mono); letter-spacing: .02em; white-space: nowrap; }
+    .badge-success { background: var(--accent-soft); color: var(--accent); }
+    .badge-info { background: color-mix(in oklch, var(--info) 11%, var(--surface)); color: var(--info); }
+    .badge-neutral { background: color-mix(in oklch, var(--muted) 10%, var(--surface)); color: var(--muted); }
+    .badge-warn { background: color-mix(in oklch, var(--warn) 12%, var(--surface)); color: var(--warn); }
+    .btn-text { padding: 5px 0; border: 0; background: transparent; color: var(--accent); font-weight: 700; font-size: 13px; }
+    .btn-text:hover { text-decoration: underline; }
+    .attention { padding: 22px; }
+    .attention h2 { margin-bottom: 13px; }
+    .attention-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 14px 0; border-top: 1px solid var(--border); }
+    .attention-icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 700 12px var(--mono); }
+    .attention-item strong { font-size: 14px; }
+    .attention-item p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+    .weekly { margin-top: 20px; padding: 0 22px 22px; }
+    .weekly .panel-head { margin: 0 -22px 20px; }
+    .weekly-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr); gap: 32px; }
+    .date-chip { display: inline-block; margin-bottom: 10px; color: var(--muted); font: 700 11px var(--mono); letter-spacing: .07em; }
+    .journal-snippet { padding: 13px 0; border-bottom: 1px solid var(--border); }
+    .journal-snippet:last-child { border-bottom: 0; }
+    .journal-snippet h3 { margin: 0; font: 700 16px var(--display); }
+    .journal-snippet p { margin: 5px 0; color: var(--muted); font-size: 14px; }
+    .pay-summary { display: flex; justify-content: space-between; align-items: start; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    .pay-summary h3 { margin: 0; font: 700 17px var(--display); }
+    .amount { margin: 6px 0 0; font: 700 25px var(--mono); letter-spacing: -.04em; }
+    .payment-note { margin: 11px 0; color: var(--muted); font-size: 13px; }
+    .quiet-box { padding: 12px; border-radius: 10px; background: color-mix(in oklch, var(--muted) 7%, var(--surface)); color: var(--muted); font-size: 13px; }
+    .contact-entry { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-top: 20px; padding: 20px 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .contact-entry h2 { margin: 0; font: 700 18px var(--display); }
+    .contact-entry p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .btn { display: inline-flex; justify-content: center; align-items: center; min-height: 44px; padding: 10px 15px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-weight: 700; }
+    .btn:hover { border-color: var(--fg); }
+    .btn-primary { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 88%, black); }
+    .mobile-nav { display: none; }
+    .toast { position: fixed; right: 24px; bottom: 24px; z-index: 10; max-width: min(360px, calc(100vw - 32px)); padding: 13px 16px; border-radius: 11px; background: var(--fg); color: var(--surface); box-shadow: 0 12px 30px color-mix(in oklch, var(--fg) 20%, transparent); }
+    .toast[hidden] { display: none; }
+    @media (max-width: 920px) {
+      .app { display: block; padding-bottom: 74px; }
+      .sidebar { display: none; }
+      .main { padding: 0 16px 28px; }
+      .topbar { min-height: 62px; }
+      .freshness { display: none; }
+      .page-header { padding: 26px 0 18px; }
+      .page-title { font-size: 31px; }
+      .intro { font-size: 15px; }
+      .home-grid, .weekly-grid { grid-template-columns: 1fr; }
+      .status-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+      .status-row > :nth-child(3) { grid-column: 1; }
+      .status-row > :nth-child(4) { grid-column: 2; grid-row: 2; }
+      .weekly { padding: 0 16px 16px; }
+      .weekly .panel-head { margin: 0 -16px 16px; padding: 17px 16px; }
+      .contact-entry { align-items: flex-start; flex-direction: column; gap: 14px; }
+      .contact-entry .btn { width: 100%; }
+      .mobile-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 9; display: grid; grid-template-columns: repeat(5, 1fr); min-height: 66px; padding: 5px 6px env(safe-area-inset-bottom); border-top: 1px solid var(--border); background: color-mix(in oklch, var(--surface) 94%, transparent); backdrop-filter: blur(14px); }
+      .mobile-nav a { display: grid; place-items: center; min-width: 44px; color: var(--muted); font-size: 10px; font-weight: 700; text-align: center; }
+      .mobile-nav a.active { color: var(--accent); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Điều hướng phụ huynh">
+      <p class="brand"><span class="brand-mark">P</span>PassionEdu</p>
+      <p class="role">CỔNG PHỤ HUYNH</p>
+      <nav>
+        <p class="nav-label">THEO DÕI CON</p>
+        <a class="nav-link active" href="#today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-7h6v7"/></svg>Hôm nay</a>
+        <a class="nav-link" href="#children" data-unavailable="Mở màn hình thông tin theo từng bé."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.2-4 4-6 8-6s6.8 2 8 6"/></svg>Thông tin của bé</a>
+        <p class="nav-label">CẬP NHẬT &amp; HỖ TRỢ</p>
+        <a class="nav-link" href="#notice" data-unavailable="Mở danh sách 2 thông báo mới."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"/><path d="m4 7 8 6 8-6"/></svg>Thông báo <span class="notice-count">2</span></a>
+        <a class="nav-link" href="#payment"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>Khoản cần thanh toán</a>
+        <a class="nav-link" href="#contact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v10H9l-4 4z"/><path d="M8 9h8M8 12h5"/></svg>Liên hệ nhà trường</a>
+      </nav>
+      <div class="account"><span class="avatar">LH</span><div><strong>Lan Hương</strong><small>Phụ huynh của 2 bé</small></div></div>
+    </aside>
+    <main class="main" id="today" data-od-id="parent-home">
+      <header class="topbar" data-od-id="parent-topbar">
+        <button class="school-switcher" type="button" id="school-switcher" aria-label="Chuyển trường đang xem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6M8 10h.01M12 10h.01M16 10h.01"/></svg>Trường Mầm non Ánh Hoa <span aria-hidden="true">▾</span></button>
+        <p class="freshness">Dữ liệu được cập nhật <strong>lúc 15:42 hôm nay</strong></p>
+      </header>
+      <section data-od-id="today-overview">
+        <div class="page-header">
+          <div><p class="eyebrow">THỨ BẢY, 05/09/2026</p><h1 class="page-title">Hôm nay của các con</h1><p class="intro">Theo dõi những cập nhật cần thiết từ nhà trường. Chọn từng bé để xem chi tiết theo ngày.</p></div>
+        </div>
+        <div class="child-tabs" data-od-id="child-switcher">
+          <button class="child-tab active" type="button" data-child="an"><strong>Bé An</strong><small>Mầm 3–4 tuổi</small></button>
+          <button class="child-tab" type="button" data-child="minh"><strong>Bé Minh</strong><small>Chồi 4–5 tuổi</small></button>
+        </div>
+        <div class="grid home-grid">
+          <section class="panel" data-od-id="today-status">
+            <div class="panel-head"><h2>Tình hình trong ngày</h2><button class="btn-text" type="button" data-toast="Mở ngày học chi tiết của Bé An">Xem chi tiết Bé An</button></div>
+            <div class="panel-body">
+              <article class="status-row"><div><span class="child-name">Bé An</span><span class="child-class">Mầm 3–4 tuổi</span></div><span class="badge badge-success">Có mặt</span><div><span class="status-title">Đã nhận trẻ</span><span class="status-detail">07:38</span></div><button class="btn-text" type="button" data-toast="Mở ngày học của Bé An">Xem ngày học</button></article>
+              <article class="status-row"><div><span class="child-name">Bé Minh</span><span class="child-class">Chồi 4–5 tuổi</span></div><span class="badge badge-info">Đã bàn giao</span><div><span class="status-title">Người đón đã xác nhận</span><span class="status-detail">16:35</span></div><button class="btn-text" type="button" data-toast="Mở ngày học của Bé Minh">Xem ngày học</button></article>
+            </div>
+          </section>
+          <aside class="panel attention" data-od-id="parent-attention"><h2>Cần biết</h2><div class="attention-item"><span class="attention-icon">i</span><div><strong>Nhà trường chưa ghi nhận vắng mặt</strong><p>Nếu chưa thấy trạng thái, đây không đồng nghĩa bé nghỉ học. Thông tin sẽ xuất hiện khi nhà trường cập nhật.</p></div></div><div class="attention-item"><span class="attention-icon">2</span><div><strong>2 thông báo mới</strong><p>Có cập nhật điểm danh và nhận xét trong ngày của Bé An.</p><button class="btn-text" type="button" data-toast="Mở thông báo mới">Xem thông báo</button></div></div></aside>
+        </div>
+      </section>
+      <section class="panel weekly" data-od-id="parent-summary">
+        <div class="panel-head"><h2>Cập nhật gần đây</h2><button class="btn-text" type="button" data-toast="Mở toàn bộ nhật ký của Bé An">Tất cả nhật ký của Bé An</button></div>
+        <div class="weekly-grid"><div><span class="date-chip">HÔM NAY · BÉ AN</span><article class="journal-snippet"><h3>Nhận xét trong ngày</h3><p>Hôm nay Bé An tham gia tích cực trong giờ xếp hình và đã tự cất đồ dùng sau khi chơi. Bé ăn tốt, ngủ trưa đúng giờ.</p></article><article class="journal-snippet"><h3>Ảnh trong ngày</h3><p>Nhà trường có ảnh được phép chia sẻ. Quyền xem ảnh được kiểm tra khi bạn mở nội dung.</p><button class="btn-text" type="button" data-toast="Quyền xem ảnh của Bé An đang được kiểm tra">Kiểm tra để xem ảnh</button></article></div><div id="payment"><span class="date-chip">KHOẢN CẦN THANH TOÁN</span><div class="pay-summary"><div><h3>Học phí tháng 09/2026</h3><p class="amount">3.200.000đ</p></div><span class="badge badge-warn">Còn phải nộp</span></div><p class="payment-note">Hạn thanh toán: 10/09/2026</p><div class="quiet-box">Thanh toán được nhà trường đối soát sau khi nhận tiền. Bạn không cần xác nhận giao dịch trên PassionEdu.</div><button class="btn" style="margin-top:15px" type="button" data-toast="Mở hướng dẫn thanh toán theo chứng từ">Xem hướng dẫn thanh toán</button></div></div>
+      </section>
+      <section class="contact-entry" id="contact" data-od-id="contact-entry"><div><p class="eyebrow">TRAO ĐỔI VỚI NHÀ TRƯỜNG</p><h2>Nhà trường cần biết điều gì hôm nay?</h2><p>Gửi một việc cần lưu ý cho Bé An hoặc Bé Minh, rồi theo dõi khi nhà trường đã xem.</p></div><button class="btn btn-primary" type="button" id="contact-button">Liên hệ nhà trường</button></section>
+    </main>
+  </div>
+  <nav class="mobile-nav" aria-label="Điều hướng phụ huynh" data-od-id="parent-mobile-nav"><a class="active" href="#today">Hôm nay</a><a href="#children" data-unavailable="Mở màn hình thông tin theo từng bé.">Các bé</a><a href="#contact">Liên hệ</a><a href="#notice" data-unavailable="Mở danh sách 2 thông báo mới.">Thông báo</a><a href="#payment">Khoản nộp</a></nav>
+  <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+  <script>
+    (function () {
+      var toast = document.getElementById('toast');
+      var timer;
+      function notify(message) { toast.textContent = message; toast.hidden = false; clearTimeout(timer); timer = setTimeout(function () { toast.hidden = true; }, 4200); }
+      document.querySelectorAll('[data-toast]').forEach(function (button) { button.addEventListener('click', function () { notify(button.dataset.toast); }); });
+      document.querySelectorAll('[data-unavailable]').forEach(function (link) { link.addEventListener('click', function (event) { event.preventDefault(); notify(link.dataset.unavailable); }); });
+      document.querySelectorAll('[data-child]').forEach(function (tab) { tab.addEventListener('click', function () { document.querySelectorAll('[data-child]').forEach(function (item) { item.classList.toggle('active', item === tab); }); notify('Đang xem thông tin ' + tab.querySelector('strong').textContent + '.'); }); });
+      document.getElementById('school-switcher').addEventListener('click', function () { notify('Bạn đang xem dữ liệu của Trường Mầm non Ánh Hoa.'); });
+      document.getElementById('contact-button').addEventListener('click', function () { notify('Mở luồng Liên hệ nhà trường. Dặn thuốc cần được xác nhận theo quy trình y tế của trường.'); });
+    }());
+  </script>
+</body>
+</html>
