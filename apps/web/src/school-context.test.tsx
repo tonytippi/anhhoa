@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BrowserRouter } from 'react-router-dom';
 import { SchoolContext } from './school-context';
 
-const context = { schoolId: 'a', schoolName: 'Trường A', membershipId: 'member-a', capabilities: ['SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE'], navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'access', label: 'Quản lý truy cập' }] };
+const context = { schoolId: 'a', schoolName: 'Trường A', membershipId: 'member-a', capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'], navigation: [{ id: 'roster', label: 'Danh bộ' }] };
 const userIdentityId = 'identity-a';
 const storageKey = `passionedu:app:selected-school:${userIdentityId}`;
-const renderSchoolContext = (clear = vi.fn()) => render(<SchoolContext clear={clear} userIdentityId={userIdentityId} />);
-afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); localStorage.clear(); });
+const renderSchoolContext = (clear = vi.fn()) => render(<BrowserRouter><SchoolContext clear={clear} userIdentityId={userIdentityId} /></BrowserRouter>);
+afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); localStorage.clear(); window.history.replaceState({}, '', '/'); });
 describe('SchoolContext', () => {
   it('clears a denied rendered School while preserving the chooser and alternative School', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
@@ -28,7 +29,12 @@ describe('SchoolContext', () => {
     expect(clear).not.toHaveBeenCalled();
   });
   it('keeps the open School when the browser returns to the foreground', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: context })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
     vi.stubGlobal('fetch', fetch); renderSchoolContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.focus(window);
     await new Promise((resolve) => window.setTimeout(resolve, 0)); expect(screen.getByRole('heading', { name: 'PassionEdu - Trường A' })).toBeTruthy();
   });
@@ -140,7 +146,7 @@ describe('SchoolContext', () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: contextB })));
     vi.stubGlobal('fetch', fetch); renderSchoolContext();
     await screen.findByRole('heading', { name: 'PassionEdu - Trường B' });
-    expect(fetch).toHaveBeenLastCalledWith('/api/app/schools/b', { credentials: 'include' });
+    expect(fetch).toHaveBeenCalledWith('/api/app/schools/b', { credentials: 'include' });
     expect((screen.getByLabelText('Chọn trường') as HTMLSelectElement).value).toBe('b');
   });
   it('keeps the chooser for multiple Schools without a valid saved selection', async () => {
@@ -161,22 +167,128 @@ describe('SchoolContext', () => {
     expect(localStorage.getItem(identityBKey)).toBeNull();
     const contextFetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] })));
     vi.stubGlobal('fetch', contextFetch);
-    render(<SchoolContext clear={vi.fn()} userIdentityId="identity-b" />);
+    render(<BrowserRouter><SchoolContext clear={vi.fn()} userIdentityId="identity-b" /></BrowserRouter>);
     await screen.findAllByLabelText('Chọn trường');
     expect(contextFetch).toHaveBeenCalledTimes(1);
   });
   it('clears the prior context when the authenticated identity changes', async () => {
     localStorage.setItem(storageKey, 'a');
-    const fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: context })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...context, schoolId: 'b', schoolName: 'Trường B' } })));
+    let schoolListReads = 0;
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: schoolListReads++ ? [{ schoolId: 'b', schoolName: 'Trường B' }] : [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: context })));
+      if (url === '/api/app/schools/b') return Promise.resolve(new Response(JSON.stringify({ data: { ...context, schoolId: 'b', schoolName: 'Trường B' } })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
     vi.stubGlobal('fetch', fetch);
     const view = renderSchoolContext();
     await screen.findByRole('heading', { name: 'PassionEdu - Trường A' });
-    view.rerender(<SchoolContext clear={vi.fn()} userIdentityId="identity-b" />);
-    await screen.findByRole('heading', { name: 'PassionEdu - Trường B' });
-    expect(localStorage.getItem('passionedu:app:selected-school:identity-b')).toBe('b');
+    view.rerender(<BrowserRouter><SchoolContext clear={vi.fn()} userIdentityId="identity-b" /></BrowserRouter>);
+    await screen.findByRole('option', { name: 'Trường B' });
+    expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường A' })).toBeNull();
+  });
+  it('resolves an authorized deep link before rendering its School workspace', async () => {
+    window.history.replaceState({}, '', '/schools/a/staff');
+    const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: rosterContext })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    expect(screen.queryByRole('heading', { name: 'Nhân viên' })).toBeNull();
+    await screen.findByRole('heading', { name: 'Nhân viên' });
+    expect(window.location.pathname).toBe('/schools/a/staff');
+  });
+  it('replaces a denied page with the first server-authorized destination', async () => {
+    window.history.replaceState({}, '', '/schools/a/students');
+    const settingsContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'SETTINGS_MANAGE'] as const, navigation: [{ id: 'settings', label: 'Cấu hình trường' }] };
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: settingsContext })));
+      if (url.endsWith('/settings')) return Promise.resolve(new Response(JSON.stringify({ data: { asOf: '2026-01-01', timezone: 'Asia/Ho_Chi_Minh', profile: null, calendar: null } })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    await screen.findByRole('heading', { name: 'Cấu hình trường' });
+    expect(window.location.pathname).toBe('/schools/a/settings');
+    expect(screen.queryByRole('heading', { name: 'Học sinh' })).toBeNull();
+  });
+  it('canonicalizes bare and unsupported School paths without resolving a context', async () => {
+    window.history.replaceState({}, '', '/schools/a');
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    await screen.findByLabelText('Chọn trường');
+    expect(window.location.pathname).toBe('/');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('rejects a deep-linked School absent from the chooser before context fetch', async () => {
+    window.history.replaceState({}, '', '/schools/stale/staff');
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    await screen.findByLabelText('Chọn trường');
+    expect(window.location.pathname).toBe('/');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('rejects a mismatched School context payload', async () => {
+    window.history.replaceState({}, '', '/schools/a/staff');
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...context, schoolId: 'b', schoolName: 'Trường B' } })));
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    await screen.findByLabelText('Chọn trường');
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường B' })).toBeNull();
+  });
+  it('retries the same URL after a transient context error', async () => {
+    window.history.replaceState({}, '', '/schools/a/staff');
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] }))).mockResolvedValueOnce(new Response(null, { status: 500 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: context })));
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    fireEvent.click(await screen.findByRole('button', { name: 'Thử lại' }));
+    await screen.findByRole('heading', { name: 'Nhân viên' });
+    expect(fetch).toHaveBeenCalledWith('/api/app/schools/a', { credentials: 'include' });
+  });
+  it('updates URL from navigation and restores the prior page through browser history', async () => {
+    window.history.replaceState({}, '', '/schools/a/students');
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: context })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    fireEvent.click(await screen.findByRole('button', { name: 'Nhân viên' }));
+    await screen.findByRole('heading', { name: 'Nhân viên' });
+    expect(window.location.pathname).toBe('/schools/a/staff');
+    window.history.back();
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await screen.findByRole('heading', { name: 'Học sinh' });
+    expect(window.location.pathname).toBe('/schools/a/students');
+  });
+  it('guards a history School change while roster input is dirty and restores route A on stay', async () => {
+    window.history.replaceState({}, '', '/schools/a/students');
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: context })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch);
+    renderSchoolContext();
+    fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' }));
+    fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
+    window.history.pushState({}, '', '/schools/b/students');
+    fireEvent.popState(window);
+    await screen.findByRole('dialog', { name: 'Đổi trường?' });
+    expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
+    fireEvent.click(screen.getByRole('button', { name: 'Ở lại' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/schools/a/students'));
+    expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
   });
 });
