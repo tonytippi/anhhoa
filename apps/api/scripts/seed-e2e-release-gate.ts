@@ -90,6 +90,11 @@ try {
       const classroom = await tx.class.create({ data: { id: index ? '00000000-0000-4000-8000-000000000002' : '00000000-0000-4000-8000-000000000001', schoolId: school.id, schoolYearId: year.id, name: `Mầm Release ${index + 1}` } });
       const enrollment = await tx.studentEnrollment.create({ data: { schoolId: school.id, studentId: student.id, schoolYearId: year.id, classId: classroom.id, lifecycle: 'ENROLLED', effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), schoolYearName: year.name, schoolYearStartsOn: year.startsOn, schoolYearEndsOn: year.endsOn, className: classroom.name } });
       await tx.enrollmentClassAssignment.create({ data: { schoolId: school.id, enrollmentId: enrollment.id, schoolYearId: year.id, classId: classroom.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), reason: 'Release Finance fixture' } });
+      if (index === 0) {
+        const secondStudent = await tx.student.create({ data: { schoolId: school.id, studentCode: 'RG1-2', fullName: 'Bé Bình', dateOfBirth: new Date('2022-02-01T00:00:00.000Z') } });
+        const secondEnrollment = await tx.studentEnrollment.create({ data: { schoolId: school.id, studentId: secondStudent.id, schoolYearId: year.id, classId: classroom.id, lifecycle: 'ENROLLED', effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), schoolYearName: year.name, schoolYearStartsOn: year.startsOn, schoolYearEndsOn: year.endsOn, className: classroom.name } });
+        await tx.enrollmentClassAssignment.create({ data: { schoolId: school.id, enrollmentId: secondEnrollment.id, schoolYearId: year.id, classId: classroom.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), reason: 'Release Finance fixture second Student' } });
+      }
       const teacherMembership = await tx.schoolMembership.findFirstOrThrow({ where: { schoolId: school.id, userIdentityId: teacher.id } });
       const teacherStaff = await tx.staffProfile.findFirstOrThrow({ where: { schoolId: school.id, schoolMembershipId: teacherMembership.id } });
       await tx.staffClassAssignment.create({ data: { schoolId: school.id, staffProfileId: teacherStaff.id, schoolYearId: year.id, classId: classroom.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), reason: 'Release attendance fixture', schoolYearName: year.name, schoolYearStartsOn: year.startsOn, schoolYearEndsOn: year.endsOn, className: classroom.name } });

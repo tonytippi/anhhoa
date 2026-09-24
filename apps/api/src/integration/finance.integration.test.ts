@@ -1422,6 +1422,34 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(templateLines.every((line: { id: string; receivableId: string; amount: string }) => !("position" in line))).toBe(true);
     });
 
+    it("enforces template tenant graph, unique quantity, DRAFT lifecycle, replay, and competing versions at the PostgreSQL boundary", async () => {
+      const current = await roster(await graph());
+      const foreign = await roster(await graph());
+      const groupId = outcomeId(await group(current));
+      const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Khoản gate", unitLabel: "lần", defaultUnitPrice: "100" }));
+      const foreignGroupId = outcomeId(await group(foreign));
+      const foreignReceivableId = outcomeId(await finance.createReceivable(foreign.identity.id, foreign.school.id, uuid(), uuid(), { groupId: foreignGroupId, displayName: "Khoản foreign", unitLabel: "lần", defaultUnitPrice: "100" }));
+      const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
+      await expect(prisma.collectionRunTemplateLine.create({ data: { schoolId: current.school.id, collectionRunId: runId, receivableId: foreignReceivableId, quantity: 1 } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.collectionRunTemplateLine.create({ data: { schoolId: current.school.id, collectionRunId: runId, receivableId, quantity: 0 } })).rejects.toThrow();
+      const key = uuid();
+      const saved = await finance.saveTemplateLine(current.identity.id, current.school.id, runId, key, uuid(), { receivableId, quantity: "1", expectedVersion: 1 });
+      await expect(finance.saveTemplateLine(current.identity.id, current.school.id, runId, key, uuid(), { receivableId, quantity: "1", expectedVersion: 1 })).resolves.toEqual(saved);
+      expect(await prisma.collectionRunTemplateLine.count({ where: { schoolId: current.school.id, collectionRunId: runId, receivableId } })).toBe(1);
+      const races = await Promise.allSettled([
+        finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId, quantity: "2", expectedVersion: 2 }),
+        finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId, quantity: "3", expectedVersion: 2 }),
+      ]);
+      expect(races.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(races.filter((result) => result.status === "rejected")[0]).toMatchObject({ reason: { status: 409, response: { code: "COLLECTION_RUN_VERSION_CONFLICT" } } });
+      const student = await enrolled(current);
+      await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
+      const preview = await finance.preview(current.identity.id, current.school.id, runId);
+      await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
+      await expect(prisma.collectionRunTemplateLine.updateMany({ where: { schoolId: current.school.id, collectionRunId: runId }, data: { quantity: 4 } })).rejects.toThrow(/immutable outside DRAFT/);
+      await expect(prisma.collectionRunTemplateLine.deleteMany({ where: { schoolId: current.school.id, collectionRunId: runId } })).rejects.toThrow(/immutable outside DRAFT/);
+    });
+
     it("prepares one revision from immutable source facts, then atomically issues it and cancels the source", async () => {
       const fixture = await issueFixture();
       const issued = await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });

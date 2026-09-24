@@ -57,4 +57,15 @@ describe('FinanceService validation', () => {
     await expect(new FinanceService(prisma as never, authorization as never).closeRun('identity', school, run, crypto.randomUUID(), crypto.randomUUID(), {})).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('rejects invalid template quantities before opening a transaction', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const school = crypto.randomUUID();
+    const run = crypto.randomUUID();
+    const receivable = crypto.randomUUID();
+    for (const quantity of ['0', '-1', '1.5', 'không phải số']) {
+      await expect(service.saveTemplateLine('identity', school, run, crypto.randomUUID(), crypto.randomUUID(), { receivableId: receivable, quantity, expectedVersion: 1 })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { quantity: expect.any(String) } } });
+    }
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 });

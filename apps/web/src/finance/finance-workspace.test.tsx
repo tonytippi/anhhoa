@@ -192,6 +192,26 @@ describe("FinanceWorkspace", () => {
       true,
     );
   });
+  it("reconciles a timed-out template save from its Operation without retrying the command", async () => {
+    const templateRun = { ...run, templateLines: [] };
+    const reconciledRun = { ...templateRun, version: 3, templateLines: [{ id: "line", receivableId: "meal", receivableName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", quantity: "22", amount: "770000" }] };
+    const catalogWithMeal = { groups: [], receivables: [{ id: "meal", groupId: "group", code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", status: "ACTIVE", available: true }] };
+    let reconciled = false;
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(
+      String(url).includes("/operations/") ? (reconciled = true, response({ status: "COMPLETED", outcome: reconciledRun })) :
+      options?.method === "PUT" ? new Response(null, { status: 503 }) :
+      url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? reconciled ? new Response(null, { status: 503 }) : response({ runs: [templateRun] }) : response(catalogWithMeal),
+    ));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" }));
+    fireEvent.change(screen.getAllByLabelText("Khoản thu").at(-1)!, { target: { value: "meal" } });
+    fireEvent.change(screen.getAllByLabelText("Số lượng").at(-1)!, { target: { value: "22" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu mẫu" }));
+    expect(await screen.findByText("770.000")).toBeTruthy();
+    expect(fetch.mock.calls.filter(([url, options]) => String(url).endsWith("/template-lines") && (options as RequestInit).method === "PUT")).toHaveLength(1);
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/operations/"))).toBe(true);
+  });
   it("does not deny access for a missing finance resource", async () => {
     const denied = vi.fn();
     vi.stubGlobal(
