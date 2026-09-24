@@ -44,6 +44,12 @@ describe('RosterController mutation boundary', () => {
     await expect(controller.students(request({ cookie: 'app_session=session' }), 'school', 'year', { page: '2', pageSize: '100', q: 'An' })).resolves.toEqual({ data: [{ id: 'student' }], meta: { page: 2, pageSize: 100, totalItems: 101, totalPages: 2 } });
     expect(students).toHaveBeenCalledWith('actor-id', 'school', 'year', { page: '2', pageSize: '100', q: 'An' });
   });
+  it('forwards staff-list query and preserves its pagination response', async () => {
+    const staff = vi.fn().mockResolvedValue({ data: [{ id: 'staff' }], meta: { page: 2, pageSize: 25, totalItems: 26, totalPages: 2 } });
+    const controller = new RosterController(auth as never, { staff } as never);
+    await expect(controller.staff(request({ cookie: 'app_session=session' }), 'school', { page: '2', q: 'Mai', employmentStatus: 'ACTIVE', sort: 'name' })).resolves.toEqual({ data: [{ id: 'staff' }], meta: { page: 2, pageSize: 25, totalItems: 26, totalPages: 2 } });
+    expect(staff).toHaveBeenCalledWith('actor-id', 'school', { page: '2', q: 'Mai', employmentStatus: 'ACTIVE', sort: 'name' });
+  });
   it('forwards the scoped parent-list query and preserves its pagination response', async () => {
     const list = vi.fn().mockResolvedValue({ data: [{ id: 'parent' }], meta: { page: 2, pageSize: 25, totalItems: 26, totalPages: 2 } });
     const controller = new RosterController(auth as never, {} as never, { list } as never);

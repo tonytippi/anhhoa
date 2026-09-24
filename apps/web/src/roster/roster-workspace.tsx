@@ -72,6 +72,12 @@ type Staff = {
   } | null;
   schoolMembershipId: string | null;
 };
+type StaffQuery = {
+  q: string;
+  employmentStatus: "" | "ACTIVE" | "INACTIVE";
+  primaryPositionId: string;
+  sort: "name" | "position" | "status";
+};
 type Position = {
   id: string;
   code: string;
@@ -217,6 +223,10 @@ export function RosterWorkspace({
   const [detailEndedOn, setDetailEndedOn] = useState<Record<string, string>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [staffMeta, setStaffMeta] = useState<RosterPageMeta>({ page: 1, pageSize: 25, totalItems: 0, totalPages: 0 });
+  const [staffQuery, setStaffQuery] = useState<StaffQuery>({ q: "", employmentStatus: "", primaryPositionId: "", sort: "name" });
+  const [staffLoading, setStaffLoading] = useState(true);
+  const [staffLoadFailed, setStaffLoadFailed] = useState(false);
   const [positions, setPositions] = useState<Position[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [staffInput, setStaffInput] = useState({
@@ -323,6 +333,7 @@ export function RosterWorkspace({
   const parentDetailDialog = useRef<HTMLElement>(null);
   const parentDetailTrigger = useRef<HTMLButtonElement>(null);
   const staffIntakeDialog = useRef<HTMLDivElement>(null);
+  const staffIntakeTrigger = useRef<HTMLButtonElement>(null);
   const endTrigger = useRef<HTMLButtonElement>(null);
   const restoreEndFocus = useRef(false);
   const timer = useRef<number | undefined>(undefined);
@@ -331,6 +342,8 @@ export function RosterWorkspace({
   const selectedYear = useRef("");
   const loadedYear = useRef("");
   const rosterRequest = useRef(0);
+  const staffRequest = useRef(0);
+  const staffDetailRequest = useRef(0);
   const detailRequest = useRef(0);
   const selectedDetailStudent = useRef<string | undefined>(undefined);
   const rowMenuTrigger = useRef<HTMLButtonElement>(null);
@@ -340,6 +353,8 @@ export function RosterWorkspace({
   const parentQueryRef = useRef(parentQuery);
   const parentPageRef = useRef(parentMeta.page);
   const parentYearRef = useRef(yearId);
+  const staffQueryRef = useRef(staffQuery);
+  const staffPageRef = useRef(staffMeta.page);
   const valid = (school: string, requestGeneration: number) =>
     currentSchool.current === school &&
     generation.current === requestGeneration;
@@ -363,6 +378,12 @@ export function RosterWorkspace({
     if (pending) return;
     setParentDetail(undefined);
     parentDetailTrigger.current?.focus();
+  };
+  const closeStaffIntake = () => {
+    if (pending) return;
+    staffDetailRequest.current += 1;
+    clearStaffIntake();
+    staffIntakeTrigger.current?.focus();
   };
   const dirty = Boolean(
     year.name ||
@@ -416,6 +437,8 @@ export function RosterWorkspace({
   useEffect(() => { parentQueryRef.current = parentQuery; }, [parentQuery]);
   useEffect(() => { parentPageRef.current = parentMeta.page; }, [parentMeta.page]);
   useEffect(() => { parentYearRef.current = yearId; }, [yearId]);
+  useEffect(() => { staffQueryRef.current = staffQuery; }, [staffQuery]);
+  useEffect(() => { staffPageRef.current = staffMeta.page; }, [staffMeta.page]);
 
   const read = async <T,>(
     path: string,
@@ -449,6 +472,36 @@ export function RosterWorkspace({
     path: string,
     requestGeneration?: number,
   ) => Promise<{ data: ParentRow[]; meta: RosterPageMeta } | undefined>;
+  const readStaffPage = readRosterPage as (
+    path: string,
+    requestGeneration?: number,
+  ) => Promise<{ data: Staff[]; meta: RosterPageMeta } | undefined>;
+  const staffListPath = (page: number, query: StaffQuery) =>
+    `/api/app/schools/${schoolId}/roster/staff?${new URLSearchParams({ page: String(page), pageSize: "25", ...(query.q ? { q: query.q } : {}), ...(query.employmentStatus ? { employmentStatus: query.employmentStatus } : {}), ...(query.primaryPositionId ? { primaryPositionId: query.primaryPositionId } : {}), sort: query.sort })}`;
+  const loadStaff = async (
+    page = staffPageRef.current,
+    query = staffQueryRef.current,
+    requestGeneration = generation.current,
+  ) => {
+    const request = ++staffRequest.current;
+    setRowMenu(undefined);
+    setStaff([]);
+    setStaffLoading(true);
+    setStaffLoadFailed(false);
+    try {
+      const result = await readStaffPage(staffListPath(page, query), requestGeneration);
+      if (!valid(schoolId, requestGeneration) || staffRequest.current !== request) return;
+      setStaff(result?.data ?? []);
+      setStaffMeta(result?.meta ?? { page, pageSize: 25, totalItems: 0, totalPages: 0 });
+    } catch (error) {
+      if (valid(schoolId, requestGeneration) && staffRequest.current === request) {
+        setStaffLoadFailed(true);
+        setMessage(error instanceof Error ? error.message : "Không thể tải nhân viên.");
+      }
+    } finally {
+      if (valid(schoolId, requestGeneration) && staffRequest.current === request) setStaffLoading(false);
+    }
+  };
   const loadYear = async (
     selected: string,
     requestGeneration = generation.current,
@@ -521,13 +574,9 @@ export function RosterWorkspace({
     }
   };
   const refresh = async (requestGeneration = generation.current) => {
-    const [nextYears, nextStaff, nextPositions] = await Promise.all([
+    const [nextYears, nextPositions] = await Promise.all([
       read<SchoolYear[]>(
         `/api/app/schools/${schoolId}/roster/school-years`,
-        requestGeneration,
-      ),
-      section === "parents" ? Promise.resolve(undefined) : read<Staff[]>(
-        `/api/app/schools/${schoolId}/roster/staff`,
         requestGeneration,
       ),
       section === "parents" ? Promise.resolve(undefined) : read<Position[]>(
@@ -537,11 +586,9 @@ export function RosterWorkspace({
     ]);
     if (!nextYears || !valid(schoolId, requestGeneration)) return;
     setYears(nextYears);
-    if (section !== "parents") setStaff(
-      (nextStaff ?? []).filter((item): item is Staff =>
-        Boolean(item?.email && item?.phone && item?.fullName),
-      ),
-    );
+    if (section !== "parents") {
+      await loadStaff(staffPageRef.current, staffQueryRef.current, requestGeneration);
+    }
     if (section !== "parents") setPositions((nextPositions ?? []).filter((item): item is Position => Boolean(item && Array.isArray(item.capabilities) && typeof item.id === 'string')));
     const selected = nextYears.some((item) => item.id === selectedYear.current)
       ? selectedYear.current
@@ -631,6 +678,8 @@ export function RosterWorkspace({
     selectedYear.current = "";
     loadedYear.current = "";
     rosterRequest.current += 1;
+    staffRequest.current += 1;
+    staffDetailRequest.current += 1;
     stop();
     setYears([]);
     setYearId("");
@@ -639,6 +688,10 @@ export function RosterWorkspace({
     setParents([]);
     setParentDetail(undefined);
     setStaff([]);
+    setStaffMeta({ page: 1, pageSize: 25, totalItems: 0, totalPages: 0 });
+    setStaffQuery({ q: "", employmentStatus: "", primaryPositionId: "", sort: "name" });
+    setStaffLoading(true);
+    setStaffLoadFailed(false);
     setPositions([]);
     setAssignments([]);
     setYear({ name: "", startsOn: "", endsOn: "" });
@@ -1334,6 +1387,39 @@ export function RosterWorkspace({
   const reloadParents = (page = parentMeta.page) => {
     if (yearId) void loadYear(yearId, generation.current, rosterQuery, page);
   };
+  const reloadStaff = (page = staffMeta.page) => void loadStaff(page);
+  const openStaffEdit = async (staffId: string) => {
+    const requestGeneration = generation.current;
+    const request = ++staffDetailRequest.current;
+    setMessage("");
+    try {
+      const profile = await read<Staff>(
+        `/api/app/schools/${schoolId}/roster/staff/${staffId}`,
+        requestGeneration,
+      );
+      if (!profile || !valid(schoolId, requestGeneration) || staffDetailRequest.current !== request) return;
+      setEditingStaffId(profile.id);
+      setStaffInput({
+        fullName: profile.fullName,
+        email: profile.email,
+        phone: profile.phone,
+        dateOfBirth: profile.dateOfBirth,
+        gender: profile.gender,
+        address: profile.address,
+        employmentStatus: profile.employmentStatus,
+        primaryPositionId: profile.primaryPositionId,
+        schoolMembershipId: profile.schoolMembershipId ?? "",
+        staffCode: profile.staffCode ?? "",
+        personalIdentifier: profile.personalIdentifier ?? "",
+        photo: null,
+      });
+      setStaffErrors({});
+      setStaffIntakeOpen(true);
+    } catch (error) {
+      if (valid(schoolId, requestGeneration) && staffDetailRequest.current === request)
+        setMessage(error instanceof Error ? error.message : "Không thể tải hồ sơ nhân viên.");
+    }
+  };
   const field = (errors: Record<string, string>, name: string, prefix = "") =>
     errors[name]
       ? { "aria-invalid": true, "aria-describedby": `${prefix}${name}-error` }
@@ -1376,6 +1462,19 @@ export function RosterWorkspace({
     }
     if (event.key !== "Tab") return;
     const focusable = [...(parentDetailDialog.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? [])];
+    if (!focusable.length) return;
+    const first = focusable[0]!;
+    const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  const trapStaffIntakeDialog = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      closeStaffIntake();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(staffIntakeDialog.current?.querySelectorAll<HTMLElement>("input:not([disabled]), select:not([disabled]), button:not([disabled])") ?? [])];
     if (!focusable.length) return;
     const first = focusable[0]!;
     const last = focusable.at(-1)!;
@@ -1485,8 +1584,15 @@ export function RosterWorkspace({
       {positionAction && <div role="dialog" aria-modal="true" aria-labelledby="position-action-title"><form className="roster-form" onSubmit={submitPositionAction}><h3 id="position-action-title">{positionAction.kind === "rename" ? `Đổi tên ${positionAction.position.name}` : positionAction.kind === "inactivate" ? `Ngừng hiệu lực ${positionAction.position.name}` : positionAction.kind === "grant" ? `Cấp capability cho ${positionAction.position.name}` : `Thu hồi capability của ${positionAction.position.name}`}</h3>{positionAction.kind === "rename" && <label>Tên chức danh mới<input value={positionAction.name} onChange={(event) => setPositionAction({ ...positionAction, name: event.target.value })} {...field(positionErrors, "name", "position-")} /></label>}{positionAction.kind === "grant" && <label>Capability cần cấp<select value={positionAction.capability} onChange={(event) => setPositionAction({ ...positionAction, capability: event.target.value })}><option value="">Chọn capability</option>{Object.entries(capabilityLabel).filter(([capability]) => !positionAction.position.capabilities.includes(capability)).map(([capability, label]) => <option key={capability} value={capability}>{label}</option>)}</select></label>}<label>{positionAction.kind === "rename" ? "Lý do đổi tên chức danh" : positionAction.kind === "inactivate" ? "Lý do ngừng hiệu lực chức danh" : positionAction.kind === "grant" ? "Lý do cấp capability" : "Lý do thu hồi capability"}<input value={positionAction.reason} onChange={(event) => setPositionAction({ ...positionAction, reason: event.target.value })} {...field(positionErrors, "reason", "position-")} /></label>{positionErrors.reason && <small id="position-reason-error">{positionErrors.reason}</small>}{positionAction.kind === "inactivate" && <label>Nhập NGỪNG HIỆU LỰC để xác nhận<input value={positionAction.confirmation} onChange={(event) => setPositionAction({ ...positionAction, confirmation: event.target.value })} /></label>}<button type="button" onClick={() => setPositionAction(undefined)}>Hủy</button><button disabled={disabled || (positionAction.kind === "inactivate" && positionAction.confirmation !== "NGỪNG HIỆU LỰC")}>{positionAction.kind === "rename" ? "Lưu tên chức danh" : positionAction.kind === "inactivate" ? "Xác nhận ngừng hiệu lực" : positionAction.kind === "grant" ? "Cấp capability" : "Xác nhận thu hồi capability"}</button></form></div>}
       </>}
       {(section === "all" || section === "staff") && <>
-      <button type="button" className="primary-action" disabled={disabled} onClick={() => { clearStaffIntake(); setStaffIntakeOpen(true); }}>Thêm nhân viên</button>
-      {staffIntakeOpen && <div className="student-intake-backdrop"><div ref={staffIntakeDialog} className="student-intake-dialog staff-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-intake-title"><form className="roster-form student-intake-form" onSubmit={saveStaff}>
+       <form className="roster-list-filters" aria-label="Lọc nhân viên" onSubmit={(event) => { event.preventDefault(); void reloadStaff(1); }}>
+         <label>Tìm kiếm<input type="search" value={staffQuery.q} onChange={(event) => setStaffQuery({ ...staffQuery, q: event.target.value })} placeholder="Tên, mã, email hoặc số điện thoại" /></label>
+         <label>Trạng thái<select value={staffQuery.employmentStatus} onChange={(event) => setStaffQuery({ ...staffQuery, employmentStatus: event.target.value as StaffQuery["employmentStatus"] })}><option value="">Tất cả trạng thái</option><option value="ACTIVE">Đang hiệu lực</option><option value="INACTIVE">Không hiệu lực</option></select></label>
+         <label>Chức danh chính<select value={staffQuery.primaryPositionId} onChange={(event) => setStaffQuery({ ...staffQuery, primaryPositionId: event.target.value })}><option value="">Tất cả chức danh</option>{positions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+         <label>Sắp xếp<select value={staffQuery.sort} onChange={(event) => setStaffQuery({ ...staffQuery, sort: event.target.value as StaffQuery["sort"] })}><option value="name">Tên nhân viên</option><option value="position">Chức danh</option><option value="status">Trạng thái</option></select></label>
+         <button>Áp dụng</button><button type="button" disabled={staffLoading} onClick={() => void reloadStaff()}>Làm mới danh sách</button>
+         <button type="button" className="primary-action" disabled={disabled} onClick={() => { clearStaffIntake(); setStaffIntakeOpen(true); }}>Thêm nhân viên</button>
+       </form>
+       {staffIntakeOpen && <div className="student-intake-backdrop"><div ref={staffIntakeDialog} className="student-intake-dialog staff-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-intake-title" onKeyDown={trapStaffIntakeDialog}><form className="roster-form student-intake-form" onSubmit={saveStaff}>
         <h3 id="staff-intake-title">{editingStaffId ? "Sửa hồ sơ nhân viên" : "Tạo hồ sơ nhân viên"}</h3>
         <fieldset><legend>Thông tin cơ bản</legend>
         <label>
@@ -1579,15 +1685,16 @@ export function RosterWorkspace({
         <label>Chức danh chính<select value={staffInput.primaryPositionId} onChange={(event) => setStaffInput({ ...staffInput, primaryPositionId: event.target.value })}><option value="">Chọn chức danh</option>{positions.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Trạng thái nhân sự<select value={staffInput.employmentStatus} onChange={(event) => setStaffInput({ ...staffInput, employmentStatus: event.target.value as 'ACTIVE' | 'INACTIVE' })}><option value="ACTIVE">Đang hiệu lực</option><option value="INACTIVE">Không hiệu lực</option></select></label>
         </fieldset>
-        <div className="student-intake-actions"><button type="button" disabled={disabled} onClick={clearStaffIntake}>Đóng</button><button disabled={disabled}>
+        <div className="student-intake-actions"><button type="button" disabled={disabled} onClick={closeStaffIntake}>Đóng</button><button disabled={disabled}>
           {editingStaffId ? "Lưu thay đổi hồ sơ" : "Lưu hồ sơ nhân sự"}
         </button></div>
       </form></div></div>}
-      <div className="table-scroll">
-        <table>
+      <div className="table-scroll student-list-table staff-list-table">
+        <table aria-label="Danh sách nhân viên">
           <caption>Hồ sơ nhân sự của {schoolName}</caption>
           <thead>
             <tr>
+              <th>STT</th>
               <th>Họ tên</th>
               <th>Chức danh chính</th>
               <th>Trạng thái</th>
@@ -1595,11 +1702,12 @@ export function RosterWorkspace({
             </tr>
           </thead>
           <tbody>
-            {staff.length ? (
+            {staffLoading ? <tr><td colSpan={5} role="status" className="student-empty-state">Đang tải danh sách nhân viên...</td></tr> : staff.length ? (
               staff.map((item) => (
                 <tr key={item.id}>
-                  <th scope="row">{item.fullName}</th>
-                  <td>
+                  <td>{(staffMeta.page - 1) * staffMeta.pageSize + staff.indexOf(item) + 1}</td>
+                  <th scope="row">{item.fullName}<small className="staff-contact">{item.staffCode ?? item.email} · {item.phone}</small></th>
+                  <td className="roster-row-actions">
                     {item.primaryPosition?.name ?? 'Không có'}
                   </td>
                   <td>
@@ -1607,40 +1715,30 @@ export function RosterWorkspace({
                   </td>
                   <td>
                     <button
+                      ref={rowMenu === item.id ? rowMenuTrigger : undefined}
+                      type="button"
                       disabled={disabled}
-                      onClick={() => {
-                        setEditingStaffId(item.id);
-                        setStaffInput({
-                          fullName: item.fullName,
-                          email: item.email,
-                          phone: item.phone,
-                          dateOfBirth: item.dateOfBirth,
-                          gender: item.gender,
-                          address: item.address,
-                          employmentStatus: item.employmentStatus,
-                          primaryPositionId: item.primaryPositionId,
-                          schoolMembershipId: item.schoolMembershipId ?? "",
-                          staffCode: item.staffCode ?? "",
-                          personalIdentifier: item.personalIdentifier ?? "",
-                          photo: null,
-                        });
-                        setStaffErrors({});
-                        setStaffIntakeOpen(true);
-                      }}
-                    >
-                      Sửa hồ sơ
-                    </button>
+                      aria-label={`Tùy chọn cho ${item.fullName}`}
+                      aria-haspopup="menu"
+                      aria-expanded={rowMenu === item.id}
+                      onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setRowMenu(item.id); } }}
+                      onClick={() => setRowMenu(rowMenu === item.id ? undefined : item.id)}
+                    >...</button>
+                    {rowMenu === item.id && <div ref={rowMenuElement} className="roster-action-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); } else if (event.key === "Tab") setRowMenu(undefined); }}><button type="button" role="menuitem" onClick={(event) => { staffIntakeTrigger.current = event.currentTarget; setRowMenu(undefined); void openStaffEdit(item.id); }}>Sửa hồ sơ</button></div>}
                   </td>
                 </tr>
               ))
+            ) : staffLoadFailed ? (
+              <tr><td colSpan={5} role="status" className="student-empty-state"><strong>Không thể tải danh sách nhân viên</strong><span>Kiểm tra kết nối rồi thử làm mới danh sách.</span></td></tr>
             ) : (
               <tr>
-                <td colSpan={4}>Chưa có hồ sơ nhân sự.</td>
+                <td colSpan={5} className="student-empty-state"><strong>Chưa có hồ sơ nhân sự</strong><span>Thay đổi điều kiện lọc hoặc thêm hồ sơ nhân viên đầu tiên.</span></td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+      {staffMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang nhân viên"><button type="button" disabled={staffLoading || staffMeta.page === 1} onClick={() => void reloadStaff(staffMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, staffMeta.totalPages) }, (_, index) => staffMeta.totalPages <= 5 ? index + 1 : Math.min(staffMeta.totalPages - 4, Math.max(1, staffMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={staffLoading || page === staffMeta.page} aria-current={page === staffMeta.page ? "page" : undefined} onClick={() => void reloadStaff(page)}>{page}</button>)}<button type="button" disabled={staffLoading || staffMeta.page === staffMeta.totalPages} onClick={() => void reloadStaff(staffMeta.page + 1)}>Sau</button></nav>}
       </>}
       {(section === "all" || section === "years") && <>
       <form className="roster-form" onSubmit={createYear}>

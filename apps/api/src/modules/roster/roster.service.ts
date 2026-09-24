@@ -388,15 +388,100 @@ export class RosterService {
       });
     return this.studentDto(student);
   }
-  async staff(identityId: string, schoolId: string) {
+  async staff(
+    identityId: string,
+    schoolId: string,
+    query: Record<string, unknown> = {},
+  ) {
     await this.actor(identityId, schoolId);
-    return (
-      await this.prisma.staffProfile.findMany({
-        where: { schoolId },
+    const value = (name: string) => {
+      const input = query[name];
+      if (input !== undefined && typeof input !== "string")
+        throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+      return input;
+    };
+    const integer = (input: string | undefined, fallback: number, maximum: number) => {
+      if (input === undefined || input === "") return fallback;
+      if (!/^\d+$/.test(input))
+        throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+      const parsed = Number(input);
+      if (!Number.isSafeInteger(parsed) || parsed < 1)
+        throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+      return Math.min(parsed, maximum);
+    };
+    const pageSize = integer(value("pageSize"), 25, 100);
+    const page = integer(value("page"), 1, Math.floor(Number.MAX_SAFE_INTEGER / pageSize) + 1);
+    const employmentStatus = value("employmentStatus") || undefined;
+    const primaryPositionId = value("primaryPositionId") || undefined;
+    const sort = value("sort") || "name";
+    if (employmentStatus && !["ACTIVE", "INACTIVE"].includes(employmentStatus))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+    if (!["name", "position", "status"].includes(sort))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+    if (
+      primaryPositionId &&
+      (!uuid.test(primaryPositionId) || !(await this.prisma.schoolPosition.findFirst({ where: { id: primaryPositionId, schoolId } })))
+    )
+      throw new NotFoundException({ code: "POSITION_NOT_FOUND", message: "Không tìm thấy chức danh." });
+    const rawQuery = value("q");
+    if (rawQuery && rawQuery.length > 100)
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+    const q = rawQuery?.trim();
+    const where = {
+      schoolId,
+      ...(employmentStatus ? { employmentStatus: employmentStatus as any } : {}),
+      ...(primaryPositionId ? { primaryPositionId } : {}),
+      ...(q ? {
+        OR: [
+          { fullName: { contains: q, mode: "insensitive" as const } },
+          { staffCode: { contains: q, mode: "insensitive" as const } },
+          { email: { contains: q, mode: "insensitive" as const } },
+          { phone: { contains: q, mode: "insensitive" as const } },
+        ],
+      } : {}),
+    };
+    const [totalItems, staff] = await Promise.all([
+      this.prisma.staffProfile.count({ where }),
+      this.prisma.staffProfile.findMany({
+        where,
         include: { primaryPosition: true, photo: { select: { id: true } } },
-        orderBy: { fullName: "asc" },
-      })
-    ).map((item) => this.staffDto(item));
+        orderBy: sort === "position"
+          ? [{ primaryPosition: { name: "asc" } }, { fullName: "asc" }, { id: "asc" }]
+          : sort === "status"
+            ? [{ employmentStatus: "asc" }, { fullName: "asc" }, { id: "asc" }]
+            : [{ fullName: "asc" }, { id: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    return {
+      data: staff.map((item) => ({
+        id: item.id,
+        fullName: item.fullName,
+        email: item.email,
+        phone: item.phone,
+        staffCode: item.staffCode,
+        hasPhoto: Boolean(item.photo),
+        employmentStatus: item.employmentStatus,
+        primaryPositionId: item.primaryPositionId,
+        primaryPosition: item.primaryPosition
+          ? { id: item.primaryPosition.id, code: item.primaryPosition.code, name: item.primaryPosition.name, status: item.primaryPosition.status }
+          : null,
+      })),
+      meta: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) },
+    };
+  }
+  async staffProfile(identityId: string, schoolId: string, staffId: string) {
+    await this.actor(identityId, schoolId);
+    if (!uuid.test(staffId))
+      throw new NotFoundException({ code: "STAFF_NOT_FOUND", message: "Không tìm thấy nhân sự." });
+    const staff = await this.prisma.staffProfile.findFirst({
+      where: { id: staffId, schoolId },
+      include: { primaryPosition: true, photo: { select: { id: true } } },
+    });
+    if (!staff)
+      throw new NotFoundException({ code: "STAFF_NOT_FOUND", message: "Không tìm thấy nhân sự." });
+    return this.staffDto(staff);
   }
   async positions(identityId: string, schoolId: string) {
     await this.actor(identityId, schoolId);

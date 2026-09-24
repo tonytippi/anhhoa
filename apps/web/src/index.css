@@ -1299,6 +1299,8 @@ tbody tr:last-child td {
 }
 .student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
 .student-list-table table { min-width: 940px; }
+.staff-list-table table { min-width: 840px; }
+.staff-contact { display: block; color: #5f746e; font-weight: 400; }
 .parent-list-table table { min-width: 860px; }
 .parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }
 .parent-children span { color: #5f746e; }
@@ -1349,6 +1351,13 @@ tbody tr:last-child td {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   align-items: end;
   gap: 12px;
+}
+.roster-workspace-staff .roster-list-filters button { min-height: 42px; }
+@media (max-width: 767px) {
+  .roster-workspace-staff .roster-list-filters { grid-template-columns: 1fr 1fr; }
+  .roster-workspace-staff .roster-list-filters label:first-child { grid-column: 1 / -1; }
+  .roster-workspace-staff .roster-list-filters button { width: 100%; }
+  .roster-workspace-staff .roster-list-filters .primary-action { grid-column: 1 / -1; }
 }
 .student-detail-panel {
   display: grid;

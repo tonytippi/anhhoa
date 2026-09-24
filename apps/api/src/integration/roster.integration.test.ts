@@ -359,12 +359,32 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const key = uuid(); const uploaded = await roster.uploadStaffPhoto(current.admin.id, current.current.id, staffId, key, uuid(), 'image/png', png);
     expect(await roster.uploadStaffPhoto(current.admin.id, current.current.id, staffId, key, uuid(), 'image/png', png)).toEqual(uploaded);
-    expect((await roster.staff(current.admin.id, current.current.id)).find((item) => item.id === staffId)).toMatchObject({ hasPhoto: true, staffCode: null });
+    expect((await roster.staff(current.admin.id, current.current.id)).data.find((item) => item.id === staffId)).toMatchObject({ hasPhoto: true, staffCode: null });
     const photo = await roster.staffPhoto(current.admin.id, current.current.id, staffId);
     expect(photo.contentType).toBe('image/png'); expect(Buffer.from(photo.blob)).toEqual(png);
     await expect(roster.uploadStaffPhoto(current.admin.id, current.current.id, staffId, uuid(), uuid(), 'image/png', Buffer.from('not a png'))).rejects.toMatchObject({ status: 400, response: { fieldErrors: { photo: expect.any(String) } } });
     await expect(roster.staffPhoto(foreign.admin.id, foreign.current.id, staffId)).rejects.toMatchObject({ status: 404 });
     expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STAFF_PHOTO_UPLOADED' } })).toMatchObject({ provenance: { staffProfileId: staffId } });
+  });
+
+  it('returns bounded staff pages with scoped search, filters, stable sorts, and no foreign positions', async () => {
+    const current = await graph(); const foreign = await graph();
+    const position = await prisma.schoolPosition.create({ data: { schoolId: current.current.id, code: `STAFF_${uuid().slice(0, 8)}`, name: 'Trợ giảng' } });
+    await prisma.staffProfile.createMany({ data: Array.from({ length: 31 }, (_, index) => ({ schoolId: current.current.id, fullName: `Nhân viên ${String(31 - index).padStart(2, '0')}`, email: `staff-${index}@example.com`, phone: `0900${String(index).padStart(6, '0')}`, dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Hà Nội', employmentStatus: index % 2 ? 'INACTIVE' : 'ACTIVE', primaryPositionId: index % 2 ? position.id : current.position.id, staffCode: `NV-${index}` })) });
+    await prisma.staffProfile.create({ data: { schoolId: foreign.current.id, fullName: 'Nhân viên ngoại trường', email: 'foreign-staff@example.com', phone: '0999999999', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Huế', primaryPositionId: foreign.position.id } });
+    const first = await roster.staff(current.admin.id, current.current.id, { page: '1', pageSize: '1000', sort: 'name' });
+    const second = await roster.staff(current.admin.id, current.current.id, { page: '2', pageSize: '25', sort: 'name' });
+    expect(first.meta).toEqual({ page: 1, pageSize: 100, totalItems: 32, totalPages: 1 });
+    expect(first.data).toHaveLength(32);
+    expect(second.data).toEqual([]);
+    expect((await roster.staff(current.admin.id, current.current.id, { q: 'staff-3@example.com' })).data).toMatchObject([{ staffCode: 'NV-3' }]);
+    expect((await roster.staff(current.admin.id, current.current.id, { q: '0900000003', employmentStatus: 'INACTIVE', primaryPositionId: position.id, sort: 'position' })).data).toMatchObject([{ staffCode: 'NV-3', primaryPosition: { name: 'Trợ giảng' } }]);
+    expect((await roster.staff(current.admin.id, current.current.id, { q: 'foreign-staff@example.com' })).data).toEqual([]);
+    await expect(roster.staff(current.admin.id, current.current.id, { primaryPositionId: foreign.position.id })).rejects.toMatchObject({ status: 404, response: { code: 'POSITION_NOT_FOUND' } });
+    await expect(roster.staff(current.admin.id, current.current.id, { page: 'bad' })).rejects.toMatchObject({ status: 400 });
+    await expect(roster.staff(current.admin.id, current.current.id, { page: String(Number.MAX_SAFE_INTEGER), pageSize: '100' })).rejects.toMatchObject({ status: 400 });
+    await expect(roster.staff(current.admin.id, current.current.id, { q: 'x'.repeat(101) })).rejects.toMatchObject({ status: 400 });
+    await expect(roster.staff(current.admin.id, current.current.id, { q: ['Mai'] } as never)).rejects.toMatchObject({ status: 400 });
   });
 
   it('enforces Staff assignment tenant graph and half-open overlap while allowing adjacent and distinct Class intervals', async () => {

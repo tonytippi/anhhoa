@@ -178,11 +178,17 @@ export class RosterController {
   @Get("staff") async staff(
     @Req() request: RequestLike,
     @Param("schoolId") schoolId: string,
+    @Query() query: Record<string, unknown>,
   ) {
-    return {
-      data: await this.roster.staff(this.identity(request), schoolId),
-      meta: {},
-    };
+    const result = await this.roster.staff(this.identity(request), schoolId, query);
+    return { data: result.data, meta: result.meta };
+  }
+  @Get("staff/:staffId") async staffProfile(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("staffId") staffId: string,
+  ) {
+    return { data: await this.roster.staffProfile(this.identity(request), schoolId, staffId) };
   }
   @Get("positions") async positions(
     @Req() request: RequestLike,
