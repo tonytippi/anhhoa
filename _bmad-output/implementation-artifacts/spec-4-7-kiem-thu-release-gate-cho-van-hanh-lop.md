@@ -2,9 +2,10 @@
 title: 'Story 4.7: Kiểm thử release gate cho vận hành lớp'
 type: 'feature'
 created: '2026-09-24'
-status: 'draft'
+status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
+baseline_revision: 'b63d2b5f3a826360b7c16c9044794fcd8ab9e4d3'
 context:
   - '_bmad-output/implementation-artifacts/epic-4-context.md'
   - '_bmad-output/planning-artifacts/epics-passionedu.md'
@@ -63,9 +64,42 @@ deferred: []
 
 ## Auto Run Result
 
-Status: draft
+Status: done
 
 Resolved decision: `decision-story-4-7-present-overrides-confirmed-leave-2026-09-24.md` establishes that a valid authorized `PRESENT` is an operational correction with highest precedence. The confirmed leave remains auditable but is excluded from effective leave and immutable Finance-source meaning.
+
+Summary: Added the two-School operational release fixture and automated evidence for attendance/handover authorization, policy/evidence boundaries, `PRESENT` precedence, Parent DTO/route minimization, timeout reconciliation, accessible server errors, and stale School-state protection. Foreground authorization refresh now removes a revoked School without discarding an authorized dirty workspace.
+
+Files changed:
+- `apps/api/scripts/seed-e2e-release-gate.ts` -- seeds deterministic attendance/handover capability, calendar, policy, and Class-assignment data.
+- `apps/api/src/integration/attendance.integration.test.ts` and `release-gate.integration.test.ts` -- prove capability revoke/no-write, required evidence, Parent route/DTO boundaries, Class scope, handover scope, and leave-source exclusion.
+- `apps/teacher-web/src/attendance/` and `handover/` -- focus server errors and reconcile uncertain Operations without duplicate mutation or permanent UI lock.
+- `apps/web/src/school-context.tsx` and test -- refresh authorization on foreground safely while preserving authorized dirty state.
+- `apps/web/e2e/release-gate.spec.ts` -- proves Admin context reconciliation and Teacher attendance/handover timeout, error, and switch behavior.
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` -- records Story 4.7 completion.
+
+Review findings: applied 5 patch findings (foreground refresh state loss, unresolved Operation lock for attendance and handover, handover timeout verification, and missing owning-surface authorization/Parent boundary evidence); deferred 0; rejected 12 coverage/style findings not caused by this story or already covered by existing tests. Follow-up review is recommended: patched findings were medium severity 5, score 15.
+
+Verification performed:
+- `set -a && source .env.test && set +a && pnpm test:release-gate` -- pass: 106 PostgreSQL integration tests; 74 Admin, 10 Teacher, 4 Parent, and 6 Ops unit tests; 7 browser E2E tests.
+- `pnpm typecheck` -- pass for all workspace packages.
+- `git diff --check` -- pass.
+
+Residual risk: the integration/E2E runs continue to emit the pre-existing `pg` concurrent-query deprecation warning; upgrade/remediation remains separate from this Story.
+
+## Review Triage Log
+
+### 2026-09-24 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5 (high 0, medium 5, low 0)
+- defer: 0
+- reject: 12 (high 0, medium 0, low 12)
+- addressed_findings:
+  - `[medium]` `[patch]` Preserved dirty authorized Admin workspace state during foreground authorization refresh and cleared a revoked selected School safely.
+  - `[medium]` `[patch]` Prevented attendance and handover timeout reconciliation from permanently disabling mutations when an Operation remains pending or its lookup fails.
+  - `[medium]` `[patch]` Added handover timeout reconciliation unit and browser evidence.
+  - `[medium]` `[patch]` Added owning API/database evidence for capability revocation, required evidence, Parent route denial/minimum DTO, and Class versus School-wide scope.
 
 ## Verification
 

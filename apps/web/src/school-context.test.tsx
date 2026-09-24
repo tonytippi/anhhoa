@@ -38,10 +38,10 @@ describe('SchoolContext', () => {
     expect(await screen.findByText('Không thể tải danh sách trường.')).toBeTruthy();
     expect(clear).not.toHaveBeenCalled();
   });
-  it('keeps the open School when the browser returns to the foreground', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
+  it('removes a suspended selected School safely on foreground refresh', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: context }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ schoolId: 'b', schoolName: 'Trường B' }] })));
     vi.stubGlobal('fetch', fetch); renderSchoolContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'PassionEdu - Trường A' }); fireEvent.focus(window);
-    await new Promise((resolve) => window.setTimeout(resolve, 0)); expect(screen.getByRole('heading', { name: 'PassionEdu - Trường A' })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường A' })).toBeNull()); expect(screen.getByRole('option', { name: 'Trường B' })).toBeTruthy(); expect(localStorage.getItem(storageKey)).toBeNull();
   });
   it('does not let delayed success or denial for A overwrite selected School B', async () => {
     let resolveA!: (response: Response) => void; const delayedA = new Promise<Response>((resolve) => { resolveA = resolve; }); const contextB = { ...context, schoolId: 'b', schoolName: 'Trường B' };
@@ -59,7 +59,7 @@ describe('SchoolContext', () => {
     vi.stubGlobal('fetch', fetch); renderSchoolContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'Học sinh' }); expect(screen.getByRole('button', { name: 'Phụ huynh' })).toBeTruthy(); expect(screen.getByRole('button', { name: 'Nhân viên' })).toBeTruthy(); expect(screen.getByRole('button', { name: 'Lớp học' })).toBeTruthy(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } });
     expect((await screen.findByRole('dialog', { name: 'Đổi trường?' })).textContent).toContain('Biểu mẫu đang có nội dung chưa gửi'); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
   });
-  it('keeps the empty student intake open when focus returns from the file chooser', async () => {
+  it('keeps the empty student intake open while refreshing authorization on foreground focus', async () => {
     const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };
     const fetch = vi.fn((url: string) => {
       if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
@@ -71,13 +71,22 @@ describe('SchoolContext', () => {
     renderSchoolContext();
     fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' }));
     await screen.findByRole('dialog', { name: 'Tạo học sinh và ghi danh' });
-    const callsBeforeFocus = fetch.mock.calls.length;
     fireEvent.focus(window);
     await new Promise((resolve) => window.setTimeout(resolve, 0));
-    expect(fetch).toHaveBeenCalledTimes(callsBeforeFocus);
-    expect(screen.getByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeTruthy();
+    await screen.findByRole('dialog', { name: 'Tạo học sinh và ghi danh' });
   });
-  it('keeps roster mounted without new context, list, or parent requests after foreground events', async () => {
+  it('retains a dirty School-switch dialog during a successful foreground refresh', async () => {
+    const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }, { schoolId: 'b', schoolName: 'Trường B' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: rosterContext })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch); renderSchoolContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'a' } }); await screen.findByRole('heading', { name: 'Học sinh' }); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'b' } }); await screen.findByRole('dialog', { name: 'Đổi trường?' });
+    fireEvent.focus(window); await new Promise((resolve) => window.setTimeout(resolve, 0)); expect(screen.getByRole('dialog', { name: 'Đổi trường?' })).toBeTruthy(); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
+  });
+  it('keeps roster mounted while refreshing authorization on foreground events', async () => {
     const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };
     let studentReads = 0;
     const fetch = vi.fn((url: string) => {
@@ -90,11 +99,9 @@ describe('SchoolContext', () => {
     vi.stubGlobal('fetch', fetch);
     renderSchoolContext();
     expect(await screen.findByText('Bé An')).toBeTruthy();
-    const before = fetch.mock.calls.length;
     fireEvent.focus(window); fireEvent(document, new Event('visibilitychange'));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
-    expect(fetch).toHaveBeenCalledTimes(before);
-    expect(screen.getByText('Bé An')).toBeTruthy();
+    await screen.findByText('Bé An');
   });
   it('selects people and class destinations without rendering configuration controls', async () => {
     const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };

@@ -68,6 +68,7 @@ export function SchoolContext({
   const mounted = useRef(true);
   const selected = useRef<string | undefined>(undefined);
   const version = useRef(0);
+  const identity = useRef(userIdentityId);
   const timer = useRef<number | undefined>(undefined);
   const heading = useRef<HTMLHeadingElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
@@ -113,7 +114,9 @@ export function SchoolContext({
     setExpanded({ roster: true, settings: false });
     setSwitchTo(undefined);
   };
-  const refreshChooser = async (restoreSelection = true) => {
+  const refreshChooser = async (restoreSelection = true, preserveActiveContext = false) => {
+    const requestVersion = version.current;
+    const requestIdentity = identity.current;
     const response = await fetch(`${apiUrl}/api/app/schools`, {
       credentials: "include",
     });
@@ -124,8 +127,16 @@ export function SchoolContext({
     }
     if (!response.ok) throw new Error("Không thể tải danh sách trường.");
     const next = ((await response.json()) as { data: School[] }).data;
-    if (!mounted.current) return;
+    if (!mounted.current || identity.current !== requestIdentity) return;
     setSchools(next);
+    if (preserveActiveContext && selected.current) {
+      if (version.current !== requestVersion) return;
+      if (next.some((school) => school.schoolId === selected.current)) return;
+      forgetSchoolId();
+      clearContext();
+      setShowChooser(true);
+      return;
+    }
     if (restoreSelection && next.length === 1) {
       const onlySchool = next[0];
       if (!onlySchool) return;
@@ -177,6 +188,7 @@ export function SchoolContext({
   };
   useEffect(() => {
     mounted.current = true;
+    identity.current = userIdentityId;
     clearContext();
     setSchools(undefined);
     setShowChooser(false);
@@ -192,6 +204,13 @@ export function SchoolContext({
       stop();
     };
   }, [userIdentityId]);
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      void refreshChooser(true, true).catch((cause: Error) => setError(cause.message));
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, []);
   useLayoutEffect(() => {
     heading.current?.focus();
   }, [context?.schoolId]);

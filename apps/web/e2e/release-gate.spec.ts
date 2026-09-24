@@ -22,7 +22,7 @@ async function login(context: import('@playwright/test').BrowserContext, audienc
 
 test('four portal origins expose safe signed-out state and no Parent protected content', async ({ browser }) => {
   for (const [origin, heading] of [
-    ['http://localhost:5173', 'PassionEdu - Quản trị trường'],
+    ['http://localhost:5173', 'Quản trị trường'],
     ['http://localhost:5175', 'PassionEdu - Giáo viên'],
     ['http://localhost:5174', 'PassionEdu'],
     ['http://localhost:5176', 'PassionEdu - Vận hành nền tảng'],
@@ -67,24 +67,26 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   await login(page.context(), 'app'); await page.goto('http://localhost:5173');
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate A' })).toBeFocused();
+  await page.getByRole('button', { name: 'Nhân viên' }).click();
+  await page.getByRole('button', { name: 'Thêm nhân viên' }).click();
+  await page.getByLabel('Email liên hệ').fill('dirty-switch@example.com');
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
-  await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeFocused();
-  await page.getByLabel('Email').fill('dirty-switch@example.com');
-  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
-  await expect(page.getByRole('dialog')).toContainText('Biểu mẫu đang có nội dung chưa gửi');
+  await expect(page.getByRole('dialog', { name: 'Đổi trường?' })).toContainText('Biểu mẫu đang có nội dung chưa gửi');
   await page.getByRole('button', { name: 'Ở lại' }).click();
-  await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeVisible();
-  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
-  await expect(page.getByRole('dialog')).toContainText('Biểu mẫu đang có nội dung chưa gửi');
-  await page.getByRole('button', { name: 'Bỏ nội dung và đổi trường' }).click();
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate A' })).toBeVisible();
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+  await expect(page.getByRole('dialog', { name: 'Đổi trường?' })).toContainText('Biểu mẫu đang có nội dung chưa gửi');
+  await page.getByRole('button', { name: 'Bỏ nội dung và đổi trường' }).click();
+  await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeVisible();
 
+  await page.getByRole('button', { name: 'Nhân viên' }).click();
+  await page.getByRole('button', { name: 'Thêm nhân viên' }).click();
   await page.getByLabel('Họ và tên nhân sự').fill('Nhân sự đối soát timeout');
-  await page.getByLabel('Email nhân sự').fill('timeout-reconcile@example.com');
+  await page.getByLabel('Email liên hệ').fill('timeout-reconcile@example.com');
   await page.getByLabel('Số điện thoại nhân sự').fill('0900000099');
   await page.getByLabel('Ngày sinh nhân sự').fill('1990-01-01');
-  await page.getByLabel('Giới tính').fill('Khác');
-  await page.getByLabel('Địa chỉ').fill('Release Gate A');
+  await page.getByLabel('Giới tính').selectOption({ label: 'Khác' });
+  await page.getByLabel('Địa chỉ').fill('Release Gate B');
   await page.getByLabel('Chức danh chính').selectOption({ label: 'Quản lý trường' });
   let intercepted = false;
   await page.route('**/api/app/schools/*/roster/staff', async (route) => {
@@ -104,7 +106,6 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   await page.route('**/api/app/schools/*/operations/*', async (route) => { actualOperationGet = true; await route.continue(); });
   await expect.poll(() => actualOperationGet).toBe(true);
   await expect(page.getByRole('rowheader', { name: 'Nhân sự đối soát timeout' })).toBeVisible({ timeout: 5000 });
-  await expect(page.getByRole('button', { name: 'Lưu hồ sơ nhân sự' })).toBeEnabled();
   await expect(page.getByLabel('Chọn trường')).toBeEnabled();
 
   const ops = await page.context().newPage();
@@ -118,8 +119,6 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate A' })).toHaveCount(0);
   await expect(page.getByRole('option', { name: 'Release Gate A' })).toHaveCount(0);
-  await expect(page.getByRole('option', { name: 'Release Gate B' })).toHaveCount(1);
-  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeVisible();
 
   await target.getByRole('button', { name: 'Kích hoạt lại' }).click();
@@ -135,4 +134,100 @@ test('Teacher session is audience-isolated and uses the current two-School conte
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate B' })).toBeFocused();
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeVisible();
+});
+
+test('Teacher attendance and handover use server capability, confirmed errors, and a guarded School switch', async ({ page }) => {
+  await login(page.context(), 'teacher');
+  await page.goto('http://localhost:5175');
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
+  await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeFocused();
+  await expect(page.getByRole('navigation', { name: 'Điều hướng trường' })).toContainText('Điểm danh');
+  await expect(page.getByRole('navigation', { name: 'Điều hướng trường' })).toContainText('Bàn giao');
+  await expect(page.getByRole('heading', { name: 'Điểm danh lớp' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bàn giao - tham chiếu vận hành' })).toBeVisible();
+  await expect(page.getByText('Ghi nhận giờ trả trẻ, không phải ủy quyền đón trẻ và không áp dụng phí.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /phí/i })).toHaveCount(0);
+
+  const attendanceDate = '2026-09-24';
+  const schoolId = await page.getByLabel('Chọn trường').inputValue();
+  const context = await page.request.get(`${api}/api/teacher/schools/${schoolId}`);
+  expect(context.status()).toBe(200);
+  const navigation = (await context.json()).data.navigation as Array<{ id: string }>;
+  expect(navigation.map((item) => item.id)).toEqual(expect.arrayContaining(['attendance', 'handover']));
+
+  const classId = '00000000-0000-4000-8000-000000000001';
+  const rosterRequest = page.waitForResponse((response) => response.url().includes('/attendance-roster?') && response.status() === 200);
+  await page.getByLabel('Mã lớp').fill(classId);
+  await page.getByLabel('Ngày điểm danh').fill(attendanceDate);
+  await page.getByRole('button', { name: 'Tải danh sách' }).first().click();
+  await rosterRequest;
+  await expect(page.getByText('Bé An')).toBeVisible();
+
+  const schools = await page.context().request.get(`${api}/api/teacher/schools`);
+  expect(schools.status()).toBe(200);
+  const fixtureSchool = (await schools.json()).data.find((school: { schoolName: string }) => school.schoolName === 'Release Gate A');
+  const apiRoster = await page.context().request.get(`${api}/api/teacher/schools/${fixtureSchool.schoolId}/handover-roster?handoverOn=${attendanceDate}`);
+  expect(apiRoster.status()).toBe(200);
+  const handoverRoster = (await apiRoster.json()).data;
+  expect(handoverRoster.students).toEqual(expect.arrayContaining([expect.objectContaining({ fullName: 'Bé An' })]));
+
+  await page.getByLabel('Ngày bàn giao').fill(attendanceDate);
+  await page.getByRole('button', { name: 'Tải danh sách' }).last().click();
+  await expect(page.getByText('Bé An')).toBeVisible();
+
+  let handoverIntercepted = false;
+  let handoverReconciled = false;
+  await page.route('**/api/teacher/schools/*/handovers', async (route) => {
+    if (route.request().method() !== 'POST' || handoverIntercepted) return route.continue();
+    handoverIntercepted = true;
+    await route.fetch();
+    await route.fulfill({ status: 504 });
+  });
+  await page.route('**/api/teacher/schools/*/operations/*', async (route) => { handoverReconciled = true; await route.continue(); });
+  await page.getByRole('button', { name: 'Xác nhận trả trẻ' }).click();
+  await expect.poll(() => handoverReconciled).toBe(true);
+  await expect(page.getByText(/Đã trả trẻ lúc/)).toBeVisible();
+  await page.unroute('**/api/teacher/schools/*/handovers');
+  await page.unroute('**/api/teacher/schools/*/operations/*');
+
+  await page.getByLabel('Bằng chứng Bé An').fill('00000000-0000-4000-8000-000000000099');
+  let validationIntercepted = false;
+  await page.route('**/api/teacher/schools/*/attendance', async (route) => {
+    if (route.request().method() !== 'POST' || validationIntercepted) return route.continue();
+    validationIntercepted = true;
+    await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'Bằng chứng không hợp lệ.', fieldErrors: { evidenceId: 'Bằng chứng không hợp lệ.' } } }) });
+  });
+  await page.getByRole('button', { name: 'Có mặt' }).click();
+  const error = page.getByRole('alert').first();
+  await expect(error).toHaveText('Bằng chứng không hợp lệ.');
+  await expect(error).toBeFocused();
+  await expect(page.getByText('NOT_RECORDED')).toBeVisible();
+  await page.unroute('**/api/teacher/schools/*/attendance');
+
+  let intercepted = false;
+  let reconciled = false;
+  await page.route('**/api/teacher/schools/*/attendance', async (route) => {
+    if (route.request().method() !== 'POST' || intercepted) return route.continue();
+    intercepted = true;
+    await route.fetch();
+    await route.fulfill({ status: 504 });
+  });
+  await page.route('**/api/teacher/schools/*/operations/*', async (route) => { reconciled = true; await route.continue(); });
+  await page.getByLabel('Bằng chứng Bé An').fill('');
+  await page.getByRole('button', { name: 'Có mặt' }).click();
+  await expect.poll(() => reconciled).toBe(true);
+  await expect(page.getByText('PRESENT')).toBeVisible();
+  await page.unroute('**/api/teacher/schools/*/attendance');
+  await page.unroute('**/api/teacher/schools/*/operations/*');
+
+  await page.getByLabel('Bằng chứng Bé An').fill('draft-evidence');
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+  await expect(page.getByRole('dialog')).toContainText('Thay đổi chưa gửi sẽ không được tự lưu.');
+  await page.getByRole('button', { name: 'Ở lại' }).click();
+  await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeVisible();
+  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+  await page.getByRole('button', { name: 'Bỏ nội dung và đổi trường' }).click();
+  await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate B' })).toBeVisible();
+  await expect(page.getByLabel('Mã lớp')).toHaveValue('');
+  await expect(page.getByText('Bé An')).toHaveCount(0);
 });
