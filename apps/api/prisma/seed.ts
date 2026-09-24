@@ -26,7 +26,9 @@ const positions = [
 const ownerCapabilities = ['SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAGE', 'SETTINGS_MANAGE', 'FINANCE_MANAGE', 'CLASS_LEAVE_READ', 'LEAVE_REQUEST_DECIDE'];
 const peakLandClassNames = ['Marie Curie', 'Einstein', 'Newton', 'Archimedes', 'Picasso', 'Mozart', 'Elizabeth'] as const;
 const rosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/hocsinh-peakland.csv', import.meta.url)));
+const staffCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/nhanvien-peakland.csv', import.meta.url)));
 const rosterEffectiveFrom = new Date('2026-08-01T00:00:00.000Z');
+const staffAssignmentReason = 'PeakLand development seed';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type PeakLandRosterRecord = {
@@ -50,6 +52,17 @@ type PeakLandParentContact = {
 };
 
 const rosterHeaders = ['STT', 'Học sinh', 'Tên thường gọi', 'Lớp', 'Trạng thái', 'Ngày sinh', 'Giới tính', 'Địa chỉ', 'Họ và tên mẹ', 'SĐT mẹ', 'Email mẹ', 'Địa chỉ mẹ', 'Họ và tên bố', 'SĐT bố', 'Email bố', 'Địa chỉ bố'] as const;
+const staffHeaders = ['STT', 'Mã nhân viên', 'Họ tên', 'Ngày sinh', 'Email', 'Số điện thoại', 'Lớp', 'Chức vụ'] as const;
+
+type PeakLandStaffRecord = {
+  staffCode: string;
+  fullName: string;
+  dateOfBirth: Date;
+  email: string | null;
+  phone: string | null;
+  classNames: (typeof peakLandClassNames)[number][];
+  primaryPositionCode: (typeof positions)[number][0];
+};
 
 function normalizePhone(phone: string): string {
   return phone.replace(/[^0-9]/g, '');
@@ -192,6 +205,46 @@ export function parsePeakLandRosterCsv(csv: string): PeakLandRosterRecord[] {
   return records;
 }
 
+function primaryPositionCode(role: string, line: number): PeakLandStaffRecord['primaryPositionCode'] {
+  if (!role) throw new Error(`CSV dòng ${line}, trường Chức vụ là bắt buộc.`);
+  if (role.includes('Giáo viên')) return 'GIAO_VIEN';
+  if (role.includes('Hiệu trưởng')) return 'HIEU_TRUONG';
+  if (role.includes('Kế toán')) return 'KE_TOAN';
+  return 'QUAN_LY_TRUONG';
+}
+
+export function parsePeakLandStaffCsv(csv: string): PeakLandStaffRecord[] {
+  const rows = parseCsv(csv);
+  const header = rows.shift();
+  if (!header) throw new Error('CSV thiếu hàng tiêu đề.');
+  const normalizedHeaders = header.values.map((value) => value.trim());
+  if (new Set(normalizedHeaders).size !== normalizedHeaders.length) throw new Error('CSV cấu trúc cột không hợp lệ.');
+  const indexes = new Map(normalizedHeaders.map((value, index) => [value, index]));
+  for (const name of staffHeaders) if (!indexes.has(name)) throw new Error(`CSV thiếu cột bắt buộc ${name}.`);
+  const records = rows.map(({ line, values }, index) => {
+    if (values.length !== header.values.length) throw new Error(`CSV dòng ${line}, cấu trúc cột không hợp lệ.`);
+    const field = (name: (typeof staffHeaders)[number]) => values[indexes.get(name)!]!.trim();
+    const stt = field('STT');
+    if (stt !== String(index + 1)) throw new Error(`CSV dòng ${line}, trường STT phải tuần tự từ 1 đến 31.`);
+    const staffCode = field('Mã nhân viên');
+    const fullName = field('Họ tên');
+    if (!staffCode) throw new Error(`CSV dòng ${line}, trường Mã nhân viên là bắt buộc.`);
+    if (!fullName) throw new Error(`CSV dòng ${line}, trường Họ tên là bắt buộc.`);
+    const email = field('Email').toLowerCase() || null;
+    if (email && !emailPattern.test(email)) throw new Error(`CSV dòng ${line}, trường Email không hợp lệ.`);
+    const classNames = field('Lớp').split('\n').map((name) => name.trim()).filter(Boolean);
+    if (new Set(classNames).size !== classNames.length) throw new Error(`CSV dòng ${line}, trường Lớp có lớp trùng lặp.`);
+    for (const className of classNames) {
+      if (!peakLandClassNames.includes(className as (typeof peakLandClassNames)[number])) throw new Error(`CSV dòng ${line}, trường Lớp không được hỗ trợ.`);
+    }
+    const primaryPosition = primaryPositionCode(field('Chức vụ'), line);
+    return { staffCode, fullName, dateOfBirth: parseDate(field('Ngày sinh'), line), email, phone: field('Số điện thoại') || null, classNames: classNames as PeakLandStaffRecord['classNames'], primaryPositionCode: primaryPosition };
+  });
+  if (records.length !== 31) throw new Error(`CSV phải có đúng 31 nhân viên, nhận được ${records.length}.`);
+  if (new Set(records.map((record) => record.staffCode)).size !== records.length) throw new Error('CSV có Mã nhân viên trùng lặp.');
+  return records;
+}
+
 export function assertDevelopmentEnvironment(): void {
   assertDevelopment('Development seed');
 }
@@ -199,6 +252,7 @@ export function assertDevelopmentEnvironment(): void {
 export async function seed(): Promise<void> {
   assertDevelopmentEnvironment();
   const roster = parsePeakLandRosterCsv(await readFile(rosterCsvPath, 'utf8'));
+  const staff = parsePeakLandStaffCsv(await readFile(staffCsvPath, 'utf8'));
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required to seed the database.');
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -286,6 +340,34 @@ export async function seed(): Promise<void> {
           : await tx.class.create({ data: { schoolId: school.id, schoolYearId: schoolYear.id, name, status: 'ACTIVE' } });
         return [name, classroom] as const;
       })));
+      for (const record of staff) {
+        const primaryPosition = positionByCode.get(record.primaryPositionCode)!;
+        const registries = await tx.staffCodeRegistry.findMany({ where: { schoolId: school.id, staffCode: record.staffCode } });
+        if (registries.length > 1) throw new Error(`Mã nhân viên ${record.staffCode} có nhiều registry trong School pl.`);
+        const profiles = await tx.staffProfile.findMany({
+          where: { schoolId: school.id, OR: [{ staffCode: record.staffCode }, ...(registries[0] ? [{ id: registries[0].staffId }] : [])] },
+          include: { issuedCodes: true, assignments: true },
+        });
+        if (profiles.length > 1) throw new Error(`Fixture ${record.staffCode} có nhiều StaffProfile trong School pl.`);
+        const profileData = { fullName: record.fullName, email: record.email, phone: record.phone, dateOfBirth: record.dateOfBirth, gender: null, address: null, staffCode: record.staffCode, employmentStatus: 'ACTIVE' as const, primaryPositionId: primaryPosition.id };
+        const existingProfile = profiles[0];
+        if (existingProfile && (existingProfile.fullName !== profileData.fullName || existingProfile.email !== profileData.email || existingProfile.phone !== profileData.phone || existingProfile.dateOfBirth.getTime() !== profileData.dateOfBirth.getTime() || existingProfile.gender !== null || existingProfile.address !== null || existingProfile.staffCode !== record.staffCode || existingProfile.employmentStatus !== profileData.employmentStatus || existingProfile.primaryPositionId !== profileData.primaryPositionId || existingProfile.schoolMembershipId !== null || existingProfile.boundAt !== null || existingProfile.boundByMembershipId !== null || existingProfile.issuedCodes.length !== 1 || existingProfile.issuedCodes[0]?.staffCode !== record.staffCode)) {
+          throw new Error(`Fixture ${record.staffCode} đã có StaffProfile khác snapshot; hãy reset development database trước khi seed lại.`);
+        }
+        const profile = existingProfile ?? await tx.staffProfile.create({ data: { schoolId: school.id, ...profileData } });
+        if (registries[0]?.staffId && registries[0].staffId !== profile.id) throw new Error(`Mã nhân viên ${record.staffCode} đã thuộc StaffProfile khác.`);
+        if (!registries[0]) await tx.staffCodeRegistry.create({ data: { schoolId: school.id, staffId: profile.id, staffCode: record.staffCode } });
+        const expectedClassIds = record.primaryPositionCode === 'GIAO_VIEN' ? record.classNames.map((name) => classrooms.get(name)!.id) : [];
+        const existingAssignments = await tx.staffClassAssignment.findMany({ where: { schoolId: school.id, staffProfileId: profile.id, schoolYearId: schoolYear.id } });
+        const assignmentsMatch = existingAssignments.length === expectedClassIds.length && existingAssignments.every((assignment) => expectedClassIds.includes(assignment.classId) && assignment.effectiveFrom.getTime() === rosterEffectiveFrom.getTime() && assignment.effectiveTo === null && assignment.reason === staffAssignmentReason && assignment.schoolYearName === schoolYear.name && assignment.schoolYearStartsOn.getTime() === schoolYear.startsOn.getTime() && assignment.schoolYearEndsOn.getTime() === schoolYear.endsOn.getTime() && assignment.className === Array.from(classrooms.values()).find((classroom) => classroom.id === assignment.classId)?.name);
+        if (existingAssignments.length && !assignmentsMatch) throw new Error(`Fixture ${record.staffCode} đã có lịch sử phân lớp khác snapshot; hãy reset development database trước khi seed lại.`);
+        for (const classId of expectedClassIds) {
+          if (!existingAssignments.some((assignment) => assignment.classId === classId)) {
+            const classroom = Array.from(classrooms.values()).find((item) => item.id === classId)!;
+            await tx.staffClassAssignment.create({ data: { schoolId: school.id, staffProfileId: profile.id, schoolYearId: schoolYear.id, classId, effectiveFrom: rosterEffectiveFrom, reason: staffAssignmentReason, schoolYearName: schoolYear.name, schoolYearStartsOn: schoolYear.startsOn, schoolYearEndsOn: schoolYear.endsOn, className: classroom.name } });
+          }
+        }
+      }
       for (const record of roster) {
         const studentData = { fullName: record.fullName, preferredName: record.preferredName, dateOfBirth: record.dateOfBirth, gender: record.gender, address: record.address };
         const students = await tx.student.findMany({ where: { schoolId: school.id, studentCode: record.studentCode } });

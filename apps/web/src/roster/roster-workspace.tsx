@@ -54,11 +54,11 @@ type ParentLink = { id: string; relationshipLabel: string; status: "ACTIVE" | "R
 type Staff = {
   id: string;
   fullName: string;
-  email: string;
-  phone: string;
+  email: string | null;
+  phone: string | null;
   dateOfBirth: string;
-  gender: string;
-  address: string;
+  gender: string | null;
+  address: string | null;
   staffCode: string | null;
   personalIdentifier: string | null;
   hasPhoto: boolean;
@@ -1401,11 +1401,11 @@ export function RosterWorkspace({
       setEditingStaffId(profile.id);
       setStaffInput({
         fullName: profile.fullName,
-        email: profile.email,
-        phone: profile.phone,
+        email: profile.email ?? "",
+        phone: profile.phone ?? "",
         dateOfBirth: profile.dateOfBirth,
-        gender: profile.gender,
-        address: profile.address,
+        gender: profile.gender ?? "",
+        address: profile.address ?? "",
         employmentStatus: profile.employmentStatus,
         primaryPositionId: profile.primaryPositionId,
         schoolMembershipId: profile.schoolMembershipId ?? "",
@@ -1706,7 +1706,7 @@ export function RosterWorkspace({
               staff.map((item) => (
                 <tr key={item.id}>
                   <td>{(staffMeta.page - 1) * staffMeta.pageSize + staff.indexOf(item) + 1}</td>
-                  <th scope="row">{item.fullName}<small className="staff-contact">{item.staffCode ?? item.email} · {item.phone}</small></th>
+                  <th scope="row">{item.fullName}<small className="staff-contact">{item.staffCode ?? item.email ?? "-"} · {item.phone ?? "-"}</small></th>
                   <td className="roster-row-actions">
                     {item.primaryPosition?.name ?? 'Không có'}
                   </td>

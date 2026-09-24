@@ -55,8 +55,8 @@ export type StaffListQuery = {
 export type StaffListRow = {
   id: string;
   fullName: string;
-  email: string;
-  phone: string;
+  email: string | null;
+  phone: string | null;
   staffCode: string | null;
   hasPhoto: boolean;
   employmentStatus: 'ACTIVE' | 'INACTIVE';

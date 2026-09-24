@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 const databaseUrl = process.env.TARGET_INTEGRATION_DATABASE_URL;
+const execFileAsync = promisify(execFile);
 
 describe.skipIf(!databaseUrl)('target database bootstrap', () => {
   it('requires a PostgreSQL target database supplied by the integration environment', () => {
@@ -79,6 +82,42 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
         gender: 'NAM',
         address: 'căn hộ GSB 2110B, toà nhà Geleximco 897 Giải Phóng',
       });
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+  it('seeds the PeakLand staff graph without implicit login bindings and remains idempotent', async () => {
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl! }) });
+    try {
+      const school = await prisma.school.findUniqueOrThrow({
+        where: { slug: 'pl' },
+        include: {
+          schoolYears: { where: { name: '2026-2027' } },
+          staffProfiles: {
+            where: { staffCode: { not: null } },
+            include: { issuedCodes: true, assignments: { where: { schoolYear: { name: '2026-2027' } } }, primaryPosition: true },
+          },
+        },
+      });
+      expect(school.staffProfiles).toHaveLength(31);
+      expect(school.staffProfiles.flatMap((staff) => staff.issuedCodes)).toHaveLength(31);
+      const nancy = school.staffProfiles.find((staff) => staff.staffCode === 'TSC-2023-2688-705934')!;
+      expect(nancy).toMatchObject({ fullName: 'Ms. Nancy', primaryPosition: { code: 'HIEU_TRUONG' }, schoolMembershipId: null, boundAt: null, boundByMembershipId: null });
+      const voHuong = school.staffProfiles.find((staff) => staff.staffCode === 'GSC-2023-2688-799930')!;
+      expect(voHuong).toMatchObject({ email: null, phone: null, gender: null, address: null, primaryPosition: { code: 'GIAO_VIEN' } });
+      expect(voHuong.assignments).toEqual([expect.objectContaining({ effectiveFrom: new Date('2026-08-01T00:00:00.000Z'), effectiveTo: null, reason: 'PeakLand development seed', className: 'Archimedes' })]);
+      const hana = school.staffProfiles.find((staff) => staff.staffCode === 'KSC-2023-2688-795757')!;
+      expect(hana.assignments).toHaveLength(7);
+      expect(school.staffProfiles.filter((staff) => staff.primaryPosition.code !== 'GIAO_VIEN').flatMap((staff) => staff.assignments)).toHaveLength(0);
+      for (const staff of school.staffProfiles) expect(staff.issuedCodes).toEqual([expect.objectContaining({ schoolId: school.id, staffId: staff.id, staffCode: staff.staffCode })]);
+      await execFileAsync('pnpm', ['exec', 'tsx', 'prisma/seed.ts'], {
+        cwd: process.cwd(),
+        env: { ...process.env, DATABASE_URL: databaseUrl!, NODE_ENV: 'development', PRISMA_SEED: 'true' },
+      });
+      expect(await prisma.staffProfile.count({ where: { schoolId: school.id, staffCode: { not: null } } })).toBe(31);
+      expect(await prisma.staffCodeRegistry.count({ where: { schoolId: school.id } })).toBe(31);
+      expect(await prisma.staffClassAssignment.count({ where: { schoolId: school.id, schoolYearId: school.schoolYears[0]!.id } })).toBe(28);
     } finally {
       await prisma.$disconnect();
     }

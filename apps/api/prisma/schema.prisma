@@ -121,11 +121,11 @@ model StaffProfile {
   id                         String                 @id @default(uuid()) @db.Uuid
   schoolId                   String                 @db.Uuid
   fullName                   String
-  email                      String
-  phone                      String
+  email                      String?
+  phone                      String?
   dateOfBirth                DateTime               @db.Date
-  gender                     String
-  address                    String
+  gender                     String?
+  address                    String?
   staffCode                  String?
   personalIdentifier         String?
   employmentStatus           StaffEmploymentStatus  @default(ACTIVE)
