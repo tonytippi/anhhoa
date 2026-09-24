@@ -14,6 +14,7 @@
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
     ['CẤU HÌNH', 'settings', 'Cấu hình trường', root + 'school-settings.html'],
     ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
+    ['', 'promotions', 'Ưu đãi', root + 'promotion-configuration.html'],
     ['', 'runs', 'Đợt thu', root + 'invoice-generation.html'],
     ['', 'report', 'Báo cáo', root + 'finance-report.html'],
     ['LƯƠNG & NHÂN SỰ', 'timekeeping', 'Chấm công', root + 'payroll-timekeeping-import.html'],

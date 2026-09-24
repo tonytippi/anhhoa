@@ -852,7 +852,7 @@ So that attendance/handover khong lam lo du lieu tre em hoac bien thanh pricing 
 
 ## Epic 5: Tạo và phát hành nghĩa vụ thu
 
-Finance cau hinh catalog va template khoan thu chung cho CollectionRun, chon Student, tao Invoice DRAFT co san dong template chong trung, ra soat ngoai le tung Student va issue immutable Payment instruction snapshot. ChargeRule automation va PromotionPolicy la enhancement sau Finance Admin MVP.
+Finance cau hinh catalog va template khoan thu chung cho CollectionRun, chon Student, tao Invoice DRAFT co san dong template chong trung, ra soat ngoai le tung Student va issue immutable Payment instruction snapshot. Sau template gate, Pha 1b them PromotionPolicy giam tru theo tung Receivable va Student assignment; ChargeRule automation va `PREPAID_COVERAGE` van la enhancement sau do.
 
 ### Story 5.1: Quản lý receivable catalog theo School
 
@@ -1058,8 +1058,9 @@ So that tat ca Invoice DRAFT duoc tao tu cung mot cau hinh Dot thu server-confir
 **Acceptance Criteria:**
 
 **Given** monthly run `DRAFT` va Receivable active cung School
-**When** Finance them, bo, sap xep hoac doi quantity template voi `Idempotency-Key`
+**When** Finance them, bo hoac doi quantity template voi `Idempotency-Key`
 **Then** server persist `CollectionRunTemplateLine` canonical, unique theo run/Receivable, quantity nguyen duong, default-price amount VND, audit va Operation
+**And** Receivable Tiền ăn dùng đơn vị ngày, default price `35.000 VND`, quantity `22` cho amount `770.000 VND`; DTO chỉ hiển thị amount giảm dần với tie-breaker server ổn định, không có position/reorder.
 **And** browser khong gui gia, amount, total, scope Class/Student hay gia tri theo Student.
 
 **Given** Receivable duplicate, inactive/foreign, quantity zero/am/fractional, run stale hoac khong con `DRAFT`
@@ -1085,6 +1086,11 @@ So that toi chi ra soat ngoai le tung Student.
 **Then** server reject hoac replay atomically, khong co Invoice/line partial hay duplicate
 **And** catalog/template doi sau generate khong rewrite generated/issued snapshot.
 
+**Given** run `GENERATED` có immutable template snapshot và Student eligible chưa có Invoice
+**When** catalog/template live đổi hoặc Receivable inactive rồi Finance thêm Student
+**Then** server tạo đúng một populated DRAFT chỉ từ run snapshot
+**And** không đọc source live hoặc rewrite Invoice đã tạo.
+
 ### Story 5.11: Release gate template Đợt thu
 
 As a release owner,
@@ -1101,6 +1107,77 @@ So that Finance co the tao khoan thu chung an toan o quy mo lon.
 **When** Finance cau hinh template -> chon Student -> preview -> generate -> mo populated DRAFT -> dieu chinh mot Student
 **Then** UI chi hien server values va reconcile timeout/Switch context an toan
 **And** khong co service, PromotionPolicy, Teacher, Parent, Receipt, carry hay client-calculated VND dependency.
+
+### Story 5.12: Cấu hình ưu đãi theo khoản thu và gán học sinh
+
+As a Finance Manager,
+I want to quản lý PromotionPolicy có version, target Receivable và gán đúng Student,
+So that giảm trừ có hiệu lực, lý do và lịch sử rõ ràng thay vì là số tiền sửa tay.
+
+**Acceptance Criteria:**
+
+**Given** Finance Manager hoặc School Admin trong School hợp lệ
+**When** tạo/activate version, target Receivable hoặc StudentPromotionAssignment với Idempotency-Key
+**Then** server kiểm tra toàn bộ same-School graph, effective interval, reason/audit và Operation
+**And** target chỉ tham chiếu Receivable cùng School; assignment không suy luận quan hệ gia đình hay thứ tự con.
+
+**Given** version có fixed-VND/percentage, priority và stacking/exclusivity
+**When** cấu hình được lưu
+**Then** browser không gửi công thức, discount derived hay total
+**And** `PREPAID_COVERAGE`, coverage, Receipt, settlement và service/Class auto-eligibility không thuộc story này.
+
+### Story 5.13: Preview và generate ưu đãi authoritative
+
+As a Finance Manager,
+I want to xem giảm trừ server-derived theo từng khoản thu trong Đợt thu,
+So that tôi chỉ generate Invoice DRAFT từ kết quả ưu đãi hiện hành.
+
+**Acceptance Criteria:**
+
+**Given** run DRAFT/READY có template, policy target và Student assignment hợp lệ
+**When** Finance yêu cầu preview hoặc generate
+**Then** server trả gross, application/reason, discount và net theo từng Student/Receivable
+**And** fixed VND chạy trước percentage; priority/exclusivity deterministic và tổng giảm không vượt gross target.
+
+**Given** policy/version/target/assignment hoặc catalog/template fact đổi sau preview
+**When** Finance generate
+**Then** fingerprint stale bị từ chối và UI yêu cầu preview mới
+**And** retry/concurrency không tạo Invoice hoặc application snapshot duplicate.
+
+### Story 5.14: Recheck Issue và snapshot ưu đãi bất biến
+
+As a Finance Manager,
+I want to phát hành Invoice với ưu đãi đã được recheck trong transaction,
+So that obligation giữ đúng version và giảm trừ đã áp dụng.
+
+**Acceptance Criteria:**
+
+**Given** Invoice DRAFT có promotion application từ preview/generate
+**When** Finance Issue với Idempotency-Key
+**Then** server re-evaluate policy/target/assignment trong transaction trước khi snapshot gross, discount, net, version/target/outcome và assignment provenance
+**And** thay đổi làm outcome khác yêu cầu review mới, không silently Issue theo evaluation cũ.
+
+**Given** Invoice đã ISSUED
+**When** catalog/policy/version/assignment sau đó thay đổi
+**Then** issued application snapshot không bị rewrite
+**And** không có negative discount line, generic credit hay browser-supplied discount/total.
+
+### Story 5.15: Release gate ưu đãi theo khoản thu Pha 1b
+
+As a release owner,
+I want automated proof cho policy scope, evaluator và issued snapshot,
+So that ưu đãi không sai tenant, sai tiền hoặc lẫn settlement.
+
+**Acceptance Criteria:**
+
+**Given** PostgreSQL fixture nhiều School, Receivable, policy version/target, assignment, run và Invoice
+**When** unit/integration/E2E gate chạy
+**Then** tenant graph, effective interval, audit/Operation, fixed-before-percent, priority/exclusivity, gross cap, stale preview, Issue recheck, immutable snapshot, retry và concurrency đều pass
+**And** cross-School UUID, client discount/total injection và changed Idempotency-Key bị từ chối.
+
+**Given** Pha 1b route, schema và bundle được kiểm tra
+**When** release gate chạy
+**Then** không có `PREPAID_COVERAGE`, StudentPromotionalCoverage, Receipt, settlement, carry, refund, debt/report, Parent/Teacher hay automatic operational pricing dependency.
 
 ## Epic 6: Thu tiền, đối soát công nợ và báo cáo sổ cái
 

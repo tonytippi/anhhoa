@@ -1,55 +1,63 @@
 # Epic 5 Context: Tạo và phát hành nghĩa vụ thu
 
-<!-- Generated from planning artifacts. Regenerate with compile-epic-context if planning docs change. -->
+<!-- Generated from planning artifacts. Rebuild with compile-epic-context when planning docs change. -->
 
 ## Goal
 
-Deliver the Finance Admin MVP so authorized Finance users can maintain a School-scoped receivable catalog, select eligible Students in a monthly CollectionRun, generate one empty DRAFT Invoice per Student without duplicates, review Finance-selected lines, and issue an immutable obligation and Payment instruction snapshot. This enables Schools to issue reliable tuition obligations before operational, Parent, settlement, promotion, and reporting enhancements exist.
+Epic này cung cấp Finance Admin MVP/template và Pha 1b ưu đãi: cấu hình catalog khoản thu, Đợt thu, policy/version/target theo Receivable và Student assignment; API preview/generate/recheck Issue tạo snapshot ứng dụng giảm trừ trên Invoice line. Receipt, coverage, carry, settlement, refund và báo cáo vẫn thuộc Epic 6.
 
 ## Stories
 
-- Story 5.1: Quản lý receivable catalog theo School
-- Story 5.2: Tạo CollectionRun và server-authoritative preview
+- Story 5.1: Quản lý catalog nhóm khoản thu và khoản thu
+- Story 5.2: Tạo CollectionRun và preview học sinh đủ điều kiện
 - Story 5.3: Generate Invoice DRAFT rỗng idempotent theo snapshot roster
 - Story 5.4: Rà soát dòng Invoice DRAFT có audit
 - Story 5.5: Issue Invoice với Payment instruction snapshot bất biến
 - Story 5.6: Release gate Finance Admin MVP
 - Story 5.7: Đóng CollectionRun đã generate
 - Story 5.8: Revision Invoice đã phát hành và huỷ bản cũ
+- Story 5.9: Cấu hình template khoản thu cho Đợt thu
+- Story 5.10: Generate Invoice DRAFT có dòng template
+- Story 5.11: Release gate template Đợt thu
+- Story 5.12: Cấu hình ưu đãi theo khoản thu và gán học sinh
+- Story 5.13: Preview và generate ưu đãi authoritative
+- Story 5.14: Recheck Issue và snapshot ưu đãi bất biến
+- Story 5.15: Release gate ưu đãi theo khoản thu Pha 1b
 
 ## Requirements & Constraints
 
-- Finance Admin MVP is limited to the active/inactive ReceivableGroup and Receivable catalog, monthly CollectionRuns, empty DRAFT generation, manual DRAFT-line review, and Invoice issue. ChargeRule automation, service enrollment, leave adjustment materialization, PromotionPolicy, `PREPAID_COVERAGE`, receipts, carry, debt, reports, and Parent/Teacher flows are deferred. Do not introduce their routes, persistence, bundles, or authorization dependencies.
-- `FINANCE_MANAGE` must be resolved server-side from the active same-School StaffProfile, primary SchoolPosition, membership login binding, and capability. Every record, query, mutation, unique constraint, audit record, and Operation is School-scoped; client School context, IDs, filters, headers, capabilities, and browser state are not authorization evidence.
-- Catalog records are School-scoped and auditable. An inactive Receivable cannot be selected for a new DRAFT line but remains readable through historical snapshots. An optional receivable code is unique within its School.
-- The initial CollectionRun type is only `MONTHLY`, with required `billingMonth` in `YYYY-MM`; a SchoolYear has one run per billing month and opening an existing month reopens that run rather than creating another. Lifecycle is `DRAFT -> READY -> GENERATED -> CLOSED`; Student selection is editable only in DRAFT, preview must be accepted before generate, GENERATED locks generated Students, and CLOSED prevents create/edit.
-- Preview and generate use the same server selection policy. Preview returns authorized selected/eligible Students and categorized skips; the browser must not derive eligibility, skip reasons, Receivable lines, or totals. Generate uses a roster as-of snapshot and persists enrollment/class/source facts needed for history.
-- A Student normally has at most one Invoice per `(schoolId, studentId, collectionRunId)`. Generate creates at most one empty DRAFT Invoice for each eligible selected Student, reports created/skipped outcomes, and only permits adding an eligible Student without an Invoice after GENERATED. Do not create supplemental runs or add charges to issued Invoices.
-- A DRAFT line selects an active same-School Receivable, has a strictly positive integer quantity, and uses its positive default VND unit price or an authorized, audited override. The API derives every line amount and Invoice total. Reject zero, negative, fractional, float, non-JSON-safe, or client-supplied money/total/status values; removing a line means the receivable does not apply.
-- Finance may attach an explanatory manual Finance-source snapshot to a same-School Student's DRAFT line: optional service date, attendance status, picked-up time, and/or late-care minutes, with mandatory reason, actor, timestamp, and provenance. Validate tenant graph, StudentEnrollment, business date, DRAFT state, and whole-VND quantity/unit price. This input never calculates quantity, price, fee, discount, or total, and it becomes immutable at issue.
-- Issue requires one active BankAccount from the same School. The transaction snapshots the server-calculated obligation lines/total, roster facts, receiving bank, account number, account holder, validated transfer content, Student code, and class name. Issued content, BankAccount selection, and Payment instruction are immutable; only later settlement or revision workflows may transition the Invoice. The browser and Parent cannot set outstanding, settlement outcome, payment status, or cancellation.
-- VND persists as PostgreSQL `BIGINT` and crosses REST only as JSON-safe integers. Finance state changes use transactions; DRAFT-line mutation, generate, issue, close, and revision require a UUID `Idempotency-Key`, School-scoped Operation, request fingerprint, audit/provenance, replay of identical retries, and conflict for changed-key reuse. After timeout, reconcile `GET /operations/:operationId` before retry.
-- The release gate must prove tenant graph isolation, catalog lifecycle, shared preview/generate outcomes, roster snapshots, lifecycle locks, positive integer VND math, rejection of client total/status injection and wrong/inactive BankAccounts, issued-snapshot immutability, retry/concurrency safety, and observable Operation progress with 1,000 Students completing generate within 60 seconds.
+Finance chỉ làm việc trong School context hợp lệ và có capability `FINANCE_MANAGE`; API phải tự xác thực membership, StaffProfile, primary SchoolPosition active, login binding và capability ở mỗi request. `schoolId`, UUID, route, filter, header hay browser state chỉ là selector, không là bằng chứng quyền. Mọi query, mutation, quan hệ, unique constraint, audit và Operation phải scope theo School; SchoolYear là boundary dữ liệu, timezone nghiệp vụ là `Asia/Ho_Chi_Minh`.
+
+`Khoản thu` quản lý ReceivableGroup/Receivable theo School, active/inactive và default price. Pha 1b thêm PromotionPolicy version effective-dated, same-School Receivable target và StudentPromotionAssignment có interval/reason/audit; không có ChargeRule, scope School/Class/Student hay service enrollment auto-pricing.
+
+Đợt thu chỉ là `MONTHLY`, unique theo `(School, SchoolYear, billingMonth)`, với lifecycle `DRAFT -> READY -> GENERATED -> CLOSED`. Trong `DRAFT`, CollectionRun sở hữu các `CollectionRunTemplateLine`. Mỗi line tham chiếu tối đa một Receivable active cùng School, unique theo run/receivable, và có quantity nguyên dương. API chỉ hiển thị template/Invoice line theo amount giảm dần với tie-breaker server ổn định; không có position, reorder hay ý nghĩa nghiệp vụ của thứ tự. Browser không được gửi unit price, amount, total, Class/Student scope hay giá trị theo Student; API dùng default unit price catalog và tự tính amount/total VND. VND lưu PostgreSQL `BIGINT` và REST trả JSON integer an toàn; client không bao giờ đặt total, outstanding, settlement state hay eligibility.
+
+Finance có thể thêm, bỏ và đổi quantity template chỉ khi run `DRAFT`. Duplicate, Receivable inactive hoặc khác School, quantity bằng không/âm/thập phân, stale version và non-DRAFT state phải bị từ chối trước khi ghi hay tiết lộ fact cross-School. Mọi thay đổi selection, template hoặc catalog fact phải làm preview hiện có stale. Preview và generate dùng cùng selection policy và cùng cách phân loại skips từ server.
+
+Generate chỉ nhận run `READY`, preview hiện hành và template không rỗng hợp lệ. Trong transaction, API khóa/revalidate run, template, catalog, roster và policy facts; tạo InvoiceLine snapshot gross cùng policy application/discount/net server-derived. Fixed VND trước percentage; priority/exclusivity deterministic, discount cap tại gross line. Policy/catalog/assignment đổi làm preview stale; Issue recheck rồi snapshot bất biến, không rewrite Invoice issued. `PREPAID_COVERAGE`, Receipt, carry, settlement, refund và report không thuộc Pha 1b.
+
+Cookie mutation cần origin validation và double-submit CSRF. Mutation template, preview/generate, line DRAFT, issue, close và revision có UUID `Idempotency-Key`; Operation lưu route, School, actor context, fingerprint và outcome trong cùng transaction. Retry cùng fingerprint replay outcome; tái dùng key với fingerprint khác conflict. Sau timeout, portal giữ Operation ID và đối soát `GET /operations/:operationId` trước retry hoặc đổi School. Audit lưu School, actor/reference, thời gian, provenance và reason khi bắt buộc.
 
 ## Technical Decisions
 
-- The API `finance` domain owns CollectionRun, Invoice, calculations, lifecycle transitions, snapshots, audit, and Operations. Portals call REST only; controllers call their owning service and cross-domain data is obtained through narrow contracts rather than direct aggregate access.
-- Validate the complete same-School graph in the transaction, using composite `(schoolId, id)` relations where supported and explicit owning-command validation otherwise. Roster supplies an as-of snapshot; current roster, catalog, policy, or BankAccount updates must not rewrite issued history.
-- Use the School business timezone `Asia/Ho_Chi_Minh`. SchoolYear is the finance boundary; maintain immutable facts rather than mutable current-state references where an Invoice or run requires historical accuracy.
-- Cookie-authenticated mutations require origin validation and double-submit CSRF in addition to capability checks. Operations authorize reads only to the same actor context that created them.
-- Story 5.7 closes a GENERATED run only when every Invoice is `ISSUED`, `CLOSED`, or `CANCELLED`; it records reason/audit and locks the run. Story 5.8 is a later settlement-release workflow: prepare one same-School/Student/run replacement DRAFT from an issued source, preserve immutable lineage, then atomically issue the replacement and change the source to `CANCELLED`. Confirmed receipts are never rewritten; any transfer provenance is append-only.
+`finance` là owner của CollectionRun, template line, Invoice, snapshot, lifecycle, calculation, audit và locking boundary. Controller chỉ gọi owning service; portal chỉ gọi REST, không import API internals. Schema và service phải bảo toàn composite tenant graph trong transaction, bao gồm tất cả tham chiếu CollectionRun, Receivable, Student, Enrollment, Invoice và InvoiceLine.
+
+CollectionRun template là aggregate hẹp, không phải pricing engine. Canonical template/catalog facts là một phần preview fingerprint. `READY`, `GENERATED` và `CLOSED` khóa template mutation; selection thay đổi quay về `DRAFT`, còn generate chỉ từ preview server-confirmed. Generate phải atomic: stale fingerprint, catalog không còn eligible, race hoặc retry либо reject toàn bộ hoặc replay toàn bộ outcome, không để Invoice/InvoiceLine partial hay duplicate. Unique Invoice `(schoolId, studentId, collectionRunId)` vẫn được enforce; revision cùng lineage hợp lệ là ngoại lệ đã định nghĩa cho Invoice nguồn `CANCELLED`.
+
+Invoice DRAFT vẫn cho phép thêm/sửa/bỏ catalog line, quantity dương và authorized audited price override cho từng Student. Manual Finance-source snapshot có thể là tham chiếu giải thích, có reason/audit và không suy ra quantity, price, fee, discount hoặc total; nó không tạo dependency attendance, handover, Teacher hay Parent. Issue cần BankAccount active cùng School, snapshot receiving bank, account number, account holder, transfer content, source/enrollment facts và issued total. Không dùng account/catalog/template live để ghi lại lịch sử.
+
+Test unit cho transition, validation và whole-VND calculations. PostgreSQL integration phải chứng minh tenant isolation, template line unique, positive quantity, lifecycle lock, stale preview, catalog lifecycle, snapshot immutability, Operation/idempotency, retry và concurrency. Fixture 1.000 Student phải có Operation progress và generate hoàn tất trong 60 giây; preview trong 3 giây. Epic 1 tenant-isolation release gate là điều kiện trước mọi phát hành Epic 5.
 
 ## UX & Interaction Patterns
 
-- Finance is an Admin portal, desktop-first, table-first workspace. The CollectionRun landing is a compact filtered list with create action; run detail is a Student eligibility/status table. Invoice review is a contextual deep destination entered from a selected Student/Invoice, not a sidebar destination.
-- Keep the selected School and period visible. Show server-returned VND values right-aligned as whole VND and lifecycle states as text labels. Do not show zero-value lines, automatic-fee suggestions, client-estimated totals, or local lifecycle overrides.
-- The CollectionRun wizard follows edit -> server preview -> named generate confirmation -> Operation reconciliation. DRAFT review supports add/edit/remove line, active BankAccount choice, and explanatory manual reference with audit reason; issued detail is read-only and shows the immutable obligation and Payment instruction snapshot.
-- On dirty context changes, offer remain, discard before submit, or Operation reconciliation; never autosave. On validation failure, retain input, focus an error summary, and show field errors. On timeout, disable duplicate submission and fetch the Operation result before offering retry. Cold loads, revoke, and permission denial must not expose stale data from another School.
-- Use named confirmation and focus-managed dialogs for issue, close, revision, and destructive actions. Tables need captions, keyboard row actions, responsive cards or horizontal scrolling, and WCAG 2.1 AA behavior.
+Admin/Finance là desktop-first, table-first. Sidebar chỉ có `Khoản thu` và `Đợt thu`; Invoice review là deep destination theo Student từ detail Đợt thu, không là sidebar item. `Khoản thu` là catalog table với trạng thái active/inactive và default price. Landing `Đợt thu` là bảng CollectionRun có filter, create/open action; detail DRAFT hiển thị template chung và bảng Student với eligibility/status do server trả.
+
+Trong DRAFT, Finance thêm Receivable active vào “Khoản thu trong đợt”, nhập quantity nguyên dương hoặc bỏ line. `Ưu đãi` là destination riêng để cấu hình policy/target/assignment; preview và Invoice review chỉ hiện gross, discount, net và reason server-returned. UI không có calculator, reorder, control Class/service hay tự sửa discount. Luồng là template/assignment -> preview -> generate -> review -> Issue recheck/snapshot. `READY` trở đi khóa template/selection; policy fact đổi yêu cầu preview/review mới.
+
+Số VND căn phải và hiển thị số nguyên; trạng thái luôn có text label. Dùng loading skeleton không mang dữ liệu School cũ, error summary focusable, dialog có focus trap/return, table keyboard-accessible và responsive scroll/card. Action issue/destructive cần named confirmation. Khi timeout hoặc context không chắc chắn, UI đi vào Operation reconciliation; School switch guard chỉ cho remain, discard-before-submit hoặc reconcile, không auto-save.
 
 ## Cross-Story Dependencies
 
-- Epic 5 depends on Epic 1 tenant isolation, authorization, CSRF/idempotency/Operation infrastructure; Epic 2 SchoolYear, Class, StudentEnrollment, Student code, and roster snapshots; and Epic 3 FinancePolicy and active BankAccount lifecycle.
-- Stories 5.2 and 5.3 share the authoritative Student-selection policy and roster snapshot boundary. Story 5.4 depends on generated DRAFT Invoices and the catalog from 5.1; Story 5.5 depends on reviewed DRAFT lines and BankAccounts. Story 5.6 verifies the whole MVP slice.
-- Stories 5.7 and 5.8 belong with the Finance settlement release alongside Epic 6. Their settlement, receipt, correction-transfer, promotion, and reporting behavior must not be pulled into the MVP implementation.
-- Epic 4 is not an MVP dependency. Later immutable operational facts can support Finance-owned adjustments, but cannot overwrite or re-price manual Finance-source snapshots already issued.
+Epic 5 phụ thuộc Epic 1 cho tenant isolation, audience/session, CSRF, Operation và capability; Epic 2 cho SchoolYear, Student, enrollment lifecycle và roster as-of snapshot; Epic 3 cho FinancePolicy, BankAccount active và snapshot theo effective date. Epic 4 chỉ là enhancement sau release: operational fact có thể trở thành explanatory/manual Finance-source hoặc adjustment source trong hợp đồng riêng, không thay đổi template, CollectionRun hay Invoice manual snapshot đã issue.
+
+Stories 5.1-5.8 là delivery historical; 5.9 -> 5.11 hoàn tất template. Pha 1b theo thứ tự 5.12 policy/assignment, 5.13 evaluator preview/generate, 5.14 Issue snapshot, 5.15 gate. Epic 6 chỉ bắt đầu `PREPAID_COVERAGE`, Receipt, carry, refund và ledger sau đó; Parent projection thuộc Epic 7.

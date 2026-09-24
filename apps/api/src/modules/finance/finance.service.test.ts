@@ -40,6 +40,11 @@ describe('FinanceService validation', () => {
     const result = await new FinanceService(prisma as never, authorization as never).invoice('identity', crypto.randomUUID(), '11111111-1111-4111-8111-111111111111');
     expect(result).toMatchObject({ status: 'ISSUED', total: '9007199254740991', issue: { obligationTotal: '9007199254740991', transferContent: 'Be Do La 1', bankAccount: { accountNumber: '123' }, policy: { dueDaysAfterIssue: 7 } } });
   });
+  it('orders every projected Invoice line by amount descending then ID ascending', async () => {
+    const prisma = { invoice: { findFirst: vi.fn().mockResolvedValue({ id: 'invoice', schoolId: crypto.randomUUID(), status: 'DRAFT', total: 12n, billingMonth: '2026-09', studentCodeSnapshot: 'HS001', studentNameSnapshot: 'Bé Đỗ', classNameSnapshot: 'Lá 1', lines: [{ id: 'b', receivableId: 'b', receivableNameSnapshot: 'B', unitLabelSnapshot: 'lần', defaultUnitPriceSnapshot: 5n, unitPrice: 5n, quantity: 1, amount: 5n }, { id: 'a', receivableId: 'a', receivableNameSnapshot: 'A', unitLabelSnapshot: 'lần', defaultUnitPriceSnapshot: 5n, unitPrice: 5n, quantity: 1, amount: 5n }, { id: 'c', receivableId: 'c', receivableNameSnapshot: 'C', unitLabelSnapshot: 'lần', defaultUnitPriceSnapshot: 7n, unitPrice: 7n, quantity: 1, amount: 7n }] }) } };
+    const result = await new FinanceService(prisma as never, authorization as never).invoice('identity', crypto.randomUUID(), '11111111-1111-4111-8111-111111111111');
+    expect(result.lines.map((line: { id: string }) => line.id)).toEqual(['c', 'a', 'b']);
+  });
   it('only projects active same-School bank accounts', async () => {
     const prisma = { bankAccount: { findMany: vi.fn().mockResolvedValue([{ id: 'active', receivingBank: 'A', accountNumber: '1', accountHolderName: 'Holder', lifecycleTransitions: [{ status: 'ACTIVE' }] }, { id: 'inactive', receivingBank: 'B', accountNumber: '2', accountHolderName: 'Old', lifecycleTransitions: [{ status: 'INACTIVE' }] }]) } };
     const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).bankAccounts('identity', school);

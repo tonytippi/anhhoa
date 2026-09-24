@@ -28,6 +28,10 @@ test('Admin Finance uses server values from preview through named issue and clea
   await page.getByLabel('Tháng thu').fill('2026-09');
   await page.getByRole('button', { name: 'Mở hoặc vào đợt thu' }).click();
   await expect(page.getByRole('heading', { name: 'Đợt thu 2026-09 / DRAFT' })).toBeVisible();
+  await page.getByRole('region', { name: /Đợt thu 2026-09/ }).getByLabel('Khoản thu').selectOption({ label: 'Học phí Release 1' });
+  await page.getByRole('region', { name: /Đợt thu 2026-09/ }).getByLabel('Số lượng').fill('1');
+  await page.getByRole('button', { name: 'Lưu khoản thu mẫu' }).click();
+  await expect(page.getByRole('table', { name: 'Khoản thu mẫu chung' })).toContainText('150.000');
   await page.getByLabel('Chọn RG1-1 Bé An').check();
   await page.getByRole('button', { name: 'Lưu danh sách đã chọn' }).click();
   const previewResponse = page.waitForResponse((response) =>
@@ -52,9 +56,6 @@ test('Admin Finance uses server values from preview through named issue and clea
   await expect(page.getByText('trạng thái DRAFT')).toBeVisible();
 
   const invoiceReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-1/ });
-  await invoiceReview.getByLabel('Khoản thu').selectOption({ label: 'Học phí Release 1' });
-  await invoiceReview.getByLabel('Số lượng').fill('1');
-  await invoiceReview.getByRole('button', { name: 'Thêm dòng' }).click();
   await expect(invoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('150.000');
 
   await page.getByRole('button', { name: 'Phát hành hóa đơn' }).click();

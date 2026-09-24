@@ -29,6 +29,7 @@ type Run = {
   status: "DRAFT" | "READY" | "GENERATED" | "CLOSED";
   version: number;
   selectedStudentIds: string[];
+  templateLines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; defaultUnitPrice: string; quantity: string; amount: string }>;
   invoices?: Array<{ id: string; studentId: string; studentCode: string; studentName: string; className: string; status: string; total: string }>;
 };
 type Preview = {
@@ -152,6 +153,7 @@ export function FinanceWorkspace({
   const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string }>();
   const [open, setOpen] = useState({ schoolYearId: "", billingMonth: "" });
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [template, setTemplate] = useState({ receivableId: "", quantity: "" });
   const [group, setGroup] = useState({ name: "" });
   const [receivable, setReceivable] = useState({
     groupId: "",
@@ -318,6 +320,7 @@ export function FinanceWorkspace({
     setEditingSource(false);
     setOpen({ schoolYearId: "", billingMonth: "" });
     setSelectedStudentIds([]);
+    setTemplate({ receivableId: "", quantity: "" });
     setGroup({ name: "" });
     setReceivable({
       groupId: "",
@@ -368,7 +371,9 @@ export function FinanceWorkspace({
     receivable.displayName ||
     receivable.unitLabel ||
     receivable.defaultUnitPrice ||
-    lifecycle?.reason,
+    lifecycle?.reason ||
+    template.receivableId ||
+    template.quantity,
   );
   useEffect(() => {
     status.current = onStatusChange;
@@ -516,6 +521,16 @@ export function FinanceWorkspace({
       chooseRun(outcome as Run);
       await load();
     }
+  };
+  const saveTemplate = async (event: FormEvent) => {
+    event.preventDefault(); if (!run) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/template-lines`, "PUT", { ...template, expectedVersion: run.version });
+    if (outcome) { chooseRun(outcome as Run); setTemplate({ receivableId: "", quantity: "" }); await load(); }
+  };
+  const removeTemplate = async (lineId: string) => {
+    if (!run) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/template-lines/${lineId}`, "DELETE", { expectedVersion: run.version });
+    if (outcome) { chooseRun(outcome as Run); await load(); }
   };
   const toggleStudent = (studentId: string) => {
     setSelectedStudentIds((current) =>
@@ -1033,8 +1048,14 @@ export function FinanceWorkspace({
             )?.name ?? run.schoolYearId}
             . Đã chọn {selectedStudentIds.length} học sinh.
           </p>
-          {run.status === "DRAFT" && (
+           {run.status === "DRAFT" && (
             <>
+              <section aria-labelledby="run-template-title">
+                <h4 id="run-template-title">Khoản thu trong đợt</h4>
+                <p>Đơn giá và thành tiền do máy chủ xác nhận. Dòng được hiển thị theo số tiền giảm dần.</p>
+                <table><caption>Khoản thu mẫu chung</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Số tiền VND</th><th>Thao tác</th></tr></thead><tbody>{(run.templateLines ?? []).map((item) => <tr key={item.id}><td>{item.receivableName}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.defaultUnitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td><button type="button" disabled={Boolean(pending)} onClick={() => void removeTemplate(item.id)}>Bỏ</button></td></tr>)}</tbody></table>
+                <form onSubmit={saveTemplate}><label>Khoản thu<select value={template.receivableId} onChange={(event) => setTemplate({ ...template, receivableId: event.target.value })}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label><label>Số lượng<input inputMode="numeric" value={template.quantity} onChange={(event) => setTemplate({ ...template, quantity: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu khoản thu mẫu</button></form>
+              </section>
               <form onSubmit={saveSelection}>
                 <table>
                   <caption>
@@ -1175,7 +1196,7 @@ export function FinanceWorkspace({
       {run?.status === "GENERATED" && (
         <section aria-labelledby="generated-student-addition-title">
           <h3 id="generated-student-addition-title">Thêm học sinh vào đợt đã tạo</h3>
-          <p>Máy chủ sẽ tự xác nhận điều kiện tại thời điểm roster và hóa đơn hiện có.</p>
+           <p>Máy chủ sẽ tự xác nhận điều kiện roster và dùng snapshot khoản thu đã khóa của đợt.</p>
           <table>
             <caption>Học sinh có thể yêu cầu thêm</caption>
             <tbody>

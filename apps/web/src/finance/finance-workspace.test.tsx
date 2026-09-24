@@ -34,6 +34,20 @@ afterEach(() => {
 });
 
 describe("FinanceWorkspace", () => {
+  it("marks an unsaved template input dirty and sends the current run version", async () => {
+    const onStatusChange = vi.fn();
+    const templateRun = { ...run, templateLines: [] };
+    const catalogWithMeal = { groups: [], receivables: [{ id: "meal", groupId: "group", code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", status: "ACTIVE", available: true }] };
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "PUT" ? response({ outcome: { ...templateRun, version: 3, templateLines: [{ id: "line", receivableId: "meal", receivableName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", quantity: "22", amount: "770000" }] } }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [templateRun] }) : response(catalogWithMeal)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} onStatusChange={onStatusChange} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" }));
+    fireEvent.change(screen.getAllByLabelText("Khoản thu").at(-1)!, { target: { value: "meal" } });
+    fireEvent.change(screen.getAllByLabelText("Số lượng").at(-1)!, { target: { value: "22" } });
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(expect.objectContaining({ dirty: true })));
+    fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu mẫu" }));
+    expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/template-lines") && (options as RequestInit).body === JSON.stringify({ receivableId: "meal", quantity: "22", expectedVersion: 2 }))).toBe(true);
+  });
   it("renders server preview eligible rows and categorized skips without local classification", async () => {
     const preview = {
       run,

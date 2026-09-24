@@ -3,11 +3,11 @@ import { readFile, readdir } from 'node:fs/promises';
 
 const mockups = new URL('../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/', import.meta.url);
 const read = path => readFile(new URL(path, mockups), 'utf8');
-const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, settings, report] = await Promise.all([
+const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, promotions, settings, report] = await Promise.all([
   read('prototype.css'), read('admin/admin-shell.js'), read('prototype.js'), read('parent/parent.html'),
   read('admin/payroll-timekeeping-import.html'), read('admin/payroll-run-review.html'),
   read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'),
-   read('admin/receivable-configuration.html'), read('admin/school-settings.html'), read('admin/finance-report.html')
+    read('admin/receivable-configuration.html'), read('admin/promotion-configuration.html'), read('admin/school-settings.html'), read('admin/finance-report.html')
 ]);
 
 // Admin mobile: viewport containment, scroll-owned tables, accessible sheet and focus return.
@@ -58,15 +58,18 @@ assert.match(prototype, /target\.disabled = false/);
 assert.doesNotMatch(shell, /invoice-detail-review\.html/);
 assert.doesNotMatch(shell, /'invoice-review'|\'settlement\'/);
 assert.match(shell, /'runs', 'Đợt thu', root \+ 'invoice-generation\.html'/);
+assert.match(shell, /'promotions', 'Ưu đãi', root \+ 'promotion-configuration\.html'/);
 assert.doesNotMatch(shell, /Đợt thu \/ Nộp trước/);
 assert.match(generation, /id="run-detail" tabindex="-1" hidden/);
 assert.doesNotMatch(generation, /href="invoice-detail-review\.html"/);
 assert.match(invoice, /data-admin-route="runs"/);
-assert.match(invoice, /Invoice này chứa fact nộp trước nên chỉ nhận đúng tổng cần thu/);
-assert.match(invoice, /id="payment-amount"[^>]*readonly/);
-assert.match(invoice, /revision\.hidden = true/);
-assert.match(invoice, /id="revision-confirmation"/);
-assert.match(invoice, /hóa đơn hiện tại vẫn là nghĩa vụ thanh toán/i);
+assert.match(invoice, /Con cán bộ trường · Phiên bản 1/);
+assert.match(invoice, /Giảm trừ ưu đãi/);
+assert.match(invoice, /10% · 150\.000 đ · hệ thống đã áp dụng/);
+assert.match(invoice, /Tổng cần thu do hệ thống xác nhận/);
+assert.match(invoice, /Yêu cầu kiểm tra lại ưu đãi/);
+assert.match(invoice, /snapshot bất biến/);
+for (const unavailable of ['Receipt', 'coverage', 'nộp trước', 'carry', 'hoàn tiền']) assert.doesNotMatch(invoice, new RegExp(unavailable, 'i'));
 assert.doesNotMatch(invoice, /parseAmount|toLocaleString|var difference/);
 // Finance reports are a server-result-only Finance workspace with CSV as its sole export.
 assert.match(report, /data-admin-route="report"/);
@@ -86,8 +89,13 @@ assert.match(generation, /TRƯỜNG ÁNH HOA · NĂM HỌC 2026-2027/);
 assert.match(generation, /<h2>Rà soát đợt thu<\/h2>/);
 assert.match(generation, /<h3>Khoản thu trong đợt<\/h3>/);
 assert.match(generation, /id="template-lines"/);
+assert.match(generation, /Tiền ăn tháng/);
 assert.match(generation, /Số ngày tiền ăn tháng/);
 assert.match(generation, /value="22"/);
+assert.match(generation, /35\.000 đ/);
+assert.match(generation, /770\.000 đ/);
+assert.match(generation, /Giá và thành tiền do hệ thống xác nhận/);
+assert.match(generation, /770\.000 đ/);
 assert.match(generation, /class="template-quantity" type="number" min="1" step="1"/);
 assert.match(generation, /Template khoản thu đã thay đổi\. Hãy yêu cầu preview mới từ hệ thống\./);
 assert.match(generation, /Preview và generate do hệ thống quyết định/);
@@ -103,11 +111,15 @@ assert.match(generation, /selectAll\.indeterminate/);
 assert.match(generation, /Lựa chọn đã thay đổi\. Hãy yêu cầu preview mới từ hệ thống\./);
 for (const unavailable of ['Đã nhận', 'Còn thiếu', 'Receipt', 'carry', 'thực nhận', 'chênh lệch']) assert.doesNotMatch(generation, new RegExp(unavailable, 'i'));
 
-// Receivables is catalog-only; services and promotion remain unavailable in phase 1.
+// Receivables remains catalog-only; Pha 1b promotion configuration is separate.
 assert.match(receivables, /<h1>Khoản thu<\/h1>/);
 assert.match(receivables, /TRƯỜNG ÁNH HOA · NĂM HỌC 2026-2027/);
 assert.match(receivables, /<h2>Danh sách khoản thu<\/h2>/);
 assert.match(receivables, /Đơn giá mặc định/);
+assert.match(receivables, /Tiền ăn[ -]*35\.000 đ\/ngày/);
+assert.doesNotMatch(receivables, /TA-THANG|600\.000 đ/);
+assert.match(invoice, /22 ngày · 35\.000 đ\/ngày · Không có ưu đãi áp dụng/);
+assert.match(invoice, /770\.000 đ/);
 assert.match(receivables, /Đang kiểm tra kết quả với hệ thống/);
 assert.match(receivables, /Giữ nguyên ngữ cảnh Trường và đối soát thao tác trước khi thử lại/);
 assert.match(receivables, /id="open-groups"/);
@@ -117,6 +129,13 @@ assert.match(receivables, /data-lifecycle>Áp dụng lại/);
 assert.match(receivables, /type="number" min="1" step="1" required inputmode="numeric"/);
 assert.match(receivables, /reportValidity\(\)/);
 for (const unavailable of ['Dịch vụ theo học sinh', 'Chính sách ưu đãi', 'service-matrix', 'scope', 'automation']) assert.doesNotMatch(receivables, new RegExp(unavailable, 'i'));
+assert.match(promotions, /<h1>Ưu đãi<\/h1>/);
+assert.match(promotions, /Con cán bộ trường/);
+assert.match(promotions, /Học phí tháng/);
+assert.match(promotions, /Gán học sinh/);
+assert.match(promotions, /Lý do/);
+assert.match(promotions, /Đang kiểm tra kết quả với hệ thống/);
+for (const unavailable of ['PREPAID_COVERAGE', 'Receipt', 'coverage', 'carry', 'hoàn tiền']) assert.doesNotMatch(promotions, new RegExp(unavailable, 'i'));
 
 // Settings remains a separate school-policy surface.
 assert.match(settings, /id="school-profile-form"/);

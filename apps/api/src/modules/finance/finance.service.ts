@@ -24,6 +24,10 @@ const routes = {
   openRun: "POST /api/app/schools/:schoolId/finance/collection-runs",
   selection:
     "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/selection",
+  template:
+    "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/template-lines",
+  removeTemplate:
+    "DELETE /api/app/schools/:schoolId/finance/collection-runs/:runId/template-lines/:lineId",
   ready: "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/ready",
   generate:
     "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/generate",
@@ -232,7 +236,7 @@ export class FinanceService {
     const result: any = {
       id: invoice.id, status: invoice.status, total: invoice.total.toString(), billingMonth: invoice.billingMonth,
       student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot, className: invoice.classNameSnapshot },
-      lines: (invoice.lines ?? []).map((line: any) => this.lineDto(line)),
+      lines: (invoice.lines ?? []).map((line: any) => this.lineDto(line)).sort(this.amountDescending),
       revisesInvoiceId: invoice.revisesInvoiceId ?? null,
       revisionReason: invoice.revisionReason ?? null,
       replacementInvoiceId: invoice.replacementInvoices?.[0]?.id ?? null,
@@ -246,6 +250,8 @@ export class FinanceService {
     };
     return result;
   }
+  private amountDescending = (a: { amount: string; id: string }, b: { amount: string; id: string }) =>
+    BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : a.id.localeCompare(b.id);
   private localIssueDate(now: Date) {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
     const value = (type: string) => parts.find((part) => part.type === type)!.value;
@@ -261,7 +267,7 @@ export class FinanceService {
   }
   async invoice(identityId: string, schoolId: string, invoiceId: string) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
-    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } }, replacementInvoices: { select: { id: true }, take: 1 } } });
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] }, replacementInvoices: { select: { id: true }, take: 1 } } });
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     return this.invoiceDto(invoice);
   }
@@ -271,7 +277,7 @@ export class FinanceService {
     return this.mutate(actor, identityId, schoolId, routes.issueInvoice, key, operationId, { invoiceId, bankAccountId }, async (tx, operation) => {
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       await tx.$queryRaw`SELECT 1 FROM "BankAccount" WHERE "id" = ${bankAccountId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (invoice.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_NOT_DRAFT", message: "Hóa đơn đã được phát hành hoặc không thể phát hành." });
       if (invoice.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_REVISION_ISSUE_REQUIRED", message: "Bản điều chỉnh phải được phát hành qua luồng thay thế." });
@@ -288,7 +294,7 @@ export class FinanceService {
       if (!policy) throw new ConflictException({ code: "FINANCE_POLICY_NOT_CONFIGURED", message: "Chưa có chính sách Finance hiệu lực để phát hành." });
       const dueOn = new Date(issueDate); dueOn.setUTCDate(dueOn.getUTCDate() + policy.dueDaysAfterIssue);
       const obligationLines = invoice.lines.map((line: any) => this.lineDto(line));
-      const updated = await tx.invoice.update({ where: { id: invoice.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(invoice.studentNameSnapshot, invoice.classNameSnapshot), obligationLinesSnapshot: obligationLines, obligationTotalSnapshot: invoice.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      const updated = await tx.invoice.update({ where: { id: invoice.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(invoice.studentNameSnapshot, invoice.classNameSnapshot), obligationLinesSnapshot: obligationLines, obligationTotalSnapshot: invoice.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       const outcome = this.invoiceDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_ISSUED", operation, { id: invoice.id, status: "DRAFT" }, outcome); return outcome;
     });
   }
@@ -297,13 +303,13 @@ export class FinanceService {
     const reason = this.text(body?.reason, "reason", true, 500)!;
     return this.mutate(actor, identityId, schoolId, routes.prepareRevision, key, operationId, { invoiceId, reason }, async (tx, operation) => {
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const source = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      const source = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       if (!source) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (source.status !== "ISSUED" || source.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_SOURCE", message: "Chỉ hóa đơn gốc đã phát hành mới có thể được điều chỉnh." });
       const run = await this.lockRun(tx, schoolId, source.collectionRunId);
       const year = await this.lockYear(tx, schoolId, source.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
-      const existing = await tx.invoice.findFirst({ where: { schoolId, revisesInvoiceId: source.id }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      const existing = await tx.invoice.findFirst({ where: { schoolId, revisesInvoiceId: source.id }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       if (existing) {
         if (existing.revisionReason !== reason)
           throw new ConflictException({ code: "INVOICE_REVISION_EXISTS", message: "Bản điều chỉnh đã tồn tại với lý do khác." });
@@ -317,7 +323,7 @@ export class FinanceService {
         classAssignmentIdSnapshot: source.classAssignmentIdSnapshot, classAssignmentEffectiveFromSnapshot: source.classAssignmentEffectiveFromSnapshot,
         classAssignmentEffectiveToSnapshot: source.classAssignmentEffectiveToSnapshot, classIdSnapshot: source.classIdSnapshot, classNameSnapshot: source.classNameSnapshot,
         selectionProvenance: source.selectionProvenance, revisesInvoiceId: source.id, revisionReason: reason,
-      }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       const outcome = this.invoiceDto(replacement);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_PREPARED", operation, { id: source.id, status: source.status }, outcome, reason);
       return outcome;
@@ -329,7 +335,7 @@ export class FinanceService {
     return this.mutate(actor, identityId, schoolId, routes.issueRevision, key, operationId, { invoiceId, bankAccountId }, async (tx, operation) => {
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       await tx.$queryRaw`SELECT 1 FROM "BankAccount" WHERE "id" = ${bankAccountId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const replacement = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      const replacement = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       if (!replacement) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (replacement.status !== "DRAFT" || !replacement.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_DRAFT", message: "Chỉ bản điều chỉnh nháp mới có thể phát hành thay thế." });
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${replacement.revisesInvoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
@@ -345,7 +351,7 @@ export class FinanceService {
       const policy = await tx.financePolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: issueDate } }, orderBy: { effectiveFrom: "desc" } });
       if (!policy) throw new ConflictException({ code: "FINANCE_POLICY_NOT_CONFIGURED", message: "Chưa có chính sách Finance hiệu lực để phát hành." });
       const dueOn = new Date(issueDate); dueOn.setUTCDate(dueOn.getUTCDate() + policy.dueDaysAfterIssue);
-      const updated = await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+      const updated = await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       await tx.invoice.update({ where: { id: source.id }, data: { status: "CANCELLED" } });
       const outcome = this.invoiceDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_ISSUED", operation, { sourceInvoiceId: source.id, sourceStatus: "ISSUED" }, outcome, replacement.revisionReason ?? undefined);
@@ -381,13 +387,13 @@ export class FinanceService {
   }
   private async draftInvoice(tx: any, schoolId: string, invoiceId: string) {
     await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-    const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+    const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     if (invoice.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_NOT_DRAFT", message: "Chỉ được sửa dòng khi hóa đơn ở trạng thái nháp." });
     return invoice;
   }
   private async refreshInvoice(tx: any, schoolId: string, invoiceId: string) {
-    const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: { createdAt: "asc" } } } });
+    const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     return this.invoiceDto(invoice);
   }
@@ -607,6 +613,7 @@ export class FinanceService {
   }
   private runInclude: any = {
     selections: { select: { studentId: true } },
+    templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } } }, orderBy: { id: "asc" } },
     invoices: {
       select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true },
       orderBy: { studentCodeSnapshot: "asc" },
@@ -625,6 +632,7 @@ export class FinanceService {
       selectedStudentIds: (run.selections ?? []).map(
         (selection: any) => selection.studentId,
       ),
+      templateLines: (run.templateLines ?? []).map((line: any) => this.templateLineDto(line)).sort(this.amountDescending),
       invoices: (run.invoices ?? []).map((invoice: any) => ({
         id: invoice.id, studentId: invoice.studentId, studentCode: invoice.studentCodeSnapshot,
         studentName: invoice.studentNameSnapshot, className: invoice.classNameSnapshot,
@@ -633,6 +641,54 @@ export class FinanceService {
       createdAt: run.createdAt.toISOString(),
       updatedAt: run.updatedAt.toISOString(),
     };
+  }
+  private templateLineDto(line: any) {
+    const receivable = line.receivable;
+    const price = receivable.defaultUnitPrice;
+    return { id: line.id, receivableId: line.receivableId, receivableName: receivable.displayName, unitLabel: receivable.unitLabel, defaultUnitPrice: price.toString(), quantity: line.quantity.toString(), amount: this.amount(price, line.quantity).toString() };
+  }
+  private async templateSnapshot(tx: any, schoolId: string, run: any) {
+    await tx.$queryRaw`SELECT 1 FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid FOR UPDATE`;
+    await tx.$queryRaw`SELECT 1 FROM "Receivable" AS r JOIN "ReceivableGroup" AS g ON g."id" = r."groupId" AND g."schoolId" = r."schoolId" WHERE r."schoolId" = ${schoolId}::uuid AND r."id" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid) FOR UPDATE OF r, g`;
+    await tx.$queryRaw`SELECT 1 FROM "ReceivableLifecycleTransition" WHERE "schoolId" = ${schoolId}::uuid AND "receivableId" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid) FOR UPDATE`;
+    await tx.$queryRaw`SELECT 1 FROM "ReceivableGroupLifecycleTransition" WHERE "schoolId" = ${schoolId}::uuid AND "receivableGroupId" IN (SELECT r."groupId" FROM "Receivable" r WHERE r."schoolId" = ${schoolId}::uuid AND r."id" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid)) FOR UPDATE`;
+    const lines = await tx.collectionRunTemplateLine.findMany({
+      where: { schoolId, collectionRunId: run.id },
+      include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } } },
+      orderBy: { id: "asc" },
+    });
+    if (!lines.length) throw validation("template", "Đợt thu phải có ít nhất một khoản thu mẫu.");
+    return lines.map((line: any) => {
+      const receivable = line.receivable;
+      if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu mẫu đã ngừng áp dụng.");
+      const amount = this.amount(receivable.defaultUnitPrice, line.quantity);
+      return { templateLineId: line.id, receivableId: receivable.id, receivableCode: receivable.code, receivableName: receivable.displayName, unitLabel: receivable.unitLabel, defaultUnitPrice: receivable.defaultUnitPrice.toString(), quantity: line.quantity, amount: amount.toString() };
+    }).sort((a: any, b: any) => this.amountDescending({ ...a, id: a.templateLineId }, { ...b, id: b.templateLineId }));
+  }
+  async saveTemplateLine(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, "runId");
+    const input = { receivableId: this.identifier(body?.receivableId, "receivableId"), quantity: this.quantity(body?.quantity), expectedVersion: Number(body?.expectedVersion) };
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw validation("expectedVersion", "Phiên bản đợt thu không hợp lệ.");
+    return this.mutate(actor, identityId, schoolId, routes.template, key, operationId, { runId, ...input }, async (tx, operation) => {
+      const run = await this.lockRun(tx, schoolId, runId);
+      if (run.status !== "DRAFT") throw new ConflictException({ code: "COLLECTION_RUN_NOT_DRAFT", message: "Chỉ được sửa khoản thu mẫu khi đợt thu ở trạng thái nháp." });
+      if (run.version !== input.expectedVersion) throw new ConflictException({ code: "COLLECTION_RUN_VERSION_CONFLICT", message: "Đợt thu đã thay đổi. Hãy tải lại trước khi sửa khoản thu mẫu." });
+      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } });
+      if (!receivable || receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu không còn áp dụng.");
+      const line = await tx.collectionRunTemplateLine.upsert({ where: { schoolId_collectionRunId_receivableId: { schoolId, collectionRunId: run.id, receivableId: receivable.id } }, create: { schoolId, collectionRunId: run.id, receivableId: receivable.id, quantity: input.quantity }, update: { quantity: input.quantity }, include: { receivable: true } });
+      const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude });
+      const outcome = this.runDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_TEMPLATE_SAVED", operation, null, { line: this.templateLineDto(line), run: outcome }); return outcome;
+    });
+  }
+  async removeTemplateLine(identityId: string, schoolId: string, runId: string, lineId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, "runId"); this.identifier(lineId, "lineId");
+    const expectedVersion = Number(body?.expectedVersion); if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw validation("expectedVersion", "Phiên bản đợt thu không hợp lệ.");
+    return this.mutate(actor, identityId, schoolId, routes.removeTemplate, key, operationId, { runId, lineId, expectedVersion }, async (tx, operation) => {
+      const run = await this.lockRun(tx, schoolId, runId); if (run.status !== "DRAFT") throw new ConflictException({ code: "COLLECTION_RUN_NOT_DRAFT", message: "Chỉ được sửa khoản thu mẫu khi đợt thu ở trạng thái nháp." });
+      if (run.version !== expectedVersion) throw new ConflictException({ code: "COLLECTION_RUN_VERSION_CONFLICT", message: "Đợt thu đã thay đổi. Hãy tải lại trước khi sửa khoản thu mẫu." });
+      const line = await tx.collectionRunTemplateLine.findFirst({ where: { id: lineId, schoolId, collectionRunId: run.id }, include: { receivable: true } }); if (!line) throw new NotFoundException({ code: "COLLECTION_RUN_TEMPLATE_LINE_NOT_FOUND", message: "Không tìm thấy khoản thu mẫu." });
+      await tx.collectionRunTemplateLine.delete({ where: { id: line.id } }); const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude }); const outcome = this.runDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_TEMPLATE_REMOVED", operation, this.templateLineDto(line), outcome); return outcome;
+    });
   }
   async runs(identityId: string, schoolId: string, schoolYearId?: string) {
     schoolId = this.school(schoolId);
@@ -881,6 +937,7 @@ export class FinanceService {
     schoolId: string,
     run: any,
     studentIds = run.selections.map((item: any) => item.studentId),
+    templateLines: any[] = [],
   ) {
     const asOf = this.asOf(run.billingMonth);
     const enrollments = await client.studentEnrollment.findMany({
@@ -977,6 +1034,7 @@ export class FinanceService {
         closedAt: run.schoolYear.closedAt?.toISOString() ?? null,
       },
       selectedStudentIds: [...studentIds].sort(),
+      templateLines,
       sources,
       eligible: eligibleRows,
       skips,
@@ -1008,7 +1066,8 @@ export class FinanceService {
         code: "COLLECTION_RUN_NOT_DRAFT",
         message: "Chỉ có thể xem trước đợt thu nháp.",
       });
-    return this.selectionPreview(this.prisma, schoolId, run);
+    const templateLines = await this.templateSnapshot(this.prisma, schoolId, run);
+    return this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines);
   }
   async readyRun(
     identityId: string,
@@ -1057,7 +1116,8 @@ export class FinanceService {
             code: "COLLECTION_RUN_STATE_CONFLICT",
             message: "Trạng thái đợt thu đã thay đổi.",
           });
-        const preview = await this.selectionPreview(tx, schoolId, run);
+        const templateLines = await this.templateSnapshot(tx, schoolId, run);
+        const preview = await this.selectionPreview(tx, schoolId, run, undefined, templateLines);
         if (preview.fingerprint !== previewFingerprint)
           throw new ConflictException({
             code: "PREVIEW_STALE",
@@ -1142,11 +1202,13 @@ export class FinanceService {
             message: "Chỉ có thể tạo hóa đơn khi đợt thu đã sẵn sàng.",
           });
         // One authoritative roster read supplies both eligibility and immutable snapshots.
-        const roster = await this.selectionPreview(tx, schoolId, run);
+        const templateLines = await this.templateSnapshot(tx, schoolId, run);
+        const roster = await this.selectionPreview(tx, schoolId, run, undefined, templateLines);
         const snapshots = roster.snapshots as any[];
+        await tx.collectionRun.update({ where: { id: run.id }, data: { templateSnapshot: templateLines } });
         const generation = await tx.collectionRunGeneration.create({ data: { schoolId, collectionRunId: run.id, operationId: operation.id, actorIdentityId: identityId, membershipId: actor.membershipId, totalCount: snapshots.length + roster.skips.length, processedCount: roster.skips.length, eligibleCount: 0, skippedCount: roster.skips.length } });
         await tx.collectionRunGenerationItem.createMany({ data: [
-          ...snapshots.map((item: any, ordinal: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal, snapshot: this.invoiceData(schoolId, run, item) })),
+          ...snapshots.map((item: any, ordinal: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal, snapshot: this.invoiceData(schoolId, run, item, templateLines) })),
           ...roster.skips.map((item: any, index: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal: snapshots.length + index, status: "SKIPPED" as const, skip: item })),
         ] });
         return { id: operation.id, status: operation.status, outcome: null, progress: this.generationDto(generation) };
@@ -1262,11 +1324,13 @@ export class FinanceService {
       if (run.status !== "GENERATED") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ có thể thêm học sinh khi đợt thu đã được tạo." });
       const student = await tx.student.findFirst({ where: { id: studentId, schoolId } });
       if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
-       const roster = await this.selectionPreview(tx, schoolId, run, [studentId]);
-       const candidate = roster.snapshots[0] as any;
-       const skipped = [...roster.skips];
-       const insertedStudentIds = candidate
-         ? await this.insertInvoices(tx, [this.invoiceData(schoolId, run, candidate)])
+        const roster = await this.selectionPreview(tx, schoolId, run, [studentId]);
+        const candidate = roster.snapshots[0] as any;
+        const skipped = [...roster.skips];
+        const templateLines = run.templateSnapshot as any[] | null;
+        if (!templateLines?.length) throw new ConflictException({ code: "COLLECTION_RUN_TEMPLATE_SNAPSHOT_MISSING", message: "Không tìm thấy snapshot khoản thu của đợt đã tạo." });
+        const insertedStudentIds = candidate
+          ? await this.insertInvoices(tx, [this.invoiceData(schoolId, run, candidate, templateLines)])
          : new Set<string>();
        const created = candidate && insertedStudentIds.has(studentId) ? [{ ...candidate, invoiceId: (await tx.invoice.findFirst({ where: { schoolId, collectionRunId: run.id, studentId }, select: { id: true } }))?.id }] : [];
        if (candidate && !insertedStudentIds.has(studentId))
@@ -1306,7 +1370,7 @@ export class FinanceService {
       return outcome;
     });
   }
-  private invoiceData(schoolId: string, run: any, item: any) {
+  private invoiceData(schoolId: string, run: any, item: any, templateLines: any[]) {
     const { enrollment, assignment } = item;
     return {
       schoolId, studentId: item.studentId, collectionRunId: run.id, schoolYearId: run.schoolYearId,
@@ -1321,11 +1385,12 @@ export class FinanceService {
         rosterAsOf: this.asOf(run.billingMonth).toISOString(), enrollmentId: enrollment.id,
         enrollmentInterval: [enrollment.effectiveFrom.toISOString(), enrollment.endedOn?.toISOString() ?? null],
         assignmentId: assignment.id, assignmentInterval: [assignment.effectiveFrom.toISOString(), assignment.effectiveTo?.toISOString() ?? null] },
+      lines: templateLines.map((line: any) => ({ schoolId, receivableId: line.receivableId, receivableCodeSnapshot: line.receivableCode, receivableNameSnapshot: line.receivableName, unitLabelSnapshot: line.unitLabel, defaultUnitPriceSnapshot: line.defaultUnitPrice, unitPrice: line.defaultUnitPrice, quantity: line.quantity, amount: line.amount })),
     };
   }
   private async insertInvoices(tx: any, invoices: any[]) {
     if (!invoices.length) return new Set<string>();
-    const rows = JSON.stringify(invoices);
+    const rows = JSON.stringify(invoices.map(({ lines, ...invoice }) => invoice));
     const inserted = (await tx.$queryRaw(Prisma.sql`
       INSERT INTO "Invoice" (
         "schoolId", "studentId", "collectionRunId", "schoolYearId", "billingMonth", "rosterAsOf",
@@ -1350,8 +1415,11 @@ export class FinanceService {
         "selectionProvenance" jsonb
       )
        ON CONFLICT ("schoolId", "studentId", "collectionRunId") WHERE "revisesInvoiceId" IS NULL DO NOTHING
-      RETURNING "studentId"
-    `)) as { studentId: string }[];
+       RETURNING "id", "studentId"
+    `)) as { id: string; studentId: string }[];
+    const invoiceIds = new Map(inserted.map((invoice) => [invoice.studentId, invoice.id]));
+    const lines = invoices.flatMap((invoice) => (invoiceIds.get(invoice.studentId) ? invoice.lines.map((line: any) => ({ ...line, invoiceId: invoiceIds.get(invoice.studentId) })) : []));
+    if (lines.length) await tx.invoiceLine.createMany({ data: lines });
     return new Set(inserted.map((invoice: { studentId: string }) => invoice.studentId));
   }
   private async lockYear(tx: any, schoolId: string, schoolYearId: string) {

@@ -44,6 +44,6 @@ Hoàn thiện lớp settlement Finance sau khi Invoice đã được phát hành
 
 ## Cross-Story Dependencies
 
-- Epic 5 là prerequisite: CollectionRun monthly, Invoice `DRAFT`/`ISSUED`, immutable obligation/payment snapshots, PromotionPolicy selection và future coverage facts phải tồn tại trước settlement.
+- Epic 5 là prerequisite: CollectionRun monthly, Invoice `DRAFT`/`ISSUED`, immutable obligation/payment snapshots và normal per-Receivable promotion snapshot. Chỉ fulfillment `PREPAID_COVERAGE` cùng future coverage facts là prerequisite riêng cho Story 6.2/6.3, không phải requirement của Pha 1b discount.
 - Story 6.1 là nền cho settlement outcome và next-run carry; Story 6.2 chỉ issue coverage sau exact close; Story 6.3 dùng coverage/Receipt provenance và calendar/service snapshots; Story 6.4 reuses actual-receipt close cho target prior-debt Invoice; Story 6.5 đọc toàn bộ posted ledger/provenance; Story 6.6 là release gate cho các hành vi trên.
 - Epic 7 phụ thuộc Epic 6 cho Parent read-only effective Invoice/payment projection; không được lộ correction rationale, SettlementDifference, transfer provenance hay cho Parent mutation Finance.

@@ -31,7 +31,7 @@ Finance Admin MVP hiện tạo `Invoice DRAFT` rỗng cho từng Student. Cách 
 | Addendum | Bổ sung invariant template DRAFT, snapshot template vào Invoice và verification matrix populated DRAFT; bỏ mô tả empty-DRAFT làm build input hiện hành. |
 | Architecture Spine AD-7/AD-8/AD-11 | `finance` sở hữu template line, lifecycle lock, preview fingerprint, snapshot/copy transaction và Operation/audit; bổ sung integration/E2E proof. Không thay School scope, VND, invoice uniqueness hay settlement invariant. |
 | SPEC CAP-4/constraints | Thay create empty draft obligations bằng generate populated DRAFT từ template server-authoritative; giữ deferred automation. |
-| UX | `Đợt thu` thêm bảng Khoản thu trong đợt với catalog active, quantity dương, server-returned default price/amount, add/remove/reorder; preview bắt buộc trước generate; Invoice review vẫn contextual. |
+| UX | `Đợt thu` thêm bảng Khoản thu trong đợt với catalog active, quantity dương, server-returned default price/amount và display order deterministic amount giảm dần; preview bắt buộc trước generate; Invoice review vẫn contextual. |
 | Mockup | Khôi phục phần cấu hình khoản thu trong dialog/detail Đợt thu dưới dạng template chung, không khôi phục service toggle, ưu đãi hay settlement KPI. |
 | Tracker | Thêm 5.9 ready-for-dev, 5.10 và 5.11 backlog; Epic 5 giữ in-progress. |
 | Infrastructure/portals | Không đổi deployment, database topology, Parent hoặc Teacher dependency. |
@@ -77,13 +77,13 @@ Generate ... Invoice DRAFT rỗng idempotent.
 **NEW:**
 
 ```md
-CollectionRun MONTHLY ở DRAFT sở hữu CollectionRunTemplateLine có thứ tự.
+CollectionRun MONTHLY ở DRAFT sở hữu CollectionRunTemplateLine. API chỉ hiển thị line theo amount giảm dần với tie-breaker server ổn định; thứ tự không có ý nghĩa nghiệp vụ.
 Mỗi line tham chiếu đúng một Receivable active cùng School, unique trong run,
 và có quantity nguyên dương do Finance nhập. Template dùng default unit price
 của catalog; API tính amount/total VND và không nhận giá, tổng, scope hoặc
 giá trị theo Student từ browser.
 
-Finance chỉ thêm, bỏ, sắp xếp hoặc đổi quantity template khi run DRAFT. Preview
+Finance chỉ thêm, bỏ hoặc đổi quantity template khi run DRAFT. Preview
 fingerprint bao gồm selection, roster, template version và catalog facts. Generate
 revalidate/snapshot template trong transaction và tạo mỗi Invoice DRAFT eligible
 có các InvoiceLine tương ứng. Catalog/template thay đổi sau generate không
@@ -105,7 +105,7 @@ trừ ngày nghỉ, service, policy hoặc scope theo Class/Student trong Financ
 ```md
 CollectionRunTemplateLine thuộc cùng School/run và chỉ mutable ở DRAFT. Nó
 tham chiếu Receivable active same-School, unique `(collectionRunId, receivableId)`,
-có position và positive integer quantity. API derives default-price amount,
+có positive integer quantity. API derives default-price amount,
 audits every mutation and fingerprints canonical template/catalog facts.
 
 READY/GENERATED/CLOSED reject template mutation. Generate locks/revalidates
@@ -132,7 +132,7 @@ As a Finance Manager, I want to quản lý khoản thu mẫu và quantity chung 
 
 **Acceptance criteria:**
 
-- Given a DRAFT monthly run and active same-School Receivable, when Finance adds/removes/reorders a template line or sets a positive integer quantity, then the API persists only the canonical same-School template, VND amount and audit/Operation outcome.
+- Given a DRAFT monthly run and active same-School Receivable, when Finance adds/removes a template line or sets a positive integer quantity, then the API persists only the canonical same-School template, VND amount and audit/Operation outcome; DTO order is server-deterministic amount descending and has no position/reorder input.
 - Given duplicate, inactive/foreign Receivable, zero/negative/fractional quantity, stale run version or non-DRAFT state, when template mutation is requested, then server rejects before write and exposes no foreign catalog/run fact.
 - Given a preview exists, when selection/template/catalog fact changes, then its fingerprint becomes stale and READY/generate is denied until a new server preview succeeds.
 
@@ -163,7 +163,7 @@ As a release owner, I want automated proof for template snapshot and populated D
 **New Pha 1 interaction:**
 
 1. Finance opens/creates one monthly run.
-2. In DRAFT, Finance adds active catalog receivables into **Khoản thu trong đợt**, sets positive integer quantity and reorders/removes lines.
+2. In DRAFT, Finance adds active catalog receivables into **Khoản thu trong đợt**, sets positive integer quantity and removes lines. API returns deterministic amount-desc display order; no reorder is offered.
 3. Server returns price/amount; UI never computes values or provides Class/Student scope/service/promotion controls.
 4. Finance selects Student, requests preview, then generates only from that preview.
 5. Invoice review opens a populated DRAFT; individual exception requires reason/audit and never mutates run template.

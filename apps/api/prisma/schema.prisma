@@ -731,11 +731,29 @@ model CollectionRun {
   lifecycleTransitions CollectionRunLifecycleTransition[]
   invoices             Invoice[]
   generation           CollectionRunGeneration?
+  templateLines        CollectionRunTemplateLine[]
+  templateSnapshot     Json?
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, billingMonth])
   @@unique([schoolId, id, schoolYearId, billingMonth])
   @@index([schoolId, schoolYearId, billingMonth])
+}
+
+model CollectionRunTemplateLine {
+  id              String        @id @default(uuid()) @db.Uuid
+  schoolId        String        @db.Uuid
+  collectionRunId String        @db.Uuid
+  receivableId    String        @db.Uuid
+  quantity        Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  collectionRun   CollectionRun @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
+  receivable      Receivable    @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, collectionRunId, receivableId])
+  @@index([schoolId, collectionRunId])
 }
 
 enum CollectionRunGenerationStatus {
@@ -928,6 +946,7 @@ model Receivable {
   group                ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
   lifecycleTransitions ReceivableLifecycleTransition[]
   invoiceLines          InvoiceLine[]
+  templateLines         CollectionRunTemplateLine[]
 
   @@unique([schoolId, id])
   @@index([schoolId, groupId])

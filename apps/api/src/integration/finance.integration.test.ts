@@ -155,10 +155,21 @@ async function open(
   input: Awaited<ReturnType<typeof roster>>,
   billingMonth = "2026-09",
 ) {
-  return finance.openRun(input.identity.id, input.school.id, uuid(), uuid(), {
+  const opened = await finance.openRun(input.identity.id, input.school.id, uuid(), uuid(), {
     schoolYearId: input.year.id,
     billingMonth,
   });
+  const runId = outcomeId(opened);
+  if (!await prisma.collectionRunTemplateLine.count({ where: { schoolId: input.school.id, collectionRunId: runId } })) {
+    try {
+      const groupId = outcomeId(await group(input, `T${uuid().slice(0, 8)}`));
+      const receivableId = outcomeId(await finance.createReceivable(input.identity.id, input.school.id, uuid(), uuid(), { groupId, displayName: "Khoản thu mẫu", unitLabel: "lần", defaultUnitPrice: "1" }));
+      await prisma.collectionRunTemplateLine.create({ data: { schoolId: input.school.id, collectionRunId: runId, receivableId, quantity: 1 } });
+    } catch (error) {
+      if ((error as { code?: string }).code !== "P2002") throw error;
+    }
+  }
+  return opened;
 }
 
 async function issueFixture() {
@@ -167,12 +178,14 @@ async function issueFixture() {
   const groupId = outcomeId(await group(current));
   const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "9007199254740991" }));
   const runId = outcomeId(await open(current));
+  const template = await finance.run(current.identity.id, current.school.id, runId);
+  await finance.removeTemplateLine(current.identity.id, current.school.id, runId, template.templateLines[0]!.id, uuid(), uuid(), { expectedVersion: template.version });
+  await finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId, quantity: "1", expectedVersion: template.version + 1 });
   await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
   const preview = await finance.preview(current.identity.id, current.school.id, runId);
   await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
   await generate(current, runId);
   const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
-  await finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId, quantity: "1" });
   const operationId = uuid();
   await prisma.operation.create({ data: { id: operationId, schoolId: current.school.id, membershipId: current.membership.id, actorIdentityId: current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: current.membership.id, route: "fixture", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
   const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng Ánh Hoa", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
@@ -200,6 +213,7 @@ afterEach(async () => {
     await tx.collectionRunGeneration.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.invoiceLine.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.invoice.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.collectionRunTemplateLine.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.bankAccountLifecycleTransition.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.bankAccount.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.financePolicy.deleteMany({ where: { schoolId: { in: ids } } });
@@ -1065,6 +1079,32 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       ).rejects.toThrow(/does not match parent state/);
     });
 
+    it("snapshots daily meal template facts, rejects invalid template input, and uses the snapshot for a late Student", async () => {
+      const current = await roster(await graph()); const foreign = await roster(await graph());
+      const first = await enrolled(current); const later = await enrolled(current);
+      const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
+      const groupId = outcomeId(await group(current, "Bữa ăn"));
+      const mealId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000" }));
+      const key = uuid(); const operationId = uuid();
+      const saved = await finance.saveTemplateLine(current.identity.id, current.school.id, runId, key, operationId, { receivableId: mealId, quantity: "22", expectedVersion: 1 });
+      expect(saved.outcome).toMatchObject({ templateLines: [{ receivableId: mealId, unitLabel: "ngày", defaultUnitPrice: "35000", quantity: "22", amount: "770000" }] });
+      await expect(finance.saveTemplateLine(current.identity.id, current.school.id, runId, key, uuid(), { receivableId: mealId, quantity: "21", expectedVersion: 1 })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
+      await expect(finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId: mealId, quantity: "0", expectedVersion: 2 })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { quantity: expect.any(String) } } });
+      await expect(finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId: foreign.school.id, quantity: "1", expectedVersion: 2 })).rejects.toMatchObject({ status: 400 });
+      await expect(finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId: mealId, quantity: "1", expectedVersion: 1 })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_VERSION_CONFLICT" } });
+      await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [first.student.id] });
+      const preview = await finance.preview(current.identity.id, current.school.id, runId);
+      await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
+      await expect(finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId: mealId, quantity: "1", expectedVersion: 3 })).rejects.toMatchObject({ status: 409 });
+      await generate(current, runId);
+      await finance.transitionReceivable(current.identity.id, current.school.id, mealId, uuid(), uuid(), { status: "INACTIVE", reason: "Đổi catalog" });
+      const added = await finance.addGeneratedStudent(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentId: later.student.id });
+      expect(added.outcome).toMatchObject({ created: [{ studentId: later.student.id }] });
+      const invoices = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: runId }, include: { lines: true } });
+      expect(invoices).toHaveLength(2);
+      expect(invoices.flatMap((invoice) => invoice.lines)).toEqual(expect.arrayContaining([expect.objectContaining({ receivableId: mealId, unitLabelSnapshot: "ngày", defaultUnitPriceSnapshot: 35000n, quantity: 22, amount: 770000n })]));
+    });
+
     it("prepares one revision from immutable source facts, then atomically issues it and cancels the source", async () => {
       const fixture = await issueFixture();
       const issued = await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
@@ -1390,28 +1430,28 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const key = uuid(); const operationId = uuid();
       const body = { receivableId, quantity: "2", unitPrice: "120000", overrideReason: "Điều chỉnh học phí", source: { serviceDate: "2026-09-01", attendanceState: "PRESENT", pickedUpAt: "17:30", lateCareMinutes: 30 }, sourceReason: "Nhập tay từ bảng theo dõi" };
       const added = await finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, key, operationId, body);
-      expect(added).toMatchObject({ id: operationId, outcome: { total: "240000", lines: [{ quantity: "2", unitPrice: "120000", amount: "240000", sourceReason: body.sourceReason }] } });
+      expect(added).toMatchObject({ id: operationId, outcome: { total: "240001", lines: expect.arrayContaining([expect.objectContaining({ quantity: "2", unitPrice: "120000", amount: "240000", sourceReason: body.sourceReason })]) } });
       await expect(finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, key, uuid(), body)).resolves.toEqual(added);
       await expect(finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, key, uuid(), { ...body, quantity: "3" })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
       await expect(finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId, quantity: "2147483647", unitPrice: "9007199254740991", overrideReason: "Vượt giới hạn" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { quantity: expect.any(String) } } });
       await expect(finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId, quantity: "1", source: { attendanceState: "ABSENT", pickedUpAt: "17:30" }, sourceReason: "Mâu thuẫn" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { source: expect.any(String) } } });
       await expect(finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId, quantity: "1", source: { attendanceState: "PRESENT", pickedUpAt: "25:99" }, sourceReason: "Giờ sai" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { "source.pickedUpAt": expect.any(String) } } });
       await expect(prisma.invoice.update({ where: { id: invoice.id }, data: { total: 1n } })).rejects.toThrow(/derived/);
-      const line = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: current.school.id, invoiceId: invoice.id } });
+      const line = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: current.school.id, invoiceId: invoice.id, amount: 240000n } });
       expect(line).toMatchObject({ amount: 240000n, sourceActorIdentityId: current.identity.id, sourceMembershipId: current.membership.id, sourceProvenance: { enrollmentId: student.enrollment.id } });
       expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "INVOICE_LINE_ADDED" } })).toMatchObject({ provenance: { operationId } });
       const editKey = uuid(); const editOperation = uuid();
       const edited = await finance.editInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, editKey, editOperation, { quantity: "3", unitPrice: "100000", overrideReason: "Dùng giá catalog" });
-      expect(edited.outcome).toMatchObject({ total: "300000", lines: [{ amount: "300000" }] });
+       expect(edited.outcome).toMatchObject({ total: "300001", lines: expect.arrayContaining([expect.objectContaining({ amount: "300000" })]) });
       await expect(finance.editInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, editKey, uuid(), { quantity: "3", unitPrice: "100000", overrideReason: "Dùng giá catalog" })).resolves.toEqual(edited);
       await expect(finance.editInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, editKey, uuid(), { quantity: "4", unitPrice: "100000", overrideReason: "Dùng giá catalog" })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
       const preserved = await finance.editInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, uuid(), uuid(), { quantity: "2" });
-      expect(preserved.outcome).toMatchObject({ lines: [{ unitPrice: "100000", overrideReason: "Dùng giá catalog" }] });
+       expect(preserved.outcome).toMatchObject({ lines: expect.arrayContaining([expect.objectContaining({ unitPrice: "100000", overrideReason: "Dùng giá catalog" })]) });
       const cleared = await finance.editInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, uuid(), uuid(), { quantity: "2", source: null });
-      expect(cleared.outcome).toMatchObject({ lines: [{ source: null, sourceReason: null, sourceAudit: null }] });
+       expect(cleared.outcome).toMatchObject({ lines: expect.arrayContaining([expect.objectContaining({ source: null, sourceReason: null, sourceAudit: null })]) });
       const removeKey = uuid(); const removeOperation = uuid();
       const removed = await finance.removeInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, removeKey, removeOperation);
-      expect(removed).toMatchObject({ outcome: { total: "0", lines: [] } });
+       expect(removed).toMatchObject({ outcome: { total: "1", lines: expect.arrayContaining([expect.objectContaining({ amount: "1" })]) } });
       await expect(finance.removeInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, removeKey, uuid())).resolves.toEqual(removed);
       expect(await prisma.auditRecord.findMany({ where: { schoolId: current.school.id, action: { in: ["INVOICE_LINE_EDITED", "INVOICE_LINE_REMOVED"] } } })).toEqual(expect.arrayContaining([expect.objectContaining({ action: "INVOICE_LINE_EDITED", provenance: expect.objectContaining({ operationId: editOperation, oldValue: expect.any(Object) }) }), expect.objectContaining({ action: "INVOICE_LINE_REMOVED", provenance: expect.objectContaining({ operationId: removeOperation, oldValue: expect.any(Object) }) })]));
       await expect(finance.invoice(foreign.identity.id, foreign.school.id, invoice.id)).rejects.toMatchObject({ status: 404, response: { code: "INVOICE_NOT_FOUND" } });
@@ -1419,11 +1459,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
        await expect(prisma.invoiceLine.create({ data: { schoolId: current.school.id, invoiceId: invoice.id, receivableId, receivableNameSnapshot: "Sai", unitLabelSnapshot: "lần", defaultUnitPriceSnapshot: 1n, unitPrice: 1n, quantity: 1, amount: 2n } })).rejects.toThrow();
        await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: current.school.id, positionId: current.position.id, capability: "FINANCE_MANAGE" } });
        await expect(finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId, quantity: "1" })).rejects.toMatchObject({ status: 403, response: { code: "CAPABILITY_DENIED" } });
-       expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(0);
+        expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(1);
        await prisma.positionCapabilityGrant.create({ data: { schoolId: current.school.id, positionId: current.position.id, capability: "FINANCE_MANAGE" } });
        await finance.transitionReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { status: "INACTIVE", reason: "Race catalog" });
        await expect(finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId, quantity: "1" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableId: expect.any(String) } } });
-       expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(0);
+        expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(1);
        const [lineGuard] = await prisma.$queryRaw<Array<{ definition: string; labels: string[] }>>`SELECT pg_get_functiondef(p.oid)::text AS definition, ARRAY(SELECT enumlabel::text FROM pg_enum WHERE enumtypid = '"InvoiceStatus"'::regtype ORDER BY enumsortorder)::text[] AS labels FROM pg_proc p WHERE p.proname = 'reject_invoice_line_after_issue'`;
        expect(lineGuard).toBeDefined();
          expect(lineGuard).toMatchObject({ labels: ["DRAFT", "ISSUED", "CANCELLED"] });
@@ -1442,8 +1482,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
       const results = await Promise.all([finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId: outcomeId(catalog), quantity: "1" }), finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId: outcomeId(catalog), quantity: "2" })]);
       expect(results).toHaveLength(2);
-      expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).toMatchObject({ total: 300n });
-      expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(2);
+       expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).toMatchObject({ total: 301n });
+      expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(3);
       expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "INVOICE_LINE_ADDED" } })).toBe(2);
     });
 
