@@ -121,6 +121,20 @@ describe('SchoolContext', () => {
     expect(screen.getByRole('button', { name: 'Lớp học' }).getAttribute('aria-current')).toBe('page');
     expect(screen.queryByRole('button', { name: 'Tạo chức danh' })).toBeNull();
   });
+  it('opens the independent parent list from the Phụ huynh submenu', async () => {
+    const rosterContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'] as const, navigation: [{ id: 'roster', label: 'Danh bộ' }] };
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [{ schoolId: 'a', schoolName: 'Trường A' }] })));
+      if (url === '/api/app/schools/a') return Promise.resolve(new Response(JSON.stringify({ data: rosterContext })));
+      if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] })));
+      if (url.includes('/school-years/year-a/parents?')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'parent-a', fullName: 'Mai Trần', phone: '0900', email: null, children: [] }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } })));
+      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+    });
+    vi.stubGlobal('fetch', fetch); renderSchoolContext();
+    fireEvent.click(await screen.findByRole('button', { name: 'Phụ huynh' }));
+    expect(await screen.findByText('Mai Trần')).toBeTruthy();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/school-years/year-a/parents?'))).toBe(true);
+  });
   it('integrates Settings navigation and guards a dirty Settings form before switching School', async () => {
     const settingsContext = { ...context, capabilities: ['SCHOOL_CONTEXT_READ', 'SETTINGS_MANAGE'] as const, navigation: [{ id: 'settings', label: 'Cấu hình trường' }] };
     const fetch = vi.fn((url: string) => {

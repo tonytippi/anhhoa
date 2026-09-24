@@ -44,6 +44,12 @@ describe('RosterController mutation boundary', () => {
     await expect(controller.students(request({ cookie: 'app_session=session' }), 'school', 'year', { page: '2', pageSize: '100', q: 'An' })).resolves.toEqual({ data: [{ id: 'student' }], meta: { page: 2, pageSize: 100, totalItems: 101, totalPages: 2 } });
     expect(students).toHaveBeenCalledWith('actor-id', 'school', 'year', { page: '2', pageSize: '100', q: 'An' });
   });
+  it('forwards the scoped parent-list query and preserves its pagination response', async () => {
+    const list = vi.fn().mockResolvedValue({ data: [{ id: 'parent' }], meta: { page: 2, pageSize: 25, totalItems: 26, totalPages: 2 } });
+    const controller = new RosterController(auth as never, {} as never, { list } as never);
+    await expect(controller.parentsList(request({ cookie: 'app_session=session' }), 'school', 'year', { page: '2', q: 'Mai' })).resolves.toEqual({ data: [{ id: 'parent' }], meta: { page: 2, pageSize: 25, totalItems: 26, totalPages: 2 } });
+    expect(list).toHaveBeenCalledWith('actor-id', 'school', 'year', { page: '2', q: 'Mai' });
+  });
   it('forwards the relationship-labelled parent command through the mutation boundary', async () => {
     const create = vi.fn().mockResolvedValue({ id: 'operation' });
     const controller = new RosterController(auth as never, {} as never, { create } as never);

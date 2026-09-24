@@ -41,7 +41,7 @@ export class ParentsService {
         ? body.relationshipLabel.trim()
         : "";
     const fieldErrors: Record<string, string> = {};
-    if (!emailPattern.test(email)) fieldErrors.email = "Email không hợp lệ.";
+    if (email && !emailPattern.test(email)) fieldErrors.email = "Email không hợp lệ.";
     if (!fullName || fullName.length > 100)
       fieldErrors.fullName = "Họ và tên cần từ 1 đến 100 ký tự.";
     if (!/^[0-9+() .-]{6,30}$/.test(phone))
@@ -54,7 +54,7 @@ export class ParentsService {
         message: "Dữ liệu không hợp lệ.",
         fieldErrors,
       });
-    return { email, fullName, phone, relationshipLabel };
+    return { email: email || null, fullName, phone, relationshipLabel };
   }
   private dto(link: any) {
     return {
@@ -91,6 +91,114 @@ export class ParentsService {
       })
     ).map((link) => this.dto(link));
   }
+  async list(
+    identityId: string,
+    schoolId: string,
+    schoolYearId: string,
+    query: Record<string, string | undefined> = {},
+  ) {
+    await this.actor(identityId, schoolId);
+    const year = await this.prisma.schoolYear.findFirst({
+      where: { id: schoolYearId, schoolId },
+      select: { id: true },
+    });
+    if (!year)
+      throw new NotFoundException({
+        code: "SCHOOL_YEAR_NOT_FOUND",
+        message: "Không tìm thấy năm học.",
+      });
+    const integer = (value: string | undefined, fallback: number, maximum: number) => {
+      if (value === undefined || value === "") return fallback;
+      if (!/^\d+$/.test(value))
+        throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed < 1)
+        throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+      return Math.min(parsed, maximum);
+    };
+    const page = integer(query.page, 1, Number.MAX_SAFE_INTEGER);
+    const pageSize = integer(query.pageSize, 25, 100);
+    if (page - 1 > Math.floor(Number.MAX_SAFE_INTEGER / pageSize))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+    const q = query.q?.trim();
+    if (q && q.length > 100)
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+    const activeInYear = {
+      schoolId,
+      status: "ACTIVE" as const,
+      student: { enrollments: { some: { schoolId, schoolYearId, endedOn: null } } },
+    };
+    const where = {
+      studentParents: {
+        some: {
+          ...activeInYear,
+          ...(q
+            ? {
+                OR: [
+                  { student: { fullName: { contains: q, mode: "insensitive" as const } } },
+                  { parentProfile: { fullName: { contains: q, mode: "insensitive" as const } } },
+                  { parentProfile: { phone: { contains: q, mode: "insensitive" as const } } },
+                  { parentProfile: { emailNormalized: { contains: q, mode: "insensitive" as const } } },
+                ],
+              }
+            : {}),
+        },
+      },
+    };
+    const [totalItems, profiles] = await Promise.all([
+      this.prisma.parentProfile.count({ where }),
+      this.prisma.parentProfile.findMany({
+        where,
+        select: {
+          id: true,
+          fullName: true,
+          phone: true,
+          emailNormalized: true,
+          studentParents: {
+            where: activeInYear,
+            select: {
+              id: true,
+              relationshipLabel: true,
+              student: {
+                select: {
+                  fullName: true,
+                  enrollments: {
+                    where: { schoolId, schoolYearId, endedOn: null },
+                    select: {
+                      classAssignments: {
+                        where: { schoolId, schoolYearId, effectiveTo: null },
+                        select: { classroom: { select: { name: true } } },
+                        take: 1,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: [{ student: { fullName: "asc" } }, { id: "asc" }],
+          },
+        },
+        orderBy: [{ fullName: "asc" }, { id: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    return {
+      data: profiles.map((profile) => ({
+        id: profile.id,
+        fullName: profile.fullName,
+        phone: profile.phone,
+        email: profile.emailNormalized,
+        children: profile.studentParents.map((link) => ({
+          linkId: link.id,
+          studentName: link.student.fullName,
+          className: link.student.enrollments[0]?.classAssignments[0]?.classroom.name ?? null,
+          relationshipLabel: link.relationshipLabel,
+        })),
+      })),
+      meta: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) },
+    };
+  }
   async create(
     identityId: string,
     schoolId: string,
@@ -119,15 +227,23 @@ export class ParentsService {
             code: "STUDENT_NOT_FOUND",
             message: "Không tìm thấy học sinh.",
           });
-        const profile = await tx.parentProfile.upsert({
-          where: { emailNormalized: contact.email },
-          create: {
-            emailNormalized: contact.email,
-            fullName: contact.fullName,
-            phone: contact.phone,
-          },
-          update: { fullName: contact.fullName, phone: contact.phone },
-        });
+        const existingContact = contact.email
+          ? null
+          : await tx.studentParent.findFirst({
+              where: {
+                schoolId,
+                studentId,
+                parentProfile: { emailNormalized: null, fullName: contact.fullName, phone: contact.phone },
+              },
+              include: { parentProfile: true },
+            });
+        const profile = contact.email
+          ? await tx.parentProfile.upsert({
+              where: { emailNormalized: contact.email },
+              create: { emailNormalized: contact.email, fullName: contact.fullName, phone: contact.phone },
+              update: { fullName: contact.fullName, phone: contact.phone },
+            })
+          : existingContact?.parentProfile ?? await tx.parentProfile.create({ data: { fullName: contact.fullName, phone: contact.phone } });
         const existing = await tx.studentParent.findUnique({
           where: {
             schoolId_studentId_parentProfileId: {

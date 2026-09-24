@@ -83,4 +83,28 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
       await prisma.$disconnect();
     }
   });
+
+  it('seeds active Mẹ and Bố links from complete PeakLand source contacts', async () => {
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl! }) });
+    try {
+      const school = await prisma.school.findUniqueOrThrow({
+        where: { slug: 'pl' },
+        include: {
+          students: {
+            where: { studentCode: { in: ['PL1', 'PL9'] } },
+            include: { parentLinks: { include: { parentProfile: true } } },
+          },
+        },
+      });
+      const first = school.students.find((student) => student.studentCode === 'PL1')!;
+      expect(first.parentLinks.filter((link) => link.status === 'ACTIVE')).toEqual([expect.objectContaining({ relationshipLabel: 'Mẹ', parentProfile: expect.objectContaining({ fullName: 'Nguyễn Minh Hòa', phone: '0966695297', emailNormalized: null }) })]);
+      const ninth = school.students.find((student) => student.studentCode === 'PL9')!;
+      expect(ninth.parentLinks).toEqual([
+        expect.objectContaining({ status: 'ACTIVE', relationshipLabel: 'Mẹ', parentProfile: expect.objectContaining({ fullName: 'Phạm Thị Tú Anh', phone: '0334355172', emailNormalized: null }) }),
+        expect.objectContaining({ status: 'ACTIVE', relationshipLabel: 'Bố', parentProfile: expect.objectContaining({ fullName: 'Cao Văn Quân', phone: '0973133121', emailNormalized: null }) }),
+      ]);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
 });

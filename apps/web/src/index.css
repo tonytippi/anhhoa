@@ -1299,6 +1299,33 @@ tbody tr:last-child td {
 }
 .student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
 .student-list-table table { min-width: 940px; }
+.parent-list-table table { min-width: 860px; }
+.parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }
+.parent-children span { color: #5f746e; }
+.parent-list-controls {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.parent-list-search {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: end;
+  gap: 8px;
+}
+.parent-list-search label {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 5px;
+}
+.parent-list-search label span {
+  color: #527067;
+  font-size: 12px;
+  font-weight: 800;
+}
+.parent-list-search input { min-width: 0; }
+.parent-list-search button { flex: 0 0 auto; }
 .relative-count { display: block; color: #5f746e !important; white-space: nowrap; }
 .roster-row-actions { position: relative; width: 72px; }
 .roster-action-menu {
@@ -1455,6 +1482,14 @@ tbody tr:last-child td {
   color: #922e2e;
   font-size: 12px;
   line-height: 1.4;
+}
+@media (max-width: 720px) {
+  .parent-list-controls,
+  .parent-list-search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .parent-list-search label { max-width: none; }
 }
 
 /* Desktop navigation belongs to the persistent Admin sidebar.  The navigation
