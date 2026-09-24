@@ -59,7 +59,7 @@ assert.doesNotMatch(shell, /invoice-detail-review\.html/);
 assert.doesNotMatch(shell, /'invoice-review'|\'settlement\'/);
 assert.match(shell, /'runs', 'Đợt thu', root \+ 'invoice-generation\.html'/);
 assert.doesNotMatch(shell, /Đợt thu \/ Nộp trước/);
-assert.match(generation, /href="finance-run-preview\.html">Rà soát đợt thu/);
+assert.match(generation, /id="run-detail" tabindex="-1" hidden/);
 assert.doesNotMatch(generation, /href="invoice-detail-review\.html"/);
 assert.match(invoice, /data-admin-route="runs"/);
 assert.match(invoice, /Invoice này chứa fact nộp trước nên chỉ nhận đúng tổng cần thu/);
@@ -80,21 +80,43 @@ assert.match(report, /Settlement difference mở[\s\S]*Carry đã materialize[\s
 assert.match(report, /Hoàn tiền coverage[\s\S]*Reversal[\s\S]*Tiền\/điều chỉnh có dấu/);
 assert.match(report, /query\(\) !== 'workspace=' \+ current \+ '&fixture=october'/);
 assert.doesNotMatch(report, /PDF|XLSX|Payroll|createObjectURL|Blob\(|toLocaleString|reduce\(|invoice-detail-review/);
-// CollectionRun landing, student-level details and authoritative generate.
+// Finance Admin MVP exposes catalog and CollectionRun destinations only.
 assert.match(generation, /<h1>Đợt thu<\/h1>/);
-assert.match(generation, /Mỗi tháng có một đợt thu chung/);
-assert.match(generation, /Chênh lệch thu được xử lý ở tháng sau/);
+assert.match(generation, /TRƯỜNG ÁNH HOA · NĂM HỌC 2026-2027/);
+assert.match(generation, /<h2>Rà soát đợt thu<\/h2>/);
+assert.match(generation, /<h3>Khoản thu trong đợt<\/h3>/);
+assert.match(generation, /id="template-lines"/);
+assert.match(generation, /Số ngày tiền ăn tháng/);
+assert.match(generation, /value="22"/);
+assert.match(generation, /class="template-quantity" type="number" min="1" step="1"/);
+assert.match(generation, /Template khoản thu đã thay đổi\. Hãy yêu cầu preview mới từ hệ thống\./);
+assert.match(generation, /Preview và generate do hệ thống quyết định/);
+assert.match(generation, /Đang kiểm tra kết quả với hệ thống\. Đối soát thao tác trước khi thử lại hoặc đổi Trường\./);
 assert.match(generation, /Tháng 11\/2026/);
-assert.doesNotMatch(generation, /invoice-detail-review\.html/);
+assert.match(generation, /href="invoice-detail-review\.html\?run=2026-10&amp;student=minh-anh&amp;invoice=draft-minh-anh"/);
+assert.match(generation, /id="preview-run"/);
+assert.match(generation, /id="generate-invoices"[^>]*disabled/);
+assert.match(generation, /data-open-run="11\/2026"/);
+assert.match(generation, /function openRun\(month,readonly\)/);
+assert.match(generation, /reviewLinks\.forEach/);
+assert.match(generation, /selectAll\.indeterminate/);
+assert.match(generation, /Lựa chọn đã thay đổi\. Hãy yêu cầu preview mới từ hệ thống\./);
+for (const unavailable of ['Đã nhận', 'Còn thiếu', 'Receipt', 'carry', 'thực nhận', 'chênh lệch']) assert.doesNotMatch(generation, new RegExp(unavailable, 'i'));
 
-// Receivable fixtures retain server-owned catalog/policy values and optional services.
-for (const tab of ['#receivables', '#services', '#policies']) assert.match(receivables, new RegExp(`href="${tab}"`));
-for (const panel of ['receivables', 'services', 'policies']) assert.match(receivables, new RegExp(`id="${panel}" data-panel`));
-for (const heading of ['Danh sách khoản thu', 'Khoản thu áp dụng theo học sinh', 'Chính sách ưu đãi']) assert.match(receivables, new RegExp(`<h2>${heading}</h2>`));
-assert.match(receivables, /Hóa đơn đã phát hành không thay đổi/);
-assert.match(receivables, /id="service-matrix"/);
-assert.match(receivables, /Ưu đãi nộp trước học kỳ/);
-assert.doesNotMatch(receivables, /Phí nộp tiền muộn|late-pickup-statistics\.html|invoice-generation\.html#prepaid/);
+// Receivables is catalog-only; services and promotion remain unavailable in phase 1.
+assert.match(receivables, /<h1>Khoản thu<\/h1>/);
+assert.match(receivables, /TRƯỜNG ÁNH HOA · NĂM HỌC 2026-2027/);
+assert.match(receivables, /<h2>Danh sách khoản thu<\/h2>/);
+assert.match(receivables, /Đơn giá mặc định/);
+assert.match(receivables, /Đang kiểm tra kết quả với hệ thống/);
+assert.match(receivables, /Giữ nguyên ngữ cảnh Trường và đối soát thao tác trước khi thử lại/);
+assert.match(receivables, /id="open-groups"/);
+assert.match(receivables, /<h2>Quản lý nhóm khoản thu<\/h2>/);
+assert.match(receivables, /data-lifecycle>Ngừng áp dụng/);
+assert.match(receivables, /data-lifecycle>Áp dụng lại/);
+assert.match(receivables, /type="number" min="1" step="1" required inputmode="numeric"/);
+assert.match(receivables, /reportValidity\(\)/);
+for (const unavailable of ['Dịch vụ theo học sinh', 'Chính sách ưu đãi', 'service-matrix', 'scope', 'automation']) assert.doesNotMatch(receivables, new RegExp(unavailable, 'i'));
 
 // Settings remains a separate school-policy surface.
 assert.match(settings, /id="school-profile-form"/);

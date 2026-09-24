@@ -2,7 +2,7 @@
 title: "PRD Initiative - PassionEdu: Nen tang van hanh da truong"
 status: final
 created: 2026-09-04
-updated: 2026-09-19
+updated: 2026-09-24
 supersedes:
   - prds/prd-anhhoa-2026-08-18/prd.md
   - prds/prd-anhhoa-parent-pwa-2026-08-22/prd.md
@@ -61,7 +61,8 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **ReceivableGroup / Receivable** - Nhom va khoan thu scoped theo School; danh muc co the inactive nhung khong sua snapshot lich su.
 - **Invoice line** - Dong thu trong Invoice DRAFT, tham chieu Receivable active same-School, quantity nguyen duong va unit price do server xac nhan; bo dong nghia la khoan thu khong ap dung. ChargeRule automation la enhancement sau Finance Admin MVP.
 - **PromotionPolicy / PromotionPolicyVersion** - Chinh sach uu dai School-scoped va phien ban effective-dated, co target Receivable, don vi/so luong ap dung, dieu kien typed, giam VND/phan tram, fulfillment, stacking va snapshot.
-- **CollectionRun** - Dot thu thang cua SchoolYear, gan voi mot `billingMonth` de preview va tao nghia vu cho hoc sinh.
+- **CollectionRun** - Dot thu thang cua SchoolYear, gan voi mot `billingMonth`, Student selection va template khoan thu chung de preview va tao nghia vu cho hoc sinh.
+- **CollectionRunTemplateLine** - Khoan thu mau co thu tu cua mot CollectionRun `DRAFT`, tham chieu Receivable active cung School, quantity nguyen duong va default-price amount do server tinh.
 - **Invoice** - Nghia vu thu theo mot Student va mot CollectionRun; noi dung khoa sau khi issue.
 - **Receipt** - Khoan thu da ghi nhan; phan bo vao Invoice qua so cai append-only.
 - **StudentPromotionAssignment** - Gan mot PromotionPolicyVersion cho mot Student theo effective interval, ly do va audit; khong tu suy luan quan he gia dinh.
@@ -163,24 +164,25 @@ Finance Manager hoac School Admin co `FINANCE_MANAGE` quan ly ReceivableGroup va
 **He qua kiem thu:**
 - School tu dinh nghia group, khoan, don vi va gia mac dinh; ma khoan la tuy chon va unique trong School neu co. Catalog inactive khong duoc chon cho Invoice moi nhung van doc duoc qua snapshot lich su.
 - Thay doi catalog khong sua Invoice snapshot trong qua khu. `FINANCE_MANAGE` duoc resolve tu Chuc danh active, StaffProfile va binding active same-School, khong tu ten role hay browser state.
-- Invoice `DRAFT` bat dau rong. Finance chon Receivable active same-School, nhap quantity nguyen duong va co the override default unit price voi reason/audit; server tinh line amount va Invoice total. Khong co line quantity `0`, quantity am/float, gia khong duong, total do client gui hay auto-pricing tu attendance, handover hoac service enrollment. Bo dong khoi DRAFT nghia la khoan thu khong ap dung.
+- CollectionRun `DRAFT` so huu `CollectionRunTemplateLine` co thu tu. Finance chon moi Receivable active same-School toi da mot lan trong run, nhap quantity nguyen duong va them/bo/sap xep template; template dung default unit price catalog, server tinh amount/total va audit moi mutation. Khong co gia, total, scope theo Class/Student hay gia tri theo Student do browser gui; khong co quantity `0`, quantity am/float, gia khong duong hay auto-pricing tu attendance, handover hoac service enrollment.
+- Generate snapshot template Receivable/name/unit/quantity/default price/amount vao moi Invoice `DRAFT` cua Student eligible. Sau generate, Finance co the them/sua/xoa line cua mot Invoice `DRAFT`, override gia voi reason/audit va dieu chinh quantity rieng tung Student; dieu chinh khong sua template hay Invoice Student khac. Catalog/template thay doi sau generate khong rewrite Invoice `DRAFT` da tao hay Invoice da issue.
 - `PromotionPolicy` co identity School-scoped va version effective-dated. Moi version co mot hoac nhieu target Receivable, don vi va so luong ap dung, dieu kien typed, giam phan tram hoac VND nguyen, fulfillment mode, priority, stacking/exclusivity va effective period. Target quantity vi du 12 thang la rule cua policy; yeu cau ky lien tiep, neu co, la business validation khi evaluate, khong phai unique constraint.
 - `StudentPromotionAssignment` gan mot policy version cho Student theo effective interval, reason va audit. Assignment la co che tong quat; he thong khong tu suy luan quan he gia dinh hoac thu tu con. Server evaluate policy khi tao/refresh Invoice `DRAFT` va evaluate lai truoc Issue; policy application snapshot version, target, ket qua, priority va assignment provenance neu co. Nhieu policy chi stack theo typed priority/exclusivity: fixed VND truoc percentage, tie-break deterministically, tong giam khong vuot gia goc target va khong tao dong am/credit vo danh.
 - `PREPAID_COVERAGE` la fulfillment mode cua policy trong dot thu thang, khong tao `PREPAID` CollectionRun rieng. Khi ra soat preview cua dot thu thang, Finance Manager hoac School Admin chon policy version va ap dung phuong an nop truoc cho mot hoac nhieu Student da co thoa thuan; thang bat dau luon la `billingMonth` cua dot thu. Preview cho phep chon theo lo; API van la nguon chan ly cho eligibility, muc giam va cac ky duoc bao phu, khong hien thi hay suy dien "du dieu kien" o tung Student truoc ket qua evaluate. API tao mot Invoice `DRAFT` duy nhat cua moi Student trong run: Invoice gom future receivable-period facts cua cac target duoc policy bao phu, dong thoi co the gom cac khoan thu khong nam trong coverage cua dung billingMonth dang mo; khong gom khoan ngoai coverage cua cac thang tuong lai. Invoice phai dong exact voi outcome `EXACT`; chi sau `CLOSED` exact server moi issue `StudentPromotionalCoverage` voi PromotionPolicyVersion/Invoice/Receipt provenance. Khong actor nao tao coverage truc tiep. Moi fact luu Receivable, period key, service interval `[serviceFrom, serviceTo)` nam tron ky, gia/discount, calendar version/timezone va paid-source snapshot bat bien. Coverage issued khong overlap cung Student/SchoolYear/Receivable/ky; fact khong co operating day eligible bi tu choi.
 
 #### FR-8: CollectionRun preview va generate
 
-Finance Manager tao hoac mo dot thu `MONTHLY` cua tung thang trong SchoolYear, chon Student du dieu kien, xem preview authoritative va generate Invoice `DRAFT` rong idempotent.
+Finance Manager tao hoac mo dot thu `MONTHLY` cua tung thang trong SchoolYear, cau hinh template khoan thu chung, chon Student du dieu kien, xem preview authoritative va generate Invoice `DRAFT` co san dong template idempotent.
 
 **He qua kiem thu:**
 - Preview va generate dung cung service server-side; preview hien thi Student du dieu kien/skip va du lieu nguon can thiet de ra soat. Client khong tu suy ra eligibility hay total.
 - Moi CollectionRun cua release dau la `MONTHLY`, bat buoc co `billingMonth` chuan `YYYY-MM`. Moi SchoolYear co dung mot dot thu chuan cho mot `billingMonth`; khi ke toan chon mot thang da co dot, UI mo dot hien co thay vi tao dot moi.
-- Trong dot thang, Finance chon mot hoac nhieu Student du dieu kien va xem lai preview truoc khi generate. Preview/generate khong chon, suy dien hay tao Receivable line, discount, policy hay coverage.
+- Trong dot thang `DRAFT`, Finance chon mot hoac nhieu Student du dieu kien va them/bo/sap xep Receivable template co quantity nguyen duong; moi Receivable chi xuat hien mot lan. Preview/generate dung cung template server-authoritative; fingerprint bao gom selection, roster, template version va catalog facts. Preview/generate khong suy dien scope Class/Student, service, discount, policy hay coverage.
 - Moi Student co toi da mot Invoice trong mot CollectionRun; moi `billingMonth` cua SchoolYear chi co mot CollectionRun.
 - `billingMonth` la khoa van hanh de quan ly dot thu theo thang; khong co `ANNUAL`, `ONE_OFF`, `periodKey` tu do hay run bo sung trong release dau.
-- Generate transactional tra created/skipped; timeout phai doi soat operation truoc retry.
+- Generate revalidate va snapshot template trong transaction, tra created/skipped; timeout phai doi soat operation truoc retry. Template rong, Receivable inactive/khac School hoac fingerprint stale bi tu choi truoc khi ghi Invoice/line.
 - Lifecycle la `DRAFT -> READY -> GENERATED -> CLOSED`: READY chi generate sau preview hop le, GENERATED khoa danh sach Student duoc generate va CLOSED khong tao/sua Invoice. Generate phan loai toi thieu Invoice da ton tai, enrollment khong du dieu kien va khong co lop active.
-- Sau GENERATED, actor co capability finance phu hop tu Chuc danh active chi co the them Student du dieu kien chua co Invoice, tao dung mot `DRAFT` rong. Invoice da issue khong nhan khoan thu moi; dung correction/refund co source khi capability do duoc phat hanh.
+- Sau GENERATED, actor co capability finance phu hop tu Chuc danh active chi co the them Student du dieu kien chua co Invoice, tao dung mot `DRAFT` tu template da snapshot. Invoice da issue khong nhan khoan thu moi; dung correction/refund co source khi capability do duoc phat hanh.
 
 #### FR-9: Issue va snapshot nghia vu
 

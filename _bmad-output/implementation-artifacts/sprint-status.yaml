@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-22 # Story 5.8 adds immutable issued-invoice revision and atomic source cancellation.
+last_updated: 2026-09-24 # Approved CollectionRun template follow-up stories populate generated DRAFT Invoice lines.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -60,6 +60,9 @@ development_status:
   5-6-release-gate-finance-admin-mvp: done
   5-7-dong-collectionrun-da-generate: done
   5-8-revision-invoice-da-phat-hanh-va-huy-ban-cu: done
+  5-9-cau-hinh-template-khoan-thu-cho-dot-thu: ready-for-dev
+  5-10-generate-invoice-draft-co-dong-template: backlog
+  5-11-release-gate-template-dot-thu: backlog
   epic-5-retrospective: optional
 
   epic-6: backlog

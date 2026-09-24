@@ -43,8 +43,8 @@ Khi implement mot story co bề mặt portal, `DESIGN.md` va `EXPERIENCE.md` la 
 | 4.2, 4.3, 4.4, 4.7 | `mockups/teacher/teacher.html`, `mockups/parent/parent.html` | Teacher la portal mutation duy nhat; Parent khong bao gio nhan evidence/Staff facts. |
 | 4.5 | `mockups/admin/receivable-configuration.html`, `mockups/admin/invoice-detail-review.html` | Chi hien server-returned adjustment/refund outcome; khong co auto-fee affordance. |
 | 4.6 | `mockups/admin/admin-operational-queue.html` | Tong quan theo School/ngay, table-first va server-returned counts. |
-| 5.1 | `mockups/admin/receivable-configuration.html` | Catalog, scope matrix va policy version la UI Finance configuration. |
-| 5.2, 5.3, 5.7 | `mockups/admin/invoice-generation.html` | CollectionRun list/detail, server preview/skips va reconciliation; `PREPAID_COVERAGE` khong la run rieng. |
+| 5.1 | `mockups/admin/receivable-configuration.html` | `Khoản thu` la destination catalog table-first: ReceivableGroup/Receivable active/inactive va default price; khong co service, scope matrix, automation hay policy. |
+| 5.2, 5.7, 5.9, 5.10, 5.11 | `mockups/admin/invoice-generation.html` | `Đợt thu` la destination CollectionRun list/detail, template khoan thu chung, chọn Student, server preview/skips, populated DRAFT generate va reconciliation; Invoice review la deep destination theo Student/Invoice, khong co Receipt, carry, settlement KPI hay `PREPAID_COVERAGE`. Story 5.3 la historical empty-DRAFT delivery, duoc supersede boi 5.9/5.10. |
 | 5.4, 5.5, 5.6, 5.8 | `mockups/admin/invoice-detail-review.html`, `mockups/parent/parent.html` | Invoice la deep destination; Parent chi thay effective obligation sau khi API projection ton tai. |
 | 6.1, 6.2, 6.3, 6.4, 6.6 | `mockups/admin/invoice-detail-review.html`, `EXPERIENCE.md` §§ Invoice review and receipt, Adjustment/carry/refund review | Actual Receipt closes mot Invoice; outcome/carry/refund deu server-returned. |
 | 6.5 | `mockups/admin/finance-run-preview.html`, `EXPERIENCE.md` § Finance report | Bon workspace bao cao va CSV la server ledger-derived; mockup mốc nay khong mo rong lifecycle Finance. |
@@ -224,7 +224,7 @@ Teacher co capability ghi attendance/handover/DailyJournal trong Class duoc phan
 
 ### Epic 5: Tạo và phát hành nghĩa vụ thu
 
-Finance Admin MVP cau hinh catalog/rule, tao CollectionRun, kiem tra preview do server tinh, generate Invoice DRAFT chong trung, ra soat dong thu voi manual Finance-source co audit va issue immutable Payment instruction snapshot. Service, promotion, settlement va report la enhancement sau MVP.
+Finance Admin MVP co hai Finance Admin destinations: `Khoản thu` cau hinh catalog active/inactive va `Đợt thu` tao/mở CollectionRun, chọn Student, kiểm tra preview do server tính, generate Invoice DRAFT chống trùng. Từ detail Đợt thu, Finance đi sâu vào review/issue Invoice theo Student. Service, promotion, settlement va report la enhancement sau MVP; release-gate UI khong hien Receipt, carry, actual receipt, settlement KPI hay client-owned eligibility/total.
 
 **FRs covered:** FR-7, FR-8, FR-9.
 
@@ -852,7 +852,7 @@ So that attendance/handover khong lam lo du lieu tre em hoac bien thanh pricing 
 
 ## Epic 5: Tạo và phát hành nghĩa vụ thu
 
-Finance cau hinh catalog, chon Student cho CollectionRun, tao Invoice DRAFT rong chong trung, ra soat dong thu do Finance chon va issue immutable Payment instruction snapshot. ChargeRule automation va PromotionPolicy la enhancement sau Finance Admin MVP.
+Finance cau hinh catalog va template khoan thu chung cho CollectionRun, chon Student, tao Invoice DRAFT co san dong template chong trung, ra soat ngoai le tung Student va issue immutable Payment instruction snapshot. ChargeRule automation va PromotionPolicy la enhancement sau Finance Admin MVP.
 
 ### Story 5.1: Quản lý receivable catalog theo School
 
@@ -898,6 +898,8 @@ So that toi biet chinh xac Student nao du dieu kien hoac bi skip truoc khi tao I
 **And** preview/generate view dung visible School/period, keyboard stepper, accessible errors va switch guard khi form dirty.
 
 ### Story 5.3: Generate Invoice DRAFT rỗng idempotent theo snapshot roster
+
+> **Historical delivery - superseded 2026-09-24:** Story nay da hoan thanh theo Finance Admin MVP empty-DRAFT. Contract hien hanh dung Story 5.9 template va Story 5.10 populated DRAFT generation; khong sua lai implementation evidence cua Story 5.3.
 
 As a Finance Manager,
 I want to generate Invoice DRAFT rong tu READY CollectionRun qua mot Operation,
@@ -1046,6 +1048,59 @@ So that a Parent receives the corrected obligation while the original Invoice hi
 **When** the authorized projection is returned
 **Then** only the replacement is payable/current-effective and the source is not a payment target
 **And** correction reason, ledger transfer and internal audit remain absent from Parent DTOs.
+
+### Story 5.9: Cấu hình template khoản thu cho Đợt thu
+
+As a Finance Manager,
+I want to quan ly khoan thu mau va quantity chung cua mot CollectionRun DRAFT,
+So that tat ca Invoice DRAFT duoc tao tu cung mot cau hinh Dot thu server-confirmed.
+
+**Acceptance Criteria:**
+
+**Given** monthly run `DRAFT` va Receivable active cung School
+**When** Finance them, bo, sap xep hoac doi quantity template voi `Idempotency-Key`
+**Then** server persist `CollectionRunTemplateLine` canonical, unique theo run/Receivable, quantity nguyen duong, default-price amount VND, audit va Operation
+**And** browser khong gui gia, amount, total, scope Class/Student hay gia tri theo Student.
+
+**Given** Receivable duplicate, inactive/foreign, quantity zero/am/fractional, run stale hoac khong con `DRAFT`
+**When** template mutation duoc gui
+**Then** server tu choi truoc write va khong lo catalog/run cross-School
+**And** preview fingerprint cu bi stale khi selection/template/catalog fact doi.
+
+### Story 5.10: Generate Invoice DRAFT có dòng template
+
+As a Finance Manager,
+I want to generate Invoice DRAFT co san dong template cua Dot thu,
+So that toi chi ra soat ngoai le tung Student.
+
+**Acceptance Criteria:**
+
+**Given** run `READY`, preview hien hanh va template khong rong hop le
+**When** Finance xac nhan generate
+**Then** transaction snapshot moi template Receivable/name/unit/quantity/default price/amount vao Invoice DRAFT cua tung Student eligible
+**And** moi Student/run co toi da mot Invoice; client khong gui line, amount hay total.
+
+**Given** template rong/stale, Receivable inactive/foreign, fingerprint doi, race hoac retry
+**When** generate chay
+**Then** server reject hoac replay atomically, khong co Invoice/line partial hay duplicate
+**And** catalog/template doi sau generate khong rewrite generated/issued snapshot.
+
+### Story 5.11: Release gate template Đợt thu
+
+As a release owner,
+I want automated proof cho template snapshot va populated DRAFT generation,
+So that Finance co the tao khoan thu chung an toan o quy mo lon.
+
+**Acceptance Criteria:**
+
+**Given** fixture nhieu School/run/catalog/Student
+**When** unit va PostgreSQL suite chay template lifecycle
+**Then** tenant graph, unique line, positive integer quantity/VND, preview stale, lifecycle lock, snapshot, idempotency va concurrency deu pass.
+
+**Given** Admin E2E
+**When** Finance cau hinh template -> chon Student -> preview -> generate -> mo populated DRAFT -> dieu chinh mot Student
+**Then** UI chi hien server values va reconcile timeout/Switch context an toan
+**And** khong co service, PromotionPolicy, Teacher, Parent, Receipt, carry hay client-calculated VND dependency.
 
 ## Epic 6: Thu tiền, đối soát công nợ và báo cáo sổ cái
 
