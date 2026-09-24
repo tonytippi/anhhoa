@@ -22,6 +22,24 @@ const rosterFetch = (schools = [schoolA], contexts = new Map([[schoolA.schoolId,
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); window.history.replaceState({}, '', '/'); });
 
 describe('SchoolContext slug routes', () => {
+  it('opens Tổng quan as the first authorized destination and accepts its slug deep link', async () => {
+    const overviewContext = { ...contextA, navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'roster', label: 'Danh bộ' }] };
+    window.history.replaceState({}, '', '/schools/peakland/overview');
+    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]));
+    fetch.mockImplementation((url: string) => url.endsWith('/overview') ? Promise.resolve(new Response(JSON.stringify({ data: { date: '2026-02-09', isToday: true, metrics: { students: 0, staff: 0, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: 'Chưa đến lớp', count: 0 }, notRecorded: 0 }, classes: [] } }))) : rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]))(url));
+    vi.stubGlobal('fetch', fetch); renderContext();
+    await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
+    expect(screen.getByRole('button', { name: 'Tổng quan' }).getAttribute('aria-current')).toBe('page');
+    expect(window.location.pathname).toBe('/schools/peakland/overview');
+  });
+  it('keeps a valid overview date query in the GET request and URL', async () => {
+    const overviewContext = { ...contextA, navigation: [{ id: 'overview', label: 'Tổng quan' }] };
+    window.history.replaceState({}, '', '/schools/peakland/overview?date=2026-02-08');
+    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]));
+    fetch.mockImplementation((url: string) => url.includes('/overview?date=2026-02-08') ? Promise.resolve(new Response(JSON.stringify({ data: { date: '2026-02-08', isToday: false, metrics: { students: 0, staff: 0, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: 'Nghỉ không phép', count: 0 }, notRecorded: 0 }, classes: [] } }))) : rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]))(url));
+    vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
+    expect(fetch.mock.calls.some(([url]) => url === '/api/app/schools/uuid-a/overview?date=2026-02-08')).toBe(true); expect(window.location.search).toBe('?date=2026-02-08');
+  });
   it('resolves a slug deep link with UUID context and workspace requests', async () => {
     window.history.replaceState({}, '', '/schools/peakland/staff'); const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext();
     await screen.findByRole('heading', { name: 'Nhân viên' });
@@ -29,13 +47,13 @@ describe('SchoolContext slug routes', () => {
     expect(fetch.mock.calls.some(([url]) => String(url).includes('/api/app/schools/uuid-a/roster/staff?'))).toBe(true);
     expect(fetch.mock.calls.some(([url]) => String(url).includes('/schools/peakland/'))).toBe(false);
   });
-  it('renders an authorized operational queue overview route', async () => {
-    const queueContext = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'OPERATIONAL_QUEUE_READ'], navigation: [{ id: 'overview', label: 'Tổng quan vận hành' }] };
+  it('renders an authorized overview route', async () => {
+    const overviewContext = { ...contextA, navigation: [{ id: 'overview', label: 'Tổng quan vận hành' }] };
     window.history.replaceState({}, '', '/schools/peakland/overview');
-    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, queueContext]]));
+    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]));
     vi.stubGlobal('fetch', fetch); renderContext();
     await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
-    expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/app\/schools\/uuid-a\/operational-queue\?date=/), { credentials: 'include' });
+    expect(fetch).toHaveBeenCalledWith('/api/app/schools/uuid-a/overview', expect.objectContaining({ credentials: 'include' }));
   });
   it('canonicalizes an authorized legacy UUID bookmark before rendering protected UI', async () => {
     window.history.replaceState({}, '', '/schools/uuid-a/students'); let resolveContext!: (value: Response) => void;

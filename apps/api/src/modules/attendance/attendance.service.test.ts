@@ -194,6 +194,50 @@ describe('AttendanceService leave matrix', () => {
     const excluded = service({ leaveDaySource: { findMany: vi.fn().mockResolvedValue([]) } }).attendance;
     await expect(excluded.leaveDaySources('admin', school)).resolves.toEqual({ data: [], nextCursor: null });
   });
+  it('returns School-scoped server facts for today and prior dates without deriving absence in the browser', async () => {
+    const enrollment = { studentId: student, classAssignments: [{ classId: 'class-a', effectiveFrom: day('2026-01-01'), classroom: { name: 'Mầm' } }] };
+    const { attendance } = service({
+      studentEnrollment: { findMany: vi.fn().mockResolvedValue([enrollment]) },
+      staffProfile: { count: vi.fn().mockResolvedValue(3) },
+      attendanceRecord: { findMany: vi.fn().mockResolvedValue([{ studentId: student, state: 'ABSENT' }]) },
+      leaveDaySource: { findMany: vi.fn().mockResolvedValue([]) },
+      handoverRecord: { findMany: vi.fn().mockResolvedValue([{ studentId: student }]) },
+    });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '08:00' });
+    const result = await attendance.overview('admin', school, '2026-02-09');
+    expect(result.date).toBe('2026-02-09'); expect(result.isToday).toBe(false); expect(result.metrics).toMatchObject({ students: 1, staff: 3, present: 0, approvedLeave: 0, pickedUp: 1, unresolved: { label: 'Nghỉ không phép', count: 1 }, notRecorded: 0 }); expect(result.classes).toMatchObject([{ classId: 'class-a', className: 'Mầm', students: 1, unresolved: { label: 'Nghỉ không phép', count: 1 } }]);
+  });
+  it('keeps prior missing attendance separate and excludes an approved leave overridden by PRESENT', async () => {
+    const missing = '55555555-5555-4555-8555-555555555555';
+    const present = '66666666-6666-4666-8666-666666666666';
+    const { attendance } = service({
+      studentEnrollment: { findMany: vi.fn().mockResolvedValue([{ studentId: missing, classAssignments: [{ classId: 'class-a', effectiveFrom: day('2026-01-01'), classroom: { name: 'Mầm' } }] }, { studentId: present, classAssignments: [{ classId: 'class-a', effectiveFrom: day('2026-01-01'), classroom: { name: 'Mầm' } }] }]) },
+      staffProfile: { count: vi.fn().mockResolvedValue(1) },
+      attendanceRecord: { findMany: vi.fn().mockResolvedValue([{ studentId: present, state: 'PRESENT' }]) },
+      leaveDaySource: { findMany: vi.fn().mockResolvedValue([{ studentId: present }]) },
+      handoverRecord: { findMany: vi.fn().mockResolvedValue([]) },
+    });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '08:00' });
+    await expect(attendance.overview('admin', school, '2026-02-09')).resolves.toMatchObject({ metrics: { students: 2, present: 1, approvedLeave: 0, unresolved: { label: 'Nghỉ không phép', count: 0 }, notRecorded: 1 } });
+  });
+  it('returns today unconfirmed roster as the server-decided Chưa đến lớp fact and validates date input', async () => {
+    const { attendance } = service({ studentEnrollment: { findMany: vi.fn().mockResolvedValue([{ studentId: student, classAssignments: [{ classId: 'class-a', effectiveFrom: day('2026-01-01'), classroom: { name: 'Mầm' } }] }]) }, staffProfile: { count: vi.fn().mockResolvedValue(0) }, attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]) }, handoverRecord: { findMany: vi.fn().mockResolvedValue([]) } });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '08:00' });
+    const result = await attendance.overview('admin', school, '2026-02-09');
+    expect(result.isToday).toBe(true); expect(result.metrics.unresolved).toEqual({ label: 'Chưa đến lớp', count: 1 });
+    await expect(attendance.overview('admin', school, '09-02-2026')).rejects.toMatchObject({ response: { fieldErrors: { date: expect.any(String) } } });
+  });
+  it('uses one time snapshot, returns empty roster metrics, and does not query facts with an empty IN list', async () => {
+    const { attendance, prisma } = service({ studentEnrollment: { findMany: vi.fn().mockResolvedValue([]) }, staffProfile: { count: vi.fn().mockResolvedValue(2) }, attendanceRecord: { findMany: vi.fn() }, leaveDaySource: { findMany: vi.fn() }, handoverRecord: { findMany: vi.fn() } });
+    const now = vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '08:00' });
+    await expect(attendance.overview('admin', school)).resolves.toMatchObject({ date: '2026-02-09', isToday: true, metrics: { students: 0, staff: 2, unresolved: { label: 'Chưa đến lớp', count: 0 } }, classes: [] });
+    expect(now).toHaveBeenCalledTimes(1); expect((prisma as any).attendanceRecord.findMany).not.toHaveBeenCalled(); expect((prisma as any).leaveDaySource.findMany).not.toHaveBeenCalled(); expect((prisma as any).handoverRecord.findMany).not.toHaveBeenCalled();
+  });
+  it('uses the latest effective class placement once when overlapping assignments are returned', async () => {
+    const { attendance } = service({ studentEnrollment: { findMany: vi.fn().mockResolvedValue([{ studentId: student, classAssignments: [{ classId: 'class-old', effectiveFrom: day('2026-01-01'), classroom: { name: 'Lớp cũ' } }, { classId: 'class-new', effectiveFrom: day('2026-02-01'), classroom: { name: 'Lớp mới' } }] }]) }, staffProfile: { count: vi.fn().mockResolvedValue(0) }, attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]) }, handoverRecord: { findMany: vi.fn().mockResolvedValue([]) } });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '08:00' });
+    await expect(attendance.overview('admin', school)).resolves.toMatchObject({ metrics: { students: 1, unresolved: { count: 1 } }, classes: [{ classId: 'class-new', className: 'Lớp mới', students: 1 }] });
+  });
   it('issues at most one approved fact per student operating day and appends PRESENT exclusions', async () => {
     const source = { id: operation };
     const { attendance } = service();
