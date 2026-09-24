@@ -248,7 +248,7 @@ describe("RosterWorkspace paged read model", () => {
   });
 
   it("pages staff, drops stale responses, opens the edit menu, and reloads after an edit", async () => {
-    const staff = { id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", phone: "0900", staffCode: "NV-01", hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" } };
+    const staff = { id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", phone: "0900", classNames: ["Lớp Mầm"], staffCode: "NV-01", hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" } };
     let resolvePageTwo!: (value: Response) => void;
     const pageTwo = new Promise<Response>((resolve) => { resolvePageTwo = resolve; });
     const fetch = vi.fn((url: string, options?: RequestInit) => {
@@ -264,6 +264,8 @@ describe("RosterWorkspace paged read model", () => {
     vi.stubGlobal("fetch", fetch);
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="staff" />);
     await screen.findByRole("button", { name: "Tùy chọn cho Cô Mai" });
+    expect(screen.getByText("0900")).toBeTruthy();
+    expect(screen.getByText("Lớp Mầm")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sau" }));
     fireEvent.change(screen.getByLabelText("Tìm kiếm"), { target: { value: "Lan" } });
     fireEvent.click(screen.getByRole("button", { name: "Áp dụng" }));
@@ -278,7 +280,7 @@ describe("RosterWorkspace paged read model", () => {
   });
 
   it("drops stale staff detail, traps edit dialog focus, and reports list loading errors in the table", async () => {
-    const staff = { id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", phone: "0900", staffCode: "NV-01", hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" } };
+    const staff = { id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", phone: "0900", classNames: [], staffCode: "NV-01", hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" } };
     let resolveA!: (value: Response) => void;
     const detailA = new Promise<Response>((resolve) => { resolveA = resolve; });
     const fetch = vi.fn((url: string) => {

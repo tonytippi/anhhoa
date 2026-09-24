@@ -45,6 +45,7 @@ export type OffsetPaginationMeta = {
   totalPages: number;
 };
 export type StaffListQuery = {
+  schoolYearId?: string;
   page?: number;
   pageSize?: number;
   q?: string;
@@ -57,6 +58,7 @@ export type StaffListRow = {
   fullName: string;
   email: string | null;
   phone: string | null;
+  classNames: string[];
   staffCode: string | null;
   hasPhoto: boolean;
   employmentStatus: 'ACTIVE' | 'INACTIVE';

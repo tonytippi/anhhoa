@@ -371,6 +371,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const current = await graph(); const foreign = await graph();
     const position = await prisma.schoolPosition.create({ data: { schoolId: current.current.id, code: `STAFF_${uuid().slice(0, 8)}`, name: 'Trợ giảng' } });
     await prisma.staffProfile.createMany({ data: Array.from({ length: 31 }, (_, index) => ({ schoolId: current.current.id, fullName: `Nhân viên ${String(31 - index).padStart(2, '0')}`, email: `staff-${index}@example.com`, phone: `0900${String(index).padStart(6, '0')}`, dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Hà Nội', employmentStatus: index % 2 ? 'INACTIVE' : 'ACTIVE', primaryPositionId: index % 2 ? position.id : current.position.id, staffCode: `NV-${index}` })) });
+    const assigned = await prisma.staffProfile.findFirstOrThrow({ where: { schoolId: current.current.id, staffCode: 'NV-3' } });
+    await prisma.staffClassAssignment.create({ data: { schoolId: current.current.id, staffProfileId: assigned.id, schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: new Date('2026-01-01T00:00:00.000Z'), reason: 'Fixture', schoolYearName: 'Năm 2026', schoolYearStartsOn: new Date(`${dates.startsOn}T00:00:00.000Z`), schoolYearEndsOn: new Date(`${dates.endsOn}T00:00:00.000Z`), className: 'Mầm' } });
     await prisma.staffProfile.create({ data: { schoolId: foreign.current.id, fullName: 'Nhân viên ngoại trường', email: 'foreign-staff@example.com', phone: '0999999999', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Huế', primaryPositionId: foreign.position.id } });
     const first = await roster.staff(current.admin.id, current.current.id, { page: '1', pageSize: '1000', sort: 'name' });
     const second = await roster.staff(current.admin.id, current.current.id, { page: '2', pageSize: '25', sort: 'name' });
@@ -378,9 +380,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     expect(first.data).toHaveLength(32);
     expect(second.data).toEqual([]);
     expect((await roster.staff(current.admin.id, current.current.id, { q: 'staff-3@example.com' })).data).toMatchObject([{ staffCode: 'NV-3' }]);
+    expect((await roster.staff(current.admin.id, current.current.id, { q: 'staff-3@example.com', schoolYearId: current.year.id })).data).toMatchObject([{ staffCode: 'NV-3', classNames: ['Mầm'] }]);
     expect((await roster.staff(current.admin.id, current.current.id, { q: '0900000003', employmentStatus: 'INACTIVE', primaryPositionId: position.id, sort: 'position' })).data).toMatchObject([{ staffCode: 'NV-3', primaryPosition: { name: 'Trợ giảng' } }]);
     expect((await roster.staff(current.admin.id, current.current.id, { q: 'foreign-staff@example.com' })).data).toEqual([]);
     await expect(roster.staff(current.admin.id, current.current.id, { primaryPositionId: foreign.position.id })).rejects.toMatchObject({ status: 404, response: { code: 'POSITION_NOT_FOUND' } });
+    await expect(roster.staff(current.admin.id, current.current.id, { schoolYearId: foreign.year.id })).rejects.toMatchObject({ status: 404, response: { code: 'SCHOOL_YEAR_NOT_FOUND' } });
     await expect(roster.staff(current.admin.id, current.current.id, { page: 'bad' })).rejects.toMatchObject({ status: 400 });
     await expect(roster.staff(current.admin.id, current.current.id, { page: String(Number.MAX_SAFE_INTEGER), pageSize: '100' })).rejects.toMatchObject({ status: 400 });
     await expect(roster.staff(current.admin.id, current.current.id, { q: 'x'.repeat(101) })).rejects.toMatchObject({ status: 400 });

@@ -411,6 +411,7 @@ export class RosterService {
     };
     const pageSize = integer(value("pageSize"), 25, 100);
     const page = integer(value("page"), 1, Math.floor(Number.MAX_SAFE_INTEGER / pageSize) + 1);
+    const schoolYearId = value("schoolYearId") || undefined;
     const employmentStatus = value("employmentStatus") || undefined;
     const primaryPositionId = value("primaryPositionId") || undefined;
     const sort = value("sort") || "name";
@@ -418,6 +419,11 @@ export class RosterService {
       throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
     if (!["name", "position", "status"].includes(sort))
       throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ." });
+    if (
+      schoolYearId &&
+      (!uuid.test(schoolYearId) || !(await this.prisma.schoolYear.findFirst({ where: { id: schoolYearId, schoolId } })))
+    )
+      throw new NotFoundException({ code: "SCHOOL_YEAR_NOT_FOUND", message: "Không tìm thấy năm học." });
     if (
       primaryPositionId &&
       (!uuid.test(primaryPositionId) || !(await this.prisma.schoolPosition.findFirst({ where: { id: primaryPositionId, schoolId } })))
@@ -444,7 +450,13 @@ export class RosterService {
       this.prisma.staffProfile.count({ where }),
       this.prisma.staffProfile.findMany({
         where,
-        include: { primaryPosition: true, photo: { select: { id: true } } },
+        include: {
+          primaryPosition: true,
+          photo: { select: { id: true } },
+          assignments: schoolYearId
+            ? { where: { schoolId, schoolYearId, effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }] }, orderBy: { className: "asc" }, select: { className: true } }
+            : false,
+        },
         orderBy: sort === "position"
           ? [{ primaryPosition: { name: "asc" } }, { fullName: "asc" }, { id: "asc" }]
           : sort === "status"
@@ -460,6 +472,7 @@ export class RosterService {
         fullName: item.fullName,
         email: item.email,
         phone: item.phone,
+        classNames: item.assignments?.map((assignment) => assignment.className) ?? [],
         staffCode: item.staffCode,
         hasPhoto: Boolean(item.photo),
         employmentStatus: item.employmentStatus,

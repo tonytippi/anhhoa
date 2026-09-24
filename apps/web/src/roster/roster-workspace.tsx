@@ -56,6 +56,7 @@ type Staff = {
   fullName: string;
   email: string | null;
   phone: string | null;
+  classNames: string[];
   dateOfBirth: string;
   gender: string | null;
   address: string | null;
@@ -477,7 +478,7 @@ export function RosterWorkspace({
     requestGeneration?: number,
   ) => Promise<{ data: Staff[]; meta: RosterPageMeta } | undefined>;
   const staffListPath = (page: number, query: StaffQuery) =>
-    `/api/app/schools/${schoolId}/roster/staff?${new URLSearchParams({ page: String(page), pageSize: "25", ...(query.q ? { q: query.q } : {}), ...(query.employmentStatus ? { employmentStatus: query.employmentStatus } : {}), ...(query.primaryPositionId ? { primaryPositionId: query.primaryPositionId } : {}), sort: query.sort })}`;
+    `/api/app/schools/${schoolId}/roster/staff?${new URLSearchParams({ page: String(page), pageSize: "25", ...(selectedYear.current ? { schoolYearId: selectedYear.current } : {}), ...(query.q ? { q: query.q } : {}), ...(query.employmentStatus ? { employmentStatus: query.employmentStatus } : {}), ...(query.primaryPositionId ? { primaryPositionId: query.primaryPositionId } : {}), sort: query.sort })}`;
   const loadStaff = async (
     page = staffPageRef.current,
     query = staffQueryRef.current,
@@ -586,9 +587,6 @@ export function RosterWorkspace({
     ]);
     if (!nextYears || !valid(schoolId, requestGeneration)) return;
     setYears(nextYears);
-    if (section !== "parents") {
-      await loadStaff(staffPageRef.current, staffQueryRef.current, requestGeneration);
-    }
     if (section !== "parents") setPositions((nextPositions ?? []).filter((item): item is Position => Boolean(item && Array.isArray(item.capabilities) && typeof item.id === 'string')));
     const selected = nextYears.some((item) => item.id === selectedYear.current)
       ? selectedYear.current
@@ -596,6 +594,9 @@ export function RosterWorkspace({
     if (selected !== selectedYear.current) {
       selectedYear.current = selected;
       setYearId(selected);
+    }
+    if (section !== "parents") {
+      await loadStaff(staffPageRef.current, staffQueryRef.current, requestGeneration);
     }
     if (!selected) {
       setClasses([]);
@@ -798,7 +799,10 @@ export function RosterWorkspace({
     setRowMenu(undefined);
     loadedYear.current = yearId;
     const requestGeneration = generation.current;
-    void loadYear(yearId, requestGeneration, rosterQuery, section === "parents" ? parentMeta.page : rosterMeta.page);
+    void Promise.all([
+      loadYear(yearId, requestGeneration, rosterQuery, section === "parents" ? parentMeta.page : rosterMeta.page),
+      section === "parents" ? Promise.resolve() : loadStaff(staffPageRef.current, staffQueryRef.current, requestGeneration),
+    ]);
   }, [yearId, schoolId]);
   useEffect(() => {
     if (
@@ -1584,14 +1588,18 @@ export function RosterWorkspace({
       {positionAction && <div role="dialog" aria-modal="true" aria-labelledby="position-action-title"><form className="roster-form" onSubmit={submitPositionAction}><h3 id="position-action-title">{positionAction.kind === "rename" ? `Đổi tên ${positionAction.position.name}` : positionAction.kind === "inactivate" ? `Ngừng hiệu lực ${positionAction.position.name}` : positionAction.kind === "grant" ? `Cấp capability cho ${positionAction.position.name}` : `Thu hồi capability của ${positionAction.position.name}`}</h3>{positionAction.kind === "rename" && <label>Tên chức danh mới<input value={positionAction.name} onChange={(event) => setPositionAction({ ...positionAction, name: event.target.value })} {...field(positionErrors, "name", "position-")} /></label>}{positionAction.kind === "grant" && <label>Capability cần cấp<select value={positionAction.capability} onChange={(event) => setPositionAction({ ...positionAction, capability: event.target.value })}><option value="">Chọn capability</option>{Object.entries(capabilityLabel).filter(([capability]) => !positionAction.position.capabilities.includes(capability)).map(([capability, label]) => <option key={capability} value={capability}>{label}</option>)}</select></label>}<label>{positionAction.kind === "rename" ? "Lý do đổi tên chức danh" : positionAction.kind === "inactivate" ? "Lý do ngừng hiệu lực chức danh" : positionAction.kind === "grant" ? "Lý do cấp capability" : "Lý do thu hồi capability"}<input value={positionAction.reason} onChange={(event) => setPositionAction({ ...positionAction, reason: event.target.value })} {...field(positionErrors, "reason", "position-")} /></label>{positionErrors.reason && <small id="position-reason-error">{positionErrors.reason}</small>}{positionAction.kind === "inactivate" && <label>Nhập NGỪNG HIỆU LỰC để xác nhận<input value={positionAction.confirmation} onChange={(event) => setPositionAction({ ...positionAction, confirmation: event.target.value })} /></label>}<button type="button" onClick={() => setPositionAction(undefined)}>Hủy</button><button disabled={disabled || (positionAction.kind === "inactivate" && positionAction.confirmation !== "NGỪNG HIỆU LỰC")}>{positionAction.kind === "rename" ? "Lưu tên chức danh" : positionAction.kind === "inactivate" ? "Xác nhận ngừng hiệu lực" : positionAction.kind === "grant" ? "Cấp capability" : "Xác nhận thu hồi capability"}</button></form></div>}
       </>}
       {(section === "all" || section === "staff") && <>
-       <form className="roster-list-filters" aria-label="Lọc nhân viên" onSubmit={(event) => { event.preventDefault(); void reloadStaff(1); }}>
-         <label>Tìm kiếm<input type="search" value={staffQuery.q} onChange={(event) => setStaffQuery({ ...staffQuery, q: event.target.value })} placeholder="Tên, mã, email hoặc số điện thoại" /></label>
-         <label>Trạng thái<select value={staffQuery.employmentStatus} onChange={(event) => setStaffQuery({ ...staffQuery, employmentStatus: event.target.value as StaffQuery["employmentStatus"] })}><option value="">Tất cả trạng thái</option><option value="ACTIVE">Đang hiệu lực</option><option value="INACTIVE">Không hiệu lực</option></select></label>
-         <label>Chức danh chính<select value={staffQuery.primaryPositionId} onChange={(event) => setStaffQuery({ ...staffQuery, primaryPositionId: event.target.value })}><option value="">Tất cả chức danh</option>{positions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-         <label>Sắp xếp<select value={staffQuery.sort} onChange={(event) => setStaffQuery({ ...staffQuery, sort: event.target.value as StaffQuery["sort"] })}><option value="name">Tên nhân viên</option><option value="position">Chức danh</option><option value="status">Trạng thái</option></select></label>
-         <button>Áp dụng</button><button type="button" disabled={staffLoading} onClick={() => void reloadStaff()}>Làm mới danh sách</button>
-         <button type="button" className="primary-action" disabled={disabled} onClick={() => { clearStaffIntake(); setStaffIntakeOpen(true); }}>Thêm nhân viên</button>
-       </form>
+       <div className="staff-list-controls">
+         <form className="staff-list-search" aria-label="Lọc nhân viên" onSubmit={(event) => { event.preventDefault(); void reloadStaff(1); }}>
+           <label><span>Tìm kiếm</span><input type="search" value={staffQuery.q} onChange={(event) => setStaffQuery({ ...staffQuery, q: event.target.value })} placeholder="Tên, mã, email hoặc số điện thoại" /></label>
+           <button>Áp dụng</button><button type="button" disabled={staffLoading} onClick={() => void reloadStaff()}>Làm mới</button>
+         </form>
+         <div className="staff-list-actions">
+           <label>Trạng thái<select value={staffQuery.employmentStatus} onChange={(event) => setStaffQuery({ ...staffQuery, employmentStatus: event.target.value as StaffQuery["employmentStatus"] })}><option value="">Tất cả trạng thái</option><option value="ACTIVE">Đang hiệu lực</option><option value="INACTIVE">Không hiệu lực</option></select></label>
+           <label>Chức danh chính<select value={staffQuery.primaryPositionId} onChange={(event) => setStaffQuery({ ...staffQuery, primaryPositionId: event.target.value })}><option value="">Tất cả chức danh</option>{positions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+           <label>Sắp xếp<select value={staffQuery.sort} onChange={(event) => setStaffQuery({ ...staffQuery, sort: event.target.value as StaffQuery["sort"] })}><option value="name">Tên nhân viên</option><option value="position">Chức danh</option><option value="status">Trạng thái</option></select></label>
+           <button type="button" className="primary-action" disabled={disabled} onClick={() => { clearStaffIntake(); setStaffIntakeOpen(true); }}>Thêm nhân viên</button>
+         </div>
+       </div>
        {staffIntakeOpen && <div className="student-intake-backdrop"><div ref={staffIntakeDialog} className="student-intake-dialog staff-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-intake-title" onKeyDown={trapStaffIntakeDialog}><form className="roster-form student-intake-form" onSubmit={saveStaff}>
         <h3 id="staff-intake-title">{editingStaffId ? "Sửa hồ sơ nhân viên" : "Tạo hồ sơ nhân viên"}</h3>
         <fieldset><legend>Thông tin cơ bản</legend>
@@ -1691,25 +1699,26 @@ export function RosterWorkspace({
       </form></div></div>}
       <div className="table-scroll student-list-table staff-list-table">
         <table aria-label="Danh sách nhân viên">
-          <caption>Hồ sơ nhân sự của {schoolName}</caption>
           <thead>
             <tr>
               <th>STT</th>
               <th>Họ tên</th>
+              <th>Số điện thoại</th>
+              <th>Lớp</th>
               <th>Chức danh chính</th>
               <th>Trạng thái</th>
               <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {staffLoading ? <tr><td colSpan={5} role="status" className="student-empty-state">Đang tải danh sách nhân viên...</td></tr> : staff.length ? (
+            {staffLoading ? <tr><td colSpan={7} role="status" className="student-empty-state">Đang tải danh sách nhân viên...</td></tr> : staff.length ? (
               staff.map((item) => (
                 <tr key={item.id}>
                   <td>{(staffMeta.page - 1) * staffMeta.pageSize + staff.indexOf(item) + 1}</td>
-                  <th scope="row">{item.fullName}<small className="staff-contact">{item.staffCode ?? item.email ?? "-"} · {item.phone ?? "-"}</small></th>
-                  <td className="roster-row-actions">
-                    {item.primaryPosition?.name ?? 'Không có'}
-                  </td>
+                  <th scope="row">{item.fullName}<small className="staff-contact">{item.staffCode ?? item.email ?? "-"}</small></th>
+                  <td>{item.phone ?? "-"}</td>
+                  <td>{item.classNames?.length ? item.classNames.join(", ") : "-"}</td>
+                  <td>{item.primaryPosition?.name ?? 'Không có'}</td>
                   <td>
                     {item.employmentStatus === 'ACTIVE' ? 'Đang hiệu lực' : 'Không hiệu lực'}
                   </td>
@@ -1729,10 +1738,10 @@ export function RosterWorkspace({
                 </tr>
               ))
             ) : staffLoadFailed ? (
-              <tr><td colSpan={5} role="status" className="student-empty-state"><strong>Không thể tải danh sách nhân viên</strong><span>Kiểm tra kết nối rồi thử làm mới danh sách.</span></td></tr>
+              <tr><td colSpan={7} role="status" className="student-empty-state"><strong>Không thể tải danh sách nhân viên</strong><span>Kiểm tra kết nối rồi thử làm mới danh sách.</span></td></tr>
             ) : (
               <tr>
-                <td colSpan={5} className="student-empty-state"><strong>Chưa có hồ sơ nhân sự</strong><span>Thay đổi điều kiện lọc hoặc thêm hồ sơ nhân viên đầu tiên.</span></td>
+                <td colSpan={7} className="student-empty-state"><strong>Chưa có hồ sơ nhân sự</strong><span>Thay đổi điều kiện lọc hoặc thêm hồ sơ nhân viên đầu tiên.</span></td>
               </tr>
             )}
           </tbody>
