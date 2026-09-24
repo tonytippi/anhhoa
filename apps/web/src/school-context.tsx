@@ -86,6 +86,13 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     const next = payload.data as School[];
     if (!mounted.current) return;
     setSchools(next);
+    if (selected.current && !next.some((school) => school.schoolId === selected.current)) {
+      forgetSchoolId();
+      clearProtectedState();
+      setShowChooser(true);
+      navigate('/', { replace: true });
+      return;
+    }
     const saved = savedSchoolId();
     const schoolId = next.length === 1 ? next[0]?.schoolId : saved && next.some((school) => school.schoolId === saved) ? saved : undefined;
     const school = schoolId ? next.find((item) => item.schoolId === schoolId) : undefined;
@@ -164,6 +171,15 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     void refreshChooser(!destinationFromPath(location.pathname)).catch((cause: Error) => setError(cause.message));
     return () => { mounted.current = false; };
   }, [userIdentityId]);
+  useEffect(() => {
+    const refreshAuthorizedSchools = () => {
+      if (!hasPending()) void refreshChooser(false).catch((cause: Error) => setError(cause.message));
+    };
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") refreshAuthorizedSchools(); };
+    window.addEventListener("focus", refreshAuthorizedSchools);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => { window.removeEventListener("focus", refreshAuthorizedSchools); document.removeEventListener("visibilitychange", onVisibilityChange); };
+  });
   useEffect(() => {
     if (!schools) return;
     const destination = destinationFromPath(location.pathname);

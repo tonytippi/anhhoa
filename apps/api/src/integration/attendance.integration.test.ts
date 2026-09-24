@@ -250,8 +250,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
   it('returns a School-scoped operational queue with separate pending leave and attendance-gap destinations', async () => {
     const current = await graph(); const foreign = await graph();
     const position = await prisma.schoolPosition.create({ data: { schoolId: current.school.id, code: `QUEUE-${uuid()}`, name: `Hàng đợi ${uuid()}` } });
-    await prisma.positionCapabilityGrant.createMany({ data: ['OPERATIONAL_QUEUE_READ', 'SETTINGS_MANAGE'].map((capability) => ({ schoolId: current.school.id, positionId: position.id, capability })) });
-    await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Quản lý hàng đợi', email: `${uuid()}@example.com`, phone: '0900000010', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    await prisma.positionCapabilityGrant.create({ data: { schoolId: current.school.id, positionId: position.id, capability: 'OPERATIONAL_QUEUE_READ' } });
+    const staff = await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Giáo viên hàng đợi', email: `${uuid()}@example.com`, phone: '0900000010', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    const assignment = await prisma.staffClassAssignment.create({ data: { schoolId: current.school.id, staffProfileId: staff.id, schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: date('2026-01-01'), reason: 'Phân công hàng đợi', schoolYearName: current.year.name, schoolYearStartsOn: current.year.startsOn, schoolYearEndsOn: current.year.endsOn, className: current.classroom.name } });
     const unrecordedStudent = await prisma.student.create({ data: { schoolId: current.school.id, studentCode: `AT-${uuid()}`, fullName: 'Bé Bình', dateOfBirth: date('2022-01-01') } });
     const unrecordedEnrollment = await prisma.studentEnrollment.create({ data: { schoolId: current.school.id, studentId: unrecordedStudent.id, schoolYearId: current.year.id, classId: current.classroom.id, lifecycle: 'ENROLLED', effectiveFrom: date('2026-01-01'), schoolYearName: current.year.name, schoolYearStartsOn: current.year.startsOn, schoolYearEndsOn: current.year.endsOn, className: current.classroom.name } });
     await prisma.enrollmentClassAssignment.create({ data: { schoolId: current.school.id, enrollmentId: unrecordedEnrollment.id, schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: date('2026-01-01'), reason: 'Xếp lớp đầu năm' } });
@@ -263,8 +264,13 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     await expect(attendance.operationalQueue(current.identity.id, current.school.id, '2026-02-08', current.classroom.id)).resolves.toMatchObject({ operating: false, classes: [] });
     await expect(attendance.operationalQueueItems(current.identity.id, current.school.id, '2026-02-08', current.classroom.id, 'NOT_RECORDED')).resolves.toMatchObject({ operating: false, students: [] });
     await expect(attendance.operationalQueueItems(current.identity.id, current.school.id, '2026-02-09', foreign.classroom.id, 'PENDING')).rejects.toMatchObject({ response: { code: 'CLASS_NOT_FOUND' } });
+    await prisma.staffClassAssignment.update({ where: { schoolId_id: { schoolId: current.school.id, id: assignment.id } }, data: { effectiveTo: date('2026-02-09') } });
+    await expect(attendance.operationalQueue(current.identity.id, current.school.id, '2026-02-09')).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+    await expect(attendance.operationalQueueItems(current.identity.id, current.school.id, '2026-02-09', current.classroom.id, 'PENDING')).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+    await prisma.staffClassAssignment.update({ where: { schoolId_id: { schoolId: current.school.id, id: assignment.id } }, data: { effectiveTo: null } });
     await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: current.school.id, positionId: position.id, capability: 'OPERATIONAL_QUEUE_READ' } });
     await expect(attendance.operationalQueue(current.identity.id, current.school.id, '2026-02-09')).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
+    await expect(attendance.operationalQueueItems(current.identity.id, current.school.id, '2026-02-09', current.classroom.id, 'PENDING')).rejects.toMatchObject({ response: { code: 'CAPABILITY_DENIED' } });
   });
   it('issues one AUTO_APPROVED source through the parent leave flow and excludes it after public PRESENT recording', async () => {
     const current = await graph();

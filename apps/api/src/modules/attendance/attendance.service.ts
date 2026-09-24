@@ -992,6 +992,7 @@ export class AttendanceService {
     // School-wide management capabilities distinguish Admin/Finance from Staff without trusting Position names.
     if (actor.boundStaffProfile.primaryPosition.grants.some((grant) => grant.capability === "SETTINGS_MANAGE" || grant.capability === "FINANCE_MANAGE")) return { classIds: undefined as string[] | undefined };
     const assignments = await this.prisma.staffClassAssignment.findMany({ where: { schoolId, staffProfileId: actor.boundStaffProfile.id, effectiveFrom: { lte: this.day(attendanceOn) }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: this.day(attendanceOn) } }] }, select: { classId: true } });
+    if (!assignments.length) throw new ForbiddenException({ code: "CAPABILITY_DENIED", message: "Bạn không có quyền thực hiện thao tác này." });
     return { classIds: assignments.map((assignment) => assignment.classId) };
   }
   private async queueRows(schoolId: string, attendanceOn: string, allowedClassIds?: string[], requestedClassId?: string) {
