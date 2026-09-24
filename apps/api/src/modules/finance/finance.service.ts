@@ -647,7 +647,7 @@ export class FinanceService {
     const price = receivable.defaultUnitPrice;
     return { id: line.id, receivableId: line.receivableId, receivableName: receivable.displayName, unitLabel: receivable.unitLabel, defaultUnitPrice: price.toString(), quantity: line.quantity.toString(), amount: this.amount(price, line.quantity).toString() };
   }
-  private async templateSnapshot(tx: any, schoolId: string, run: any) {
+  private async templateSnapshot(tx: any, schoolId: string, run: any, validateActive = true, includeLifecycleFacts = false) {
     await tx.$queryRaw`SELECT 1 FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid FOR UPDATE`;
     await tx.$queryRaw`SELECT 1 FROM "Receivable" AS r JOIN "ReceivableGroup" AS g ON g."id" = r."groupId" AND g."schoolId" = r."schoolId" WHERE r."schoolId" = ${schoolId}::uuid AND r."id" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid) FOR UPDATE OF r, g`;
     await tx.$queryRaw`SELECT 1 FROM "ReceivableLifecycleTransition" WHERE "schoolId" = ${schoolId}::uuid AND "receivableId" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid) FOR UPDATE`;
@@ -660,9 +660,25 @@ export class FinanceService {
     if (!lines.length) throw validation("template", "Đợt thu phải có ít nhất một khoản thu mẫu.");
     return lines.map((line: any) => {
       const receivable = line.receivable;
-      if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu mẫu đã ngừng áp dụng.");
+      if (validateActive && (receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE")) throw validation("receivableId", "Khoản thu mẫu đã ngừng áp dụng.");
       const amount = this.amount(receivable.defaultUnitPrice, line.quantity);
-      return { templateLineId: line.id, receivableId: receivable.id, receivableCode: receivable.code, receivableName: receivable.displayName, unitLabel: receivable.unitLabel, defaultUnitPrice: receivable.defaultUnitPrice.toString(), quantity: line.quantity, amount: amount.toString() };
+      return {
+        templateLineId: line.id,
+        receivableId: receivable.id,
+        receivableCode: receivable.code,
+        receivableName: receivable.displayName,
+        unitLabel: receivable.unitLabel,
+        defaultUnitPrice: receivable.defaultUnitPrice.toString(),
+        quantity: line.quantity,
+        amount: amount.toString(),
+        ...(includeLifecycleFacts
+          ? {
+              receivableStatus: receivable.lifecycleTransitions[0]?.status ?? null,
+              receivableGroupStatus:
+                receivable.group.lifecycleTransitions[0]?.status ?? null,
+            }
+          : {}),
+      };
     }).sort((a: any, b: any) => this.amountDescending({ ...a, id: a.templateLineId }, { ...b, id: b.templateLineId }));
   }
   async saveTemplateLine(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
@@ -1066,7 +1082,7 @@ export class FinanceService {
         code: "COLLECTION_RUN_NOT_DRAFT",
         message: "Chỉ có thể xem trước đợt thu nháp.",
       });
-    const templateLines = await this.templateSnapshot(this.prisma, schoolId, run);
+    const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, true, true);
     return this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines);
   }
   async readyRun(
@@ -1116,13 +1132,14 @@ export class FinanceService {
             code: "COLLECTION_RUN_STATE_CONFLICT",
             message: "Trạng thái đợt thu đã thay đổi.",
           });
-        const templateLines = await this.templateSnapshot(tx, schoolId, run);
+        const templateLines = await this.templateSnapshot(tx, schoolId, run, false, true);
         const preview = await this.selectionPreview(tx, schoolId, run, undefined, templateLines);
         if (preview.fingerprint !== previewFingerprint)
           throw new ConflictException({
             code: "PREVIEW_STALE",
             message: "Bản xem trước đã cũ. Hãy tải lại trước khi tiếp tục.",
           });
+        await this.templateSnapshot(tx, schoolId, run);
         const updated = await tx.collectionRun.update({
           where: { id: run.id },
           data: { status: "READY", version: { increment: 1 } },

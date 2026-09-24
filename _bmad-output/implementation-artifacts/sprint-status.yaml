@@ -60,7 +60,7 @@ development_status:
   5-6-release-gate-finance-admin-mvp: done
   5-7-dong-collectionrun-da-generate: done
   5-8-revision-invoice-da-phat-hanh-va-huy-ban-cu: done
-  5-9-cau-hinh-template-khoan-thu-cho-dot-thu: ready-for-dev
+  5-9-cau-hinh-template-khoan-thu-cho-dot-thu: done
   5-10-generate-invoice-draft-co-dong-template: backlog
   5-11-release-gate-template-dot-thu: backlog
   5-12-cau-hinh-uu-dai-theo-khoan-thu-va-gan-hoc-sinh: backlog

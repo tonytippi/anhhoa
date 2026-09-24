@@ -28,8 +28,9 @@ test('Admin Finance uses server values from preview through named issue and clea
   await page.getByLabel('Tháng thu').fill('2026-09');
   await page.getByRole('button', { name: 'Mở hoặc vào đợt thu' }).click();
   await expect(page.getByRole('heading', { name: 'Đợt thu 2026-09 / DRAFT' })).toBeVisible();
-  await page.getByRole('region', { name: /Đợt thu 2026-09/ }).getByLabel('Khoản thu').selectOption({ label: 'Học phí Release 1' });
-  await page.getByRole('region', { name: /Đợt thu 2026-09/ }).getByLabel('Số lượng').fill('1');
+  const template = page.getByRole('region', { name: 'Khoản thu trong đợt' });
+  await template.getByLabel('Khoản thu').selectOption({ label: 'Học phí Release 1' });
+  await template.getByLabel('Số lượng').fill('1');
   await page.getByRole('button', { name: 'Lưu khoản thu mẫu' }).click();
   await expect(page.getByRole('table', { name: 'Khoản thu mẫu chung' })).toContainText('150.000');
   await page.getByLabel('Chọn RG1-1 Bé An').check();
