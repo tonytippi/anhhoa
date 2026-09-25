@@ -228,6 +228,7 @@ afterEach(async () => {
     await tx.auditRecord.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.collectionRunGenerationItem.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.collectionRunGeneration.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.issuedPromotionApplication.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.invoiceLine.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.invoice.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.collectionRunTemplateLine.deleteMany({ where: { schoolId: { in: ids } } });
@@ -2043,6 +2044,55 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: bank.id, previousStatus: "ACTIVE", status: "INACTIVE", reason: "Đổi tài khoản", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId: issued.id, sequence: 2 } });
       await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-09-22"), dueDaysAfterIssue: 30, taxTreatment: "TAX_INCLUDED", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "SCHOOL_ADMIN_APPROVAL", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
       expect(await finance.invoice(current.identity.id, current.school.id, invoice.id)).toMatchObject({ issue: { transferContent: "Hoc sinh Finance Mam Active", bankAccount: { accountNumber: "123456789" }, policy: { dueDaysAfterIssue: 7 } } });
+    });
+
+    it("rechecks calculated promotion facts before Issue and persists only immutable issued applications", async () => {
+      const current = await roster(await graph()); const student = await enrolled(current);
+      const groupId = outcomeId(await group(current, "Issue promotion"));
+      const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Khoản", unitLabel: "lần", defaultUnitPrice: "100" }));
+      const versionId = await promotion(current, student.student.id, receivableId, { name: "Issue snapshot", discountType: "FIXED_VND", discountValue: "25", priority: "1", stackingMode: "STACKABLE" });
+      const runId = outcomeId(await open(current)); const template = await finance.run(current.identity.id, current.school.id, runId);
+      await finance.removeTemplateLine(current.identity.id, current.school.id, runId, template.templateLines[0]!.id, uuid(), uuid(), { expectedVersion: template.version });
+      await finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId, quantity: "1", expectedVersion: template.version + 1 });
+      await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
+      const preview = await finance.preview(current.identity.id, current.school.id, runId);
+      await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint }); await generate(current, runId);
+      const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
+      const operationId = uuid(); await prisma.operation.create({ data: { id: operationId, schoolId: current.school.id, membershipId: current.membership.id, actorIdentityId: current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: current.membership.id, route: "fixture", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
+      const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "A", accountNumber: "1", accountHolderName: "A", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+      await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: bank.id, status: "ACTIVE", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId, sequence: 1 } });
+      await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+      const key = uuid(); const operationIdForIssue = uuid();
+      const issued = await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, operationIdForIssue, { bankAccountId: bank.id });
+      expect(issued.outcome).toMatchObject({ status: "ISSUED", lines: [expect.objectContaining({ promotionApplicationSnapshot: [expect.objectContaining({ versionId, appliedDiscount: "25", assignmentReason: "Ưu đãi integration" })] })] });
+      const application = await prisma.issuedPromotionApplication.findFirstOrThrow({ where: { schoolId: current.school.id, invoiceId: invoice.id } });
+      await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, uuid(), { bankAccountId: bank.id })).resolves.toEqual(issued);
+      expect(await prisma.issuedPromotionApplication.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(1);
+      await prisma.$transaction(async (tx) => { await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica"); await tx.promotionPolicyVersion.update({ where: { id: versionId }, data: { discountValue: 99n } }); });
+      expect(await finance.invoice(current.identity.id, current.school.id, invoice.id)).toMatchObject({ lines: [expect.objectContaining({ promotionApplicationSnapshot: [expect.objectContaining({ versionId, appliedDiscount: "25" })] })] });
+      await expect(prisma.issuedPromotionApplication.update({ where: { id: application.id }, data: { assignmentReason: "Không được sửa" } })).rejects.toThrow(/immutable/);
+    });
+
+    it("database trigger rejects issued applications for DRAFT invoices and invoice-line mismatches", async () => {
+      const fixture = await issueFixture();
+      const draftLine = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } });
+      const application = (invoiceId: string, invoiceLineId: string, ordinal = 0) => ({ schoolId: fixture.current.school.id, invoiceId, invoiceLineId, ordinal, policyId: uuid(), versionId: uuid(), targetId: uuid(), assignmentId: uuid(), discountType: "FIXED_VND" as const, discountValue: 1n, priority: 1, stackingMode: "STACKABLE" as const, appliedDiscount: 1n, versionInterval: ["2026-09-01T00:00:00.000Z", null], assignmentInterval: ["2026-09-01T00:00:00.000Z", null], assignmentReason: "Direct PostgreSQL guard" });
+      await expect(prisma.issuedPromotionApplication.create({ data: application(fixture.invoice.id, draftLine.id) })).rejects.toThrow(/requires its issued same-School invoice line/);
+      await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      const replacementId = outcomeId(await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Trigger graph" }));
+      await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { receivableId: fixture.receivableId, quantity: "1" });
+      const replacementLine = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: replacementId } });
+      await expect(prisma.issuedPromotionApplication.create({ data: application(fixture.invoice.id, replacementLine.id) })).rejects.toThrow(/requires its issued same-School invoice line/);
+    });
+
+    it("rejects a stale calculated promotion at Issue without any partial snapshot or Issue outcome", async () => {
+      const fixture = await issueFixture();
+      const line = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } });
+      await prisma.invoiceLine.update({ where: { id: line.id }, data: { promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [{ policyId: uuid(), versionId: uuid(), targetId: uuid(), assignmentId: uuid(), assignmentReason: "Stale", versionInterval: ["2026-09-01T00:00:00.000Z", null], assignmentInterval: ["2026-09-01T00:00:00.000Z", null], discountType: "FIXED_VND", discountValue: "1", priority: 1, stackingMode: "STACKABLE", appliedDiscount: "1" }] } } });
+      await expect(finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id })).rejects.toMatchObject({ status: 409, response: { code: "PROMOTION_REVIEW_REQUIRED" } });
+      expect(await prisma.invoice.findUniqueOrThrow({ where: { id: fixture.invoice.id } })).toMatchObject({ status: "DRAFT", issuedAt: null });
+      expect(await prisma.issuedPromotionApplication.count({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } })).toBe(0);
+      expect(await prisma.auditRecord.count({ where: { schoolId: fixture.current.school.id, action: "INVOICE_ISSUED" } })).toBe(0);
     });
 
     it("closes only a fully issued generated run atomically, replays the outcome, and database guards preserve the lock", async () => {

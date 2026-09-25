@@ -550,6 +550,32 @@ describe("FinanceWorkspace", () => {
     expect(screen.queryByRole("button", { name: "Thêm dòng" })).toBeNull(); expect(screen.queryByRole("button", { name: "Phát hành hóa đơn" })).toBeNull();
     expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/issue") && (options as RequestInit).method === "POST" && (options as RequestInit).body === JSON.stringify({ bankAccountId: "bank-active" }))).toBe(true);
   });
+  it("closes the Issue dialog, reloads the current-School Invoice, and shows the server review message", async () => {
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
+    const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "r", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", grossAmount: "100", discountAmount: "0", netAmount: "100", promotionEvaluation: { applications: [{ assignmentReason: "Draft cũ", appliedDiscount: "0" }] }, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
+    const refreshed = { ...draft, lines: [{ ...draft.lines[0], promotionEvaluation: { applications: [{ assignmentReason: "Draft mới từ máy chủ", appliedDiscount: "10" }] } }] };
+    let invoiceReads = 0;
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue") ? new Response(JSON.stringify({ error: { code: "PROMOTION_REVIEW_REQUIRED", message: "Máy chủ yêu cầu rà soát ưu đãi." } }), { status: 409 }) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(++invoiceReads === 1 ? draft : refreshed) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" })); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
+    fireEvent.change(await screen.findByLabelText("Nhập chính xác tên học sinh Bé An để xác nhận"), { target: { value: "Bé An" } }); fireEvent.click(screen.getByRole("button", { name: "Xác nhận phát hành" }));
+    expect(await screen.findByText("Máy chủ yêu cầu rà soát ưu đãi.")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await screen.findByText("Draft mới từ máy chủ")).toBeTruthy();
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/invoices/invoice-a")).length).toBeGreaterThanOrEqual(2);
+  });
+  it("renders issued and cancelled promotion reasons only from application snapshots", async () => {
+    const issued = { id: "invoice-a", status: "ISSUED", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line", receivableId: "r", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", grossAmount: "100", discountAmount: "10", netAmount: "90", promotionEvaluation: { applications: [{ assignmentReason: "Draft provenance", appliedDiscount: "10" }] }, promotionApplicationSnapshot: [{ assignmentReason: "Issued snapshot", appliedDiscount: "10" }], overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }], issue: { obligationTotal: "90", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "90" }] };
+    let cancelled = false;
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/invoices/") ? response(cancelled ? { ...issued, status: "CANCELLED", lines: [{ ...issued.lines[0], promotionApplicationSnapshot: [{ assignmentReason: "Cancelled snapshot", appliedDiscount: "10" }] }] } : issued) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" })); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
+    expect(await screen.findByText("Issued snapshot")).toBeTruthy(); expect(screen.queryByText("Draft provenance")).toBeNull();
+    cancelled = true; fireEvent.click(screen.getByRole("button", { name: "Rà soát hóa đơn" }));
+    expect(await screen.findByText("Cancelled snapshot")).toBeTruthy(); expect(screen.queryByText("Draft provenance")).toBeNull();
+  });
   it("reconciles uncertain issue outcome and keeps issue validation errors in the server error summary", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };

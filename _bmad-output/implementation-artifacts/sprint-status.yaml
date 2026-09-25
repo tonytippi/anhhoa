@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-25 # Story 5.13 authoritative promotion evaluation, stale fingerprint and DRAFT calculation snapshot complete; Issue recheck remains queued.
+last_updated: 2026-09-25 # Story 5.14 Issue-time promotion recheck and immutable application snapshot complete.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -65,7 +65,7 @@ development_status:
   5-11-release-gate-template-dot-thu: done
   5-12-cau-hinh-uu-dai-theo-khoan-thu-va-gan-hoc-sinh: done
   5-13-preview-va-generate-uu-dai-authoritative: done
-  5-14-recheck-issue-va-snapshot-uu-dai-bat-bien: backlog
+  5-14-recheck-issue-va-snapshot-uu-dai-bat-bien: done
   5-15-release-gate-uu-dai-theo-khoan-thu-pha-1b: backlog
   epic-5-retrospective: optional
 
