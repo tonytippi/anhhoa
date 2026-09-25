@@ -225,6 +225,10 @@ export class FinanceService {
     });
     if (!membership) throw new NotFoundException({ code: "FINANCE_CONTEXT_DENIED", message: "Không thể truy cập catalog khoản thu." });
   }
+  private async promotionLock(tx: any, schoolId: string) {
+    // A per-School transaction lock closes the evaluator/mutation phantom window.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${schoolId}, 0))`;
+  }
   private lineDto(line: any) {
     return {
       id: line.id, receivableId: line.receivableId, receivableCode: line.receivableCodeSnapshot,
@@ -671,6 +675,7 @@ export class FinanceService {
     if (input.stackingMode !== "STACKABLE" && input.stackingMode !== "EXCLUSIVE") throw validation("stackingMode", "Quy tắc kết hợp không hợp lệ.");
     if (input.effectiveTo && input.effectiveFrom >= input.effectiveTo) throw validation("effectiveTo", "Ngày kết thúc phải sau ngày bắt đầu.");
     return this.mutate(actor, identityId, schoolId, routes.promotionPolicy, key, operationId, { ...input, discountValue: input.discountValue.toString(), effectiveFrom: input.effectiveFrom.toISOString(), effectiveTo: input.effectiveTo?.toISOString() ?? null }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId);
       const receivables = await tx.receivable.findMany({ where: { schoolId, id: { in: input.receivableIds } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } });
       if (receivables.length !== input.receivableIds.length || receivables.some((receivable: any) => receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE")) throw validation("receivableIds", "Khoản thu và nhóm khoản thu phải đang áp dụng.");
       const policy = input.policyId ? await tx.promotionPolicy.findFirst({ where: { id: input.policyId, schoolId } }) : await tx.promotionPolicy.create({ data: { schoolId, name: input.name } });
@@ -688,6 +693,7 @@ export class FinanceService {
   private async promotionTransition(identityId: string, schoolId: string, versionId: string, status: "ACTIVE" | "RETIRED", key: string, operationId: string) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(versionId, "versionId"); const route = status === "ACTIVE" ? routes.promotionActivate : routes.promotionRetire;
     return this.mutate(actor, identityId, schoolId, route, key, operationId, { versionId, status }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId);
       const version = await tx.promotionPolicyVersion.findFirst({ where: { id: versionId, schoolId }, include: { targets: true } }); if (!version) throw new NotFoundException({ code: "PROMOTION_POLICY_VERSION_NOT_FOUND", message: "Không tìm thấy phiên bản ưu đãi." });
       if (status === "ACTIVE" && (version.status !== "DRAFT" || !version.targets.length)) throw new ConflictException({ code: "PROMOTION_POLICY_VERSION_NOT_ACTIVATABLE", message: "Chỉ phiên bản nháp có khoản thu mới được kích hoạt." });
       if (status === "RETIRED" && version.status !== "ACTIVE") throw new ConflictException({ code: "PROMOTION_POLICY_VERSION_NOT_RETIRABLE", message: "Chỉ phiên bản đang áp dụng mới được ngừng." });
@@ -700,6 +706,7 @@ export class FinanceService {
     if (!studentIds.length || new Set(studentIds).size !== studentIds.length) throw validation("studentIds", "Chọn ít nhất một học sinh không trùng lặp."); const effectiveFrom = this.date(body?.effectiveFrom, "effectiveFrom")!; const effectiveTo = this.inclusiveEnd(body?.effectiveTo, "effectiveTo"); const reason = this.text(body?.reason, "reason", true, 500)!;
     if (effectiveTo && effectiveFrom >= effectiveTo) throw validation("effectiveTo", "Ngày kết thúc phải sau ngày bắt đầu.");
     return this.mutate(actor, identityId, schoolId, routes.promotionAssignments, key, operationId, { versionId, studentIds, effectiveFrom: effectiveFrom.toISOString(), effectiveTo: effectiveTo?.toISOString() ?? null, reason }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId);
       const version = await tx.promotionPolicyVersion.findFirst({ where: { id: versionId, schoolId } }); if (!version || version.status !== "ACTIVE") throw new ConflictException({ code: "PROMOTION_POLICY_VERSION_NOT_ACTIVE", message: "Chỉ được gán vào phiên bản đang áp dụng." });
       if (effectiveFrom < version.effectiveFrom || (version.effectiveTo && (!effectiveTo || effectiveTo > version.effectiveTo))) throw validation("effectiveFrom", "Khoảng gán phải nằm trong hiệu lực phiên bản.");
       const students = await tx.student.findMany({ where: { schoolId, id: { in: studentIds } }, select: { id: true } }); if (students.length !== studentIds.length) throw validation("studentIds", "Có học sinh không thuộc Trường.");
@@ -713,6 +720,7 @@ export class FinanceService {
   async endPromotionAssignment(identityId: string, schoolId: string, assignmentId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(assignmentId, "assignmentId"); const effectiveTo = this.inclusiveEnd(body?.effectiveTo, "effectiveTo", true)!; const reason = this.text(body?.reason, "reason", true, 500)!;
     return this.mutate(actor, identityId, schoolId, routes.promotionAssignmentEnd, key, operationId, { assignmentId, effectiveTo: effectiveTo.toISOString(), reason }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId);
       const assignment = await tx.studentPromotionAssignment.findFirst({ where: { id: assignmentId, schoolId }, include: { version: true } }); if (!assignment) throw new NotFoundException({ code: "PROMOTION_ASSIGNMENT_NOT_FOUND", message: "Không tìm thấy gán ưu đãi." });
       if (assignment.effectiveTo || effectiveTo <= assignment.effectiveFrom || (assignment.version.effectiveTo && effectiveTo > assignment.version.effectiveTo)) throw validation("effectiveTo", "Ngày kết thúc không thuộc khoảng gán hợp lệ.");
       const updated = await tx.studentPromotionAssignment.update({ where: { id: assignment.id }, data: { effectiveTo, endReason: reason, endedAt: new Date() } }); const outcome = { id: updated.id, effectiveTo: this.inclusiveDate(updated.effectiveTo), endReason: updated.endReason };
@@ -1220,19 +1228,23 @@ export class FinanceService {
     const gross = BigInt(line.amount);
     let discount = 0n;
     const applications: any[] = [];
-    const candidates = facts.filter((fact) => fact.studentId === studentId && fact.receivableId === line.receivableId)
+    const ordered = facts.filter((fact) => fact.studentId === studentId && fact.receivableId === line.receivableId)
       .sort((a, b) => (a.discountType === b.discountType ? b.priority - a.priority || a.policyId.localeCompare(b.policyId) : a.discountType === "FIXED_VND" ? -1 : 1));
+    // An exclusive policy owns this receivable for the month, including against policies
+    // that would otherwise sort before it by discount type or priority.
+    const exclusive = ordered.find((fact) => fact.stackingMode === "EXCLUSIVE");
+    const candidates = exclusive ? [exclusive] : ordered;
     for (const fact of candidates) {
       const remaining = gross - discount;
       if (remaining <= 0n) break;
       const requested = fact.discountType === "FIXED_VND" ? fact.discountValue : gross * fact.discountValue / 100n;
       const applied = requested > remaining ? remaining : requested;
-      applications.push({ policyId: fact.policyId, versionId: fact.versionId, targetId: fact.targetId, assignmentId: fact.assignmentId, assignmentReason: fact.assignmentReason, discountType: fact.discountType, discountValue: fact.discountValue.toString(), priority: fact.priority, stackingMode: fact.stackingMode, appliedDiscount: applied.toString() });
+      applications.push({ policyId: fact.policyId, versionId: fact.versionId, targetId: fact.targetId, assignmentId: fact.assignmentId, assignmentReason: fact.assignmentReason, versionInterval: fact.versionInterval, assignmentInterval: fact.assignmentInterval, discountType: fact.discountType, discountValue: fact.discountValue.toString(), priority: fact.priority, stackingMode: fact.stackingMode, appliedDiscount: applied.toString() });
       discount += applied;
       if (fact.stackingMode === "EXCLUSIVE") break;
     }
     return {
-      receivableId: line.receivableId, grossAmount: gross.toString(), discountAmount: discount.toString(), netAmount: (gross - discount).toString(),
+      receivableId: line.receivableId, receivableName: line.receivableName, grossAmount: gross.toString(), discountAmount: discount.toString(), netAmount: (gross - discount).toString(),
       promotionEvaluation: { version: "PROMOTION_EVALUATION_V1", applications },
     };
   }
@@ -1283,6 +1295,7 @@ export class FinanceService {
       operationId,
       { runId, previewFingerprint },
       async (tx, operation) => {
+        await this.promotionLock(tx, schoolId);
         const locked = await this.lockRun(tx, schoolId, runId);
         const year = await this.lockYear(tx, schoolId, locked.schoolYearId);
         if (year.closedAt)
@@ -1372,6 +1385,7 @@ export class FinanceService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`;
       await this.transactionActor(tx, schoolId, identityId, actor.membershipId);
+      await this.promotionLock(tx, schoolId);
       const operation = await tx.operation.create({ data: { id: operationId, schoolId, membershipId: actor.membershipId, actorIdentityId: identityId, actorType: "SCHOOL_MEMBERSHIP", actorReference: actor.membershipId, route: routes.generate, idempotencyKey: key, fingerprint } });
         const locked = await this.lockRun(tx, schoolId, runId);
         const year = await this.lockYear(tx, schoolId, locked.schoolYearId);
@@ -1516,6 +1530,7 @@ export class FinanceService {
     this.identifier(runId, "runId");
     const studentId = this.identifier(body?.studentId, "studentId");
     return this.mutate(actor, identityId, schoolId, routes.addGeneratedStudent, key, operationId, { runId, studentId }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId);
       const locked = await this.lockRun(tx, schoolId, runId);
       const year = await this.lockYear(tx, schoolId, locked.schoolYearId);
       if (year.closedAt) throw new ConflictException({ code: "SCHOOL_YEAR_CLOSED", message: "Năm học đã đóng chỉ có thể xem." });
@@ -1556,8 +1571,8 @@ export class FinanceService {
       const locked = await this.lockRun(tx, schoolId, runId);
       if (locked.status !== "GENERATED")
         throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ có thể đóng đợt thu đã tạo hóa đơn." });
-      const invoices = await tx.invoice.findMany({ where: { schoolId, collectionRunId: runId }, select: { status: true } });
-      if (invoices.some((invoice: { status: string }) => !["ISSUED", "CANCELLED"].includes(invoice.status)))
+      const invoices = await tx.invoice.findMany({ where: { schoolId, collectionRunId: runId }, select: { status: true, total: true } });
+      if (invoices.some((invoice: { status: string; total: bigint }) => !["ISSUED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === 0n)))
         throw new ConflictException({ code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL", message: "Chỉ có thể đóng khi mọi hóa đơn đã phát hành hoặc đã kết thúc." });
       const updated = await tx.collectionRun.update({ where: { id: locked.id }, data: { status: "CLOSED", version: { increment: 1 } } });
       await tx.collectionRunLifecycleTransition.create({

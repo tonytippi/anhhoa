@@ -2,7 +2,7 @@
 title: 'Story 5.13: Preview và generate ưu đãi authoritative'
 type: 'feature'
 created: '2026-09-25'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 baseline_revision: 'b07a19bcd4ffb5baf34d721e8b197c0cafcf05a3'
@@ -71,6 +71,44 @@ deferred: []
 ## Design Notes
 
 `amount` remains the existing line/Invoice total basis and becomes net amount for generated DRAFT lines. New explicit gross/discount/net fields preserve the calculation explanation without creating the Issue-time immutable application model owned by Story 5.14. Generated-student insertion evaluates at its own command time using the frozen run template and current facts at the run billing month.
+
+## Review Triage Log
+
+### 2026-09-25 - Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7 (high 2, medium 5)
+- defer: 0
+- reject: 5
+- addressed_findings:
+  - [high] [patch] Thêm advisory lock transaction-scoped theo School cho mutation/evaluation promotion để không có fact mới chen giữa revalidation và staging.
+  - [high] [patch] Loại toàn bộ phép cộng BigInt/reduce ở browser; preview chỉ render từng calculated line server-returned và reason server-returned.
+  - [medium] [patch] Persist provenance đầy đủ interval version/assignment và hiển thị assignment reason thay vì policy UUID.
+  - [medium] [patch] Cho phép CollectionRun đóng khi chỉ còn Invoice DRAFT net 0; DRAFT total dương vẫn chặn close.
+  - [medium] [patch] Bổ sung proof integration cho tie-break policy ID, generated student, calculated snapshot staged, zero-net close và advisory lock.
+  - [medium] [patch] Bổ sung test UI cho gross/discount/net/reason server-returned.
+  - [medium] [patch] Sửa assertion EXCLUSIVE để policy exclusive là policy duy nhất áp dụng cho Receivable/kỳ theo contract.
+
+## Auto Run Result
+
+Summary: Story 5.13 thêm evaluator ưu đãi deterministic vào preview, READY, generate và thêm Student sau generate. InvoiceLine DRAFT lưu gross/discount/net cùng evaluation provenance; fingerprint bao gồm fact promotion và worker chỉ persist staged snapshot.
+
+Files changed:
+- `apps/api/prisma/schema.prisma` và `apps/api/prisma/migrations/20260925000001_invoice_line_promotion_evaluation_snapshot/migration.sql` -- calculated line snapshot, invariant gross/net và finality cho Draft 0 VND.
+- `apps/api/src/modules/finance/finance.service.ts` -- evaluator, stale fingerprint, advisory lock School-scoped, staged snapshot và zero-net close handling.
+- `apps/api/src/modules/finance/finance.service.test.ts` và `apps/api/src/integration/finance.integration.test.ts` -- ordering, exclusive/cap, stale, worker, generated-student, zero-net và concurrency proof.
+- `apps/web/src/finance/finance-workspace.tsx` và `apps/web/src/finance/finance-workspace.test.tsx` -- calculated values/reason server-returned without browser totals.
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` -- Story 5.13 completion.
+
+Review findings breakdown: 7 patches applied (high 2, medium 5; score 17), 0 deferred, 5 rejected as out-of-contract/manual-DRAFT concerns or unspecified calculation semantics.
+
+Follow-up review recommendation: true (patched high findings; score 17).
+
+Verification performed:
+- `pnpm typecheck && pnpm test && git diff --check` -- pass; API 17 files / 128 tests, Admin 9 files / 103 tests.
+- `set -a && source .env.test && set +a && pnpm test:integration` from `apps/api` -- pass; 8 files / 128 PostgreSQL integration tests on `anhhoa_test`.
+
+Residual risks: Existing `pg` concurrent-query deprecation warning and React `act(...)` warning remain non-failing test-runtime warnings. Story 5.14 still owns Issue-time promotion recheck and immutable issued application snapshot.
 
 ## Verification
 

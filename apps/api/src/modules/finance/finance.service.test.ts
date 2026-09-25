@@ -101,8 +101,8 @@ describe('FinanceService validation', () => {
       fact('exclusive', 'PERCENTAGE', 50n, 1, 'EXCLUSIVE'),
       fact('after-exclusive', 'PERCENTAGE', 1n, 99),
     ]);
-    expect(result).toMatchObject({ grossAmount: '100', discountAmount: '100', netAmount: '0' });
-    expect(result.promotionEvaluation.applications.map((item: { policyId: string }) => item.policyId)).toEqual(['fixed-high', 'fixed-low']);
+    expect(result).toMatchObject({ grossAmount: '100', discountAmount: '50', netAmount: '50' });
+    expect(result.promotionEvaluation.applications.map((item: { policyId: string }) => item.policyId)).toEqual(['exclusive']);
     expect(result.promotionEvaluation.applications.every((item: { appliedDiscount: string }) => BigInt(item.appliedDiscount) >= 0n)).toBe(true);
   });
 });

@@ -81,6 +81,7 @@ describe("FinanceWorkspace", () => {
           studentCode: "HS001",
           fullName: "Bé An",
           className: "Lá 1",
+          lines: [{ receivableId: "fixture", receivableName: "Khoản fixture", grossAmount: "0", discountAmount: "0", netAmount: "0", promotionEvaluation: { applications: [] } }],
         },
       ],
       skips: [
@@ -126,6 +127,13 @@ describe("FinanceWorkspace", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText("CLASS_INACTIVE")).toBeNull();
+  });
+  it("renders distinct server-returned promotion line values and assignment reasons without deriving totals", async () => {
+    const preview = { run, fingerprint: "server-fingerprint", eligible: [{ studentId: run.selectedStudentIds[0], studentCode: "HS001", fullName: "Bé An", className: "Lá 1", lines: [{ receivableId: "meal", receivableName: "Tiền ăn", grossAmount: "100", discountAmount: "25", netAmount: "75", promotionEvaluation: { applications: [{ assignmentReason: "Con nhân viên", appliedDiscount: "25" }] } }, { receivableId: "tuition", receivableName: "Học phí", grossAmount: "200", discountAmount: "0", netAmount: "200", promotionEvaluation: { applications: [] } }] }], skips: [] };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/preview") ? response(preview) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [run] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" })); fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
+    expect(await screen.findByText("Con nhân viên")).toBeTruthy(); expect(screen.getByText("75")).toBeTruthy(); expect(screen.getAllByText("200")).toHaveLength(2); expect(screen.queryByText("275")).toBeNull();
   });
   it("keeps a stale preview error and selection for refresh", async () => {
     vi.stubGlobal(
