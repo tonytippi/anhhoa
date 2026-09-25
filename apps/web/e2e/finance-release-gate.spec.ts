@@ -16,13 +16,13 @@ async function login(context: import('@playwright/test').BrowserContext) {
 
 test.describe.configure({ mode: 'serial' });
 
-test('Admin Finance uses server values through populated DRAFT adjustment and clears the other School context', async ({ page }) => {
+test('Admin Finance uses server-returned promotion values and clears the other School context', async ({ page }) => {
   await login(page.context());
   await page.goto('http://localhost:5173');
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await page.getByRole('button', { name: 'Khoản thu' }).click();
   await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
-  await expect(page.getByText('Học phí Release 1')).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 1');
 
   await page.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
   await page.getByLabel('Tháng thu').fill('2026-09');
@@ -44,8 +44,9 @@ test('Admin Finance uses server values through populated DRAFT adjustment and cl
   await page.getByRole('button', { name: 'Xem trước từ máy chủ' }).click();
   await expect((await previewResponse).status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Xem trước authoritative' })).toBeVisible();
-  await expect(page.getByText('RG1-1 / Bé An')).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Học sinh đủ điều kiện' })).toContainText('Mầm Release 1');
+  const eligibleStudents = page.getByRole('table', { name: 'Học sinh đủ điều kiện' });
+  await expect(eligibleStudents).toContainText('RG1-1 / Bé An');
+  await expect(eligibleStudents).toContainText('Mầm Release 1');
   await page.getByRole('button', { name: 'Xác nhận preview và chuyển READY' }).click();
   await expect(page.getByRole('button', { name: 'Tạo hóa đơn nháp' })).toBeVisible();
   await page.getByRole('button', { name: 'Tạo hóa đơn nháp' }).click();
@@ -58,28 +59,22 @@ test('Admin Finance uses server values through populated DRAFT adjustment and cl
   await expect(page.getByText('trạng thái DRAFT')).toBeVisible();
 
    const invoiceReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-1/ });
-  await expect(invoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('150.000');
-  await page.getByRole('button', { name: 'Sửa' }).click();
-  await page.getByLabel('Số lượng').fill('2');
-  const adjustmentResponse = page.waitForResponse((response) =>
-    response.url().includes('/finance/invoices/') &&
-    response.url().includes('/lines/') &&
-    response.request().method() === 'PUT',
-  );
-  await page.getByRole('button', { name: 'Lưu dòng' }).click();
-  const adjustment = await adjustmentResponse;
-  if (adjustment.status() !== 200) throw new Error(`Invoice adjustment failed: ${await adjustment.text()}`);
-  await expect(invoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('300.000');
+   const invoiceLines = invoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' });
+   await expect(invoiceLines).toContainText('150.000');
+   await expect(invoiceLines).toContainText('15.000');
+   await expect(invoiceLines).toContainText('135.000');
+   await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
   await invoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
   const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé An' });
   await firstIssue.getByLabel('Nhập chính xác tên học sinh Bé An để xác nhận').fill('Bé An');
   await firstIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
-  await expect(invoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 300.000 VND');
+   await expect(invoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 135.000 VND');
+   await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
   await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tbody tr').filter({ hasText: 'RG1-2 / Bé Bình' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
   await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' })).toBeVisible();
   const secondInvoiceReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-2/ });
   await expect(secondInvoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('150.000');
-  await expect(secondInvoiceReview.getByText('300.000')).toHaveCount(0);
+   await expect(secondInvoiceReview.getByText('135.000')).toHaveCount(0);
 
   await secondInvoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé Bình' });
@@ -96,8 +91,8 @@ test('Admin Finance uses server values through populated DRAFT adjustment and cl
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeFocused();
   await page.getByRole('button', { name: 'Khoản thu' }).click();
-  await expect(page.getByText('Học phí Release 2')).toBeVisible();
-   await expect(page.getByText('Học phí Release 1')).toHaveCount(0);
+  await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 2');
+   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).not.toContainText('Học phí Release 1');
    await expect(page.getByText('RG1-1 / Bé An')).toHaveCount(0);
    await expect(page.getByText('RG1-2 / Bé Bình')).toHaveCount(0);
 });

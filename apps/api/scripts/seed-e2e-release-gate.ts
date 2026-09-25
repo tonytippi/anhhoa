@@ -11,6 +11,7 @@ try {
     // This transaction rebuilds deterministic test data; production history remains append-only.
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.$executeRaw`SELECT set_config('passionedu.allow_daily_journal_history_cleanup', 'on', true)`;
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
     const fixtureSchools = await tx.school.findMany({ where: { slug: { in: slugs } }, select: { id: true } });
     const schoolIds = fixtureSchools.map((school) => school.id);
     const fixtureIdentities = await tx.userIdentity.findMany({ where: { emailNormalized: { in: emails } }, select: { id: true } });
@@ -33,6 +34,7 @@ try {
     await tx.dailyJournalPolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.leavePolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.schoolCalendarVersion.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.issuedPromotionApplication.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.invoiceLine.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.invoice.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.collectionRunGenerationItem.deleteMany({ where: { schoolId: { in: schoolIds } } });
@@ -42,6 +44,10 @@ try {
     await tx.$executeRawUnsafe("SET LOCAL passionedu.allow_collection_run_template_cleanup = 'on'");
     await tx.collectionRunTemplateLine.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.collectionRun.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.studentPromotionAssignment.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.promotionPolicyTarget.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.promotionPolicyVersion.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.promotionPolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.receivableLifecycleTransition.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.receivable.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.receivableGroupLifecycleTransition.deleteMany({ where: { schoolId: { in: schoolIds } } });
@@ -109,8 +115,15 @@ try {
       await tx.bankAccountLifecycleTransition.create({ data: { schoolId: school.id, bankAccountId: bankAccount.id, status: 'ACTIVE', actorIdentityId: admin.id, membershipId: adminMembershipId, operationId: operation.id, sequence: 1 } });
       const group = await tx.receivableGroup.create({ data: { schoolId: school.id, name: `Nhóm Release ${index + 1}` } });
       await tx.receivableGroupLifecycleTransition.create({ data: { schoolId: school.id, receivableGroupId: group.id, status: 'ACTIVE', actorIdentityId: admin.id, membershipId: adminMembershipId, operationId: operation.id, sequence: 1 } });
-      const receivable = await tx.receivable.create({ data: { schoolId: school.id, groupId: group.id, code: `RG${index + 1}-TUITION`, displayName: `Học phí Release ${index + 1}`, unitLabel: 'tháng', defaultUnitPrice: 150000n } });
-      await tx.receivableLifecycleTransition.create({ data: { schoolId: school.id, receivableId: receivable.id, status: 'ACTIVE', actorIdentityId: admin.id, membershipId: adminMembershipId, operationId: operation.id, sequence: 1 } });
+       const receivable = await tx.receivable.create({ data: { schoolId: school.id, groupId: group.id, code: `RG${index + 1}-TUITION`, displayName: `Học phí Release ${index + 1}`, unitLabel: 'tháng', defaultUnitPrice: 150000n } });
+       await tx.receivableLifecycleTransition.create({ data: { schoolId: school.id, receivableId: receivable.id, status: 'ACTIVE', actorIdentityId: admin.id, membershipId: adminMembershipId, operationId: operation.id, sequence: 1 } });
+      if (index === 0) {
+        const policy = await tx.promotionPolicy.create({ data: { schoolId: school.id, name: 'Ưu đãi Release Gate' } });
+        const version = await tx.promotionPolicyVersion.create({ data: { schoolId: school.id, policyId: policy.id, version: 1, status: 'DRAFT', discountType: 'PERCENTAGE', discountValue: 10n, priority: 1, stackingMode: 'STACKABLE', effectiveFrom: new Date('2026-09-01T00:00:00.000Z') } });
+        await tx.promotionPolicyTarget.create({ data: { schoolId: school.id, versionId: version.id, receivableId: receivable.id } });
+        await tx.promotionPolicyVersion.update({ where: { id: version.id }, data: { status: 'ACTIVE' } });
+        await tx.studentPromotionAssignment.create({ data: { schoolId: school.id, studentId: student.id, policyId: policy.id, versionId: version.id, effectiveFrom: new Date('2026-09-01T00:00:00.000Z'), reason: 'Ưu đãi Release Gate' } });
+      }
     }
   }, { timeout: 30000 });
 } finally {

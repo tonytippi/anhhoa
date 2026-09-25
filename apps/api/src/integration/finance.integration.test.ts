@@ -2029,7 +2029,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
     it("issues a positive DRAFT atomically with immutable account, policy, due-date, obligation and operation snapshots", async () => {
       const { current, student, invoice, bank, operationId: fixtureOperationId } = await issueFixture();
       const key = uuid(); const operationId = uuid();
-      const issued = await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, operationId, { bankAccountId: bank.id });
+      const issued = await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, operationId, { bankAccountId: bank.id, grossAmount: "1", discount: "9007199254740991", netAmount: "1", total: "1", formula: "browser-owned" });
       expect(issued).toMatchObject({ id: operationId, status: "COMPLETED", outcome: { id: invoice.id, status: "ISSUED", total: "9007199254740991", student: { name: student.student.fullName, className: "Mầm Active" }, issue: { obligationTotal: "9007199254740991", bankAccount: { id: bank.id, receivingBank: "Ngân hàng Ánh Hoa", accountNumber: "123456789" }, transferContent: "Hoc sinh Finance Mam Active", policy: { dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE" } } } });
       expect((issued.outcome as any).issue.dueOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, uuid(), { bankAccountId: bank.id })).resolves.toEqual(issued);
