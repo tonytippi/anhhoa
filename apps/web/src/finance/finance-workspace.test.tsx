@@ -62,14 +62,29 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/promotion-policies") && (options as RequestInit).method === "POST" && String((options as RequestInit).body).includes('"receivableIds":["r1","r2"]'))).toBe(true));
   });
-  it("projects only assignments effective today and never renders prior School promotion data", async () => {
+  it("renders only server-projected current assignments and never renders prior School promotion data", async () => {
     const today = new Date().toISOString().slice(0, 10); const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
-    const policy = { id: "policy", name: "Ưu đãi Trường A", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", effectiveFrom: today, effectiveTo: null, targets: [], assignments: [{ id: "current", studentId: "s1", studentCode: "HS001", studentName: "Bé An", effectiveFrom: today, effectiveTo: null, reason: "A", endReason: null }, { id: "future", studentId: "s2", studentCode: "HS002", studentName: "Bé Bình", effectiveFrom: day(1), effectiveTo: null, reason: "B", endReason: null }, { id: "ended", studentId: "s3", studentCode: "HS003", studentName: "Bé Chi", effectiveFrom: day(-2), effectiveTo: day(-1), reason: "C", endReason: "Hết" }] }] };
+    const policy = { id: "policy", name: "Ưu đãi Trường A", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", effectiveFrom: today, effectiveTo: null, targets: [], assignments: [{ id: "current", studentId: "s1", studentCode: "HS001", studentName: "Bé An", effectiveFrom: today, effectiveTo: null, isCurrent: true, reason: "A", endReason: null }, { id: "future", studentId: "s2", studentCode: "HS002", studentName: "Bé Bình", effectiveFrom: day(1), effectiveTo: null, isCurrent: false, reason: "B", endReason: null }, { id: "ended", studentId: "s3", studentCode: "HS003", studentName: "Bé Chi", effectiveFrom: day(-2), effectiveTo: day(-1), isCurrent: false, reason: "C", endReason: "Hết" }] }] };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog))));
     const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     expect(await screen.findByText("1 đang áp dụng")).toBeTruthy(); expect(screen.getByText(/HS001 \/ Bé An:/)).toBeTruthy(); expect(screen.queryByText(/HS002 \/ Bé Bình:/)).toBeNull();
     view.rerender(<FinanceWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
     expect(screen.queryByText("Ưu đãi Trường A / Phiên bản 1")).toBeNull(); expect(screen.queryByText(/HS001 \/ Bé An:/)).toBeNull();
+  });
+  it("keeps promotion validation in the promotion field-error scope", async () => {
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(
+      options?.method === "POST"
+        ? new Response(JSON.stringify({ error: { message: "Mức giảm không hợp lệ.", fieldErrors: { discountValue: "Mức giảm phải lớn hơn 0." } } }), { status: 400 })
+        : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog),
+    ));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Tên chính sách"), { target: { value: "Hỗ trợ" } });
+    fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
+    await screen.findByText("Mức giảm phải lớn hơn 0.", { selector: "#invoice-promotion-discountValue-error" });
+    expect(screen.getByLabelText("Mức giảm")).toHaveProperty("id", "invoice-promotion-discountValue-field");
   });
   it("renders server preview eligible rows and categorized skips without local classification", async () => {
     const preview = {

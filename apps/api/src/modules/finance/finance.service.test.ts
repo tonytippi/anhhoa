@@ -105,4 +105,15 @@ describe('FinanceService validation', () => {
     expect(result.promotionEvaluation.applications.map((item: { policyId: string }) => item.policyId)).toEqual(['exclusive']);
     expect(result.promotionEvaluation.applications.every((item: { appliedDiscount: string }) => BigInt(item.appliedDiscount) >= 0n)).toBe(true);
   });
+  it('applies only the highest-priority percentage after all fixed reductions', () => {
+    const service = new FinanceService({} as never, authorization as never) as any;
+    const fact = (policyId: string, discountType: string, discountValue: bigint, priority: number) => ({ policyId, versionId: `${policyId}-version`, targetId: `${policyId}-target`, assignmentId: `${policyId}-assignment`, assignmentReason: 'Được duyệt', studentId: 'student', receivableId: 'receivable', discountType, discountValue, priority, stackingMode: 'STACKABLE' });
+    const result = service.evaluatePromotionLine('student', { receivableId: 'receivable', amount: '100' }, [
+      fact('fixed', 'FIXED_VND', 20n, 1),
+      fact('percentage-low', 'PERCENTAGE', 80n, 1),
+      fact('percentage-high', 'PERCENTAGE', 50n, 2),
+    ]);
+    expect(result).toMatchObject({ discountAmount: '60', netAmount: '40' });
+    expect(result.promotionEvaluation.applications.map((item: { policyId: string }) => item.policyId)).toEqual(['fixed', 'percentage-high']);
+  });
 });

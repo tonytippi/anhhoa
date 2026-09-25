@@ -946,6 +946,9 @@ model IssuedPromotionApplication {
   priority           Int
   stackingMode       PromotionStackingMode
   appliedDiscount    BigInt    @db.BigInt
+  grossAmount        BigInt    @db.BigInt
+  discountAmount     BigInt    @db.BigInt
+  netAmount          BigInt    @db.BigInt
   versionInterval    Json
   assignmentInterval Json
   assignmentReason   String
@@ -1072,7 +1075,6 @@ model PromotionPolicy {
   updatedAt DateTime                 @updatedAt
   school    School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   versions  PromotionPolicyVersion[]
-  assignments StudentPromotionAssignment[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, name])
@@ -1099,6 +1101,7 @@ model PromotionPolicyVersion {
   assignments   StudentPromotionAssignment[]
 
   @@unique([schoolId, id])
+  @@unique([schoolId, id, policyId])
   @@unique([schoolId, policyId, version])
   @@index([schoolId, policyId, effectiveFrom])
 }
@@ -1133,8 +1136,7 @@ model StudentPromotionAssignment {
   updatedAt DateTime               @updatedAt
   school    School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student   Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  policy    PromotionPolicy        @relation(fields: [schoolId, policyId], references: [schoolId, id], onDelete: Restrict)
-  version   PromotionPolicyVersion @relation(fields: [schoolId, versionId], references: [schoolId, id], onDelete: Restrict)
+  version   PromotionPolicyVersion @relation(fields: [schoolId, versionId, policyId], references: [schoolId, id, policyId], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@index([schoolId, studentId, policyId, effectiveFrom])

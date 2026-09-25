@@ -396,16 +396,16 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.replaceSelection(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentIds: [student.student.id] });
       const preview = await finance.preview(current.identity.id, current.school.id, runId);
       const lines = preview.eligible[0]!.lines;
-      expect(lines.find((line: any) => line.receivableId === orderedId)).toMatchObject({ grossAmount: "100", discountAmount: "100", netAmount: "0", promotionEvaluation: { applications: [expect.objectContaining({ discountType: "FIXED_VND", discountValue: "20" }), expect.objectContaining({ discountType: "FIXED_VND", discountValue: "30" }), expect.objectContaining({ discountType: "PERCENTAGE", discountValue: "50" })] } });
+      expect(lines.find((line: any) => line.receivableId === orderedId)).toMatchObject({ grossAmount: "100", discountAmount: "75", netAmount: "25", promotionEvaluation: { applications: [expect.objectContaining({ discountType: "FIXED_VND", discountValue: "20" }), expect.objectContaining({ discountType: "FIXED_VND", discountValue: "30" }), expect.objectContaining({ discountType: "PERCENTAGE", discountValue: "50" })] } });
       expect(lines.find((line: any) => line.receivableId === exclusiveId)).toMatchObject({ grossAmount: "100", discountAmount: "30", netAmount: "70", promotionEvaluation: { applications: [expect.objectContaining({ versionId: exclusiveVersionId, assignmentReason: "Ưu đãi integration" })] } });
       expect(lines.find((line: any) => line.receivableId === cappedId)).toMatchObject({ grossAmount: "100", discountAmount: "100", netAmount: "0" });
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
       const generated = await generate(current, runId);
       expect(generated.status).toBe("COMPLETED");
       const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: student.student.id }, include: { lines: true } });
-      expect(invoice.total).toBe(70n);
+      expect(invoice.total).toBe(95n);
       expect(invoice.lines).toEqual(expect.arrayContaining([
-        expect.objectContaining({ receivableId: orderedId, amount: 0n, grossAmount: 100n, discountAmount: 100n, netAmount: 0n, promotionEvaluationProvenance: expect.objectContaining({ applications: expect.any(Array) }) }),
+        expect.objectContaining({ receivableId: orderedId, amount: 25n, grossAmount: 100n, discountAmount: 75n, netAmount: 25n, promotionEvaluationProvenance: expect.objectContaining({ applications: expect.any(Array) }) }),
         expect.objectContaining({ receivableId: exclusiveId, amount: 70n, grossAmount: 100n, discountAmount: 30n, netAmount: 70n, promotionEvaluationProvenance: expect.objectContaining({ applications: [expect.objectContaining({ versionId: exclusiveVersionId })] }) }),
         expect.objectContaining({ receivableId: cappedId, amount: 0n, grossAmount: 100n, discountAmount: 100n, netAmount: 0n }),
       ]));
@@ -2068,6 +2068,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const application = await prisma.issuedPromotionApplication.findFirstOrThrow({ where: { schoolId: current.school.id, invoiceId: invoice.id } });
       await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, uuid(), { bankAccountId: bank.id })).resolves.toEqual(issued);
       expect(await prisma.issuedPromotionApplication.count({ where: { schoolId: current.school.id, invoiceId: invoice.id } })).toBe(1);
+      await expect(prisma.issuedPromotionApplication.create({ data: { schoolId: application.schoolId, invoiceId: application.invoiceId, invoiceLineId: application.invoiceLineId, ordinal: 1, policyId: application.policyId, versionId: application.versionId, targetId: application.targetId, assignmentId: application.assignmentId, discountType: application.discountType, discountValue: application.discountValue, priority: application.priority, stackingMode: application.stackingMode, appliedDiscount: application.appliedDiscount, grossAmount: application.grossAmount, discountAmount: application.discountAmount, netAmount: application.netAmount, versionInterval: application.versionInterval as any, assignmentInterval: application.assignmentInterval as any, assignmentReason: application.assignmentReason } })).rejects.toThrow(/requires matching Draft same-School provenance and outcome/);
       await prisma.$transaction(async (tx) => { await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica"); await tx.promotionPolicyVersion.update({ where: { id: versionId }, data: { discountValue: 99n } }); });
       expect(await finance.invoice(current.identity.id, current.school.id, invoice.id)).toMatchObject({ lines: [expect.objectContaining({ promotionApplicationSnapshot: [expect.objectContaining({ versionId, appliedDiscount: "25" })] })] });
       await expect(prisma.issuedPromotionApplication.update({ where: { id: application.id }, data: { assignmentReason: "Không được sửa" } })).rejects.toThrow(/immutable/);
@@ -2076,13 +2077,13 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
     it("database trigger rejects issued applications for DRAFT invoices and invoice-line mismatches", async () => {
       const fixture = await issueFixture();
       const draftLine = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } });
-      const application = (invoiceId: string, invoiceLineId: string, ordinal = 0) => ({ schoolId: fixture.current.school.id, invoiceId, invoiceLineId, ordinal, policyId: uuid(), versionId: uuid(), targetId: uuid(), assignmentId: uuid(), discountType: "FIXED_VND" as const, discountValue: 1n, priority: 1, stackingMode: "STACKABLE" as const, appliedDiscount: 1n, versionInterval: ["2026-09-01T00:00:00.000Z", null], assignmentInterval: ["2026-09-01T00:00:00.000Z", null], assignmentReason: "Direct PostgreSQL guard" });
-      await expect(prisma.issuedPromotionApplication.create({ data: application(fixture.invoice.id, draftLine.id) })).rejects.toThrow(/requires its issued same-School invoice line/);
+      const application = (invoiceId: string, invoiceLineId: string, ordinal = 0) => ({ schoolId: fixture.current.school.id, invoiceId, invoiceLineId, ordinal, policyId: uuid(), versionId: uuid(), targetId: uuid(), assignmentId: uuid(), discountType: "FIXED_VND" as const, discountValue: 1n, priority: 1, stackingMode: "STACKABLE" as const, appliedDiscount: 1n, grossAmount: 1n, discountAmount: 1n, netAmount: 0n, versionInterval: ["2026-09-01T00:00:00.000Z", null], assignmentInterval: ["2026-09-01T00:00:00.000Z", null], assignmentReason: "Direct PostgreSQL guard" });
+      await expect(prisma.issuedPromotionApplication.create({ data: application(fixture.invoice.id, draftLine.id) })).rejects.toThrow(/requires matching Draft same-School provenance and outcome/);
       await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
       const replacementId = outcomeId(await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Trigger graph" }));
       await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { receivableId: fixture.receivableId, quantity: "1" });
       const replacementLine = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: replacementId } });
-      await expect(prisma.issuedPromotionApplication.create({ data: application(fixture.invoice.id, replacementLine.id) })).rejects.toThrow(/requires its issued same-School invoice line/);
+      await expect(prisma.issuedPromotionApplication.create({ data: application(fixture.invoice.id, replacementLine.id) })).rejects.toThrow(/requires matching Draft same-School provenance and outcome/);
     });
 
     it("rejects a stale calculated promotion at Issue without any partial snapshot or Issue outcome", async () => {

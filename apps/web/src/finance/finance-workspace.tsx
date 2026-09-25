@@ -12,7 +12,7 @@ type Receivable = {
   available: boolean;
 };
 type Catalog = { groups: Group[]; receivables: Receivable[] };
-type PromotionPolicy = { id: string; name: string; versions: Array<{ id: string; version: number; status: "DRAFT" | "ACTIVE" | "RETIRED"; discountType: "FIXED_VND" | "PERCENTAGE"; discountValue: string; priority: number; stackingMode: "STACKABLE" | "EXCLUSIVE"; effectiveFrom: string; effectiveTo: string | null; targets: Array<{ id: string; receivableId: string; receivableName: string }>; assignments: Array<{ id: string; studentId: string; studentCode: string; studentName: string; effectiveFrom: string; effectiveTo: string | null; reason: string; endReason: string | null }> }> };
+type PromotionPolicy = { id: string; name: string; versions: Array<{ id: string; version: number; status: "DRAFT" | "ACTIVE" | "RETIRED"; discountType: "FIXED_VND" | "PERCENTAGE"; discountValue: string; priority: number; stackingMode: "STACKABLE" | "EXCLUSIVE"; effectiveFrom: string; effectiveTo: string | null; targets: Array<{ id: string; receivableId: string; receivableName: string }>; assignments: Array<{ id: string; studentId: string; studentCode: string; studentName: string; effectiveFrom: string; effectiveTo: string | null; isCurrent: boolean; reason: string; endReason: string | null }> }> };
 type Year = {
   id: string;
   name: string;
@@ -171,7 +171,7 @@ export function FinanceWorkspace({
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle">(
+  const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle" | "promotion">(
     "group",
   );
   const [pending, setPending] = useState<Pending>();
@@ -193,8 +193,7 @@ export function FinanceWorkspace({
   const reconciliationTimer = useRef<number | undefined>(undefined);
   const promotionPolicies = promotionData.schoolId === schoolId ? promotionData.policies : [];
   const promotionStudents = promotionData.schoolId === schoolId ? promotionData.students : [];
-  const today = new Date().toISOString().slice(0, 10);
-  const activeAssignment = (item: PromotionPolicy["versions"][number]["assignments"][number]) => item.effectiveFrom <= today && (!item.effectiveTo || item.effectiveTo >= today);
+  const activeAssignment = (item: PromotionPolicy["versions"][number]["assignments"][number]) => item.isCurrent;
 
   const get = async <T,>(path: string, mutation = false) => {
     const response = await fetch(`${apiUrl}${path}`, {
@@ -690,21 +689,21 @@ export function FinanceWorkspace({
   };
   const savePromotion = async (event: FormEvent) => {
     event.preventDefault();
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policies`, "POST", { ...promotion, effectiveTo: promotion.effectiveTo || null }, "receivable");
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policies`, "POST", { ...promotion, effectiveTo: promotion.effectiveTo || null }, "promotion");
     if (outcome) { setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" }); await load(); }
   };
   const saveAssignments = async (event: FormEvent) => {
     event.preventDefault(); if (!assignment.versionId) return;
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${assignment.versionId}/assignments`, "POST", { ...assignment, effectiveTo: assignment.effectiveTo || null }, "receivable");
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${assignment.versionId}/assignments`, "POST", { ...assignment, effectiveTo: assignment.effectiveTo || null }, "promotion");
     if (outcome) { setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); await load(); }
   };
   const endAssignment = async (event: FormEvent) => {
     event.preventDefault(); if (!endingAssignment) return;
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-assignments/${endingAssignment.id}/end`, "POST", { effectiveTo: endingAssignment.effectiveTo, reason: endingAssignment.reason }, "receivable");
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-assignments/${endingAssignment.id}/end`, "POST", { effectiveTo: endingAssignment.effectiveTo, reason: endingAssignment.reason }, "promotion");
     if (outcome) { setEndingAssignment(undefined); await load(); }
   };
   const transitionPromotionVersion = async (versionId: string, action: "activate" | "retire") => {
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${versionId}/${action}`, "POST", {}, "lifecycle");
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${versionId}/${action}`, "POST", {}, "promotion");
     if (outcome) await load();
   };
   const openInvoice = async (invoiceId: string) => {
@@ -794,6 +793,7 @@ export function FinanceWorkspace({
         }
       : {};
   const invoiceField = (name: string) => field("invoice", name);
+  const promotionField = (name: string) => field("promotion", name);
 
   return (
     <section aria-labelledby="finance-title">
@@ -811,10 +811,10 @@ export function FinanceWorkspace({
         <p>Thay đổi cấu hình tạo phiên bản mới. Giá trị áp dụng do hệ thống đánh giá ở bước sau.</p>
         <form onSubmit={savePromotion}>
           <label>Chính sách hiện có (để tạo phiên bản mới)<select value={promotion.policyId} onChange={(event) => { const policy = promotionPolicies.find((item) => item.id === event.target.value); setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" }); }}><option value="">Chính sách mới</option>{promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} /></label>
-          <fieldset><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>
+          <label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} {...promotionField("name")} /></label>{scope === "promotion" && errors.name && <small id="invoice-promotion-name-error">{errors.name}</small>}
+          <fieldset {...promotionField("receivableIds")}><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>{scope === "promotion" && errors.receivableIds && <small id="invoice-promotion-receivableIds-error">{errors.receivableIds}</small>}
           <label>Loại giảm<select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}><option value="PERCENTAGE">Phần trăm</option><option value="FIXED_VND">Số tiền VND</option></select></label>
-          <label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} /></label>
+          <label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} {...promotionField("discountValue")} /></label>{scope === "promotion" && errors.discountValue && <small id="invoice-promotion-discountValue-error">{errors.discountValue}</small>}
           <label>Hiệu lực từ<input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} /></label>
           <label>Hiệu lực đến (bao gồm)<input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} /></label>
           <label>Ưu tiên<input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} /></label>
