@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-25 # Story 6.2 exact Invoice promotion coverage complete.
+last_updated: 2026-09-25 # Story 6.3 correction and promotion coverage reversal complete.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -72,7 +72,7 @@ development_status:
   epic-6: in-progress
   6-1-ghi-actual-receipt-dong-invoice-va-carry-chenh-lech: done
   6-2-dong-exact-invoice-co-promotion-coverage: done
-  6-3-correction-va-hoan-tien-promotion-coverage-theo-operating-day-preview: backlog
+  6-3-correction-va-hoan-tien-promotion-coverage-theo-operating-day-preview: done
   6-4-chuyen-prior-debt-va-year-end-settlement-an-toan: backlog
   6-5-bao-cao-finance-reconcile-tu-ledger: backlog
   6-6-release-gate-cho-actual-receipt-carry-va-promotion-coverage-refund: backlog

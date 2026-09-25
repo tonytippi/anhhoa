@@ -1,19 +1,19 @@
-# Epic 6 Context: Thu tien, doi soat cong no va bao cao so cai
+# Epic 6 Context: Thu tiền, đối soát công nợ và báo cáo sổ cái
 
 <!-- Generated from planning artifacts. Regenerate with compile-epic-context if planning docs change. -->
 
 ## Goal
 
-Epic nay hoan tat vong doi thu tien Finance co the doi soat: ghi nhan so tien thuc nhan de dong mot Invoice, truy vet va carry chenh lech co nguon, phat hanh/hoan promotion coverage dung dieu kien, xu ly correction, refund va prior debt khong sua lich su, va cung cap bao cao ledger theo thoi diem. Muc tieu la bao toan tinh dung dan cua tien, tenant va provenance duoi retry, concurrency va thay doi du lieu cau hinh.
+Epic này hoàn tất vòng đời thu tiền Finance có thể đối soát: ghi nhận số tiền thực nhận để đóng một Invoice, truy vết và carry chênh lệch có nguồn, phát hành/hoàn promotion coverage đúng điều kiện, xử lý correction, refund và prior debt không sửa lịch sử, và cung cấp báo cáo ledger theo thời điểm. Mục tiêu là bảo toàn tính đúng đắn của tiền, tenant và provenance dưới retry, concurrency và thay đổi dữ liệu cấu hình.
 
 ## Stories
 
-- Story 6.1: Ghi actual Receipt, dong Invoice va carry chenh lech
-- Story 6.2: Dong exact Invoice co promotion coverage
-- Story 6.3: Correction va hoan tien promotion coverage theo operating-day preview
-- Story 6.4: Chuyen prior debt va year-end settlement an toan
-- Story 6.5: Bao cao finance reconcile tu ledger
-- Story 6.6: Release gate cho actual Receipt, carry va promotion coverage refund
+- Story 6.1: Ghi actual Receipt, đóng Invoice và carry chênh lệch
+- Story 6.2: Đóng exact Invoice có promotion coverage
+- Story 6.3: Correction và hoàn tiền promotion coverage theo operating-day preview
+- Story 6.4: Chuyển prior debt và year-end settlement an toàn
+- Story 6.5: Báo cáo finance reconcile từ ledger
+- Story 6.6: Release gate cho actual Receipt, carry và promotion coverage refund
 
 ## Requirements & Constraints
 

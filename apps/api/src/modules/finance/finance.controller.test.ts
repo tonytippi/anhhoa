@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn() };
+  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn() };
   it('requires browser mutation proof before Finance writes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     await expect(controller.group(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
@@ -111,6 +111,15 @@ describe('FinanceController mutation boundary', () => {
     const controller = new FinanceController(auth as never, finance as never); finance.closeInvoice.mockResolvedValue({ id: 'close' });
     await expect(controller.closeInvoice(request(valid), 'school', 'invoice', 'key', 'operation', { actualAmount: '90000' })).resolves.toEqual({ data: { id: 'close' } });
     expect(finance.closeInvoice).toHaveBeenCalledWith('actor-id', 'school', 'invoice', 'key', 'operation', { actualAmount: '90000' });
+  });
+  it('forwards protected coverage reversal preview, post, and distinct approval decision', async () => {
+    const controller = new FinanceController(auth as never, finance as never); const body = { coverageId: 'coverage', effectiveOn: '2026-10-10', reason: 'Rút học' };
+    finance.previewCoverageReversal.mockResolvedValue({ coverageId: 'coverage' }); finance.createCoverageReversal.mockResolvedValue({ id: 'reversal' }); finance.decideCoverageReversal.mockResolvedValue({ id: 'posted' });
+    await expect(controller.previewCoverageReversal(request(valid), 'school', body)).resolves.toEqual({ data: { coverageId: 'coverage' } });
+    await expect(controller.createCoverageReversal(request(valid), 'school', 'key', 'operation', body)).resolves.toEqual({ data: { id: 'reversal' } });
+    await expect(controller.decideCoverageReversal(request(valid), 'school', 'request', 'key', 'operation', { decision: 'APPROVE', reason: 'Đủ điều kiện' })).resolves.toEqual({ data: { id: 'posted' } });
+    expect(finance.createCoverageReversal).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', body);
+    expect(finance.decideCoverageReversal).toHaveBeenCalledWith('actor-id', 'school', 'request', 'key', 'operation', { decision: 'APPROVE', reason: 'Đủ điều kiện' });
   });
   it('rejects receipt close without origin and CSRF proof before reaching Finance', async () => {
     const controller = new FinanceController(auth as never, finance as never); finance.closeInvoice.mockClear();

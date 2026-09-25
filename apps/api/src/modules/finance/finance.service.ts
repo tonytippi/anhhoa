@@ -44,6 +44,9 @@ const routes = {
   prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
   issueRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue-revision",
   closeInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/receipt",
+  coverageReversalPreview: "POST /api/app/schools/:schoolId/finance/coverage-reversals/preview",
+  coverageReversal: "POST /api/app/schools/:schoolId/finance/coverage-reversals",
+  coverageReversalDecision: "POST /api/app/schools/:schoolId/finance/coverage-reversal-requests/:requestId/decision",
   promotionPolicy: "POST /api/app/schools/:schoolId/finance/promotion-policies",
   promotionActivate: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/activate",
   promotionRetire: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/retire",
@@ -116,6 +119,11 @@ export class FinanceService {
   private actualAmount(value: unknown) {
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 9007199254740991n)
       throw validation("actualAmount", "Số thực nhận phải là số nguyên VND an toàn không âm.");
+    return BigInt(value);
+  }
+  private reversalAmount(value: unknown, field = "amount") {
+    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 9007199254740991n)
+      throw validation(field, "Số tiền VND phải là số nguyên an toàn không âm.");
     return BigInt(value);
   }
   private safeIssuedTotal(total: bigint) {
@@ -281,8 +289,14 @@ export class FinanceService {
         postedAt: invoice.receipt.postedAt.toISOString(),
         difference: invoice.receipt.difference ? { signedAmount: invoice.receipt.difference.signedAmount.toString() } : null,
       } : null,
+      settlementTransfer: invoice.settlementTransferTo ? {
+        sourceInvoiceId: invoice.settlementTransferTo.sourceInvoiceId,
+        sourceReceiptId: invoice.settlementTransferTo.sourceReceiptId,
+        amount: invoice.settlementTransferTo.amount.toString(),
+        postedAt: invoice.settlementTransferTo.sourceReceipt.postedAt.toISOString(),
+      } : null,
       carries: (invoice.settlementCarries ?? []).map((carry: any) => ({ type: carry.type, amount: carry.amount.toString(), sourceDifferenceId: carry.settlementDifferenceId })),
-      coverageFacts: (invoice.coverageFacts ?? []).map((fact: any) => ({ receivableId: fact.receivableId, billingMonth: fact.billingMonth, policyId: fact.policyId, versionId: fact.versionId, originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), serviceStart: fact.serviceStart.toISOString().slice(0, 10), serviceEnd: fact.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: fact.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: fact.timezone, issuedAt: fact.issuedCoverage?.issuedAt?.toISOString() ?? null })),
+      coverageFacts: (invoice.coverageFacts ?? []).map((fact: any) => ({ coverageId: fact.issuedCoverage?.id ?? null, receivableId: fact.receivableId, billingMonth: fact.billingMonth, policyId: fact.policyId, versionId: fact.versionId, originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), serviceStart: fact.serviceStart.toISOString().slice(0, 10), serviceEnd: fact.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: fact.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: fact.timezone, issuedAt: fact.issuedCoverage?.issuedAt?.toISOString() ?? null })),
     };
     if (["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status)) result.issue = {
       issuedAt: invoice.issuedAt.toISOString(), obligationTotal: invoice.obligationTotalSnapshot.toString(),
@@ -314,7 +328,7 @@ export class FinanceService {
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     return this.invoiceDto(invoice);
   }
-  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, settlementCarries: { orderBy: { createdAt: "asc" } }, coverageFacts: { include: { issuedCoverage: true }, orderBy: [{ billingMonth: "asc" }, { receivableId: "asc" }] } };
+  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, settlementTransferTo: { include: { sourceReceipt: { select: { postedAt: true } } } }, settlementCarries: { orderBy: { createdAt: "asc" } }, coverageFacts: { include: { issuedCoverage: true }, orderBy: [{ billingMonth: "asc" }, { receivableId: "asc" }] } };
   async closeInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
     const actualAmount = this.actualAmount(body?.actualAmount);
@@ -338,6 +352,93 @@ export class FinanceService {
       const result = this.invoiceDto(closed);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_RECEIPT_POSTED", operation, { id: invoice.id, status: "ISSUED" }, result);
       return result;
+    });
+  }
+  private async coveragePreview(tx: any, schoolId: string, coverageId: string, effectiveOn: Date) {
+    const coverage = await tx.studentPromotionalCoverage.findFirst({ where: { id: coverageId, schoolId }, include: { sourceInvoice: { select: { id: true, studentId: true, schoolYearId: true, status: true, studentNameSnapshot: true, reversalModeSnapshot: true } }, sourceReceipt: true } });
+    if (!coverage) throw new NotFoundException({ code: "COVERAGE_NOT_FOUND", message: "Không tìm thấy coverage đã phát hành." });
+    if (!coverage.sourceInvoice || !["CLOSED", "CANCELLED"].includes(coverage.sourceInvoice.status) || !coverage.sourceReceipt || coverage.sourceReceipt.invoiceId !== coverage.sourceInvoiceId || coverage.sourceReceipt.studentId !== coverage.studentId || coverage.sourceReceipt.schoolYearId !== coverage.schoolYearId || coverage.sourceInvoice.studentId !== coverage.studentId || coverage.sourceInvoice.schoolYearId !== coverage.schoolYearId || coverage.sourceReceipt.outcome !== "EXACT") throw new ConflictException({ code: "COVERAGE_SOURCE_INVALID", message: "Provenance thanh toán coverage không còn hợp lệ." });
+    if (coverage.timezone !== "Asia/Ho_Chi_Minh") throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Snapshot coverage không dùng timezone được hỗ trợ." });
+    const calendar = await tx.schoolCalendarVersion.findFirst({ where: { schoolId, effectiveFrom: coverage.calendarEffectiveFrom }, include: { holidays: true } });
+    if (!calendar) throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Không tìm thấy snapshot lịch của coverage." });
+    const operatingDays = (start: Date, end: Date) => {
+      let count = 0;
+      for (let cursor = new Date(start); cursor < end; cursor.setUTCDate(cursor.getUTCDate() + 1))
+        if (cursor.getUTCDay() !== 0 && !calendar.holidays.some((holiday: any) => holiday.startsOn <= cursor && holiday.endsOn >= cursor)) count++;
+      return count;
+    };
+    const denominator = operatingDays(coverage.serviceStart, coverage.serviceEnd);
+    if (denominator <= 0) throw new ConflictException({ code: "COVERAGE_DENOMINATOR_INVALID", message: "Coverage snapshot không có ngày vận hành hợp lệ." });
+    const unusedStart = effectiveOn >= coverage.serviceEnd ? coverage.serviceEnd : effectiveOn < coverage.serviceStart ? coverage.serviceStart : new Date(effectiveOn.getTime() + 86400000);
+    const remainingDays = operatingDays(unusedStart, coverage.serviceEnd);
+    const paidAmount = BigInt(coverage.originalPrice) - BigInt(coverage.reduction);
+    const prior = await tx.coverageReversal.aggregate({ where: { schoolId, coverageId }, _sum: { amount: true } });
+    const available = paidAmount - (prior._sum.amount ?? 0n);
+    const calculatedAmount = (paidAmount * BigInt(remainingDays)) / BigInt(denominator);
+    if (remainingDays <= 0 || calculatedAmount <= 0n) throw new ConflictException({ code: "COVERAGE_NOT_REFUNDABLE", message: "Coverage không còn ngày vận hành để hoàn." });
+    return { coverage, denominator, remainingDays, calculatedAmount, available: available < 0n ? 0n : available, paidAmount };
+  }
+  async previewCoverageReversal(identityId: string, schoolId: string, body: any) {
+    schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
+    const coverageId = this.identifier(body?.coverageId, "coverageId"); const effectiveOn = this.date(body?.effectiveOn, "effectiveOn")!;
+    return this.prisma.$transaction(async (tx) => {
+      await this.transactionActor(tx, schoolId, identityId, (await this.actor(identityId, schoolId)).membershipId);
+      const result = await this.coveragePreview(tx, schoolId, coverageId, effectiveOn);
+      return { coverageId, effectiveOn: effectiveOn.toISOString().slice(0, 10), denominator: result.denominator, remainingDays: result.remainingDays, calculatedAmount: result.calculatedAmount.toString(), availableAmount: result.available.toString(), source: { studentName: result.coverage.sourceInvoice.studentNameSnapshot, reversalMode: result.coverage.sourceInvoice.reversalModeSnapshot, invoiceId: result.coverage.sourceInvoiceId, receiptId: result.coverage.sourceReceiptId, serviceStart: result.coverage.serviceStart.toISOString().slice(0, 10), serviceEnd: result.coverage.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: result.coverage.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: result.coverage.timezone } };
+    });
+  }
+  async coverageReversalRequests(identityId: string, schoolId: string) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
+    const decisionEligible = await this.prisma.schoolMembership.count({ where: { id: actor.membershipId, schoolId, status: "ACTIVE", boundStaffProfile: { employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SETTINGS_MANAGE" } } } } } }) > 0;
+    const requests = await this.prisma.coverageReversalRequest.findMany({ where: { schoolId, status: "PENDING" }, include: { coverage: { include: { sourceInvoice: { select: { studentNameSnapshot: true } } } } }, orderBy: { createdAt: "asc" } });
+    return { requests: requests.map((request) => ({ id: request.id, coverageId: request.coverageId, studentName: request.coverage.sourceInvoice.studentNameSnapshot, amount: request.amount.toString(), effectiveOn: request.effectiveOn.toISOString().slice(0, 10), reason: request.reason, canDecide: decisionEligible && request.requestedByMembershipId !== actor.membershipId })) };
+  }
+  async createCoverageReversal(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
+    const coverageId = this.identifier(body?.coverageId, "coverageId"); const effectiveOn = this.date(body?.effectiveOn, "effectiveOn")!;
+    const reason = this.text(body?.reason, "reason", true, 500)!; const override = body?.amount == null ? null : this.reversalAmount(body.amount);
+    const confirmation = this.text(body?.confirmation, "confirmation", false, 200);
+    return this.mutate(actor, identityId, schoolId, routes.coverageReversal, key, operationId, { coverageId, effectiveOn: effectiveOn.toISOString(), reason, amount: override?.toString() ?? null, confirmation }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "StudentPromotionalCoverage" WHERE "id" = ${coverageId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const preview = await this.coveragePreview(tx, schoolId, coverageId, effectiveOn);
+      const amount = override ?? preview.calculatedAmount;
+      if (amount <= 0n) throw validation("amount", "Số tiền hoàn phải lớn hơn 0.");
+      if (amount > preview.available) throw new ConflictException({ code: "COVERAGE_REVERSAL_LIMIT", message: "Số tiền hoàn vượt phần nguồn đã thanh toán còn lại." });
+      if (override !== null && override !== preview.calculatedAmount && !reason) throw validation("reason", "Cần lý do khi override số tiền máy chủ tính.");
+      const invoice = await tx.invoice.findFirst({ where: { id: preview.coverage.sourceInvoiceId, schoolId } });
+      if (!invoice?.reversalModeSnapshot) throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Không có snapshot chính sách reversal." });
+      if (invoice.reversalModeSnapshot === "DIRECT") {
+        if (confirmation !== preview.coverage.sourceInvoice.studentNameSnapshot) throw validation("confirmation", "Cần xác nhận đúng tên học sinh từ dữ liệu máy chủ.");
+        const reversal = await tx.coverageReversal.create({ data: { schoolId, coverageId, amount, calculatedAmount: preview.calculatedAmount, overrideReason: override !== null && override !== preview.calculatedAmount ? reason : null, effectiveOn, reason } });
+        await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_POSTED", operation, null, { id: reversal.id, coverageId, calculatedAmount: preview.calculatedAmount.toString(), approvedAmount: amount.toString(), status: "POSTED" }, reason);
+        return { status: "POSTED", id: reversal.id, amount: amount.toString() };
+      }
+      const request = await tx.coverageReversalRequest.create({ data: { schoolId, coverageId, amount, calculatedAmount: preview.calculatedAmount, overrideReason: override !== null && override !== preview.calculatedAmount ? reason : null, effectiveOn, reason, policyMode: "SCHOOL_ADMIN_APPROVAL", requestedByMembershipId: actor.membershipId } });
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_REQUESTED", operation, null, { id: request.id, coverageId, calculatedAmount: preview.calculatedAmount.toString(), approvedAmount: amount.toString(), status: "PENDING" }, reason);
+      return { status: "PENDING", id: request.id, amount: amount.toString() };
+    });
+  }
+  async decideCoverageReversal(identityId: string, schoolId: string, requestId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(requestId, "requestId");
+    const decision = body?.decision; if (!["APPROVE", "REFUSE"].includes(decision)) throw validation("decision", "Quyết định không hợp lệ.");
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    return this.mutate(actor, identityId, schoolId, routes.coverageReversalDecision, key, operationId, { requestId, decision, reason }, async (tx, operation) => {
+      const request = await tx.coverageReversalRequest.findFirst({ where: { id: requestId, schoolId } });
+      if (!request || request.status !== "PENDING" || request.requestedByMembershipId === actor.membershipId) throw new ConflictException({ code: "COVERAGE_REVERSAL_DECISION_DENIED", message: "Yêu cầu không còn có thể quyết định." });
+      const approver = await tx.schoolMembership.findFirst({ where: { id: actor.membershipId, schoolId, status: "ACTIVE", boundStaffProfile: { employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SETTINGS_MANAGE" } } } } } });
+      if (!approver) throw new UnauthorizedException({ code: "SCHOOL_ADMIN_APPROVAL_REQUIRED", message: "Cần quyền School Admin để quyết định." });
+      await tx.$queryRaw`SELECT 1 FROM "CoverageReversalRequest" WHERE "id" = ${requestId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const lockedRequest = await tx.coverageReversalRequest.findFirst({ where: { id: requestId, schoolId } });
+      if (!lockedRequest || lockedRequest.status !== "PENDING" || lockedRequest.requestedByMembershipId === actor.membershipId) throw new ConflictException({ code: "COVERAGE_REVERSAL_DECISION_DENIED", message: "Yêu cầu không còn có thể quyết định." });
+      if (decision === "REFUSE") { await tx.coverageReversalRequest.update({ where: { id: request.id }, data: { status: "REFUSED", decidedByMembershipId: actor.membershipId, decidedAt: new Date(), refusalReason: reason } }); await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_REFUSED", operation, { id: request.id, status: "PENDING" }, { id: request.id, status: "REFUSED", calculatedAmount: request.calculatedAmount.toString(), approvedAmount: request.amount.toString() }, reason); return { status: "REFUSED", id: request.id }; }
+      await tx.$queryRaw`SELECT 1 FROM "StudentPromotionalCoverage" WHERE "id" = ${request.coverageId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const preview = await this.coveragePreview(tx, schoolId, request.coverageId, request.effectiveOn);
+      if (request.amount > preview.available) throw new ConflictException({ code: "COVERAGE_REVERSAL_LIMIT", message: "Số tiền hoàn không còn trong giới hạn nguồn." });
+      if (request.amount <= 0n || preview.remainingDays <= 0) throw new ConflictException({ code: "COVERAGE_NOT_REFUNDABLE", message: "Coverage không còn phần hợp lệ để hoàn." });
+      const reversal = await tx.coverageReversal.create({ data: { schoolId, coverageId: request.coverageId, requestId: request.id, amount: request.amount, calculatedAmount: request.calculatedAmount, overrideReason: request.overrideReason, effectiveOn: request.effectiveOn, reason: request.reason } });
+      await tx.coverageReversalRequest.update({ where: { id: request.id }, data: { status: "POSTED", decidedByMembershipId: actor.membershipId, decidedAt: new Date() } });
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_APPROVED_AND_POSTED", operation, { id: request.id, status: "PENDING" }, { id: reversal.id, requestId: request.id, calculatedAmount: request.calculatedAmount.toString(), approvedAmount: request.amount.toString(), status: "POSTED" }, reason);
+      return { status: "POSTED", id: reversal.id, requestId: request.id, amount: request.amount.toString() };
     });
   }
   async issueInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
@@ -379,9 +480,9 @@ export class FinanceService {
       await this.promotionLock(tx, schoolId);
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const source = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
-      if (!source) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
-      if (source.status !== "ISSUED" || source.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_SOURCE", message: "Chỉ hóa đơn gốc đã phát hành mới có thể được điều chỉnh." });
-      if (await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })) throw new ConflictException({ code: "COVERAGE_REVISION_FORBIDDEN", message: "Hóa đơn có fact coverage không thể điều chỉnh trong phạm vi này." });
+       if (!source) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+       if (!["ISSUED", "CLOSED"].includes(source.status) || source.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_SOURCE", message: "Chỉ hóa đơn gốc đã phát hành hoặc đã đóng mới có thể được điều chỉnh." });
+       if (source.status === "ISSUED" && await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })) throw new ConflictException({ code: "COVERAGE_REVISION_FORBIDDEN", message: "Coverage chưa settled không thể điều chỉnh." });
       const run = await this.lockRun(tx, schoolId, source.collectionRunId);
       const year = await this.lockYear(tx, schoolId, source.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
@@ -417,11 +518,13 @@ export class FinanceService {
       if (replacement.status !== "DRAFT" || !replacement.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_DRAFT", message: "Chỉ bản điều chỉnh nháp mới có thể phát hành thay thế." });
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${replacement.revisesInvoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const source = await tx.invoice.findFirst({ where: { id: replacement.revisesInvoiceId, schoolId } });
-      if (!source || source.status !== "ISSUED" || source.studentId !== replacement.studentId || source.collectionRunId !== replacement.collectionRunId) throw new ConflictException({ code: "INVOICE_REVISION_GRAPH_CONFLICT", message: "Hóa đơn nguồn không còn hợp lệ để thay thế." });
+       if (!source || !["ISSUED", "CLOSED"].includes(source.status) || source.studentId !== replacement.studentId || source.collectionRunId !== replacement.collectionRunId || source.schoolYearId !== replacement.schoolYearId) throw new ConflictException({ code: "INVOICE_REVISION_GRAPH_CONFLICT", message: "Hóa đơn nguồn không còn hợp lệ để thay thế." });
       const run = await this.lockRun(tx, schoolId, replacement.collectionRunId);
       const year = await this.lockYear(tx, schoolId, replacement.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
       if (!replacement.lines.length || replacement.total <= 0n) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng và tổng VND dương để phát hành.");
+      const sourceReceipt = source.status === "CLOSED" ? await tx.receipt.findFirst({ where: { schoolId, invoiceId: source.id } }) : null;
+      if (source.status === "CLOSED" && (!sourceReceipt || sourceReceipt.actualAmount !== replacement.total || sourceReceipt.outcome !== "EXACT")) throw new ConflictException({ code: "SETTLEMENT_TRANSFER_AMOUNT_MISMATCH", message: "Bản thay thế phải có nghĩa vụ đúng bằng Receipt nguồn đã xác nhận." });
       this.safeIssuedTotal(replacement.total);
       const bank = await tx.bankAccount.findFirst({ where: { id: bankAccountId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
       if (!bank || bank.lifecycleTransitions[0]?.status !== "ACTIVE" || bank.transferTemplate !== "{{studentName}} {{className}}") throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND", message: "Không tìm thấy tài khoản nhận đang hoạt động." });
@@ -431,12 +534,16 @@ export class FinanceService {
       const dueOn = new Date(issueDate); dueOn.setUTCDate(dueOn.getUTCDate() + policy.dueDaysAfterIssue);
       const applications = await this.recheckPromotion(tx, schoolId, replacement, run.billingMonth);
       await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
-      await this.createIssuedPromotionApplications(tx, schoolId, replacement.id, applications);
-      await tx.invoice.update({ where: { id: source.id }, data: { status: "CANCELLED" } });
+       await this.createIssuedPromotionApplications(tx, schoolId, replacement.id, applications);
+       if (source.status === "CLOSED") {
+           await tx.settlementTransfer.create({ data: { schoolId, studentId: source.studentId, schoolYearId: source.schoolYearId, sourceInvoiceId: source.id, sourceReceiptId: sourceReceipt!.id, replacementInvoiceId: replacement.id, amount: sourceReceipt!.actualAmount } });
+          await tx.invoice.update({ where: { id: replacement.id }, data: { status: "CLOSED" } });
+       }
+       await tx.invoice.update({ where: { id: source.id }, data: { status: "CANCELLED" } });
       const issued = await tx.invoice.findFirstOrThrow({ where: { id: replacement.id, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } } } });
       const outcome = this.invoiceDto(issued);
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_ISSUED", operation, { sourceInvoiceId: source.id, sourceStatus: "ISSUED" }, outcome, replacement.revisionReason ?? undefined);
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_CANCELLED_FOR_REVISION", operation, { id: source.id, status: "ISSUED" }, { id: source.id, status: "CANCELLED", replacementInvoiceId: replacement.id }, replacement.revisionReason ?? undefined);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_ISSUED", operation, { sourceInvoiceId: source.id, sourceStatus: source.status }, outcome, replacement.revisionReason ?? undefined);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_CANCELLED_FOR_REVISION", operation, { id: source.id, status: source.status }, { id: source.id, status: "CANCELLED", replacementInvoiceId: replacement.id }, replacement.revisionReason ?? undefined);
       return outcome;
     });
   }

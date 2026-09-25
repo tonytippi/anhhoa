@@ -57,6 +57,9 @@ model School {
   receipts                          Receipt[]
   settlementDifferences             SettlementDifference[]
   settlementCarries                 SettlementCarry[]
+  settlementTransfers               SettlementTransfer[]
+  coverageReversalRequests          CoverageReversalRequest[]
+  coverageReversals                 CoverageReversal[]
   promotionalCoverages              StudentPromotionalCoverage[]
   invoiceLines                      InvoiceLine[]
   issuedPromotionApplications       IssuedPromotionApplication[]
@@ -102,6 +105,7 @@ model SchoolYear {
   receipts                      Receipt[]
   settlementDifferences         SettlementDifference[]
   settlementCarries             SettlementCarry[]
+  settlementTransfers           SettlementTransfer[]
   closedAt                      DateTime?
   closedByMembershipId          String?                        @db.Uuid
   closeOperationId              String?                        @unique @db.Uuid
@@ -395,6 +399,7 @@ model Student {
   receipts                        Receipt[]
   settlementDifferences           SettlementDifference[]
   settlementCarries               SettlementCarry[]
+  settlementTransfers             SettlementTransfer[]
   promotionAssignments            StudentPromotionAssignment[]
   promotionalCoverages            StudentPromotionalCoverage[]
   photo                           StudentPhoto?
@@ -653,6 +658,8 @@ model SchoolMembership {
   dailyJournals                       DailyJournal[]
   dailyJournalVersions                DailyJournalVersion[]
   uploadedDailyJournalMedia           DailyJournalMedia[]                  @relation("DailyJournalMediaUploaderMembership")
+  requestedCoverageReversals          CoverageReversalRequest[]            @relation("CoverageReversalRequester")
+  decidedCoverageReversals            CoverageReversalRequest[]            @relation("CoverageReversalDecider")
 
   @@unique([schoolId, userIdentityId])
   @@unique([schoolId, id])
@@ -921,6 +928,8 @@ model Invoice {
   receipt                              Receipt?
   settlementDifference                 SettlementDifference?
   settlementCarries                    SettlementCarry[]
+  settlementTransfersFrom              SettlementTransfer[]                 @relation("SettlementTransferSource")
+  settlementTransferTo                 SettlementTransfer?                  @relation("SettlementTransferReplacement")
   coverageFacts                        InvoicePromotionCoverageFact[]
   studentPromotionalCoverages          StudentPromotionalCoverage[]
 
@@ -961,6 +970,7 @@ model Receipt {
   invoice              Invoice                      @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
   difference           SettlementDifference?
   promotionalCoverages StudentPromotionalCoverage[]
+  settlementTransfers  SettlementTransfer[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, invoiceId])
@@ -1008,6 +1018,81 @@ model SettlementCarry {
   @@unique([schoolId, id])
   @@unique([schoolId, settlementDifferenceId, invoiceId])
   @@index([schoolId, invoiceId])
+}
+
+model SettlementTransfer {
+  id                   String   @id @default(uuid()) @db.Uuid
+  schoolId             String   @db.Uuid
+  studentId            String   @db.Uuid
+  schoolYearId         String   @db.Uuid
+  sourceInvoiceId      String   @db.Uuid
+  sourceReceiptId      String   @db.Uuid
+  replacementInvoiceId String   @unique @db.Uuid
+  amount               BigInt   @db.BigInt
+  createdAt            DateTime @default(now())
+  school               School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student              Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear           SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  sourceInvoice        Invoice  @relation("SettlementTransferSource", fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  sourceReceipt        Receipt  @relation(fields: [schoolId, sourceReceiptId], references: [schoolId, id], onDelete: Restrict)
+  replacementInvoice   Invoice  @relation("SettlementTransferReplacement", fields: [schoolId, replacementInvoiceId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, replacementInvoiceId])
+  @@index([schoolId, sourceInvoiceId])
+}
+
+enum CoverageReversalRequestStatus {
+  PENDING
+  APPROVED
+  REFUSED
+  POSTED
+}
+
+model CoverageReversalRequest {
+  id                    String                        @id @default(uuid()) @db.Uuid
+  schoolId              String                        @db.Uuid
+  coverageId            String                        @db.Uuid
+  amount                BigInt                        @db.BigInt
+  calculatedAmount      BigInt                        @db.BigInt
+  overrideReason        String?
+  effectiveOn           DateTime                      @db.Date
+  reason                String
+  policyMode            FinanceReversalMode
+  status                CoverageReversalRequestStatus @default(PENDING)
+  requestedByMembershipId String                      @db.Uuid
+  decidedByMembershipId String?                       @db.Uuid
+  decidedAt             DateTime?
+  refusalReason         String?
+  createdAt             DateTime                      @default(now())
+  school                School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  coverage              StudentPromotionalCoverage    @relation(fields: [schoolId, coverageId], references: [schoolId, id], onDelete: Restrict)
+  requestedByMembership SchoolMembership              @relation("CoverageReversalRequester", fields: [schoolId, requestedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  decidedByMembership   SchoolMembership?             @relation("CoverageReversalDecider", fields: [schoolId, decidedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  reversal              CoverageReversal?
+
+  @@unique([schoolId, id])
+  @@index([schoolId, coverageId, status])
+}
+
+model CoverageReversal {
+  id          String                  @id @default(uuid()) @db.Uuid
+  schoolId    String                  @db.Uuid
+  coverageId  String                  @db.Uuid
+  requestId   String?                 @unique @db.Uuid
+  amount      BigInt                  @db.BigInt
+  calculatedAmount BigInt             @db.BigInt
+  overrideReason String?
+  effectiveOn DateTime                @db.Date
+  reason      String
+  postedAt    DateTime                @default(now())
+  school      School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  coverage    StudentPromotionalCoverage @relation(fields: [schoolId, coverageId], references: [schoolId, id], onDelete: Restrict)
+  request     CoverageReversalRequest? @relation(fields: [schoolId, requestId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, requestId])
+  @@index([schoolId, coverageId])
 }
 
 model InvoicePromotionCoverageFact {
@@ -1066,6 +1151,8 @@ model StudentPromotionalCoverage {
   sourceFact            InvoicePromotionCoverageFact @relation(fields: [schoolId, sourceFactId], references: [schoolId, id], onDelete: Restrict)
   sourceInvoice         Invoice                      @relation(fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
   sourceReceipt         Receipt                      @relation(fields: [schoolId, sourceReceiptId], references: [schoolId, id], onDelete: Restrict)
+  reversalRequests      CoverageReversalRequest[]
+  reversals             CoverageReversal[]
 
   @@unique([schoolId, sourceFactId])
   @@unique([schoolId, studentId, schoolYearId, receivableId, billingMonth])
