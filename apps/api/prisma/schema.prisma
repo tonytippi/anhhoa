@@ -904,8 +904,12 @@ model InvoiceLine {
   unitLabelSnapshot          String
   defaultUnitPriceSnapshot   BigInt    @db.BigInt
   unitPrice                  BigInt    @db.BigInt
-  quantity                   Int
-  amount                     BigInt    @db.BigInt
+   quantity                   Int
+   amount                     BigInt    @db.BigInt
+   grossAmount                BigInt    @default(0) @db.BigInt
+   discountAmount             BigInt    @default(0) @db.BigInt
+   netAmount                  BigInt    @default(0) @db.BigInt
+   promotionEvaluationProvenance Json?
   overrideReason             String?
   source                     Json?
   sourceReason               String?

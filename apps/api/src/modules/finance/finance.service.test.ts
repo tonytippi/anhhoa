@@ -90,4 +90,19 @@ describe('FinanceService validation', () => {
     expect(result.policies[0]?.versions[0]).toMatchObject({ effectiveTo: '2026-09-30', assignments: [{ effectiveTo: '2026-09-15' }] });
     expect(prisma.promotionPolicy.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
   });
+  it('evaluates fixed before percentage with deterministic priority, exclusivity, and a gross cap', () => {
+    const service = new FinanceService({} as never, authorization as never) as any;
+    const line = { receivableId: 'receivable', amount: '100' };
+    const fact = (policyId: string, discountType: string, discountValue: bigint, priority: number, stackingMode = 'STACKABLE') => ({ policyId, versionId: `${policyId}-version`, targetId: `${policyId}-target`, assignmentId: `${policyId}-assignment`, assignmentReason: 'Được duyệt', studentId: 'student', receivableId: 'receivable', discountType, discountValue, priority, stackingMode });
+    const result = service.evaluatePromotionLine('student', line, [
+      fact('percentage-high', 'PERCENTAGE', 50n, 9),
+      fact('fixed-low', 'FIXED_VND', 80n, 1),
+      fact('fixed-high', 'FIXED_VND', 30n, 9),
+      fact('exclusive', 'PERCENTAGE', 50n, 1, 'EXCLUSIVE'),
+      fact('after-exclusive', 'PERCENTAGE', 1n, 99),
+    ]);
+    expect(result).toMatchObject({ grossAmount: '100', discountAmount: '100', netAmount: '0' });
+    expect(result.promotionEvaluation.applications.map((item: { policyId: string }) => item.policyId)).toEqual(['fixed-high', 'fixed-low']);
+    expect(result.promotionEvaluation.applications.every((item: { appliedDiscount: string }) => BigInt(item.appliedDiscount) >= 0n)).toBe(true);
+  });
 });
