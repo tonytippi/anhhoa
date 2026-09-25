@@ -57,4 +57,52 @@ describe('FinanceService validation', () => {
     await expect(new FinanceService(prisma as never, authorization as never).closeRun('identity', school, run, crypto.randomUUID(), crypto.randomUUID(), {})).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('rejects invalid template quantities before opening a transaction', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const school = crypto.randomUUID();
+    const run = crypto.randomUUID();
+    const receivable = crypto.randomUUID();
+    for (const quantity of ['0', '-1', '1.5', 'không phải số']) {
+      await expect(service.saveTemplateLine('identity', school, run, crypto.randomUUID(), crypto.randomUUID(), { receivableId: receivable, quantity, expectedVersion: 1 })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { quantity: expect.any(String) } } });
+    }
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('rejects invalid promotion rule, duplicate targets, and an empty assignment batch before writing', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const school = crypto.randomUUID(); const receivable = crypto.randomUUID(); const version = crypto.randomUUID();
+    await expect(service.createPromotionPolicy('identity', school, crypto.randomUUID(), crypto.randomUUID(), { name: 'Con cán bộ', receivableIds: [receivable, receivable], discountType: 'PERCENTAGE', discountValue: '10', priority: '1', stackingMode: 'STACKABLE', effectiveFrom: '2026-09-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
+    await expect(service.createPromotionPolicy('identity', school, crypto.randomUUID(), crypto.randomUUID(), { name: 'Con cán bộ', receivableIds: [receivable], discountType: 'PERCENTAGE', discountValue: '101', priority: '1', stackingMode: 'STACKABLE', effectiveFrom: '2026-09-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { discountValue: expect.any(String) } } });
+    await expect(service.assignPromotionStudents('identity', school, version, crypto.randomUUID(), crypto.randomUUID(), { studentIds: [], effectiveFrom: '2026-09-01', reason: 'Nhân viên' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { studentIds: expect.any(String) } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('rejects an equal persisted exclusive promotion interval on effectiveTo', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    await expect(service.createPromotionPolicy('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { name: 'Con cán bộ', receivableIds: [crypto.randomUUID()], discountType: 'PERCENTAGE', discountValue: '10', priority: '1', stackingMode: 'STACKABLE', effectiveFrom: '2026-09-02', effectiveTo: '2026-09-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveTo: expect.any(String) } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('projects half-open promotion intervals as inclusive UI dates', async () => {
+    const prisma = { promotionPolicy: { findMany: vi.fn().mockResolvedValue([{ id: 'policy', name: 'Con cán bộ', versions: [{ id: 'version', version: 1, status: 'ACTIVE', discountType: 'PERCENTAGE', discountValue: 10n, priority: 1, stackingMode: 'STACKABLE', effectiveFrom: new Date('2026-09-01T00:00:00Z'), effectiveTo: new Date('2026-10-01T00:00:00Z'), targets: [], assignments: [{ id: 'assignment', studentId: 'student', effectiveFrom: new Date('2026-09-01T00:00:00Z'), effectiveTo: new Date('2026-09-16T00:00:00Z'), reason: 'Nhân viên', endReason: 'Kết thúc', student: { fullName: 'Bé An', studentCode: 'HS001' } }] }] }]) } };
+    const school = crypto.randomUUID();
+    const result = await new FinanceService(prisma as never, authorization as never).promotionPolicies('identity', school);
+    expect(result.policies[0]?.versions[0]).toMatchObject({ effectiveTo: '2026-09-30', assignments: [{ effectiveTo: '2026-09-15' }] });
+    expect(prisma.promotionPolicy.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
+  });
+  it('evaluates fixed before percentage with deterministic priority, exclusivity, and a gross cap', () => {
+    const service = new FinanceService({} as never, authorization as never) as any;
+    const line = { receivableId: 'receivable', amount: '100' };
+    const fact = (policyId: string, discountType: string, discountValue: bigint, priority: number, stackingMode = 'STACKABLE') => ({ policyId, versionId: `${policyId}-version`, targetId: `${policyId}-target`, assignmentId: `${policyId}-assignment`, assignmentReason: 'Được duyệt', studentId: 'student', receivableId: 'receivable', discountType, discountValue, priority, stackingMode });
+    const result = service.evaluatePromotionLine('student', line, [
+      fact('percentage-high', 'PERCENTAGE', 50n, 9),
+      fact('fixed-low', 'FIXED_VND', 80n, 1),
+      fact('fixed-high', 'FIXED_VND', 30n, 9),
+      fact('exclusive', 'PERCENTAGE', 50n, 1, 'EXCLUSIVE'),
+      fact('after-exclusive', 'PERCENTAGE', 1n, 99),
+    ]);
+    expect(result).toMatchObject({ grossAmount: '100', discountAmount: '50', netAmount: '50' });
+    expect(result.promotionEvaluation.applications.map((item: { policyId: string }) => item.policyId)).toEqual(['exclusive']);
+    expect(result.promotionEvaluation.applications.every((item: { appliedDiscount: string }) => BigInt(item.appliedDiscount) >= 0n)).toBe(true);
+  });
 });

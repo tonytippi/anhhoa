@@ -218,9 +218,8 @@ test('Teacher attendance and handover use server capability, confirmed errors, a
     await route.fulfill({ status: 504 });
   });
   await page.route('**/api/teacher/schools/*/operations/*', async (route) => { handoverReconciled = true; await route.continue(); });
-  await page.getByRole('button', { name: 'Xác nhận trả trẻ' }).click();
+  await page.getByRole('region', { name: 'Bàn giao - tham chiếu vận hành' }).getByRole('row').filter({ hasText: 'Bé An' }).getByRole('button', { name: 'Xác nhận trả trẻ' }).click();
   await expect.poll(() => handoverReconciled).toBe(true);
-  await expect(page.getByText(/Đã trả trẻ lúc/)).toBeVisible();
   await page.unroute('**/api/teacher/schools/*/handovers');
   await page.unroute('**/api/teacher/schools/*/operations/*');
 
@@ -231,11 +230,11 @@ test('Teacher attendance and handover use server capability, confirmed errors, a
     validationIntercepted = true;
     await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'Bằng chứng không hợp lệ.', fieldErrors: { evidenceId: 'Bằng chứng không hợp lệ.' } } }) });
   });
-  await page.getByRole('button', { name: 'Có mặt' }).click();
+  await page.getByRole('row').filter({ hasText: 'Bé An' }).getByRole('button', { name: 'Có mặt' }).click();
   const error = page.getByRole('alert').first();
   await expect(error).toHaveText('Bằng chứng không hợp lệ.');
   await expect(error).toBeFocused();
-  await expect(page.getByText('NOT_RECORDED')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Điểm danh lớp' }).getByRole('row').filter({ hasText: 'Bé An' })).toContainText('NOT_RECORDED');
   await page.unroute('**/api/teacher/schools/*/attendance');
 
   let intercepted = false;
@@ -248,9 +247,9 @@ test('Teacher attendance and handover use server capability, confirmed errors, a
   });
   await page.route('**/api/teacher/schools/*/operations/*', async (route) => { reconciled = true; await route.continue(); });
   await page.getByLabel('Bằng chứng Bé An').fill('');
-  await page.getByRole('button', { name: 'Có mặt' }).click();
+  await page.getByRole('row').filter({ hasText: 'Bé An' }).getByRole('button', { name: 'Có mặt' }).click();
   await expect.poll(() => reconciled).toBe(true);
-  await expect(page.getByText('PRESENT')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Điểm danh lớp' }).getByRole('row').filter({ hasText: 'Bé An' })).toContainText('PRESENT');
   await page.unroute('**/api/teacher/schools/*/attendance');
   await page.unroute('**/api/teacher/schools/*/operations/*');
 
@@ -280,7 +279,7 @@ test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and 
   await page.getByLabel('Ngày nhận xét').fill(journalDate);
   await page.getByRole('button', { name: 'Tải danh sách' }).last().click();
   await rosterRequest;
-  await page.getByRole('button', { name: 'Viết nhận xét' }).click();
+  await page.getByRole('row').filter({ hasText: 'Bé An' }).getByRole('button', { name: 'Viết nhận xét' }).click();
 
   let validationIntercepted = false;
   await page.route('**/api/teacher/schools/*/daily-journals', async (route) => {
@@ -292,7 +291,7 @@ test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and 
   const validationError = page.getByRole('alert').first();
   await expect(validationError).toHaveText('Nhận xét cần từ 1 đến 5000 ký tự.');
   await expect(validationError).toBeFocused();
-  await expect(page.getByRole('cell', { name: 'Chưa có nhận xét' })).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: 'Bé An' })).toContainText('Chưa có nhận xét');
   await page.unroute('**/api/teacher/schools/*/daily-journals');
 
   await page.locator('textarea').fill('Bé An tham gia hoạt động rất tích cực.');

@@ -12,6 +12,7 @@ type Receivable = {
   available: boolean;
 };
 type Catalog = { groups: Group[]; receivables: Receivable[] };
+type PromotionPolicy = { id: string; name: string; versions: Array<{ id: string; version: number; status: "DRAFT" | "ACTIVE" | "RETIRED"; discountType: "FIXED_VND" | "PERCENTAGE"; discountValue: string; priority: number; stackingMode: "STACKABLE" | "EXCLUSIVE"; effectiveFrom: string; effectiveTo: string | null; targets: Array<{ id: string; receivableId: string; receivableName: string }>; assignments: Array<{ id: string; studentId: string; studentCode: string; studentName: string; effectiveFrom: string; effectiveTo: string | null; reason: string; endReason: string | null }> }> };
 type Year = {
   id: string;
   name: string;
@@ -39,6 +40,7 @@ type Preview = {
     studentCode: string;
     fullName: string;
     className: string;
+    lines: Array<{ receivableId: string; receivableName: string; grossAmount: string; discountAmount: string; netAmount: string; promotionEvaluation: { applications: Array<{ assignmentReason: string; appliedDiscount: string }> } }>;
   }>;
   skips: Array<{
     studentId: string;
@@ -66,7 +68,7 @@ type GenerateOutcome = {
 };
 type Source = { serviceDate: string | null; attendanceState: "PRESENT" | "ABSENT" | null; pickedUpAt: string | null; lateCareMinutes: number | null };
 type BankAccount = { id: string; receivingBank: string; accountNumber: string; accountHolderName: string };
-type Invoice = { id: string; status: string; total: string; billingMonth: string; revisesInvoiceId: string | null; revisionReason: string | null; replacementInvoiceId: string | null; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
+type Invoice = { id: string; status: string; total: string; billingMonth: string; revisesInvoiceId: string | null; revisionReason: string | null; replacementInvoiceId: string | null; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; grossAmount: string; discountAmount: string; netAmount: string; promotionEvaluation: { applications: Array<{ assignmentReason: string; appliedDiscount: string }> } | null; promotionApplicationSnapshot: Array<{ assignmentReason: string; appliedDiscount: string }> | null; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
 type Pending = { id: string; schoolId: string };
 type GenerationProgress = {
   status: "QUEUED" | "RUNNING" | "PAUSED" | "FAILED" | "COMPLETED";
@@ -127,6 +129,10 @@ export function FinanceWorkspace({
   onStatusChange?: (status: FinanceStatus) => void;
 }) {
   const [catalog, setCatalog] = useState<Catalog>();
+  const [promotionData, setPromotionData] = useState({ schoolId, policies: [] as PromotionPolicy[], students: [] as Candidate[] });
+  const [promotion, setPromotion] = useState({ policyId: "", name: "", receivableIds: [] as string[], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" });
+  const [assignment, setAssignment] = useState({ versionId: "", studentIds: [] as string[], effectiveFrom: "", effectiveTo: "", reason: "" });
+  const [endingAssignment, setEndingAssignment] = useState<{ id: string; effectiveTo: string; reason: string }>();
   const [candidates, setCandidates] = useState<Candidates>();
   const [runs, setRuns] = useState<Run[]>([]);
   const [run, setRun] = useState<Run>();
@@ -185,6 +191,10 @@ export function FinanceWorkspace({
   const submitting = useRef(false);
   const request = useRef(0);
   const reconciliationTimer = useRef<number | undefined>(undefined);
+  const promotionPolicies = promotionData.schoolId === schoolId ? promotionData.policies : [];
+  const promotionStudents = promotionData.schoolId === schoolId ? promotionData.students : [];
+  const today = new Date().toISOString().slice(0, 10);
+  const activeAssignment = (item: PromotionPolicy["versions"][number]["assignments"][number]) => item.effectiveFrom <= today && (!item.effectiveTo || item.effectiveTo >= today);
 
   const get = async <T,>(path: string, mutation = false) => {
     const response = await fetch(`${apiUrl}${path}`, {
@@ -202,7 +212,7 @@ export function FinanceWorkspace({
   };
   const load = async () => {
     const token = ++request.current;
-    const [nextCatalog, nextRuns, nextCandidates] = await Promise.all([
+    const [nextCatalog, nextRuns, nextCandidates, nextPolicies, nextPromotionStudents] = await Promise.all([
       get<Catalog>(`/api/app/schools/${schoolId}/finance/receivables`),
       get<{ runs: Run[] }>(
         `/api/app/schools/${schoolId}/finance/collection-runs`,
@@ -210,11 +220,14 @@ export function FinanceWorkspace({
       get<Candidates>(
         `/api/app/schools/${schoolId}/finance/collection-run-candidates${(run?.schoolYearId ?? open.schoolYearId) ? `?schoolYearId=${run?.schoolYearId ?? open.schoolYearId}` : ""}`,
       ),
+      get<{ policies: PromotionPolicy[] }>(`/api/app/schools/${schoolId}/finance/promotion-policies`),
+      get<{ students: Candidate[] }>(`/api/app/schools/${schoolId}/finance/promotion-students`),
     ]);
     if (activeSchool.current !== schoolId || token !== request.current) return;
     setCatalog(nextCatalog);
     setRuns(nextRuns.runs);
     setCandidates(nextCandidates);
+    setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: nextPromotionStudents.students ?? [] });
     if (run) {
       const refreshedRun = nextRuns.runs.find((item) => item.id === run.id);
       setRun(refreshedRun);
@@ -264,6 +277,8 @@ export function FinanceWorkspace({
         if ((result.outcome as GenerateOutcome | undefined)?.created)
           setGeneratedOutcome(result.outcome as GenerateOutcome);
         if ((result.outcome as Invoice | undefined)?.lines) applyInvoice(result.outcome as Invoice);
+        if (["DRAFT", "READY", "GENERATED", "CLOSED"].includes((result.outcome as Run | undefined)?.status ?? ""))
+          chooseRun(result.outcome as Run);
         if ((result.outcome as Run | undefined)?.status === "CLOSED") {
           chooseRun(result.outcome as Run);
           setCloseConfirmation(false);
@@ -295,6 +310,10 @@ export function FinanceWorkspace({
     if (reconciliationTimer.current)
       window.clearTimeout(reconciliationTimer.current);
     setCatalog(undefined);
+    setPromotionData({ schoolId, policies: [], students: [] });
+    setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" });
+    setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" });
+    setEndingAssignment(undefined);
     setCandidates(undefined);
     setRuns([]);
     setRun(undefined);
@@ -372,8 +391,9 @@ export function FinanceWorkspace({
     receivable.unitLabel ||
     receivable.defaultUnitPrice ||
     lifecycle?.reason ||
-    template.receivableId ||
-    template.quantity,
+     template.receivableId ||
+      template.quantity ||
+      promotion.name || promotion.receivableIds.length || promotion.discountValue || assignment.studentIds.length || assignment.reason || endingAssignment?.reason,
   );
   useEffect(() => {
     status.current = onStatusChange;
@@ -453,11 +473,17 @@ export function FinanceWorkspace({
       if (!response.ok) {
         const error = (
           (await response.json()) as {
-            error?: { message?: string; fieldErrors?: Record<string, string> };
+            error?: { code?: string; message?: string; fieldErrors?: Record<string, string> };
           }
         ).error;
         if (activeSchool.current === schoolId && token === request.current) {
           setErrors(error?.fieldErrors ?? {});
+          if (error?.code === "PROMOTION_REVIEW_REQUIRED") {
+            setIssueConfirmation(false);
+            setIssueConfirmationName("");
+            setIssueBankAccountId("");
+            void openInvoice(path.match(/\/invoices\/([^/]+)/)?.[1] ?? "");
+          }
           setMessage(error?.message ?? "Thao tác không thành công.");
         }
         return undefined;
@@ -662,6 +688,25 @@ export function FinanceWorkspace({
       await load();
     }
   };
+  const savePromotion = async (event: FormEvent) => {
+    event.preventDefault();
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policies`, "POST", { ...promotion, effectiveTo: promotion.effectiveTo || null }, "receivable");
+    if (outcome) { setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" }); await load(); }
+  };
+  const saveAssignments = async (event: FormEvent) => {
+    event.preventDefault(); if (!assignment.versionId) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${assignment.versionId}/assignments`, "POST", { ...assignment, effectiveTo: assignment.effectiveTo || null }, "receivable");
+    if (outcome) { setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); await load(); }
+  };
+  const endAssignment = async (event: FormEvent) => {
+    event.preventDefault(); if (!endingAssignment) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-assignments/${endingAssignment.id}/end`, "POST", { effectiveTo: endingAssignment.effectiveTo, reason: endingAssignment.reason }, "receivable");
+    if (outcome) { setEndingAssignment(undefined); await load(); }
+  };
+  const transitionPromotionVersion = async (versionId: string, action: "activate" | "retire") => {
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${versionId}/${action}`, "POST", {}, "lifecycle");
+    if (outcome) await load();
+  };
   const openInvoice = async (invoiceId: string) => {
     const token = ++request.current;
     try {
@@ -761,6 +806,31 @@ export function FinanceWorkspace({
           {message}
         </div>
       )}
+      <section aria-labelledby="promotion-title">
+        <h3 id="promotion-title">Ưu đãi</h3>
+        <p>Thay đổi cấu hình tạo phiên bản mới. Giá trị áp dụng do hệ thống đánh giá ở bước sau.</p>
+        <form onSubmit={savePromotion}>
+          <label>Chính sách hiện có (để tạo phiên bản mới)<select value={promotion.policyId} onChange={(event) => { const policy = promotionPolicies.find((item) => item.id === event.target.value); setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" }); }}><option value="">Chính sách mới</option>{promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} /></label>
+          <fieldset><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>
+          <label>Loại giảm<select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}><option value="PERCENTAGE">Phần trăm</option><option value="FIXED_VND">Số tiền VND</option></select></label>
+          <label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} /></label>
+          <label>Hiệu lực từ<input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} /></label>
+          <label>Hiệu lực đến (bao gồm)<input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} /></label>
+          <label>Ưu tiên<input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} /></label>
+          <label>Quy tắc kết hợp<select value={promotion.stackingMode} onChange={(event) => setPromotion({ ...promotion, stackingMode: event.target.value })}><option value="STACKABLE">Có thể kết hợp</option><option value="EXCLUSIVE">Độc quyền</option></select></label>
+          <button disabled={Boolean(pending)}>Lưu phiên bản ưu đãi</button>
+        </form>
+        <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Thao tác</th></tr></thead><tbody>{promotionPolicies.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td>{version.status === "DRAFT" && <button type="button" disabled={Boolean(pending)} onClick={() => void transitionPromotionVersion(version.id, "activate")}>Kích hoạt phiên bản</button>}{version.status === "ACTIVE" && <button type="button" disabled={Boolean(pending)} onClick={() => void transitionPromotionVersion(version.id, "retire")}>Ngừng phiên bản</button>}</td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
+        <form onSubmit={saveAssignments}>
+          <h4>Gán học sinh</h4><p>Cả nhóm dùng chung thời hạn và lý do; máy chủ chỉ lưu khi toàn bộ danh sách hợp lệ.</p>
+          <label>Phiên bản đang áp dụng<select value={assignment.versionId} onChange={(event) => setAssignment({ ...assignment, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionPolicies.flatMap((policy) => (policy.versions ?? []).filter((version) => version.status === "ACTIVE").map((version) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>))}</select></label>
+          <fieldset><legend>Học sinh</legend>{promotionStudents.map((student) => <label key={student.id}><input type="checkbox" checked={assignment.studentIds.includes(student.id)} onChange={() => setAssignment({ ...assignment, studentIds: assignment.studentIds.includes(student.id) ? assignment.studentIds.filter((id) => id !== student.id) : [...assignment.studentIds, student.id] })} />{student.studentCode} / {student.fullName}</label>)}</fieldset>
+          <label>Áp dụng từ<input type="date" value={assignment.effectiveFrom} onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })} /></label><label>Áp dụng đến (bao gồm)<input type="date" value={assignment.effectiveTo} onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={assignment.reason} onChange={(event) => setAssignment({ ...assignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu gán học sinh</button>
+        </form>
+        {promotionPolicies.flatMap((policy) => policy.versions ?? []).flatMap((version) => (version.assignments ?? []).filter(activeAssignment).map((item) => <div key={item.id}><span>{item.studentCode} / {item.studentName}: {item.effectiveFrom}</span><button type="button" disabled={Boolean(pending)} onClick={() => setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" })}>Kết thúc áp dụng</button></div>))}
+        {endingAssignment && <form onSubmit={endAssignment}><h4>Kết thúc áp dụng học sinh</h4><label>Ngày kết thúc (bao gồm)<input type="date" value={endingAssignment.effectiveTo} onChange={(event) => setEndingAssignment({ ...endingAssignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={endingAssignment.reason} onChange={(event) => setEndingAssignment({ ...endingAssignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Xác nhận kết thúc</button><button type="button" onClick={() => setEndingAssignment(undefined)}>Hủy</button></form>}
+      </section>
       <section>
         <h3>Nhóm khoản thu</h3>
         <form onSubmit={saveGroup}>
@@ -1113,23 +1183,17 @@ export function FinanceWorkspace({
                 <caption>Học sinh đủ điều kiện</caption>
                 <thead>
                   <tr>
-                    <th>Học sinh</th>
-                    <th>Lớp</th>
+                    <th>Học sinh</th><th>Lớp</th><th>Khoản thu</th><th>Gross VND</th><th>Ưu đãi VND</th><th>Net VND</th><th>Lý do ưu đãi</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.eligible.length ? (
-                    preview.eligible.map((item) => (
-                      <tr key={item.studentId}>
-                        <td>
-                          {item.studentCode} / {item.fullName}
-                        </td>
-                        <td>{item.className}</td>
-                      </tr>
-                    ))
+                    preview.eligible.flatMap((item) => (item.lines ?? []).map((line) => (
+                      <tr key={`${item.studentId}-${line.receivableId}`}><td>{item.studentCode} / {item.fullName}</td><td>{item.className}</td><td>{line.receivableName}</td><td style={{ textAlign: "right" }}>{vnd(line.grossAmount)}</td><td style={{ textAlign: "right" }}>{vnd(line.discountAmount)}</td><td style={{ textAlign: "right" }}>{vnd(line.netAmount)}</td><td>{line.promotionEvaluation.applications.map((application) => application.assignmentReason).join(", ") || "Không áp dụng"}</td></tr>
+                    )))
                   ) : (
                     <tr>
-                      <td colSpan={2}>Không có học sinh đủ điều kiện.</td>
+                      <td colSpan={7}>Không có học sinh đủ điều kiện.</td>
                     </tr>
                   )}
                 </tbody>
@@ -1213,8 +1277,8 @@ export function FinanceWorkspace({
             <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th>Tổng VND</th><th>Thao tác</th></tr></thead>
             <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Rà soát hóa đơn</button></td></tr>)}</tbody>
           </table>
-          {run.invoices?.some((invoice) => invoice.status === "DRAFT") ? <p>Chưa thể đóng: còn hóa đơn nháp cần phát hành.</p> : null}
-          <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => invoice.status === "DRAFT"))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
+           {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? <p>Chưa thể đóng: còn hóa đơn nháp cần phát hành.</p> : null}
+           <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0"))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
         </section>
       )}
       {run?.status === "CLOSED" && (
@@ -1273,8 +1337,8 @@ export function FinanceWorkspace({
            {invoice.status === "DRAFT" && <button ref={issueTrigger} type="button" disabled={Boolean(pending) || !invoice.lines.length || invoice.total === "0"} onClick={() => void openIssueConfirmation()}>{invoice.revisesInvoiceId ? "Phát hành bản thay thế" : "Phát hành hóa đơn"}</button>}
             {invoice.status === "ISSUED" && !invoice.revisesInvoiceId && <button ref={revisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => { setRevisionReason(""); setRevisionConfirmationName(""); setRevisionConfirmation(true); }}>Chuẩn bị bản điều chỉnh</button>}
            {(invoice.revisesInvoiceId || invoice.replacementInvoiceId) && <p>Lineage: {invoice.revisesInvoiceId ? `thay thế ${invoice.revisesInvoiceId}` : `được thay thế bởi ${invoice.replacementInvoiceId}`}. {invoice.revisionReason ? `Lý do: ${invoice.revisionReason}.` : ""}</p>}
-           {(invoice.status === "ISSUED" || invoice.status === "CANCELLED") && <section aria-label="Snapshot phát hành"><h4>Hướng dẫn thanh toán đã phát hành</h4><p>Tổng nghĩa vụ: {vnd(invoice.issue?.obligationTotal ?? invoice.total)} VND. Hạn thanh toán: {invoice.issue?.dueOn}.</p><p>{invoice.issue?.bankAccount.receivingBank} / {invoice.issue?.bankAccount.accountNumber} / {invoice.issue?.bankAccount.accountHolderName}</p><p>Nội dung chuyển khoản: {invoice.issue?.transferContent}</p><p>Chính sách {invoice.issue?.policy.effectiveFrom}: {invoice.issue?.policy.dueDaysAfterIssue} ngày; {invoice.issue?.policy.taxTreatment}; {invoice.issue?.policy.debtScope}; {invoice.issue?.policy.reversalMode}.</p><p>{invoice.status === "CANCELLED" ? "Hóa đơn đã hủy và chỉ đọc." : "Settlement chưa được ghi nhận."}</p></section>}
-          <table><caption>Dòng hóa đơn do máy chủ tính</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Số tiền VND</th><th>Thao tác</th></tr></thead><tbody>{invoice.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.source && <small> Nguồn: {item.source.serviceDate ?? ""} {item.source.attendanceState ?? ""} {item.source.pickedUpAt ?? ""} {item.source.lateCareMinutes ?? ""}; {item.sourceReason}; ghi lúc {item.sourceRecordedAt ?? ""}; actor {item.sourceAudit?.actorIdentityId ?? ""}; membership {item.sourceAudit?.membershipId ?? ""}; provenance {JSON.stringify(item.sourceProvenance)}</small>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{invoice.status === "DRAFT" && <><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId, quantity: item.quantity, unitPrice: item.unitPrice, overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={3}>Tổng cần thu</th><th style={{ textAlign: "right" }}>{vnd(invoice.total)}</th><td /></tr></tbody></table>
+            {(invoice.status === "ISSUED" || invoice.status === "CANCELLED") && <section aria-label="Snapshot phát hành"><h4>Hướng dẫn thanh toán đã phát hành</h4><p>Tổng nghĩa vụ: {vnd(invoice.issue?.obligationTotal ?? invoice.total)} VND. Hạn thanh toán: {invoice.issue?.dueOn}.</p><p>{invoice.issue?.bankAccount.receivingBank} / {invoice.issue?.bankAccount.accountNumber} / {invoice.issue?.bankAccount.accountHolderName}</p><p>Nội dung chuyển khoản: {invoice.issue?.transferContent}</p><p>Chính sách {invoice.issue?.policy.effectiveFrom}: {invoice.issue?.policy.dueDaysAfterIssue} ngày; {invoice.issue?.policy.taxTreatment}; {invoice.issue?.policy.debtScope}; {invoice.issue?.policy.reversalMode}.</p><p>{invoice.status === "CANCELLED" ? "Hóa đơn đã hủy và chỉ đọc." : "Chưa có trạng thái thanh toán trong phạm vi này."}</p></section>}
+           <table><caption>Dòng hóa đơn do máy chủ tính</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Gross VND</th><th>Ưu đãi VND</th><th>Net VND</th><th>Lý do ưu đãi</th><th>Thao tác</th></tr></thead><tbody>{invoice.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.source && <small> Nguồn: {item.source.serviceDate ?? ""} {item.source.attendanceState ?? ""} {item.source.pickedUpAt ?? ""} {item.source.lateCareMinutes ?? ""}; {item.sourceReason}; ghi lúc {item.sourceRecordedAt ?? ""}; actor {item.sourceAudit?.actorIdentityId ?? ""}; membership {item.sourceAudit?.membershipId ?? ""}; provenance {JSON.stringify(item.sourceProvenance)}</small>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.grossAmount ?? item.amount)}</td><td style={{ textAlign: "right" }}>{vnd(item.discountAmount ?? "0")}</td><td style={{ textAlign: "right" }}>{vnd(item.netAmount ?? item.amount)}</td><td>{(invoice.status === "DRAFT" ? item.promotionEvaluation?.applications : item.promotionApplicationSnapshot)?.map((application) => application.assignmentReason).join(", ") || "Không áp dụng"}</td><td>{invoice.status === "DRAFT" && <><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId, quantity: item.quantity, unitPrice: item.overrideReason ? item.unitPrice : "", overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={5}>Tổng cần thu</th><th style={{ textAlign: "right" }}>{vnd(invoice.total)}</th><td colSpan={2} /></tr></tbody></table>
           {invoice.status === "DRAFT" ? <form onSubmit={saveLine}><h4>{editingLineId ? "Sửa dòng" : "Thêm dòng"}</h4><label>Khoản thu<select disabled={Boolean(editingLineId)} value={line.receivableId} onChange={(event) => setLine({ ...line, receivableId: event.target.value })} {...invoiceField("receivableId")}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>{scope === "invoice" && errors.receivableId && <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>}<label>Số lượng<input inputMode="numeric" value={line.quantity} onChange={(event) => setLine({ ...line, quantity: event.target.value })} {...invoiceField("quantity")} /></label>{scope === "invoice" && errors.quantity && <small id="invoice-invoice-quantity-error">{errors.quantity}</small>}<label>Đơn giá override VND (không bắt buộc)<input inputMode="numeric" value={line.unitPrice} onChange={(event) => setLine({ ...line, unitPrice: event.target.value })} {...invoiceField("unitPrice")} /></label>{scope === "invoice" && errors.unitPrice && <small id="invoice-invoice-unitPrice-error">{errors.unitPrice}</small>}<label>Lý do override<input value={line.overrideReason} onChange={(event) => setLine({ ...line, overrideReason: event.target.value })} {...invoiceField("overrideReason")} /></label>{scope === "invoice" && errors.overrideReason && <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>}<fieldset><legend>Nguồn giải thích thủ công</legend><label>Ngày dịch vụ<input type="date" value={line.serviceDate} onChange={(event) => setLine({ ...line, serviceDate: event.target.value })} /></label><label>Điểm danh<select value={line.attendanceState} onChange={(event) => setLine({ ...line, attendanceState: event.target.value })}><option value="">Không có</option><option value="PRESENT">Có mặt</option><option value="ABSENT">Vắng mặt</option></select></label><label>Giờ đón (HH:MM)<input value={line.pickedUpAt} onChange={(event) => setLine({ ...line, pickedUpAt: event.target.value })} /></label><label>Số phút trông muộn<input inputMode="numeric" value={line.lateCareMinutes} onChange={(event) => setLine({ ...line, lateCareMinutes: event.target.value })} /></label><label>Lý do nguồn giải thích<input value={line.sourceReason} onChange={(event) => setLine({ ...line, sourceReason: event.target.value })} /></label></fieldset><button disabled={Boolean(pending)}>{editingLineId ? "Lưu dòng" : "Thêm dòng"}</button>{editingLineId && <button type="button" onClick={() => { setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }}>Hủy sửa</button>}</form> : <p>Hóa đơn {invoice.status} chỉ đọc; dòng hóa đơn không thể thay đổi.</p>}
         </section>
       )}

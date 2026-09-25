@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), issueInvoice: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn() };
+  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), issueInvoice: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn() };
   it('requires browser mutation proof before Finance writes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     await expect(controller.group(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
@@ -111,5 +111,29 @@ describe('FinanceController mutation boundary', () => {
     await expect(controller.prepareRevision(unprotected, 'school', 'source', 'key', 'operation', { reason: 'Sai' })).rejects.toMatchObject({ status: 401 });
     await expect(controller.issueRevision(unprotected, 'school', 'replacement', 'key', 'operation', { bankAccountId: 'bank' })).rejects.toMatchObject({ status: 401 });
     expect(finance.prepareRevision).not.toHaveBeenCalled(); expect(finance.issueRevision).not.toHaveBeenCalled();
+  });
+  it('forwards promotion reads and all protected promotion commands', async () => {
+    const controller = new FinanceController(auth as never, finance as never);
+    finance.promotionPolicies.mockResolvedValue({ policies: [] }); finance.promotionStudents.mockResolvedValue({ students: [] }); finance.createPromotionPolicy.mockResolvedValue({ id: 'create' }); finance.activatePromotionVersion.mockResolvedValue({ id: 'activate' }); finance.retirePromotionVersion.mockResolvedValue({ id: 'retire' }); finance.assignPromotionStudents.mockResolvedValue({ id: 'assign' }); finance.endPromotionAssignment.mockResolvedValue({ id: 'end' });
+    await expect(controller.promotionPolicies(request({}), 'school')).resolves.toEqual({ data: { policies: [] } });
+    await expect(controller.promotionStudents(request({}), 'school')).resolves.toEqual({ data: { students: [] } });
+    await expect(controller.createPromotionPolicy(request(valid), 'school', 'key', 'operation', { name: 'Ưu đãi' })).resolves.toEqual({ data: { id: 'create' } });
+    await expect(controller.activatePromotionVersion(request(valid), 'school', 'version', 'key', 'operation')).resolves.toEqual({ data: { id: 'activate' } });
+    await expect(controller.retirePromotionVersion(request(valid), 'school', 'version', 'key', 'operation')).resolves.toEqual({ data: { id: 'retire' } });
+    await expect(controller.assignPromotionStudents(request(valid), 'school', 'version', 'key', 'operation', { studentIds: ['student'] })).resolves.toEqual({ data: { id: 'assign' } });
+    await expect(controller.endPromotionAssignment(request(valid), 'school', 'assignment', 'key', 'operation', { effectiveTo: '2026-09-30', reason: 'Hết hạn' })).resolves.toEqual({ data: { id: 'end' } });
+    expect(finance.promotionPolicies).toHaveBeenCalledWith('actor-id', 'school'); expect(finance.promotionStudents).toHaveBeenCalledWith('actor-id', 'school');
+    expect(finance.assignPromotionStudents).toHaveBeenCalledWith('actor-id', 'school', 'version', 'key', 'operation', { studentIds: ['student'] });
+    expect(finance.endPromotionAssignment).toHaveBeenCalledWith('actor-id', 'school', 'assignment', 'key', 'operation', { effectiveTo: '2026-09-30', reason: 'Hết hạn' });
+  });
+  it('denies every promotion mutation without origin and CSRF proof', async () => {
+    const controller = new FinanceController(auth as never, finance as never); const unprotected = request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' });
+    finance.createPromotionPolicy.mockClear(); finance.activatePromotionVersion.mockClear(); finance.retirePromotionVersion.mockClear(); finance.assignPromotionStudents.mockClear(); finance.endPromotionAssignment.mockClear();
+    await expect(controller.createPromotionPolicy(unprotected, 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
+    await expect(controller.activatePromotionVersion(unprotected, 'school', 'version', 'key', 'operation')).rejects.toMatchObject({ status: 401 });
+    await expect(controller.retirePromotionVersion(unprotected, 'school', 'version', 'key', 'operation')).rejects.toMatchObject({ status: 401 });
+    await expect(controller.assignPromotionStudents(unprotected, 'school', 'version', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
+    await expect(controller.endPromotionAssignment(unprotected, 'school', 'assignment', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
+    expect(finance.createPromotionPolicy).not.toHaveBeenCalled(); expect(finance.activatePromotionVersion).not.toHaveBeenCalled(); expect(finance.retirePromotionVersion).not.toHaveBeenCalled(); expect(finance.assignPromotionStudents).not.toHaveBeenCalled(); expect(finance.endPromotionAssignment).not.toHaveBeenCalled();
   });
 });

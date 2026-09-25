@@ -55,6 +55,11 @@ model School {
   collectionRunLifecycleTransitions CollectionRunLifecycleTransition[]
   invoices                          Invoice[]
   invoiceLines                      InvoiceLine[]
+  issuedPromotionApplications       IssuedPromotionApplication[]
+  promotionPolicies                 PromotionPolicy[]
+  promotionPolicyVersions           PromotionPolicyVersion[]
+  promotionPolicyTargets            PromotionPolicyTarget[]
+  studentPromotionAssignments       StudentPromotionAssignment[]
   studentPhotos                     StudentPhoto[]
   staffCodeRegistry                 StaffCodeRegistry[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
@@ -378,6 +383,7 @@ model Student {
   notificationSourceEvents    NotificationSourceEvent[]
   collectionRunSelections     CollectionRunSelection[]
   invoices                    Invoice[]
+  promotionAssignments        StudentPromotionAssignment[]
   photo                       StudentPhoto?
 
   @@unique([schoolId, id])
@@ -746,6 +752,7 @@ model CollectionRun {
   generation           CollectionRunGeneration?
   templateLines        CollectionRunTemplateLine[]
   templateSnapshot     Json?
+  readyPreviewFingerprint String?
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, billingMonth])
@@ -880,6 +887,7 @@ model Invoice {
   collectionRun             CollectionRun @relation(fields: [schoolId, collectionRunId, schoolYearId, billingMonth], references: [schoolId, id, schoolYearId, billingMonth], onDelete: Restrict)
   schoolYear                SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
   lines                     InvoiceLine[]
+  promotionApplications     IssuedPromotionApplication[]
   revisesInvoice            Invoice?  @relation("InvoiceRevision", fields: [schoolId, revisesInvoiceId], references: [schoolId, id], onDelete: Restrict)
   replacementInvoices       Invoice[] @relation("InvoiceRevision")
 
@@ -898,8 +906,12 @@ model InvoiceLine {
   unitLabelSnapshot          String
   defaultUnitPriceSnapshot   BigInt    @db.BigInt
   unitPrice                  BigInt    @db.BigInt
-  quantity                   Int
-  amount                     BigInt    @db.BigInt
+   quantity                   Int
+   amount                     BigInt    @db.BigInt
+   grossAmount                BigInt    @default(0) @db.BigInt
+   discountAmount             BigInt    @default(0) @db.BigInt
+   netAmount                  BigInt    @default(0) @db.BigInt
+   promotionEvaluationProvenance Json?
   overrideReason             String?
   source                     Json?
   sourceReason               String?
@@ -912,10 +924,39 @@ model InvoiceLine {
   school                     School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   invoice                    Invoice   @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
   receivable                 Receivable @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  promotionApplications      IssuedPromotionApplication[]
 
   @@unique([schoolId, id])
   @@index([schoolId, invoiceId])
   @@index([schoolId, receivableId])
+}
+
+model IssuedPromotionApplication {
+  id                 String    @id @default(uuid()) @db.Uuid
+  schoolId           String    @db.Uuid
+  invoiceId          String    @db.Uuid
+  invoiceLineId      String    @db.Uuid
+  ordinal            Int
+  policyId           String    @db.Uuid
+  versionId          String    @db.Uuid
+  targetId           String    @db.Uuid
+  assignmentId       String    @db.Uuid
+  discountType       PromotionDiscountType
+  discountValue      BigInt    @db.BigInt
+  priority           Int
+  stackingMode       PromotionStackingMode
+  appliedDiscount    BigInt    @db.BigInt
+  versionInterval    Json
+  assignmentInterval Json
+  assignmentReason   String
+  createdAt          DateTime  @default(now())
+  school             School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  invoice            Invoice   @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+  invoiceLine        InvoiceLine @relation(fields: [schoolId, invoiceLineId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, invoiceLineId, ordinal])
+  @@index([schoolId, invoiceId])
 }
 
 model CollectionRunSelection {
@@ -960,6 +1001,7 @@ model Receivable {
   lifecycleTransitions ReceivableLifecycleTransition[]
   invoiceLines          InvoiceLine[]
   templateLines         CollectionRunTemplateLine[]
+  promotionTargets      PromotionPolicyTarget[]
 
   @@unique([schoolId, id])
   @@index([schoolId, groupId])
@@ -1004,6 +1046,99 @@ model ReceivableLifecycleTransition {
 
   @@unique([schoolId, id])
   @@unique([schoolId, receivableId, sequence])
+}
+
+enum PromotionPolicyVersionStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum PromotionDiscountType {
+  FIXED_VND
+  PERCENTAGE
+}
+
+enum PromotionStackingMode {
+  STACKABLE
+  EXCLUSIVE
+}
+
+model PromotionPolicy {
+  id        String                   @id @default(uuid()) @db.Uuid
+  schoolId  String                   @db.Uuid
+  name      String
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  school    School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  versions  PromotionPolicyVersion[]
+  assignments StudentPromotionAssignment[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, name])
+  @@index([schoolId, createdAt])
+}
+
+model PromotionPolicyVersion {
+  id            String                       @id @default(uuid()) @db.Uuid
+  schoolId      String                       @db.Uuid
+  policyId      String                       @db.Uuid
+  version       Int
+  status        PromotionPolicyVersionStatus @default(DRAFT)
+  discountType  PromotionDiscountType
+  discountValue BigInt                       @db.BigInt
+  priority      Int
+  stackingMode  PromotionStackingMode
+  effectiveFrom DateTime                     @db.Date
+  effectiveTo   DateTime?                    @db.Date
+  createdAt     DateTime                     @default(now())
+  updatedAt     DateTime                     @updatedAt
+  school        School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  policy        PromotionPolicy              @relation(fields: [schoolId, policyId], references: [schoolId, id], onDelete: Restrict)
+  targets       PromotionPolicyTarget[]
+  assignments   StudentPromotionAssignment[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, policyId, version])
+  @@index([schoolId, policyId, effectiveFrom])
+}
+
+model PromotionPolicyTarget {
+  id        String                 @id @default(uuid()) @db.Uuid
+  schoolId  String                 @db.Uuid
+  versionId String                 @db.Uuid
+  receivableId String               @db.Uuid
+  createdAt DateTime               @default(now())
+  school    School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  version   PromotionPolicyVersion @relation(fields: [schoolId, versionId], references: [schoolId, id], onDelete: Restrict)
+  receivable Receivable            @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, versionId, receivableId])
+  @@index([schoolId, receivableId])
+}
+
+model StudentPromotionAssignment {
+  id        String                 @id @default(uuid()) @db.Uuid
+  schoolId  String                 @db.Uuid
+  studentId String                 @db.Uuid
+  policyId  String                 @db.Uuid
+  versionId String                 @db.Uuid
+  effectiveFrom DateTime           @db.Date
+  effectiveTo DateTime?            @db.Date
+  reason    String
+  endReason String?
+  endedAt   DateTime?
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  school    School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student   Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  policy    PromotionPolicy        @relation(fields: [schoolId, policyId], references: [schoolId, id], onDelete: Restrict)
+  version   PromotionPolicyVersion @relation(fields: [schoolId, versionId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, studentId, policyId, effectiveFrom])
+  @@index([schoolId, versionId])
 }
 
 model SchoolProfileVersion {

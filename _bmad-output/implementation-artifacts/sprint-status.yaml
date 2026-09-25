@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-24 # Epic 4 complete; Pha 1b promotion-policy follow-up remains queued after CollectionRun template gate.
+last_updated: 2026-09-25 # Story 5.15 promotion Phase 1b release gate complete.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -51,7 +51,7 @@ development_status:
   4-10-teacher-portal-queue-va-release-gate-van-hanh-lop: done
   epic-4-retrospective: optional
 
-  epic-5: in-progress
+  epic-5: done
   5-1-quan-ly-receivable-catalog-theo-school: done
   5-2-tao-collectionrun-chon-student-va-server-authoritative-preview: done
   5-3-generate-invoice-draft-rong-idempotent-theo-snapshot-roster: done
@@ -60,13 +60,13 @@ development_status:
   5-6-release-gate-finance-admin-mvp: done
   5-7-dong-collectionrun-da-generate: done
   5-8-revision-invoice-da-phat-hanh-va-huy-ban-cu: done
-  5-9-cau-hinh-template-khoan-thu-cho-dot-thu: ready-for-dev
-  5-10-generate-invoice-draft-co-dong-template: backlog
-  5-11-release-gate-template-dot-thu: backlog
-  5-12-cau-hinh-uu-dai-theo-khoan-thu-va-gan-hoc-sinh: backlog
-  5-13-preview-va-generate-uu-dai-authoritative: backlog
-  5-14-recheck-issue-va-snapshot-uu-dai-bat-bien: backlog
-  5-15-release-gate-uu-dai-theo-khoan-thu-pha-1b: backlog
+  5-9-cau-hinh-template-khoan-thu-cho-dot-thu: done
+  5-10-generate-invoice-draft-co-dong-template: done
+  5-11-release-gate-template-dot-thu: done
+  5-12-cau-hinh-uu-dai-theo-khoan-thu-va-gan-hoc-sinh: done
+  5-13-preview-va-generate-uu-dai-authoritative: done
+  5-14-recheck-issue-va-snapshot-uu-dai-bat-bien: done
+  5-15-release-gate-uu-dai-theo-khoan-thu-pha-1b: done
   epic-5-retrospective: optional
 
   epic-6: backlog
