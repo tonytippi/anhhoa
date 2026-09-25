@@ -44,6 +44,7 @@ const routes = {
   prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
   issueRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue-revision",
   closeInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/receipt",
+  debtTransfer: "POST /api/app/schools/:schoolId/finance/debt-transfers",
   coverageReversalPreview: "POST /api/app/schools/:schoolId/finance/coverage-reversals/preview",
   coverageReversal: "POST /api/app/schools/:schoolId/finance/coverage-reversals",
   coverageReversalDecision: "POST /api/app/schools/:schoolId/finance/coverage-reversal-requests/:requestId/decision",
@@ -119,6 +120,11 @@ export class FinanceService {
   private actualAmount(value: unknown) {
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 9007199254740991n)
       throw validation("actualAmount", "Số thực nhận phải là số nguyên VND an toàn không âm.");
+    return BigInt(value);
+  }
+  private debtAmount(value: unknown) {
+    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 9007199254740991n)
+      throw validation("amount", "Số tiền chuyển phải là số nguyên VND dương an toàn.");
     return BigInt(value);
   }
   private reversalAmount(value: unknown, field = "amount") {
@@ -260,7 +266,7 @@ export class FinanceService {
   private lineDto(line: any, issued = false) {
     const promotionApplicationSnapshot = issued ? (line.promotionApplications ?? []).sort((a: any, b: any) => a.ordinal - b.ordinal).map((application: any) => this.applicationDto(application)) : null;
     return {
-      id: line.id, receivableId: line.receivableId, receivableCode: line.receivableCodeSnapshot,
+      id: line.id, kind: line.kind, receivableId: line.receivableId, receivableCode: line.receivableCodeSnapshot,
       receivableName: line.receivableNameSnapshot, unitLabel: line.unitLabelSnapshot,
       defaultUnitPrice: line.defaultUnitPriceSnapshot.toString(), unitPrice: line.unitPrice.toString(),
       quantity: line.quantity.toString(), amount: line.amount.toString(),
@@ -289,6 +295,9 @@ export class FinanceService {
         postedAt: invoice.receipt.postedAt.toISOString(),
         difference: invoice.receipt.difference ? { signedAmount: invoice.receipt.difference.signedAmount.toString() } : null,
       } : null,
+      sourceDebtTransfers: (invoice.debtTransfersFrom ?? []).map((transfer: any) => ({ targetInvoiceId: transfer.targetInvoiceId, amount: transfer.amount.toString(), reason: transfer.reason, postedAt: transfer.createdAt.toISOString() })),
+      sourceOutstanding: invoice.debtTransfersFrom?.length ? (BigInt(invoice.obligationTotalSnapshot ?? invoice.total) - invoice.debtTransfersFrom.reduce((sum: bigint, transfer: any) => sum + BigInt(transfer.amount), 0n)).toString() : null,
+      priorDebtTransfers: (invoice.debtTransfersTo ?? []).map((transfer: any) => ({ sourceInvoiceId: transfer.sourceInvoiceId, amount: transfer.amount.toString(), reason: transfer.reason, postedAt: transfer.createdAt.toISOString() })),
       settlementTransfer: invoice.settlementTransferTo ? {
         sourceInvoiceId: invoice.settlementTransferTo.sourceInvoiceId,
         sourceReceiptId: invoice.settlementTransferTo.sourceReceiptId,
@@ -328,7 +337,31 @@ export class FinanceService {
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     return this.invoiceDto(invoice);
   }
-  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, settlementTransferTo: { include: { sourceReceipt: { select: { postedAt: true } } } }, settlementCarries: { orderBy: { createdAt: "asc" } }, coverageFacts: { include: { issuedCoverage: true }, orderBy: [{ billingMonth: "asc" }, { receivableId: "asc" }] } };
+  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, settlementTransferTo: { include: { sourceReceipt: { select: { postedAt: true } } } }, settlementCarries: { orderBy: { createdAt: "asc" } }, debtTransfersFrom: { select: { targetInvoiceId: true, amount: true, reason: true, createdAt: true } }, debtTransfersTo: { orderBy: { createdAt: "asc" } }, coverageFacts: { include: { issuedCoverage: true }, orderBy: [{ billingMonth: "asc" }, { receivableId: "asc" }] } };
+  async transferDebt(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
+    const sourceInvoiceId = this.identifier(body?.sourceInvoiceId, "sourceInvoiceId"); const targetInvoiceId = this.identifier(body?.targetInvoiceId, "targetInvoiceId");
+    if (sourceInvoiceId === targetInvoiceId) throw validation("targetInvoiceId", "Hóa đơn đích phải khác hóa đơn nguồn.");
+    const amount = this.debtAmount(body?.amount); const reason = this.text(body?.reason, "reason", true, 500)!;
+    return this.mutate(actor, identityId, schoolId, routes.debtTransfer, key, operationId, { sourceInvoiceId, targetInvoiceId, amount: amount.toString(), reason }, async (tx, operation) => {
+      for (const id of [sourceInvoiceId, targetInvoiceId].sort()) await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${id}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const [source, target] = await Promise.all([tx.invoice.findFirst({ where: { id: sourceInvoiceId, schoolId } }), tx.invoice.findFirst({ where: { id: targetInvoiceId, schoolId } })]);
+      if (!source || !target) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn nguồn hoặc đích." });
+      if (source.status !== "ISSUED" || target.status !== "DRAFT" || source.studentId !== target.studentId || source.schoolYearId !== target.schoolYearId)
+        throw new ConflictException({ code: "DEBT_TRANSFER_GRAPH_CONFLICT", message: "Nguồn phải đang mở và đích nháp cùng học sinh, năm học." });
+      const [targetRun, targetYear, coverageFacts] = await Promise.all([this.lockRun(tx, schoolId, target.collectionRunId), this.lockYear(tx, schoolId, target.schoolYearId), tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })]);
+      if (targetRun.status === "CLOSED" || targetYear.closedAt) throw new ConflictException({ code: "DEBT_TRANSFER_TARGET_CLOSED", message: "Đợt thu hoặc năm học của hóa đơn đích đã đóng." });
+      if (coverageFacts) throw new ConflictException({ code: "DEBT_TRANSFER_COVERAGE_SOURCE_FORBIDDEN", message: "Hóa đơn nguồn có coverage không thể chuyển công nợ." });
+      const prior = await tx.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId }, _sum: { amount: true } });
+      const outstanding = BigInt(source.obligationTotalSnapshot) - BigInt(prior._sum.amount ?? 0);
+      if (amount > outstanding) throw new ConflictException({ code: "DEBT_TRANSFER_EXCEEDS_OUTSTANDING", message: "Số tiền chuyển vượt công nợ còn lại." });
+      const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, kind: "PRIOR_DEBT", receivableNameSnapshot: "Công nợ kỳ trước", unitLabelSnapshot: "khoản", defaultUnitPriceSnapshot: amount, unitPrice: amount, quantity: 1, amount, grossAmount: amount, netAmount: amount, source: { type: "PRIOR_DEBT", sourceInvoiceId: source.id }, sourceReason: reason, sourceActorIdentityId: identityId, sourceMembershipId: actor.membershipId, sourceRecordedAt: new Date(), sourceProvenance: { sourceInvoiceId: source.id, amount: amount.toString(), operationId: operation } } });
+      const transfer = await tx.debtTransfer.create({ data: { schoolId, studentId: source.studentId, schoolYearId: source.schoolYearId, sourceInvoiceId: source.id, targetInvoiceId: target.id, targetLineId: line.id, amount, reason, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation } });
+      const outcome = { id: transfer.id, sourceInvoiceId: source.id, targetInvoiceId: target.id, amount: amount.toString(), sourceOutstanding: (outstanding - amount).toString(), targetLineId: line.id };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "PRIOR_DEBT_TRANSFERRED", operation, { sourceInvoiceId: source.id, outstanding: outstanding.toString() }, outcome, reason);
+      return outcome;
+    });
+  }
   async closeInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
     const actualAmount = this.actualAmount(body?.actualAmount);
@@ -338,7 +371,8 @@ export class FinanceService {
       const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId } });
       if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (invoice.status !== "ISSUED") throw new ConflictException({ code: "INVOICE_NOT_ISSUED", message: "Chỉ hóa đơn đã phát hành mới được ghi thực nhận." });
-      const issuedAmount = invoice.obligationTotalSnapshot;
+      const transferred = await tx.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId: invoice.id }, _sum: { amount: true } });
+      const issuedAmount = BigInt(invoice.obligationTotalSnapshot) - BigInt(transferred._sum.amount ?? 0);
       const signedAmount = actualAmount - issuedAmount;
       const facts = await tx.invoicePromotionCoverageFact.findMany({ where: { schoolId, invoiceId }, orderBy: { id: "asc" } });
       if (facts.length && signedAmount !== 0n) throw new ConflictException({ code: "COVERAGE_EXACT_AMOUNT_REQUIRED", message: "Hóa đơn có coverage chỉ được đóng khi thực nhận đúng bằng nghĩa vụ." });
@@ -481,6 +515,7 @@ export class FinanceService {
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const source = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
        if (!source) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+       if (await tx.debtTransfer.count({ where: { schoolId, OR: [{ sourceInvoiceId: source.id }, { targetInvoiceId: source.id }] } })) throw new ConflictException({ code: "DEBT_TRANSFER_REVISION_FORBIDDEN", message: "Hóa đơn có chuyển công nợ không thể điều chỉnh." });
        if (!["ISSUED", "CLOSED"].includes(source.status) || source.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_SOURCE", message: "Chỉ hóa đơn gốc đã phát hành hoặc đã đóng mới có thể được điều chỉnh." });
        if (source.status === "ISSUED" && await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })) throw new ConflictException({ code: "COVERAGE_REVISION_FORBIDDEN", message: "Coverage chưa settled không thể điều chỉnh." });
       const run = await this.lockRun(tx, schoolId, source.collectionRunId);
@@ -517,7 +552,8 @@ export class FinanceService {
       if (!replacement) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (replacement.status !== "DRAFT" || !replacement.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_DRAFT", message: "Chỉ bản điều chỉnh nháp mới có thể phát hành thay thế." });
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${replacement.revisesInvoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const source = await tx.invoice.findFirst({ where: { id: replacement.revisesInvoiceId, schoolId } });
+       const source = await tx.invoice.findFirst({ where: { id: replacement.revisesInvoiceId, schoolId } });
+       if (await tx.debtTransfer.count({ where: { schoolId, OR: [{ sourceInvoiceId: replacement.id }, { targetInvoiceId: replacement.id }, { sourceInvoiceId: replacement.revisesInvoiceId }, { targetInvoiceId: replacement.revisesInvoiceId }] } })) throw new ConflictException({ code: "DEBT_TRANSFER_REVISION_FORBIDDEN", message: "Hóa đơn có chuyển công nợ không thể điều chỉnh." });
        if (!source || !["ISSUED", "CLOSED"].includes(source.status) || source.studentId !== replacement.studentId || source.collectionRunId !== replacement.collectionRunId || source.schoolYearId !== replacement.schoolYearId) throw new ConflictException({ code: "INVOICE_REVISION_GRAPH_CONFLICT", message: "Hóa đơn nguồn không còn hợp lệ để thay thế." });
       const run = await this.lockRun(tx, schoolId, replacement.collectionRunId);
       const year = await this.lockYear(tx, schoolId, replacement.schoolYearId);
@@ -607,7 +643,8 @@ export class FinanceService {
     return this.mutate(actor, identityId, schoolId, routes.editInvoiceLine, key, operationId, { invoiceId, lineId, ...input, unitPrice: input.unitPrice?.toString() ?? null, source: body?.source ?? null, sourceReason: body?.sourceReason ?? null }, async (tx, operation) => {
       await this.promotionLock(tx, schoolId);
       const invoice = await this.draftInvoice(tx, schoolId, invoiceId); const existing = await tx.invoiceLine.findFirst({ where: { id: lineId, invoiceId, schoolId } });
-      if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
+       if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
+       if (existing.kind === "PRIOR_DEBT") throw new ConflictException({ code: "PRIOR_DEBT_IMMUTABLE", message: "Dòng công nợ kỳ trước không thể sửa." });
       const unitPrice = input.unitPrice ?? existing.unitPrice;
       const overrideReason = input.unitPrice == null ? existing.overrideReason : input.overrideReason;
       const source = body?.source === undefined ? { source: existing.source ?? Prisma.DbNull, sourceReason: existing.sourceReason, sourceActorIdentityId: existing.sourceActorIdentityId, sourceMembershipId: existing.sourceMembershipId, sourceRecordedAt: existing.sourceRecordedAt, sourceProvenance: existing.sourceProvenance ?? Prisma.DbNull } : body.source === null ? { source: Prisma.DbNull, sourceReason: null, sourceActorIdentityId: null, sourceMembershipId: null, sourceRecordedAt: null, sourceProvenance: Prisma.DbNull } : await this.source(tx, body, invoice, identityId, actor.membershipId);
@@ -620,7 +657,8 @@ export class FinanceService {
   async removeInvoiceLine(identityId: string, schoolId: string, invoiceId: string, lineId: string, key: string, operationId: string) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId"); this.identifier(lineId, "lineId");
     return this.mutate(actor, identityId, schoolId, routes.removeInvoiceLine, key, operationId, { invoiceId, lineId }, async (tx, operation) => {
-      await this.draftInvoice(tx, schoolId, invoiceId); const existing = await tx.invoiceLine.findFirst({ where: { id: lineId, invoiceId, schoolId } }); if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
+       await this.draftInvoice(tx, schoolId, invoiceId); const existing = await tx.invoiceLine.findFirst({ where: { id: lineId, invoiceId, schoolId } }); if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
+       if (existing.kind === "PRIOR_DEBT") throw new ConflictException({ code: "PRIOR_DEBT_IMMUTABLE", message: "Dòng công nợ kỳ trước không thể xóa." });
       await tx.invoiceLine.delete({ where: { id: lineId } }); const outcome = await this.refreshInvoice(tx, schoolId, invoiceId); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_REMOVED", operation, this.lineDto(existing), outcome); return outcome;
     });
   }
@@ -1500,7 +1538,7 @@ export class FinanceService {
     return JSON.stringify(canonical(draft)) === JSON.stringify(canonical(rechecked));
   }
   private async recheckPromotion(tx: any, schoolId: string, invoice: any, billingMonth: string) {
-    const calculatedLines = invoice.lines.filter((line: any) => line.promotionEvaluationProvenance);
+    const calculatedLines = invoice.lines.filter((line: any) => line.kind !== "PRIOR_DEBT" && line.promotionEvaluationProvenance);
     if (!calculatedLines.length) return [];
     const facts = await this.promotionFacts(tx, schoolId, this.asOf(billingMonth), [invoice.studentId], calculatedLines.map((line: any) => line.receivableId));
     const applications: any[] = [];

@@ -8,8 +8,8 @@ async function source(path: string) {
   return readFile(new URL(path, `file://${root}/`), 'utf8');
 }
 
-describe('Finance Story 6.3 release scope', () => {
-  it('allows correction and coverage reversal only, while excluding debt/report and cross-portal dependencies', async () => {
+describe('Finance Story 6.4 release scope', () => {
+  it('allows prior debt transfer only within Finance while excluding reports and cross-portal dependencies', async () => {
     const [schema, financeModule, financeService, financeController, financeWorkspace] = await Promise.all([
       source('apps/api/prisma/schema.prisma'),
       source('apps/api/src/modules/finance/finance.module.ts'),
@@ -19,11 +19,8 @@ describe('Finance Story 6.3 release scope', () => {
     ]);
     const runtime = [schema, financeModule, financeService, financeController, financeWorkspace].join('\n');
 
-    for (const forbidden of [
-      /\bDebt\b/i,
-      /\bReport\b/i,
-      /\bChargeRule\b/i,
-    ]) expect(runtime).not.toMatch(forbidden);
+    expect(runtime).toMatch(/DebtTransfer|transferDebt|PRIOR_DEBT/);
+    for (const forbidden of [/\bReport\b/i, /\bChargeRule\b/i]) expect(runtime).not.toMatch(forbidden);
     for (const source of [financeService, financeController, financeWorkspace])
       expect(source).not.toMatch(/from ["'][^"']*(?:parent|teacher)[^"']*["']/i);
     expect(financeWorkspace).not.toMatch(/from ["'][^"']*(?:parent|teacher)[^"']*["']/i);

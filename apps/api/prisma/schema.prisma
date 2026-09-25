@@ -58,6 +58,7 @@ model School {
   settlementDifferences             SettlementDifference[]
   settlementCarries                 SettlementCarry[]
   settlementTransfers               SettlementTransfer[]
+  debtTransfers                     DebtTransfer[]
   coverageReversalRequests          CoverageReversalRequest[]
   coverageReversals                 CoverageReversal[]
   promotionalCoverages              StudentPromotionalCoverage[]
@@ -106,6 +107,7 @@ model SchoolYear {
   settlementDifferences         SettlementDifference[]
   settlementCarries             SettlementCarry[]
   settlementTransfers           SettlementTransfer[]
+  debtTransfers                 DebtTransfer[]
   closedAt                      DateTime?
   closedByMembershipId          String?                        @db.Uuid
   closeOperationId              String?                        @unique @db.Uuid
@@ -400,6 +402,7 @@ model Student {
   settlementDifferences           SettlementDifference[]
   settlementCarries               SettlementCarry[]
   settlementTransfers             SettlementTransfer[]
+  debtTransfers                   DebtTransfer[]
   promotionAssignments            StudentPromotionAssignment[]
   promotionalCoverages            StudentPromotionalCoverage[]
   photo                           StudentPhoto?
@@ -560,6 +563,7 @@ model UserIdentity {
   updatedAt             DateTime               @updatedAt
   memberships           SchoolMembership[]
   audits                AuditRecord[]
+  debtTransfers         DebtTransfer[]
   operations            Operation[]
   platformGrant         PlatformOperatorGrant?
   initiallyOwnedSchools School[]               @relation("InitialSchoolOwner")
@@ -660,6 +664,7 @@ model SchoolMembership {
   uploadedDailyJournalMedia           DailyJournalMedia[]                  @relation("DailyJournalMediaUploaderMembership")
   requestedCoverageReversals          CoverageReversalRequest[]            @relation("CoverageReversalRequester")
   decidedCoverageReversals            CoverageReversalRequest[]            @relation("CoverageReversalDecider")
+  debtTransfers                       DebtTransfer[]
 
   @@unique([schoolId, userIdentityId])
   @@unique([schoolId, id])
@@ -707,6 +712,7 @@ model Operation {
   bankAccountLifecycleTransitions     BankAccountLifecycleTransition[]     @relation("BankAccountLifecycleOperation")
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
+  debtTransfers                       DebtTransfer[]
   collectionRunLifecycleTransitions   CollectionRunLifecycleTransition[]
   collectionRunGeneration             CollectionRunGeneration?
 
@@ -930,6 +936,8 @@ model Invoice {
   settlementCarries                    SettlementCarry[]
   settlementTransfersFrom              SettlementTransfer[]                 @relation("SettlementTransferSource")
   settlementTransferTo                 SettlementTransfer?                  @relation("SettlementTransferReplacement")
+  debtTransfersFrom                    DebtTransfer[]                       @relation("DebtTransferSource")
+  debtTransfersTo                      DebtTransfer[]                       @relation("DebtTransferTarget")
   coverageFacts                        InvoicePromotionCoverageFact[]
   studentPromotionalCoverages          StudentPromotionalCoverage[]
 
@@ -1164,7 +1172,8 @@ model InvoiceLine {
   id                            String                       @id @default(uuid()) @db.Uuid
   schoolId                      String                       @db.Uuid
   invoiceId                     String                       @db.Uuid
-  receivableId                  String                       @db.Uuid
+  receivableId                  String?                      @db.Uuid
+  kind                          InvoiceLineKind              @default(NORMAL)
   receivableCodeSnapshot        String?
   receivableNameSnapshot        String
   unitLabelSnapshot             String
@@ -1187,12 +1196,48 @@ model InvoiceLine {
   updatedAt                     DateTime                     @updatedAt
   school                        School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   invoice                       Invoice                      @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
-  receivable                    Receivable                   @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  receivable                    Receivable?                  @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
   promotionApplications         IssuedPromotionApplication[]
+  debtTransfer                 DebtTransfer?
 
   @@unique([schoolId, id])
   @@index([schoolId, invoiceId])
   @@index([schoolId, receivableId])
+}
+
+enum InvoiceLineKind {
+  NORMAL
+  PRIOR_DEBT
+}
+
+model DebtTransfer {
+  id              String   @id @default(uuid()) @db.Uuid
+  schoolId        String   @db.Uuid
+  studentId       String   @db.Uuid
+  schoolYearId    String   @db.Uuid
+  sourceInvoiceId String   @db.Uuid
+  targetInvoiceId String   @db.Uuid
+  targetLineId    String   @unique @db.Uuid
+  amount          BigInt   @db.BigInt
+  reason          String
+  actorIdentityId String   @db.Uuid
+  membershipId    String   @db.Uuid
+  operationId     String   @unique @db.Uuid
+  createdAt       DateTime @default(now())
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear      SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  sourceInvoice   Invoice  @relation("DebtTransferSource", fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  targetInvoice   Invoice  @relation("DebtTransferTarget", fields: [schoolId, targetInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  targetLine      InvoiceLine @relation(fields: [schoolId, targetLineId], references: [schoolId, id], onDelete: Restrict)
+  membership      SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation       Operation @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+  actorIdentity   UserIdentity @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, targetLineId])
+  @@index([schoolId, sourceInvoiceId])
+  @@index([schoolId, targetInvoiceId])
 }
 
 model IssuedPromotionApplication {

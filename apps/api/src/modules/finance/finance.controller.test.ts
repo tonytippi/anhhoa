@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn() };
+  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn() };
   it('requires browser mutation proof before Finance writes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     await expect(controller.group(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
@@ -111,6 +111,15 @@ describe('FinanceController mutation boundary', () => {
     const controller = new FinanceController(auth as never, finance as never); finance.closeInvoice.mockResolvedValue({ id: 'close' });
     await expect(controller.closeInvoice(request(valid), 'school', 'invoice', 'key', 'operation', { actualAmount: '90000' })).resolves.toEqual({ data: { id: 'close' } });
     expect(finance.closeInvoice).toHaveBeenCalledWith('actor-id', 'school', 'invoice', 'key', 'operation', { actualAmount: '90000' });
+  });
+  it('forwards a protected prior-debt transfer command only with reconciliation identifiers', async () => {
+    const controller = new FinanceController(auth as never, finance as never); const body = { sourceInvoiceId: 'source', targetInvoiceId: 'target', amount: '90000', reason: 'Đối soát cuối năm' };
+    finance.transferDebt.mockResolvedValue({ id: 'transfer' });
+    await expect(controller.transferDebt(request(valid), 'school', 'key', 'operation', body)).resolves.toEqual({ data: { id: 'transfer' } });
+    expect(finance.transferDebt).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', body);
+    finance.transferDebt.mockClear();
+    await expect(controller.transferDebt(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', body)).rejects.toMatchObject({ status: 401 });
+    expect(finance.transferDebt).not.toHaveBeenCalled();
   });
   it('forwards protected coverage reversal preview, post, and distinct approval decision', async () => {
     const controller = new FinanceController(auth as never, finance as never); const body = { coverageId: 'coverage', effectiveOn: '2026-10-10', reason: 'Rút học' };

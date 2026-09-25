@@ -71,6 +71,13 @@ describe('FinanceService validation', () => {
     }
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('rejects invalid prior-debt transfer inputs before opening a transaction', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never); const school = crypto.randomUUID(); const invoice = crypto.randomUUID();
+    await expect(service.transferDebt('identity', school, crypto.randomUUID(), crypto.randomUUID(), { sourceInvoiceId: invoice, targetInvoiceId: crypto.randomUUID(), amount: '0', reason: 'Đối soát' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { amount: expect.any(String) } } });
+    await expect(service.transferDebt('identity', school, crypto.randomUUID(), crypto.randomUUID(), { sourceInvoiceId: invoice, targetInvoiceId: invoice, amount: '1', reason: 'Đối soát' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { targetInvoiceId: expect.any(String) } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
   it('rejects invalid template quantities before opening a transaction', async () => {
     const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
     const service = new FinanceService(prisma as never, authorization as never);
