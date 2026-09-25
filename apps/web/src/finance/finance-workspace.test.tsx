@@ -59,8 +59,25 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByLabelText("Học phí")); fireEvent.click(screen.getByLabelText("Tiền ăn"));
     fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });
     fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("Cách thực hiện"), { target: { value: "PREPAID_COVERAGE" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/promotion-policies") && (options as RequestInit).method === "POST" && String((options as RequestInit).body).includes('"receivableIds":["r1","r2"]'))).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/promotion-policies") && (options as RequestInit).method === "POST" && String((options as RequestInit).body).includes('"receivableIds":["r1","r2"]') && String((options as RequestInit).body).includes('"fulfillmentMode":"PREPAID_COVERAGE"'))).toBe(true));
+  });
+  it("renders server-derived future coverage facts and keeps exact-only receipt messaging", async () => {
+    const coverageRun = { ...run, coverageSelections: [{ studentId: run.selectedStudentIds[0], versionId: "coverage-version", billingMonth: "2026-10" }] };
+    const preview = { run: coverageRun, fingerprint: "coverage", eligible: [], skips: [], coverageSelections: coverageRun.coverageSelections, futureCoverageFacts: [{ studentId: run.selectedStudentIds[0], billingMonth: "2026-10", policyId: "policy", versionId: "coverage-version", receivableId: "meal", receivableName: "Học phí", originalPrice: "100", reduction: "10", serviceStart: "2026-10-01", serviceEnd: "2026-11-01", calendarEffectiveFrom: "2026-01-01", timezone: "Asia/Ho_Chi_Minh" }] };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/preview") ? response(preview) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [coverageRun] }) : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" })); fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
+    expect(await screen.findByText("Fact coverage tương lai từ máy chủ")).toBeTruthy(); expect(screen.getByText("2026-10")).toBeTruthy();
+  });
+  it("shows exact-only wording for a server-returned coverage Invoice", async () => {
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "90" }] };
+    const invoice = { id: "invoice-a", status: "ISSUED", total: "90", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], coverageFacts: [{ receivableId: "meal", billingMonth: "2026-10", policyId: "policy", versionId: "coverage-version", originalPrice: "100", reduction: "10", serviceStart: "2026-10-01", serviceEnd: "2026-11-01", calendarEffectiveFrom: "2026-01-01", timezone: "Asia/Ho_Chi_Minh", issuedAt: null }], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [], issue: { obligationTotal: "90", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/invoices/") ? response(invoice) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mở chi tiết" })); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Ghi thực nhận và đóng hóa đơn" }));
+    expect(screen.getByRole("dialog").textContent).toContain("chỉ số tiền đúng bằng nghĩa vụ");
   });
   it("renders only server-projected current assignments and never renders prior School promotion data", async () => {
     const today = new Date().toISOString().slice(0, 10); const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);

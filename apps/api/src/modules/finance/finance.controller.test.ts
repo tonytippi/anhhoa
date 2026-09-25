@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn() };
+  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn() };
   it('requires browser mutation proof before Finance writes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     await expect(controller.group(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
@@ -29,6 +29,15 @@ describe('FinanceController mutation boundary', () => {
     await expect(controller.removeTemplate(request(valid), 'school', 'run', 'line', 'key', 'operation', { expectedVersion: 3 })).resolves.toEqual({ data: { id: 'remove' } });
     expect(finance.saveTemplateLine).toHaveBeenCalledWith('actor-id', 'school', 'run', 'key', 'operation', { receivableId: 'receivable', quantity: '22', expectedVersion: 2 });
     expect(finance.removeTemplateLine).toHaveBeenCalledWith('actor-id', 'school', 'run', 'line', 'key', 'operation', { expectedVersion: 3 });
+  });
+  it('forwards coverage selection only with origin, CSRF, and idempotency boundary', async () => {
+    const controller = new FinanceController(auth as never, finance as never); finance.replaceCoverageSelection.mockResolvedValue({ id: 'coverage' });
+    const body = { selections: [{ studentId: 'student', versionId: 'version', billingMonth: '2026-10' }] };
+    await expect(controller.coverageSelection(request(valid), 'school', 'run', 'key', 'operation', body)).resolves.toEqual({ data: { id: 'coverage' } });
+    expect(finance.replaceCoverageSelection).toHaveBeenCalledWith('actor-id', 'school', 'run', 'key', 'operation', body);
+    finance.replaceCoverageSelection.mockClear();
+    await expect(controller.coverageSelection(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'run', 'key', 'operation', body)).rejects.toMatchObject({ status: 401 });
+    expect(finance.replaceCoverageSelection).not.toHaveBeenCalled();
   });
   it('rejects generate without CSRF/origin proof before reaching Finance', async () => {
     const controller = new FinanceController(auth as never, finance as never);

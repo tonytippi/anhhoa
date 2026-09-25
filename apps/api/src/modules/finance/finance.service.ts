@@ -24,6 +24,8 @@ const routes = {
   openRun: "POST /api/app/schools/:schoolId/finance/collection-runs",
   selection:
     "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/selection",
+  coverageSelection:
+    "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/coverage-selection",
   template:
     "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/template-lines",
   removeTemplate:
@@ -280,6 +282,7 @@ export class FinanceService {
         difference: invoice.receipt.difference ? { signedAmount: invoice.receipt.difference.signedAmount.toString() } : null,
       } : null,
       carries: (invoice.settlementCarries ?? []).map((carry: any) => ({ type: carry.type, amount: carry.amount.toString(), sourceDifferenceId: carry.settlementDifferenceId })),
+      coverageFacts: (invoice.coverageFacts ?? []).map((fact: any) => ({ receivableId: fact.receivableId, billingMonth: fact.billingMonth, policyId: fact.policyId, versionId: fact.versionId, originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), serviceStart: fact.serviceStart.toISOString().slice(0, 10), serviceEnd: fact.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: fact.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: fact.timezone, issuedAt: fact.issuedCoverage?.issuedAt?.toISOString() ?? null })),
     };
     if (["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status)) result.issue = {
       issuedAt: invoice.issuedAt.toISOString(), obligationTotal: invoice.obligationTotalSnapshot.toString(),
@@ -311,7 +314,7 @@ export class FinanceService {
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     return this.invoiceDto(invoice);
   }
-  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, settlementCarries: { orderBy: { createdAt: "asc" } } };
+  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, settlementCarries: { orderBy: { createdAt: "asc" } }, coverageFacts: { include: { issuedCoverage: true }, orderBy: [{ billingMonth: "asc" }, { receivableId: "asc" }] } };
   async closeInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
     const actualAmount = this.actualAmount(body?.actualAmount);
@@ -323,11 +326,14 @@ export class FinanceService {
       if (invoice.status !== "ISSUED") throw new ConflictException({ code: "INVOICE_NOT_ISSUED", message: "Chỉ hóa đơn đã phát hành mới được ghi thực nhận." });
       const issuedAmount = invoice.obligationTotalSnapshot;
       const signedAmount = actualAmount - issuedAmount;
+      const facts = await tx.invoicePromotionCoverageFact.findMany({ where: { schoolId, invoiceId }, orderBy: { id: "asc" } });
+      if (facts.length && signedAmount !== 0n) throw new ConflictException({ code: "COVERAGE_EXACT_AMOUNT_REQUIRED", message: "Hóa đơn có coverage chỉ được đóng khi thực nhận đúng bằng nghĩa vụ." });
       const outcome = signedAmount === 0n ? "EXACT" : signedAmount < 0n ? "SHORTFALL" : "OVERPAYMENT";
       const receipt = await tx.receipt.create({ data: { schoolId, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, invoiceId: invoice.id, actualAmount, outcome } });
       if (signedAmount !== 0n)
         await tx.settlementDifference.create({ data: { schoolId, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, invoiceId: invoice.id, receiptId: receipt.id, signedAmount } });
       await tx.invoice.update({ where: { id: invoice.id }, data: { status: "CLOSED" } });
+      for (const fact of facts) await tx.$executeRaw`INSERT INTO "StudentPromotionalCoverage" ("schoolId", "studentId", "schoolYearId", "receivableId", "billingMonth", "sourceFactId", "sourceInvoiceId", "sourceReceiptId", "policyId", "versionId", "originalPrice", "reduction", "serviceStart", "serviceEnd", "calendarEffectiveFrom", "timezone") VALUES (${schoolId}::uuid, ${fact.studentId}::uuid, ${fact.schoolYearId}::uuid, ${fact.receivableId}::uuid, ${fact.billingMonth}, ${fact.id}::uuid, ${invoice.id}::uuid, ${receipt.id}::uuid, ${fact.policyId}::uuid, ${fact.versionId}::uuid, ${fact.originalPrice}, ${fact.reduction}, ${fact.serviceStart}::date, ${fact.serviceEnd}::date, ${fact.calendarEffectiveFrom}::date, ${fact.timezone})`;
       const closed = await tx.invoice.findFirstOrThrow({ where: { id: invoice.id, schoolId }, include: this.invoiceInclude });
       const result = this.invoiceDto(closed);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_RECEIPT_POSTED", operation, { id: invoice.id, status: "ISSUED" }, result);
@@ -375,6 +381,7 @@ export class FinanceService {
       const source = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       if (!source) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (source.status !== "ISSUED" || source.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_SOURCE", message: "Chỉ hóa đơn gốc đã phát hành mới có thể được điều chỉnh." });
+      if (await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })) throw new ConflictException({ code: "COVERAGE_REVISION_FORBIDDEN", message: "Hóa đơn có fact coverage không thể điều chỉnh trong phạm vi này." });
       const run = await this.lockRun(tx, schoolId, source.collectionRunId);
       const year = await this.lockYear(tx, schoolId, source.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
@@ -464,6 +471,7 @@ export class FinanceService {
     const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     if (invoice.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_NOT_DRAFT", message: "Chỉ được sửa dòng khi hóa đơn ở trạng thái nháp." });
+    if (await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId } })) throw new ConflictException({ code: "COVERAGE_FACTS_IMMUTABLE", message: "Hóa đơn có fact coverage không thể sửa dòng nháp." });
     return invoice;
   }
   private async refreshInvoice(tx: any, schoolId: string, invoiceId: string) {
@@ -713,7 +721,7 @@ export class FinanceService {
   }
   private promotionDto(value: any) {
     return { id: value.id, name: value.name, versions: (value.versions ?? []).map((version: any) => ({
-      id: version.id, version: version.version, status: version.status, discountType: version.discountType, discountValue: version.discountValue.toString(), priority: version.priority, stackingMode: version.stackingMode,
+      id: version.id, version: version.version, status: version.status, discountType: version.discountType, discountValue: version.discountValue.toString(), priority: version.priority, stackingMode: version.stackingMode, fulfillmentMode: version.fulfillmentMode,
       effectiveFrom: version.effectiveFrom.toISOString().slice(0, 10), effectiveTo: this.inclusiveDate(version.effectiveTo),
       targets: (version.targets ?? []).map((target: any) => ({ id: target.id, receivableId: target.receivableId, receivableName: target.receivable.displayName })),
       assignments: (version.assignments ?? []).map((assignment: any) => ({ id: assignment.id, studentId: assignment.studentId, studentName: assignment.student.fullName, studentCode: assignment.student.studentCode, effectiveFrom: assignment.effectiveFrom.toISOString().slice(0, 10), effectiveTo: this.inclusiveDate(assignment.effectiveTo), isCurrent: assignment.effectiveFrom <= this.localIssueDate(new Date()) && (!assignment.effectiveTo || assignment.effectiveTo > this.localIssueDate(new Date())), reason: assignment.reason, endReason: assignment.endReason ?? null })),
@@ -734,9 +742,10 @@ export class FinanceService {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
     const targetIds = Array.isArray(body?.receivableIds) ? body.receivableIds.map((id: unknown) => this.identifier(id, "receivableIds")) : [];
     if (!targetIds.length || new Set(targetIds).size !== targetIds.length) throw validation("receivableIds", "Chọn ít nhất một khoản thu không trùng lặp.");
-    const input = { policyId: body?.policyId == null ? null : this.identifier(body.policyId, "policyId"), name: this.text(body?.name, "name")!, receivableIds: targetIds, discountType: body?.discountType, discountValue: this.promotionValue(body?.discountValue, body?.discountType), priority: Number(body?.priority), stackingMode: body?.stackingMode, effectiveFrom: this.date(body?.effectiveFrom, "effectiveFrom")!, effectiveTo: this.inclusiveEnd(body?.effectiveTo, "effectiveTo") };
+    const input = { policyId: body?.policyId == null ? null : this.identifier(body.policyId, "policyId"), name: this.text(body?.name, "name")!, receivableIds: targetIds, discountType: body?.discountType, discountValue: this.promotionValue(body?.discountValue, body?.discountType), priority: Number(body?.priority), stackingMode: body?.stackingMode, fulfillmentMode: body?.fulfillmentMode ?? "DISCOUNT", effectiveFrom: this.date(body?.effectiveFrom, "effectiveFrom")!, effectiveTo: this.inclusiveEnd(body?.effectiveTo, "effectiveTo") };
     if (!Number.isInteger(input.priority) || input.priority < 1) throw validation("priority", "Ưu tiên phải là số nguyên dương.");
     if (input.stackingMode !== "STACKABLE" && input.stackingMode !== "EXCLUSIVE") throw validation("stackingMode", "Quy tắc kết hợp không hợp lệ.");
+    if (!["DISCOUNT", "PREPAID_COVERAGE"].includes(input.fulfillmentMode)) throw validation("fulfillmentMode", "Cách thực hiện ưu đãi không hợp lệ.");
     if (input.effectiveTo && input.effectiveFrom >= input.effectiveTo) throw validation("effectiveTo", "Ngày kết thúc phải sau ngày bắt đầu.");
     return this.mutate(actor, identityId, schoolId, routes.promotionPolicy, key, operationId, { ...input, discountValue: input.discountValue.toString(), effectiveFrom: input.effectiveFrom.toISOString(), effectiveTo: input.effectiveTo?.toISOString() ?? null }, async (tx, operation) => {
       await this.promotionLock(tx, schoolId);
@@ -746,7 +755,7 @@ export class FinanceService {
       if (!policy) throw new NotFoundException({ code: "PROMOTION_POLICY_NOT_FOUND", message: "Không tìm thấy chính sách ưu đãi." });
       if (input.policyId && policy.name !== input.name) throw validation("name", "Tên chính sách không thể đổi khi tạo phiên bản mới.");
       const previous = await tx.promotionPolicyVersion.findFirst({ where: { schoolId, policyId: policy.id }, orderBy: { version: "desc" } });
-      const version = await tx.promotionPolicyVersion.create({ data: { schoolId, policyId: policy.id, version: (previous?.version ?? 0) + 1, status: "DRAFT", discountType: input.discountType, discountValue: input.discountValue, priority: input.priority, stackingMode: input.stackingMode, effectiveFrom: input.effectiveFrom, effectiveTo: input.effectiveTo } });
+      const version = await tx.promotionPolicyVersion.create({ data: { schoolId, policyId: policy.id, version: (previous?.version ?? 0) + 1, status: "DRAFT", discountType: input.discountType, discountValue: input.discountValue, priority: input.priority, stackingMode: input.stackingMode, fulfillmentMode: input.fulfillmentMode, effectiveFrom: input.effectiveFrom, effectiveTo: input.effectiveTo } });
       await tx.promotionPolicyTarget.createMany({ data: input.receivableIds.map((receivableId: string) => ({ schoolId, versionId: version.id, receivableId })) });
       const result = await tx.promotionPolicy.findFirst({ where: { id: policy.id, schoolId }, include: this.promotionInclude }); const outcome = this.promotionDto(result);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "PROMOTION_POLICY_VERSION_CREATED", operation, null, outcome); return outcome;
@@ -797,6 +806,7 @@ export class FinanceService {
   }
   private runInclude: any = {
     selections: { select: { studentId: true } },
+    coverageSelections: { select: { studentId: true, versionId: true, billingMonth: true }, orderBy: [{ studentId: "asc" }, { billingMonth: "asc" }, { versionId: "asc" }] },
     templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } } }, orderBy: { id: "asc" } },
     invoices: {
       select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true },
@@ -816,6 +826,7 @@ export class FinanceService {
       selectedStudentIds: (run.selections ?? []).map(
         (selection: any) => selection.studentId,
       ),
+      coverageSelections: (run.coverageSelections ?? []).map((item: any) => ({ studentId: item.studentId, versionId: item.versionId, billingMonth: item.billingMonth })),
       templateLines: (run.templateLines ?? []).map((line: any) => this.templateLineDto(line)).sort(this.amountDescending),
       invoices: (run.invoices ?? []).map((invoice: any) => ({
         id: invoice.id, studentId: invoice.studentId, studentCode: invoice.studentCodeSnapshot,
@@ -1223,10 +1234,14 @@ export class FinanceService {
         });
     }
     const promotionFacts = await this.promotionFacts(client, schoolId, asOf, studentIds, templateLines.map((line) => line.receivableId));
+    const coverageSelections = await client.collectionRunCoverageSelection.findMany({ where: { schoolId, collectionRunId: run.id }, include: { version: { include: { targets: { include: { receivable: true } }, assignments: true } } }, orderBy: [{ studentId: "asc" }, { billingMonth: "asc" }, { versionId: "asc" }] });
+    const covered = await client.studentPromotionalCoverage.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, studentId: { in: studentIds }, billingMonth: run.billingMonth }, select: { studentId: true, receivableId: true } });
+    const coveredKeys = new Set(covered.map((item: any) => `${item.studentId}:${item.receivableId}`));
     const eligibleRows = eligible.map(({ enrollment, assignment, ...item }) => ({
       ...item,
-      lines: templateLines.map((line) => this.evaluatePromotionLine(item.studentId, line, promotionFacts)),
+      lines: templateLines.filter((line) => !coveredKeys.has(`${item.studentId}:${line.receivableId}`)).map((line) => this.evaluatePromotionLine(item.studentId, line, promotionFacts)),
     }));
+    const futureCoverageFacts = await this.deriveCoverageFacts(client, schoolId, run, coverageSelections, false);
     const facts = {
       runId: run.id,
       billingMonth: run.billingMonth,
@@ -1238,28 +1253,88 @@ export class FinanceService {
       },
       selectedStudentIds: [...studentIds].sort(),
       templateLines,
-      promotionFacts: promotionFacts.map((fact: any) => ({
+       promotionFacts: promotionFacts.map((fact: any) => ({
         assignmentId: fact.assignmentId, studentId: fact.studentId, policyId: fact.policyId,
         versionId: fact.versionId, targetId: fact.targetId, receivableId: fact.receivableId,
         discountType: fact.discountType, discountValue: fact.discountValue.toString(), priority: fact.priority,
         stackingMode: fact.stackingMode, versionInterval: fact.versionInterval,
         assignmentInterval: fact.assignmentInterval, assignmentReason: fact.assignmentReason,
-      })),
+       })),
+      coverageSelections: coverageSelections.map((selection: any) => ({ studentId: selection.studentId, versionId: selection.versionId, billingMonth: selection.billingMonth, status: selection.version.status, fulfillmentMode: selection.version.fulfillmentMode, policyId: selection.version.policyId, targets: selection.version.targets.map((target: any) => target.receivableId).sort(), assignments: selection.version.assignments.filter((assignment: any) => assignment.studentId === selection.studentId).map((assignment: any) => ({ id: assignment.id, effectiveFrom: assignment.effectiveFrom.toISOString(), effectiveTo: assignment.effectiveTo?.toISOString() ?? null })).sort((a: any, b: any) => a.id.localeCompare(b.id)) })),
+      futureCoverageFacts,
       sources,
       eligible: eligibleRows,
-      skips,
+       skips, covered: [...coveredKeys].sort(),
     };
     return {
       run: this.runDto(run),
       eligible: eligibleRows,
       skips,
+      coverageSelections: coverageSelections.map((selection: any) => ({ studentId: selection.studentId, versionId: selection.versionId, billingMonth: selection.billingMonth })),
+      futureCoverageFacts,
       fingerprint: requestFingerprint(facts),
       // This is the sole roster result used to create invoice snapshots below.
       snapshots: eligible.map((item) => ({
         ...item,
-        calculatedLines: eligibleRows.find((row) => row.studentId === item.studentId)!.lines,
+         calculatedLines: eligibleRows.find((row) => row.studentId === item.studentId)!.lines,
       })),
     };
+  }
+  private async deriveCoverageFacts(client: any, schoolId: string, run: any, selections: any[], strict: boolean) {
+    const facts: any[] = [];
+    for (const selection of selections) {
+      const serviceStart = this.asOf(selection.billingMonth); const serviceEnd = new Date(serviceStart); serviceEnd.setUTCMonth(serviceEnd.getUTCMonth() + 1);
+      const version = selection.version;
+      const assignment = version.assignments.find((item: any) => item.studentId === selection.studentId && item.effectiveFrom <= serviceStart && (!item.effectiveTo || item.effectiveTo > serviceStart));
+      const calendar = await client.schoolCalendarVersion.findFirst({ where: { schoolId, effectiveFrom: { lte: serviceStart } }, orderBy: { effectiveFrom: "desc" } });
+      const invalid = selection.billingMonth <= run.billingMonth || serviceStart < run.schoolYear.startsOn || serviceStart >= run.schoolYear.endsOn || version.status !== "ACTIVE" || version.fulfillmentMode !== "PREPAID_COVERAGE" || version.effectiveFrom > serviceStart || (version.effectiveTo && version.effectiveTo <= serviceStart) || !assignment || !calendar;
+      if (invalid) {
+        if (strict) throw new ConflictException({ code: "COVERAGE_SELECTION_STALE", message: "Lựa chọn coverage hoặc lịch vận hành không còn hiệu lực." });
+        continue;
+      }
+      for (const target of version.targets) {
+        const exists = await client.studentPromotionalCoverage.findFirst({ where: { schoolId, studentId: selection.studentId, schoolYearId: run.schoolYearId, receivableId: target.receivableId, billingMonth: selection.billingMonth }, select: { id: true } });
+        if (exists) {
+          if (strict) throw new ConflictException({ code: "COVERAGE_ALREADY_ISSUED", message: "Kỳ khoản thu đã có coverage được phát hành." });
+          continue;
+        }
+        const originalPrice = target.receivable.defaultUnitPrice;
+        const discountValue = BigInt(version.discountValue);
+        const requestedReduction = version.discountType === "FIXED_VND" ? discountValue : originalPrice * discountValue / 100n;
+        const reduction = requestedReduction > originalPrice ? originalPrice : requestedReduction;
+        const fact = { studentId: selection.studentId, billingMonth: selection.billingMonth, policyId: version.policyId, versionId: version.id, targetId: target.id, assignmentId: assignment.id, receivableId: target.receivableId, receivableName: target.receivable.displayName, originalPrice: originalPrice.toString(), reduction: reduction.toString(), serviceStart: serviceStart.toISOString().slice(0, 10), serviceEnd: serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: calendar.effectiveFrom.toISOString().slice(0, 10), timezone: "Asia/Ho_Chi_Minh" };
+        if (facts.some((item) => item.studentId === fact.studentId && item.billingMonth === fact.billingMonth && item.receivableId === fact.receivableId)) {
+          if (strict) throw validation("selections", "Các phiên bản coverage trùng khoản thu và kỳ.");
+          continue;
+        }
+        facts.push(fact);
+      }
+    }
+    return facts;
+  }
+  async replaceCoverageSelection(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, "runId");
+    const selections = Array.isArray(body?.selections) ? body.selections : null;
+    if (!selections || selections.some((item: any) => !item || typeof item !== "object" || !uuid.test(item.studentId) || !uuid.test(item.versionId) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(item.billingMonth))) throw validation("selections", "Danh sách coverage không hợp lệ.");
+    const unique = new Set(selections.map((item: any) => `${item.studentId}:${item.versionId}:${item.billingMonth}`));
+    if (unique.size !== selections.length) throw validation("selections", "Không được chọn coverage trùng lặp.");
+    return this.mutate(actor, identityId, schoolId, routes.coverageSelection, key, operationId, { runId, selections }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId); const run = await this.lockRun(tx, schoolId, runId);
+      if (run.status !== "DRAFT" || run.type !== "MONTHLY") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ chọn coverage cho đợt monthly nháp." });
+      const year = await this.lockYear(tx, schoolId, run.schoolYearId);
+      const versions = await tx.promotionPolicyVersion.findMany({ where: { schoolId, id: { in: selections.map((item: any) => item.versionId) }, status: "ACTIVE", fulfillmentMode: "PREPAID_COVERAGE" }, include: { targets: true, assignments: true } });
+      if (versions.length !== new Set(selections.map((item: any) => item.versionId)).size) throw validation("selections", "Phiên bản coverage không còn hiệu lực.");
+      for (const item of selections as any[]) {
+        const version = versions.find((candidate: any) => candidate.id === item.versionId)!;
+        const period = this.asOf(item.billingMonth);
+        if (item.billingMonth <= run.billingMonth || period < year.startsOn || period >= year.endsOn || version.effectiveFrom > period || (version.effectiveTo && version.effectiveTo <= period) || !version.assignments.some((assignment: any) => assignment.studentId === item.studentId && assignment.effectiveFrom <= period && (!assignment.effectiveTo || assignment.effectiveTo > period))) throw validation("selections", "Coverage phải thuộc kỳ tương lai cùng năm học và assignment hiệu lực.");
+        if (await tx.studentPromotionalCoverage.findFirst({ where: { schoolId, studentId: item.studentId, schoolYearId: run.schoolYearId, billingMonth: item.billingMonth, receivableId: { in: version.targets.map((target: any) => target.receivableId) } } })) throw validation("selections", "Kỳ khoản thu đã có coverage được phát hành.");
+      }
+      await tx.collectionRunCoverageSelection.deleteMany({ where: { schoolId, collectionRunId: runId } });
+      if (selections.length) await tx.collectionRunCoverageSelection.createMany({ data: selections.map((item: any) => ({ schoolId, collectionRunId: runId, ...item })) });
+      const outcome = await tx.collectionRun.findFirstOrThrow({ where: { id: runId, schoolId }, include: this.runInclude });
+      const dto = this.runDto(outcome); await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_COVERAGE_SELECTION_REPLACED", operation, null, dto); return dto;
+    });
   }
   private async promotionFacts(client: any, schoolId: string, asOf: Date, studentIds: string[], receivableIds: string[]) {
     if (!studentIds.length || !receivableIds.length) return [];
@@ -1274,7 +1349,7 @@ export class FinanceService {
       where: {
         schoolId, studentId: { in: studentIds }, effectiveFrom: { lte: asOf },
         OR: [{ effectiveTo: null }, { effectiveTo: { gt: asOf } }],
-        version: { status: "ACTIVE", effectiveFrom: { lte: asOf }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: asOf } }], targets: { some: { receivableId: { in: receivableIds } } } },
+        version: { status: "ACTIVE", fulfillmentMode: "DISCOUNT", effectiveFrom: { lte: asOf }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: asOf } }], targets: { some: { receivableId: { in: receivableIds } } } },
       },
       include: { version: { include: { targets: { where: { schoolId, receivableId: { in: receivableIds } } } } } },
     });
@@ -1700,7 +1775,7 @@ export class FinanceService {
         rosterAsOf: this.asOf(run.billingMonth).toISOString(), enrollmentId: enrollment.id,
         enrollmentInterval: [enrollment.effectiveFrom.toISOString(), enrollment.endedOn?.toISOString() ?? null],
         assignmentId: assignment.id, assignmentInterval: [assignment.effectiveFrom.toISOString(), assignment.effectiveTo?.toISOString() ?? null] },
-      lines: templateLines.map((line: any) => {
+      lines: templateLines.filter((line: any) => !item.calculatedLines || item.calculatedLines.some((candidate: any) => candidate.receivableId === line.receivableId)).map((line: any) => {
         const calculated = item.calculatedLines?.find((candidate: any) => candidate.receivableId === line.receivableId) ?? this.evaluatePromotionLine(item.studentId, line, []);
         return { schoolId, receivableId: line.receivableId, receivableCodeSnapshot: line.receivableCode, receivableNameSnapshot: line.receivableName, unitLabelSnapshot: line.unitLabel, defaultUnitPriceSnapshot: line.defaultUnitPrice, unitPrice: line.defaultUnitPrice, quantity: line.quantity, amount: calculated.netAmount, grossAmount: calculated.grossAmount, discountAmount: calculated.discountAmount, netAmount: calculated.netAmount, promotionEvaluationProvenance: calculated.promotionEvaluation };
       }),
@@ -1740,9 +1815,20 @@ export class FinanceService {
     if (lines.length) await tx.invoiceLine.createMany({ data: lines });
     for (const invoice of inserted) {
       const target = invoices.find((candidate) => candidate.studentId === invoice.studentId)!;
+      await this.snapshotCoverageFacts(tx, target.schoolId, invoice.id, target);
       await this.materializeCarries(tx, target.schoolId, invoice.id, target.studentId, target.schoolYearId, target.billingMonth);
     }
     return new Set(inserted.map((invoice: { studentId: string }) => invoice.studentId));
+  }
+  private async snapshotCoverageFacts(tx: any, schoolId: string, invoiceId: string, invoice: any) {
+    const selections = await tx.collectionRunCoverageSelection.findMany({
+      where: { schoolId, collectionRunId: invoice.collectionRunId, studentId: invoice.studentId },
+      include: { version: { include: { targets: { include: { receivable: true } }, assignments: { where: { studentId: invoice.studentId } } } } },
+    });
+    if (!selections.length) return;
+    const run = await tx.collectionRun.findFirstOrThrow({ where: { id: invoice.collectionRunId, schoolId }, include: { schoolYear: true } });
+    const facts = await this.deriveCoverageFacts(tx, schoolId, run, selections, true);
+    for (const fact of facts) await tx.$executeRaw`INSERT INTO "InvoicePromotionCoverageFact" ("schoolId", "invoiceId", "studentId", "schoolYearId", "receivableId", "billingMonth", "policyId", "versionId", "targetId", "assignmentId", "originalPrice", "reduction", "serviceStart", "serviceEnd", "calendarEffectiveFrom", "timezone") VALUES (${schoolId}::uuid, ${invoiceId}::uuid, ${fact.studentId}::uuid, ${invoice.schoolYearId}::uuid, ${fact.receivableId}::uuid, ${fact.billingMonth}, ${fact.policyId}::uuid, ${fact.versionId}::uuid, ${fact.targetId}::uuid, ${fact.assignmentId}::uuid, ${BigInt(fact.originalPrice)}, ${BigInt(fact.reduction)}, ${fact.serviceStart}::date, ${fact.serviceEnd}::date, ${fact.calendarEffectiveFrom}::date, ${fact.timezone})`;
   }
   private async materializeCarries(tx: any, schoolId: string, invoiceId: string, studentId: string, schoolYearId: string, billingMonth: string) {
     await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;

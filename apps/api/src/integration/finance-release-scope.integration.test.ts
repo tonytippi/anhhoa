@@ -8,8 +8,8 @@ async function source(path: string) {
   return readFile(new URL(path, `file://${root}/`), 'utf8');
 }
 
-describe('Finance Pha 1b release scope', () => {
-  it('does not introduce forbidden coverage, cross-portal, or automatic-pricing runtime dependencies', async () => {
+describe('Finance Story 6.2 release scope', () => {
+  it('allows exact prepaid coverage only and excludes later finance workflows and cross-portal dependencies', async () => {
     const [schema, financeModule, financeService, financeController, financeWorkspace] = await Promise.all([
       source('apps/api/prisma/schema.prisma'),
       source('apps/api/src/modules/finance/finance.module.ts'),
@@ -20,9 +20,8 @@ describe('Finance Pha 1b release scope', () => {
     const runtime = [schema, financeModule, financeService, financeController, financeWorkspace].join('\n');
 
     for (const forbidden of [
-      /\bPREPAID_COVERAGE\b/i,
-      /\bStudentPromotionalCoverage\b/i,
       /\bRefund\b/i,
+      /\bReversal\b/i,
       /\bDebt\b/i,
       /\bReport\b/i,
       /\bChargeRule\b/i,
