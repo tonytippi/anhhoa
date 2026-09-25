@@ -9,7 +9,7 @@ async function source(path: string) {
 }
 
 describe('Finance Pha 1b release scope', () => {
-  it('does not introduce forbidden settlement, coverage, cross-portal, or automatic-pricing runtime dependencies', async () => {
+  it('does not introduce forbidden coverage, cross-portal, or automatic-pricing runtime dependencies', async () => {
     const [schema, financeModule, financeService, financeController, financeWorkspace] = await Promise.all([
       source('apps/api/prisma/schema.prisma'),
       source('apps/api/src/modules/finance/finance.module.ts'),
@@ -22,9 +22,6 @@ describe('Finance Pha 1b release scope', () => {
     for (const forbidden of [
       /\bPREPAID_COVERAGE\b/i,
       /\bStudentPromotionalCoverage\b/i,
-      /\bReceipt\b/i,
-      /\bSettlement\b/i,
-      /\bCarry\b/i,
       /\bRefund\b/i,
       /\bDebt\b/i,
       /\bReport\b/i,

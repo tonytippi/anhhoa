@@ -41,6 +41,7 @@ const routes = {
   issueInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue",
   prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
   issueRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue-revision",
+  closeInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/receipt",
   promotionPolicy: "POST /api/app/schools/:schoolId/finance/promotion-policies",
   promotionActivate: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/activate",
   promotionRetire: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/retire",
@@ -109,6 +110,15 @@ export class FinanceService {
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 9007199254740991n)
       throw validation("unitPrice", "Đơn giá VND phải là số nguyên dương an toàn.");
     return BigInt(value);
+  }
+  private actualAmount(value: unknown) {
+    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 9007199254740991n)
+      throw validation("actualAmount", "Số thực nhận phải là số nguyên VND an toàn không âm.");
+    return BigInt(value);
+  }
+  private safeIssuedTotal(total: bigint) {
+    if (total > 9007199254740991n)
+      throw validation("invoiceId", "Tổng nghĩa vụ VND vượt giới hạn nhập thực nhận an toàn.");
   }
   private amount(unitPrice: bigint, quantity: number) {
     const amount = unitPrice * BigInt(quantity);
@@ -264,8 +274,14 @@ export class FinanceService {
       revisesInvoiceId: invoice.revisesInvoiceId ?? null,
       revisionReason: invoice.revisionReason ?? null,
       replacementInvoiceId: invoice.replacementInvoices?.[0]?.id ?? null,
+      receipt: invoice.receipt ? {
+        actualAmount: invoice.receipt.actualAmount.toString(), outcome: invoice.receipt.outcome,
+        postedAt: invoice.receipt.postedAt.toISOString(),
+        difference: invoice.receipt.difference ? { signedAmount: invoice.receipt.difference.signedAmount.toString() } : null,
+      } : null,
+      carries: (invoice.settlementCarries ?? []).map((carry: any) => ({ type: carry.type, amount: carry.amount.toString(), sourceDifferenceId: carry.settlementDifferenceId })),
     };
-    if (invoice.status === "ISSUED" || invoice.status === "CANCELLED") result.issue = {
+    if (["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status)) result.issue = {
       issuedAt: invoice.issuedAt.toISOString(), obligationTotal: invoice.obligationTotalSnapshot.toString(),
       obligationLines: invoice.obligationLinesSnapshot, dueOn: invoice.dueOn.toISOString().slice(0, 10),
       bankAccount: { id: invoice.bankAccountIdSnapshot, receivingBank: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot },
@@ -291,9 +307,32 @@ export class FinanceService {
   }
   async invoice(identityId: string, schoolId: string, invoiceId: string) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
-    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 } } });
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: this.invoiceInclude });
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     return this.invoiceDto(invoice);
+  }
+  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, settlementCarries: { orderBy: { createdAt: "asc" } } };
+  async closeInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const actualAmount = this.actualAmount(body?.actualAmount);
+    return this.mutate(actor, identityId, schoolId, routes.closeInvoice, key, operationId, { invoiceId, actualAmount: actualAmount.toString() }, async (tx, operation) => {
+      // Lock order is School (mutate), Invoice, then any source Difference rows.
+      await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId } });
+      if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+      if (invoice.status !== "ISSUED") throw new ConflictException({ code: "INVOICE_NOT_ISSUED", message: "Chỉ hóa đơn đã phát hành mới được ghi thực nhận." });
+      const issuedAmount = invoice.obligationTotalSnapshot;
+      const signedAmount = actualAmount - issuedAmount;
+      const outcome = signedAmount === 0n ? "EXACT" : signedAmount < 0n ? "SHORTFALL" : "OVERPAYMENT";
+      const receipt = await tx.receipt.create({ data: { schoolId, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, invoiceId: invoice.id, actualAmount, outcome } });
+      if (signedAmount !== 0n)
+        await tx.settlementDifference.create({ data: { schoolId, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, invoiceId: invoice.id, receiptId: receipt.id, signedAmount } });
+      await tx.invoice.update({ where: { id: invoice.id }, data: { status: "CLOSED" } });
+      const closed = await tx.invoice.findFirstOrThrow({ where: { id: invoice.id, schoolId }, include: this.invoiceInclude });
+      const result = this.invoiceDto(closed);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_RECEIPT_POSTED", operation, { id: invoice.id, status: "ISSUED" }, result);
+      return result;
+    });
   }
   async issueInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
@@ -310,6 +349,7 @@ export class FinanceService {
       const year = await this.lockYear(tx, schoolId, invoice.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
       if (!invoice.lines.length || invoice.total <= 0n) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng và tổng VND dương để phát hành.");
+      this.safeIssuedTotal(invoice.total);
       const bank = await tx.bankAccount.findFirst({ where: { id: bankAccountId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
       if (!bank || bank.lifecycleTransitions[0]?.status !== "ACTIVE") throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND", message: "Không tìm thấy tài khoản nhận đang hoạt động." });
       if (bank.transferTemplate !== "{{studentName}} {{className}}") throw new ConflictException({ code: "BANK_ACCOUNT_TEMPLATE_INVALID", message: "Mẫu nội dung chuyển khoản không hợp lệ." });
@@ -375,6 +415,7 @@ export class FinanceService {
       const year = await this.lockYear(tx, schoolId, replacement.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
       if (!replacement.lines.length || replacement.total <= 0n) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng và tổng VND dương để phát hành.");
+      this.safeIssuedTotal(replacement.total);
       const bank = await tx.bankAccount.findFirst({ where: { id: bankAccountId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
       if (!bank || bank.lifecycleTransitions[0]?.status !== "ACTIVE" || bank.transferTemplate !== "{{studentName}} {{className}}") throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND", message: "Không tìm thấy tài khoản nhận đang hoạt động." });
       const now = new Date(); const issueDate = this.localIssueDate(now);
@@ -1631,7 +1672,7 @@ export class FinanceService {
       if (locked.status !== "GENERATED")
         throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ có thể đóng đợt thu đã tạo hóa đơn." });
       const invoices = await tx.invoice.findMany({ where: { schoolId, collectionRunId: runId }, select: { status: true, total: true } });
-      if (invoices.some((invoice: { status: string; total: bigint }) => !["ISSUED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === 0n)))
+      if (invoices.some((invoice: { status: string; total: bigint }) => !["CLOSED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === 0n)))
         throw new ConflictException({ code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL", message: "Chỉ có thể đóng khi mọi hóa đơn đã phát hành hoặc đã kết thúc." });
       const updated = await tx.collectionRun.update({ where: { id: locked.id }, data: { status: "CLOSED", version: { increment: 1 } } });
       await tx.collectionRunLifecycleTransition.create({
@@ -1697,7 +1738,47 @@ export class FinanceService {
     const invoiceIds = new Map(inserted.map((invoice) => [invoice.studentId, invoice.id]));
     const lines = invoices.flatMap((invoice) => (invoiceIds.get(invoice.studentId) ? invoice.lines.map((line: any) => ({ ...line, invoiceId: invoiceIds.get(invoice.studentId) })) : []));
     if (lines.length) await tx.invoiceLine.createMany({ data: lines });
+    for (const invoice of inserted) {
+      const target = invoices.find((candidate) => candidate.studentId === invoice.studentId)!;
+      await this.materializeCarries(tx, target.schoolId, invoice.id, target.studentId, target.schoolYearId, target.billingMonth);
+    }
     return new Set(inserted.map((invoice: { studentId: string }) => invoice.studentId));
+  }
+  private async materializeCarries(tx: any, schoolId: string, invoiceId: string, studentId: string, schoolYearId: string, billingMonth: string) {
+    await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+    const differences = await tx.settlementDifference.findMany({
+      where: { schoolId, studentId, schoolYearId, invoice: { collectionRun: { type: "MONTHLY", billingMonth: { lt: billingMonth } } } },
+      include: { carries: true, invoice: { select: { billingMonth: true } } }, orderBy: { createdAt: "asc" },
+    });
+    let target = await tx.invoice.findFirstOrThrow({ where: { id: invoiceId, schoolId } });
+    for (const difference of differences) {
+      const eligible = await tx.invoice.findFirst({
+        where: {
+          schoolId,
+          studentId,
+          schoolYearId,
+          status: "DRAFT",
+          collectionRun: { type: "MONTHLY", billingMonth: { gt: difference.invoice.billingMonth } },
+        },
+        orderBy: { billingMonth: "asc" },
+        select: { id: true },
+      });
+      if (eligible?.id !== invoiceId) continue;
+      await tx.$queryRaw`SELECT 1 FROM "SettlementDifference" WHERE "id" = ${difference.id}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const appliedRows = await tx.$queryRaw<Array<{ amount: bigint }>>`
+        SELECT COALESCE(SUM("amount"), 0)::bigint AS "amount"
+        FROM "SettlementCarry"
+        WHERE "schoolId" = ${schoolId}::uuid AND "settlementDifferenceId" = ${difference.id}::uuid
+      `;
+      const applied = appliedRows[0]!.amount;
+      const remaining = (difference.signedAmount < 0n ? -difference.signedAmount : difference.signedAmount) - applied;
+      if (remaining <= 0n) continue;
+      const isShortfall = difference.signedAmount < 0n;
+      const amount = isShortfall ? remaining : (remaining > target.total ? target.total : remaining);
+      if (amount <= 0n) continue;
+      await tx.settlementCarry.create({ data: { schoolId, studentId, schoolYearId, settlementDifferenceId: difference.id, invoiceId, type: isShortfall ? "SHORTFALL_CARRY" : "OVERPAYMENT_CARRY", amount } });
+      target = await tx.invoice.findFirstOrThrow({ where: { id: invoiceId, schoolId } });
+    }
   }
   private async lockYear(tx: any, schoolId: string, schoolYearId: string) {
     await tx.$queryRaw`SELECT 1 FROM "SchoolYear" WHERE "id" = ${schoolYearId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
