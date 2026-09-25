@@ -41,6 +41,11 @@ const routes = {
   issueInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue",
   prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
   issueRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue-revision",
+  promotionPolicy: "POST /api/app/schools/:schoolId/finance/promotion-policies",
+  promotionActivate: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/activate",
+  promotionRetire: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/retire",
+  promotionAssignments: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/assignments",
+  promotionAssignmentEnd: "POST /api/app/schools/:schoolId/finance/promotion-assignments/:assignmentId/end",
 };
 const validation = (field: string, message: string) =>
   new BadRequestException({
@@ -606,6 +611,107 @@ export class FinanceService {
     if (typeof value !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value))
       throw validation("billingMonth", "Tháng thu phải có dạng YYYY-MM.");
     return value;
+  }
+  private date(value: unknown, field: string, required = true) {
+    if (value == null && !required) return null;
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw validation(field, "Ngày phải có dạng YYYY-MM-DD.");
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) throw validation(field, "Ngày không hợp lệ.");
+    return date;
+  }
+  // UI dates are inclusive; persisted intervals use the contract's half-open form.
+  private inclusiveEnd(value: unknown, field: string, required = false) {
+    const date = this.date(value, field, required);
+    if (!date) return null;
+    date.setUTCDate(date.getUTCDate() + 1);
+    return date;
+  }
+  private inclusiveDate(value: Date | null | undefined) {
+    if (!value) return null;
+    const date = new Date(value);
+    date.setUTCDate(date.getUTCDate() - 1);
+    return date.toISOString().slice(0, 10);
+  }
+  private promotionValue(value: unknown, type: unknown) {
+    if (type !== "FIXED_VND" && type !== "PERCENTAGE") throw validation("discountType", "Loại giảm không hợp lệ.");
+    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 9007199254740991n || (type === "PERCENTAGE" && BigInt(value) > 100n)) throw validation("discountValue", type === "PERCENTAGE" ? "Phần trăm phải từ 1 đến 100." : "Mức giảm VND phải là số nguyên dương an toàn.");
+    return BigInt(value);
+  }
+  private promotionDto(value: any) {
+    return { id: value.id, name: value.name, versions: (value.versions ?? []).map((version: any) => ({
+      id: version.id, version: version.version, status: version.status, discountType: version.discountType, discountValue: version.discountValue.toString(), priority: version.priority, stackingMode: version.stackingMode,
+      effectiveFrom: version.effectiveFrom.toISOString().slice(0, 10), effectiveTo: this.inclusiveDate(version.effectiveTo),
+      targets: (version.targets ?? []).map((target: any) => ({ id: target.id, receivableId: target.receivableId, receivableName: target.receivable.displayName })),
+      assignments: (version.assignments ?? []).map((assignment: any) => ({ id: assignment.id, studentId: assignment.studentId, studentName: assignment.student.fullName, studentCode: assignment.student.studentCode, effectiveFrom: assignment.effectiveFrom.toISOString().slice(0, 10), effectiveTo: this.inclusiveDate(assignment.effectiveTo), reason: assignment.reason, endReason: assignment.endReason ?? null })),
+    })) };
+  }
+  private promotionInclude: any = { versions: { include: { targets: { include: { receivable: true }, orderBy: { receivable: { displayName: "asc" } } }, assignments: { include: { student: true }, orderBy: [{ effectiveFrom: "desc" }, { id: "asc" }] } }, orderBy: { version: "desc" } } };
+  async promotionPolicies(identityId: string, schoolId: string) {
+    schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
+    const policies = await this.prisma.promotionPolicy.findMany({ where: { schoolId }, include: this.promotionInclude, orderBy: { name: "asc" } });
+    return { policies: policies.map((policy) => this.promotionDto(policy)) };
+  }
+  async promotionStudents(identityId: string, schoolId: string) {
+    schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
+    const students = await this.prisma.student.findMany({ where: { schoolId }, select: { id: true, studentCode: true, fullName: true }, orderBy: { studentCode: "asc" } });
+    return { students };
+  }
+  async createPromotionPolicy(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
+    const targetIds = Array.isArray(body?.receivableIds) ? body.receivableIds.map((id: unknown) => this.identifier(id, "receivableIds")) : [];
+    if (!targetIds.length || new Set(targetIds).size !== targetIds.length) throw validation("receivableIds", "Chọn ít nhất một khoản thu không trùng lặp.");
+    const input = { policyId: body?.policyId == null ? null : this.identifier(body.policyId, "policyId"), name: this.text(body?.name, "name")!, receivableIds: targetIds, discountType: body?.discountType, discountValue: this.promotionValue(body?.discountValue, body?.discountType), priority: Number(body?.priority), stackingMode: body?.stackingMode, effectiveFrom: this.date(body?.effectiveFrom, "effectiveFrom")!, effectiveTo: this.inclusiveEnd(body?.effectiveTo, "effectiveTo") };
+    if (!Number.isInteger(input.priority) || input.priority < 1) throw validation("priority", "Ưu tiên phải là số nguyên dương.");
+    if (input.stackingMode !== "STACKABLE" && input.stackingMode !== "EXCLUSIVE") throw validation("stackingMode", "Quy tắc kết hợp không hợp lệ.");
+    if (input.effectiveTo && input.effectiveFrom >= input.effectiveTo) throw validation("effectiveTo", "Ngày kết thúc phải sau ngày bắt đầu.");
+    return this.mutate(actor, identityId, schoolId, routes.promotionPolicy, key, operationId, { ...input, discountValue: input.discountValue.toString(), effectiveFrom: input.effectiveFrom.toISOString(), effectiveTo: input.effectiveTo?.toISOString() ?? null }, async (tx, operation) => {
+      const receivables = await tx.receivable.findMany({ where: { schoolId, id: { in: input.receivableIds } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } });
+      if (receivables.length !== input.receivableIds.length || receivables.some((receivable: any) => receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE")) throw validation("receivableIds", "Khoản thu và nhóm khoản thu phải đang áp dụng.");
+      const policy = input.policyId ? await tx.promotionPolicy.findFirst({ where: { id: input.policyId, schoolId } }) : await tx.promotionPolicy.create({ data: { schoolId, name: input.name } });
+      if (!policy) throw new NotFoundException({ code: "PROMOTION_POLICY_NOT_FOUND", message: "Không tìm thấy chính sách ưu đãi." });
+      if (input.policyId && policy.name !== input.name) throw validation("name", "Tên chính sách không thể đổi khi tạo phiên bản mới.");
+      const previous = await tx.promotionPolicyVersion.findFirst({ where: { schoolId, policyId: policy.id }, orderBy: { version: "desc" } });
+      const version = await tx.promotionPolicyVersion.create({ data: { schoolId, policyId: policy.id, version: (previous?.version ?? 0) + 1, status: "DRAFT", discountType: input.discountType, discountValue: input.discountValue, priority: input.priority, stackingMode: input.stackingMode, effectiveFrom: input.effectiveFrom, effectiveTo: input.effectiveTo } });
+      await tx.promotionPolicyTarget.createMany({ data: input.receivableIds.map((receivableId: string) => ({ schoolId, versionId: version.id, receivableId })) });
+      const result = await tx.promotionPolicy.findFirst({ where: { id: policy.id, schoolId }, include: this.promotionInclude }); const outcome = this.promotionDto(result);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "PROMOTION_POLICY_VERSION_CREATED", operation, null, outcome); return outcome;
+    });
+  }
+  async activatePromotionVersion(identityId: string, schoolId: string, versionId: string, key: string, operationId: string) { return this.promotionTransition(identityId, schoolId, versionId, "ACTIVE", key, operationId); }
+  async retirePromotionVersion(identityId: string, schoolId: string, versionId: string, key: string, operationId: string) { return this.promotionTransition(identityId, schoolId, versionId, "RETIRED", key, operationId); }
+  private async promotionTransition(identityId: string, schoolId: string, versionId: string, status: "ACTIVE" | "RETIRED", key: string, operationId: string) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(versionId, "versionId"); const route = status === "ACTIVE" ? routes.promotionActivate : routes.promotionRetire;
+    return this.mutate(actor, identityId, schoolId, route, key, operationId, { versionId, status }, async (tx, operation) => {
+      const version = await tx.promotionPolicyVersion.findFirst({ where: { id: versionId, schoolId }, include: { targets: true } }); if (!version) throw new NotFoundException({ code: "PROMOTION_POLICY_VERSION_NOT_FOUND", message: "Không tìm thấy phiên bản ưu đãi." });
+      if (status === "ACTIVE" && (version.status !== "DRAFT" || !version.targets.length)) throw new ConflictException({ code: "PROMOTION_POLICY_VERSION_NOT_ACTIVATABLE", message: "Chỉ phiên bản nháp có khoản thu mới được kích hoạt." });
+      if (status === "RETIRED" && version.status !== "ACTIVE") throw new ConflictException({ code: "PROMOTION_POLICY_VERSION_NOT_RETIRABLE", message: "Chỉ phiên bản đang áp dụng mới được ngừng." });
+      const updated = await tx.promotionPolicyVersion.update({ where: { id: version.id }, data: { status } }); const outcome = { id: updated.id, status: updated.status };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, status === "ACTIVE" ? "PROMOTION_POLICY_VERSION_ACTIVATED" : "PROMOTION_POLICY_VERSION_RETIRED", operation, { id: version.id, status: version.status }, outcome); return outcome;
+    });
+  }
+  async assignPromotionStudents(identityId: string, schoolId: string, versionId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(versionId, "versionId"); const studentIds = Array.isArray(body?.studentIds) ? body.studentIds.map((id: unknown) => this.identifier(id, "studentIds")) : [];
+    if (!studentIds.length || new Set(studentIds).size !== studentIds.length) throw validation("studentIds", "Chọn ít nhất một học sinh không trùng lặp."); const effectiveFrom = this.date(body?.effectiveFrom, "effectiveFrom")!; const effectiveTo = this.inclusiveEnd(body?.effectiveTo, "effectiveTo"); const reason = this.text(body?.reason, "reason", true, 500)!;
+    if (effectiveTo && effectiveFrom >= effectiveTo) throw validation("effectiveTo", "Ngày kết thúc phải sau ngày bắt đầu.");
+    return this.mutate(actor, identityId, schoolId, routes.promotionAssignments, key, operationId, { versionId, studentIds, effectiveFrom: effectiveFrom.toISOString(), effectiveTo: effectiveTo?.toISOString() ?? null, reason }, async (tx, operation) => {
+      const version = await tx.promotionPolicyVersion.findFirst({ where: { id: versionId, schoolId } }); if (!version || version.status !== "ACTIVE") throw new ConflictException({ code: "PROMOTION_POLICY_VERSION_NOT_ACTIVE", message: "Chỉ được gán vào phiên bản đang áp dụng." });
+      if (effectiveFrom < version.effectiveFrom || (version.effectiveTo && (!effectiveTo || effectiveTo > version.effectiveTo))) throw validation("effectiveFrom", "Khoảng gán phải nằm trong hiệu lực phiên bản.");
+      const students = await tx.student.findMany({ where: { schoolId, id: { in: studentIds } }, select: { id: true } }); if (students.length !== studentIds.length) throw validation("studentIds", "Có học sinh không thuộc Trường.");
+      const conflicts = await tx.studentPromotionAssignment.findMany({ where: { schoolId, policyId: version.policyId, studentId: { in: studentIds }, effectiveFrom: { lt: effectiveTo ?? new Date("9999-12-31T00:00:00.000Z") }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: effectiveFrom } }] }, select: { studentId: true } });
+      if (conflicts.length) throw validation("studentIds", "Một hoặc nhiều học sinh đã có ưu đãi chồng lấp.");
+      await tx.studentPromotionAssignment.createMany({ data: studentIds.map((studentId: string) => ({ schoolId, studentId, policyId: version.policyId, versionId, effectiveFrom, effectiveTo, reason })) });
+      const assignments = await tx.studentPromotionAssignment.findMany({ where: { schoolId, versionId, studentId: { in: studentIds }, effectiveFrom }, include: { student: true } }); const outcome = { versionId, assignments: assignments.map((item: any) => ({ id: item.id, studentId: item.studentId, studentCode: item.student.studentCode, studentName: item.student.fullName })) };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "STUDENT_PROMOTION_ASSIGNMENTS_CREATED", operation, null, outcome, reason); return outcome;
+    });
+  }
+  async endPromotionAssignment(identityId: string, schoolId: string, assignmentId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(assignmentId, "assignmentId"); const effectiveTo = this.inclusiveEnd(body?.effectiveTo, "effectiveTo", true)!; const reason = this.text(body?.reason, "reason", true, 500)!;
+    return this.mutate(actor, identityId, schoolId, routes.promotionAssignmentEnd, key, operationId, { assignmentId, effectiveTo: effectiveTo.toISOString(), reason }, async (tx, operation) => {
+      const assignment = await tx.studentPromotionAssignment.findFirst({ where: { id: assignmentId, schoolId }, include: { version: true } }); if (!assignment) throw new NotFoundException({ code: "PROMOTION_ASSIGNMENT_NOT_FOUND", message: "Không tìm thấy gán ưu đãi." });
+      if (assignment.effectiveTo || effectiveTo <= assignment.effectiveFrom || (assignment.version.effectiveTo && effectiveTo > assignment.version.effectiveTo)) throw validation("effectiveTo", "Ngày kết thúc không thuộc khoảng gán hợp lệ.");
+      const updated = await tx.studentPromotionAssignment.update({ where: { id: assignment.id }, data: { effectiveTo, endReason: reason, endedAt: new Date() } }); const outcome = { id: updated.id, effectiveTo: this.inclusiveDate(updated.effectiveTo), endReason: updated.endReason };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "STUDENT_PROMOTION_ASSIGNMENT_ENDED", operation, { id: assignment.id, effectiveTo: null }, outcome, reason); return outcome;
+    });
   }
   private asOf(billingMonth: string) {
     const [year, month] = billingMonth.split("-").map(Number);

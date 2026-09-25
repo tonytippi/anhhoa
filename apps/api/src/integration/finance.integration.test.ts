@@ -217,6 +217,11 @@ afterEach(async () => {
     await tx.bankAccountLifecycleTransition.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.bankAccount.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.financePolicy.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+    await tx.studentPromotionAssignment.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.promotionPolicyTarget.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.promotionPolicyVersion.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.promotionPolicy.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.receivableLifecycleTransition.deleteMany({
       where: { schoolId: { in: ids } },
     });
@@ -319,6 +324,38 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
           { id: receivableId, available: true, defaultUnitPrice: "123456789" },
         ],
       });
+    });
+
+    it("creates only active same-School multi-target promotion policies and atomically assigns valid Students", async () => {
+      const current = await roster(await graph()); const foreign = await roster(await graph());
+      const activeGroupId = outcomeId(await group(current, "Ưu đãi"));
+      const activeOne = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: activeGroupId, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100" }));
+      const activeTwo = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: activeGroupId, displayName: "Tiền ăn", unitLabel: "tháng", defaultUnitPrice: "50" }));
+      const inactiveGroupId = outcomeId(await group(current, "Ngừng"));
+      const inactiveReceivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: inactiveGroupId, displayName: "Xe đưa đón", unitLabel: "tháng", defaultUnitPrice: "20" }));
+      await finance.transitionReceivable(current.identity.id, current.school.id, inactiveReceivableId, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng" });
+      const foreignGroupId = outcomeId(await group(foreign)); const foreignReceivableId = outcomeId(await finance.createReceivable(foreign.identity.id, foreign.school.id, uuid(), uuid(), { groupId: foreignGroupId, displayName: "Ngoại trường", unitLabel: "tháng", defaultUnitPrice: "10" }));
+      const policyInput = { name: "Con cán bộ", receivableIds: [activeOne, activeTwo], discountType: "PERCENTAGE", discountValue: "10", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "2026-09-01" };
+      await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { ...policyInput, receivableIds: [activeOne, inactiveReceivableId] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
+      await finance.transitionGroup(current.identity.id, current.school.id, inactiveGroupId, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng nhóm" });
+      await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { ...policyInput, receivableIds: [activeOne, inactiveReceivableId] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
+      await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { ...policyInput, receivableIds: [activeOne, foreignReceivableId] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
+      const key = uuid(); const operationId = uuid(); const created = await finance.createPromotionPolicy(current.identity.id, current.school.id, key, operationId, policyInput);
+      const versionId = ((created.outcome as any).versions[0]).id;
+      await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, key, uuid(), policyInput)).resolves.toEqual(created);
+      await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, key, uuid(), { ...policyInput, discountValue: "11" })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
+      expect(await prisma.promotionPolicyTarget.count({ where: { schoolId: current.school.id, versionId } })).toBe(2);
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "PROMOTION_POLICY_VERSION_CREATED" } })).toMatchObject({ provenance: { operationId } });
+      await finance.activatePromotionVersion(current.identity.id, current.school.id, versionId, uuid(), uuid());
+      const first = await enrolled(current); const second = await enrolled(current); const foreignStudent = await enrolled(foreign);
+      await expect(finance.assignPromotionStudents(current.identity.id, current.school.id, versionId, uuid(), uuid(), { studentIds: [first.student.id, foreignStudent.student.id], effectiveFrom: "2026-09-01", reason: "Nhân viên" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { studentIds: expect.any(String) } } });
+      expect(await prisma.studentPromotionAssignment.count({ where: { schoolId: current.school.id, versionId } })).toBe(0);
+      const assigned = await finance.assignPromotionStudents(current.identity.id, current.school.id, versionId, uuid(), uuid(), { studentIds: [first.student.id, second.student.id], effectiveFrom: "2026-09-01", effectiveTo: "2026-09-15", reason: "Nhân viên" });
+      expect(assigned.outcome).toMatchObject({ assignments: expect.arrayContaining([expect.objectContaining({ studentId: first.student.id }), expect.objectContaining({ studentId: second.student.id })]) });
+      await expect(finance.assignPromotionStudents(current.identity.id, current.school.id, versionId, uuid(), uuid(), { studentIds: [first.student.id], effectiveFrom: "2026-09-15", reason: "Chồng lấp" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { studentIds: expect.any(String) } } });
+      await expect(finance.assignPromotionStudents(current.identity.id, current.school.id, versionId, uuid(), uuid(), { studentIds: [first.student.id], effectiveFrom: "2026-09-16", reason: "Kề nhau" })).resolves.toMatchObject({ outcome: { assignments: [{ studentId: first.student.id }] } });
+      expect(await prisma.operation.findUniqueOrThrow({ where: { id: assigned.id } })).toMatchObject({ schoolId: current.school.id, status: "COMPLETED" });
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "STUDENT_PROMOTION_ASSIGNMENTS_CREATED" } })).toMatchObject({ membershipId: current.membership.id, provenance: { operationId: assigned.id } });
     });
 
     it("rejects duplicate codes and foreign group graphs without creating or disclosing catalog data", async () => {

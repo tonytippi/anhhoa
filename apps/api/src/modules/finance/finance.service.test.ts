@@ -68,4 +68,26 @@ describe('FinanceService validation', () => {
     }
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('rejects invalid promotion rule, duplicate targets, and an empty assignment batch before writing', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const school = crypto.randomUUID(); const receivable = crypto.randomUUID(); const version = crypto.randomUUID();
+    await expect(service.createPromotionPolicy('identity', school, crypto.randomUUID(), crypto.randomUUID(), { name: 'Con cán bộ', receivableIds: [receivable, receivable], discountType: 'PERCENTAGE', discountValue: '10', priority: '1', stackingMode: 'STACKABLE', effectiveFrom: '2026-09-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
+    await expect(service.createPromotionPolicy('identity', school, crypto.randomUUID(), crypto.randomUUID(), { name: 'Con cán bộ', receivableIds: [receivable], discountType: 'PERCENTAGE', discountValue: '101', priority: '1', stackingMode: 'STACKABLE', effectiveFrom: '2026-09-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { discountValue: expect.any(String) } } });
+    await expect(service.assignPromotionStudents('identity', school, version, crypto.randomUUID(), crypto.randomUUID(), { studentIds: [], effectiveFrom: '2026-09-01', reason: 'Nhân viên' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { studentIds: expect.any(String) } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('rejects an equal persisted exclusive promotion interval on effectiveTo', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    await expect(service.createPromotionPolicy('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { name: 'Con cán bộ', receivableIds: [crypto.randomUUID()], discountType: 'PERCENTAGE', discountValue: '10', priority: '1', stackingMode: 'STACKABLE', effectiveFrom: '2026-09-02', effectiveTo: '2026-09-01' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveTo: expect.any(String) } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('projects half-open promotion intervals as inclusive UI dates', async () => {
+    const prisma = { promotionPolicy: { findMany: vi.fn().mockResolvedValue([{ id: 'policy', name: 'Con cán bộ', versions: [{ id: 'version', version: 1, status: 'ACTIVE', discountType: 'PERCENTAGE', discountValue: 10n, priority: 1, stackingMode: 'STACKABLE', effectiveFrom: new Date('2026-09-01T00:00:00Z'), effectiveTo: new Date('2026-10-01T00:00:00Z'), targets: [], assignments: [{ id: 'assignment', studentId: 'student', effectiveFrom: new Date('2026-09-01T00:00:00Z'), effectiveTo: new Date('2026-09-16T00:00:00Z'), reason: 'Nhân viên', endReason: 'Kết thúc', student: { fullName: 'Bé An', studentCode: 'HS001' } }] }] }]) } };
+    const school = crypto.randomUUID();
+    const result = await new FinanceService(prisma as never, authorization as never).promotionPolicies('identity', school);
+    expect(result.policies[0]?.versions[0]).toMatchObject({ effectiveTo: '2026-09-30', assignments: [{ effectiveTo: '2026-09-15' }] });
+    expect(prisma.promotionPolicy.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
+  });
 });

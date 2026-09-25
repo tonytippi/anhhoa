@@ -48,6 +48,29 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu mẫu" }));
     expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/template-lines") && (options as RequestInit).body === JSON.stringify({ receivableId: "meal", quantity: "22", expectedVersion: 2 }))).toBe(true);
   });
+  it("loads promotion policies and submits multi-target policy and batch assignment through the shared command", async () => {
+    const catalogWithReceivables = { groups: [], receivables: [{ id: "r1", groupId: "g", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true }, { id: "r2", groupId: "g", code: null, displayName: "Tiền ăn", unitLabel: "tháng", defaultUnitPrice: "50", status: "ACTIVE", available: true }] };
+    const policy = { id: "policy", name: "Con cán bộ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: policy }) : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalogWithReceivables)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    expect((await screen.findAllByText("Con cán bộ / Phiên bản 1")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Hỗ trợ" } });
+    fireEvent.click(screen.getByLabelText("Học phí")); fireEvent.click(screen.getByLabelText("Tiền ăn"));
+    fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/promotion-policies") && (options as RequestInit).method === "POST" && String((options as RequestInit).body).includes('"receivableIds":["r1","r2"]'))).toBe(true));
+  });
+  it("projects only assignments effective today and never renders prior School promotion data", async () => {
+    const today = new Date().toISOString().slice(0, 10); const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+    const policy = { id: "policy", name: "Ưu đãi Trường A", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", effectiveFrom: today, effectiveTo: null, targets: [], assignments: [{ id: "current", studentId: "s1", studentCode: "HS001", studentName: "Bé An", effectiveFrom: today, effectiveTo: null, reason: "A", endReason: null }, { id: "future", studentId: "s2", studentCode: "HS002", studentName: "Bé Bình", effectiveFrom: day(1), effectiveTo: null, reason: "B", endReason: null }, { id: "ended", studentId: "s3", studentCode: "HS003", studentName: "Bé Chi", effectiveFrom: day(-2), effectiveTo: day(-1), reason: "C", endReason: "Hết" }] }] };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog))));
+    const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    expect(await screen.findByText("1 đang áp dụng")).toBeTruthy(); expect(screen.getByText(/HS001 \/ Bé An:/)).toBeTruthy(); expect(screen.queryByText(/HS002 \/ Bé Bình:/)).toBeNull();
+    view.rerender(<FinanceWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
+    expect(screen.queryByText("Ưu đãi Trường A / Phiên bản 1")).toBeNull(); expect(screen.queryByText(/HS001 \/ Bé An:/)).toBeNull();
+  });
   it("renders server preview eligible rows and categorized skips without local classification", async () => {
     const preview = {
       run,

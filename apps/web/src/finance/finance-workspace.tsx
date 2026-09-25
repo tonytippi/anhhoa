@@ -12,6 +12,7 @@ type Receivable = {
   available: boolean;
 };
 type Catalog = { groups: Group[]; receivables: Receivable[] };
+type PromotionPolicy = { id: string; name: string; versions: Array<{ id: string; version: number; status: "DRAFT" | "ACTIVE" | "RETIRED"; discountType: "FIXED_VND" | "PERCENTAGE"; discountValue: string; priority: number; stackingMode: "STACKABLE" | "EXCLUSIVE"; effectiveFrom: string; effectiveTo: string | null; targets: Array<{ id: string; receivableId: string; receivableName: string }>; assignments: Array<{ id: string; studentId: string; studentCode: string; studentName: string; effectiveFrom: string; effectiveTo: string | null; reason: string; endReason: string | null }> }> };
 type Year = {
   id: string;
   name: string;
@@ -127,6 +128,10 @@ export function FinanceWorkspace({
   onStatusChange?: (status: FinanceStatus) => void;
 }) {
   const [catalog, setCatalog] = useState<Catalog>();
+  const [promotionData, setPromotionData] = useState({ schoolId, policies: [] as PromotionPolicy[], students: [] as Candidate[] });
+  const [promotion, setPromotion] = useState({ policyId: "", name: "", receivableIds: [] as string[], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" });
+  const [assignment, setAssignment] = useState({ versionId: "", studentIds: [] as string[], effectiveFrom: "", effectiveTo: "", reason: "" });
+  const [endingAssignment, setEndingAssignment] = useState<{ id: string; effectiveTo: string; reason: string }>();
   const [candidates, setCandidates] = useState<Candidates>();
   const [runs, setRuns] = useState<Run[]>([]);
   const [run, setRun] = useState<Run>();
@@ -185,6 +190,10 @@ export function FinanceWorkspace({
   const submitting = useRef(false);
   const request = useRef(0);
   const reconciliationTimer = useRef<number | undefined>(undefined);
+  const promotionPolicies = promotionData.schoolId === schoolId ? promotionData.policies : [];
+  const promotionStudents = promotionData.schoolId === schoolId ? promotionData.students : [];
+  const today = new Date().toISOString().slice(0, 10);
+  const activeAssignment = (item: PromotionPolicy["versions"][number]["assignments"][number]) => item.effectiveFrom <= today && (!item.effectiveTo || item.effectiveTo >= today);
 
   const get = async <T,>(path: string, mutation = false) => {
     const response = await fetch(`${apiUrl}${path}`, {
@@ -202,7 +211,7 @@ export function FinanceWorkspace({
   };
   const load = async () => {
     const token = ++request.current;
-    const [nextCatalog, nextRuns, nextCandidates] = await Promise.all([
+    const [nextCatalog, nextRuns, nextCandidates, nextPolicies, nextPromotionStudents] = await Promise.all([
       get<Catalog>(`/api/app/schools/${schoolId}/finance/receivables`),
       get<{ runs: Run[] }>(
         `/api/app/schools/${schoolId}/finance/collection-runs`,
@@ -210,11 +219,14 @@ export function FinanceWorkspace({
       get<Candidates>(
         `/api/app/schools/${schoolId}/finance/collection-run-candidates${(run?.schoolYearId ?? open.schoolYearId) ? `?schoolYearId=${run?.schoolYearId ?? open.schoolYearId}` : ""}`,
       ),
+      get<{ policies: PromotionPolicy[] }>(`/api/app/schools/${schoolId}/finance/promotion-policies`),
+      get<{ students: Candidate[] }>(`/api/app/schools/${schoolId}/finance/promotion-students`),
     ]);
     if (activeSchool.current !== schoolId || token !== request.current) return;
     setCatalog(nextCatalog);
     setRuns(nextRuns.runs);
     setCandidates(nextCandidates);
+    setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: nextPromotionStudents.students ?? [] });
     if (run) {
       const refreshedRun = nextRuns.runs.find((item) => item.id === run.id);
       setRun(refreshedRun);
@@ -297,6 +309,10 @@ export function FinanceWorkspace({
     if (reconciliationTimer.current)
       window.clearTimeout(reconciliationTimer.current);
     setCatalog(undefined);
+    setPromotionData({ schoolId, policies: [], students: [] });
+    setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" });
+    setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" });
+    setEndingAssignment(undefined);
     setCandidates(undefined);
     setRuns([]);
     setRun(undefined);
@@ -374,8 +390,9 @@ export function FinanceWorkspace({
     receivable.unitLabel ||
     receivable.defaultUnitPrice ||
     lifecycle?.reason ||
-    template.receivableId ||
-    template.quantity,
+     template.receivableId ||
+      template.quantity ||
+      promotion.name || promotion.receivableIds.length || promotion.discountValue || assignment.studentIds.length || assignment.reason || endingAssignment?.reason,
   );
   useEffect(() => {
     status.current = onStatusChange;
@@ -664,6 +681,25 @@ export function FinanceWorkspace({
       await load();
     }
   };
+  const savePromotion = async (event: FormEvent) => {
+    event.preventDefault();
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policies`, "POST", { ...promotion, effectiveTo: promotion.effectiveTo || null }, "receivable");
+    if (outcome) { setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" }); await load(); }
+  };
+  const saveAssignments = async (event: FormEvent) => {
+    event.preventDefault(); if (!assignment.versionId) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${assignment.versionId}/assignments`, "POST", { ...assignment, effectiveTo: assignment.effectiveTo || null }, "receivable");
+    if (outcome) { setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); await load(); }
+  };
+  const endAssignment = async (event: FormEvent) => {
+    event.preventDefault(); if (!endingAssignment) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-assignments/${endingAssignment.id}/end`, "POST", { effectiveTo: endingAssignment.effectiveTo, reason: endingAssignment.reason }, "receivable");
+    if (outcome) { setEndingAssignment(undefined); await load(); }
+  };
+  const transitionPromotionVersion = async (versionId: string, action: "activate" | "retire") => {
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${versionId}/${action}`, "POST", {}, "lifecycle");
+    if (outcome) await load();
+  };
   const openInvoice = async (invoiceId: string) => {
     const token = ++request.current;
     try {
@@ -763,6 +799,31 @@ export function FinanceWorkspace({
           {message}
         </div>
       )}
+      <section aria-labelledby="promotion-title">
+        <h3 id="promotion-title">Ưu đãi</h3>
+        <p>Thay đổi cấu hình tạo phiên bản mới. Giá trị áp dụng do hệ thống đánh giá ở bước sau.</p>
+        <form onSubmit={savePromotion}>
+          <label>Chính sách hiện có (để tạo phiên bản mới)<select value={promotion.policyId} onChange={(event) => { const policy = promotionPolicies.find((item) => item.id === event.target.value); setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" }); }}><option value="">Chính sách mới</option>{promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} /></label>
+          <fieldset><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>
+          <label>Loại giảm<select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}><option value="PERCENTAGE">Phần trăm</option><option value="FIXED_VND">Số tiền VND</option></select></label>
+          <label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} /></label>
+          <label>Hiệu lực từ<input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} /></label>
+          <label>Hiệu lực đến (bao gồm)<input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} /></label>
+          <label>Ưu tiên<input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} /></label>
+          <label>Quy tắc kết hợp<select value={promotion.stackingMode} onChange={(event) => setPromotion({ ...promotion, stackingMode: event.target.value })}><option value="STACKABLE">Có thể kết hợp</option><option value="EXCLUSIVE">Độc quyền</option></select></label>
+          <button disabled={Boolean(pending)}>Lưu phiên bản ưu đãi</button>
+        </form>
+        <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Thao tác</th></tr></thead><tbody>{promotionPolicies.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td>{version.status === "DRAFT" && <button type="button" disabled={Boolean(pending)} onClick={() => void transitionPromotionVersion(version.id, "activate")}>Kích hoạt phiên bản</button>}{version.status === "ACTIVE" && <button type="button" disabled={Boolean(pending)} onClick={() => void transitionPromotionVersion(version.id, "retire")}>Ngừng phiên bản</button>}</td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
+        <form onSubmit={saveAssignments}>
+          <h4>Gán học sinh</h4><p>Cả nhóm dùng chung thời hạn và lý do; máy chủ chỉ lưu khi toàn bộ danh sách hợp lệ.</p>
+          <label>Phiên bản đang áp dụng<select value={assignment.versionId} onChange={(event) => setAssignment({ ...assignment, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionPolicies.flatMap((policy) => (policy.versions ?? []).filter((version) => version.status === "ACTIVE").map((version) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>))}</select></label>
+          <fieldset><legend>Học sinh</legend>{promotionStudents.map((student) => <label key={student.id}><input type="checkbox" checked={assignment.studentIds.includes(student.id)} onChange={() => setAssignment({ ...assignment, studentIds: assignment.studentIds.includes(student.id) ? assignment.studentIds.filter((id) => id !== student.id) : [...assignment.studentIds, student.id] })} />{student.studentCode} / {student.fullName}</label>)}</fieldset>
+          <label>Áp dụng từ<input type="date" value={assignment.effectiveFrom} onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })} /></label><label>Áp dụng đến (bao gồm)<input type="date" value={assignment.effectiveTo} onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={assignment.reason} onChange={(event) => setAssignment({ ...assignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu gán học sinh</button>
+        </form>
+        {promotionPolicies.flatMap((policy) => policy.versions ?? []).flatMap((version) => (version.assignments ?? []).filter(activeAssignment).map((item) => <div key={item.id}><span>{item.studentCode} / {item.studentName}: {item.effectiveFrom}</span><button type="button" disabled={Boolean(pending)} onClick={() => setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" })}>Kết thúc áp dụng</button></div>))}
+        {endingAssignment && <form onSubmit={endAssignment}><h4>Kết thúc áp dụng học sinh</h4><label>Ngày kết thúc (bao gồm)<input type="date" value={endingAssignment.effectiveTo} onChange={(event) => setEndingAssignment({ ...endingAssignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={endingAssignment.reason} onChange={(event) => setEndingAssignment({ ...endingAssignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Xác nhận kết thúc</button><button type="button" onClick={() => setEndingAssignment(undefined)}>Hủy</button></form>}
+      </section>
       <section>
         <h3>Nhóm khoản thu</h3>
         <form onSubmit={saveGroup}>
