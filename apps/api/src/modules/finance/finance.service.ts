@@ -320,8 +320,8 @@ export class FinanceService {
       const dueOn = new Date(issueDate); dueOn.setUTCDate(dueOn.getUTCDate() + policy.dueDaysAfterIssue);
       const applications = await this.recheckPromotion(tx, schoolId, invoice, run.billingMonth);
       const obligationLines = invoice.lines.map((line: any) => this.lineDto(line));
-      await this.createIssuedPromotionApplications(tx, schoolId, invoice.id, applications);
       await tx.invoice.update({ where: { id: invoice.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(invoice.studentNameSnapshot, invoice.classNameSnapshot), obligationLinesSnapshot: obligationLines, obligationTotalSnapshot: invoice.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
+      await this.createIssuedPromotionApplications(tx, schoolId, invoice.id, applications);
       const issued = await tx.invoice.findFirstOrThrow({ where: { id: invoice.id, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } } } });
       const outcome = this.invoiceDto(issued); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_ISSUED", operation, { id: invoice.id, status: "DRAFT" }, outcome); return outcome;
     });
@@ -382,8 +382,8 @@ export class FinanceService {
       if (!policy) throw new ConflictException({ code: "FINANCE_POLICY_NOT_CONFIGURED", message: "Chưa có chính sách Finance hiệu lực để phát hành." });
       const dueOn = new Date(issueDate); dueOn.setUTCDate(dueOn.getUTCDate() + policy.dueDaysAfterIssue);
       const applications = await this.recheckPromotion(tx, schoolId, replacement, run.billingMonth);
-      await this.createIssuedPromotionApplications(tx, schoolId, replacement.id, applications);
       await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
+      await this.createIssuedPromotionApplications(tx, schoolId, replacement.id, applications);
       await tx.invoice.update({ where: { id: source.id }, data: { status: "CANCELLED" } });
       const issued = await tx.invoice.findFirstOrThrow({ where: { id: replacement.id, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } } } });
       const outcome = this.invoiceDto(issued);
