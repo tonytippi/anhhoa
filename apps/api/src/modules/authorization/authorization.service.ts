@@ -33,7 +33,7 @@ export class AuthorizationService {
     if (capabilities.includes('ROSTER_MANAGE')) navigation.push({ id: 'roster', label: 'Danh bộ' });
     if (capabilities.includes('SETTINGS_MANAGE')) navigation.push({ id: 'settings', label: 'Cấu hình trường' });
     if (capabilities.includes('OPERATIONAL_QUEUE_READ')) navigation.push({ id: 'overview', label: 'Tổng quan vận hành' });
-    if (capabilities.includes('FINANCE_MANAGE')) navigation.push({ id: 'finance', label: 'Khoản thu' }, { id: 'finance-reports', label: 'Báo cáo' });
+    if (capabilities.includes('FINANCE_MANAGE')) navigation.push({ id: 'finance', label: 'Khoản thu' }, { id: 'receipt-queue', label: 'Thu tiền' }, { id: 'finance-reports', label: 'Báo cáo' });
     return navigation;
   }
 

@@ -2112,6 +2112,21 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await finance.invoice(current.identity.id, current.school.id, invoice.id)).toMatchObject({ issue: { transferContent: "Hoc sinh Finance Mam Active", bankAccount: { accountNumber: "123456789" }, policy: { dueDaysAfterIssue: 7 } } });
     });
 
+    it("projects a minimal School-scoped issued receipt queue and removes a concurrently closed Invoice", async () => {
+      const { current, invoice, bank } = await issueFixture();
+      await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { bankAccountId: bank.id });
+      const queue = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: invoice.billingMonth, limit: "1" });
+      expect(queue.invoices).toEqual([expect.objectContaining({ id: invoice.id, status: "ISSUED", outstanding: "9007199254740991", student: expect.objectContaining({ code: expect.any(String), name: expect.any(String) }) })]);
+      expect(queue.invoices[0]).not.toHaveProperty("lines");
+      expect(queue.invoices[0]).not.toHaveProperty("issue");
+      const classes = await finance.receiptQueueClasses(current.identity.id, current.school.id, { billingMonth: invoice.billingMonth });
+      expect(classes.classes).toContainEqual(expect.objectContaining({ id: invoice.classIdSnapshot }));
+      await expect(finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: invoice.billingMonth, classIdSnapshot: crypto.randomUUID() })).resolves.toMatchObject({ invoices: [] });
+      await finance.closeInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { actualAmount: "9007199254740991" });
+      await expect(finance.receiptQueueDetail(current.identity.id, current.school.id, invoice.id)).rejects.toMatchObject({ status: 404, response: { code: "RECEIPT_QUEUE_INVOICE_UNAVAILABLE" } });
+      await expect(finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: invoice.billingMonth })).resolves.toMatchObject({ invoices: [] });
+    });
+
     it("rechecks calculated promotion facts before Issue and persists only immutable issued applications", async () => {
       const current = await roster(await graph()); const student = await enrolled(current);
       const groupId = outcomeId(await group(current, "Issue promotion"));

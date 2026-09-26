@@ -84,6 +84,17 @@ describe('FinanceService validation', () => {
     await service.runs('identity', school, { cursor: currentCursor, limit: '1' });
     expect(prisma.collectionRun.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ OR: [{ billingMonth: { lt: '2026-09' } }, { billingMonth: '2026-09', id: { lt: idA } }] }), take: 2 }));
   });
+  it('returns only minimal issued receipt queue snapshots in stable issued order and rejects a filter-mismatched cursor', async () => {
+    const school = crypto.randomUUID(); const id = crypto.randomUUID(); const issuedAt = new Date('2026-09-02T00:00:00.000Z');
+    const prisma = { schoolYear: { findFirst: vi.fn() }, debtTransfer: { groupBy: vi.fn().mockResolvedValue([]) }, invoice: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([{ id, studentCodeSnapshot: 'HS001', studentNameSnapshot: 'Bé An', classIdSnapshot: crypto.randomUUID(), classNameSnapshot: 'Lá 1', schoolYearId: crypto.randomUUID(), billingMonth: '2026-09', issuedAt, obligationTotalSnapshot: 120000n }]) } };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const result = await service.receiptQueue('identity', school, { billingMonth: '2026-09' });
+    expect(result.invoices).toEqual([expect.objectContaining({ status: 'ISSUED', outstanding: '120000', student: { code: 'HS001', name: 'Bé An' } })]);
+    expect(result.invoices[0]).not.toHaveProperty('lines');
+    expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, status: 'ISSUED', billingMonth: '2026-09' }), orderBy: [{ issuedAt: 'asc' }, { id: 'asc' }], take: 26 }));
+    const cursor = Buffer.from(JSON.stringify({ id, issuedAt: issuedAt.toISOString(), filters: { schoolYearId: null, billingMonth: '2026-08', classIdSnapshot: null, student: null } })).toString('base64url');
+    await expect(service.receiptQueue('identity', school, { billingMonth: '2026-09', cursor })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { cursor: expect.any(String) } } });
+  });
   it('only projects active same-School bank accounts', async () => {
     const prisma = { bankAccount: { findMany: vi.fn().mockResolvedValue([{ id: 'active', receivingBank: 'A', accountNumber: '1', accountHolderName: 'Holder', lifecycleTransitions: [{ status: 'ACTIVE' }] }, { id: 'inactive', receivingBank: 'B', accountNumber: '2', accountHolderName: 'Old', lifecycleTransitions: [{ status: 'INACTIVE' }] }]) } };
     const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).bankAccounts('identity', school);

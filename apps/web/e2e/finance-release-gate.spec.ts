@@ -99,8 +99,21 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await secondInvoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé Bình' });
   await secondIssue.getByLabel('Nhập chính xác tên học sinh Bé Bình để xác nhận').fill('Bé Bình');
-  await secondIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
-  await expect(secondInvoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 150.000 VND');
+   await secondIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
+   await expect(secondInvoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 150.000 VND');
+   await page.getByRole('button', { name: 'Thu tiền' }).click();
+   await expect(page.getByRole('heading', { name: 'Thu tiền' })).toBeVisible();
+   const receiptQueue = page.getByRole('table', { name: 'Hóa đơn chờ thu' });
+   await expect(receiptQueue).toContainText('RG1-2 / Bé Bình');
+   const queueMenu = receiptQueue.getByRole('button', { name: 'Tùy chọn cho Bé Bình' });
+   await queueMenu.focus();
+   await page.keyboard.press('ArrowDown');
+   await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
+   const queueReceipt = page.getByRole('dialog', { name: 'Ghi thực nhận cho Bé Bình' });
+   await expect(queueReceipt.getByLabel('Số thực nhận (VND)')).toHaveValue('150000');
+   await queueReceipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).click();
+   await expect(page.getByRole('heading', { name: 'Kết quả ghi thực nhận' })).toBeVisible();
+   await expect(page.getByRole('button', { name: 'Hóa đơn tiếp theo' })).toHaveCount(0);
    const reportResponse = page.waitForResponse((response) =>
     response.url().includes('/finance/reports/overview') &&
     response.request().method() === 'GET',
