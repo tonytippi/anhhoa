@@ -95,11 +95,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await page.getByRole('button', { name: 'Học sinh trước' }).click();
     await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
     await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
-    await invoiceReview.getByRole('button', { name: 'Ghi thực nhận và đóng hóa đơn' }).click();
-    const receiptDialog = page.getByRole('dialog', { name: 'Ghi thực nhận cho Bé An' });
-    await expect(receiptDialog.getByLabel('Số thực nhận (VND)')).toHaveValue('135000');
-    await page.keyboard.press('Escape');
-    await expect(invoiceReview.getByRole('button', { name: 'Ghi thực nhận và đóng hóa đơn' })).toBeFocused();
+     await expect(invoiceReview.getByRole('button', { name: 'Ghi thực nhận và đóng hóa đơn' })).toHaveCount(0);
     await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tbody tr').filter({ hasText: 'RG1-2 / Bé Bình' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
   await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' })).toBeVisible();
   const secondInvoiceReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-2/ });

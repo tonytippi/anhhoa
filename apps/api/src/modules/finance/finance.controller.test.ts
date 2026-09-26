@@ -11,14 +11,15 @@ describe('FinanceController mutation boundary', () => {
     const controller = new FinanceController(auth as never, finance as never);
     finance.report.mockResolvedValue({ workspace: 'overview' }); finance.requestReportExport.mockResolvedValue({ exportId: 'export' }); finance.downloadReportExport.mockResolvedValue({ csv: Buffer.from('a'), workspace: 'overview' });
     await expect(controller.report(request({}), 'school', 'overview', { asOf: '2026-09-25T00:00:00.000Z' })).resolves.toEqual({ data: { workspace: 'overview' } });
-    await expect(controller.requestReportExport(request(valid), 'school', 'overview', { asOf: '2026-09-25T00:00:00.000Z' })).resolves.toEqual({ data: { exportId: 'export' } });
+    await expect(controller.requestReportExport(request(valid), 'school', 'overview', 'key', 'operation', { asOf: '2026-09-25T00:00:00.000Z' })).resolves.toEqual({ data: { exportId: 'export' } });
     const response = { setHeader: vi.fn(), send: vi.fn() };
     await controller.downloadReportExport(request({}), 'school', 'export', response);
     expect(finance.report).toHaveBeenCalledWith('actor-id', 'school', 'overview', expect.any(Object));
+    expect(finance.requestReportExport).toHaveBeenCalledWith('actor-id', 'school', 'overview', 'key', 'operation', { asOf: '2026-09-25T00:00:00.000Z' });
     expect(response.send).toHaveBeenCalledWith(Buffer.from('a'));
     expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
     finance.requestReportExport.mockClear();
-    await expect(controller.requestReportExport(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'overview', {})).rejects.toMatchObject({ status: 401 });
+    await expect(controller.requestReportExport(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'overview', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
     expect(finance.requestReportExport).not.toHaveBeenCalled();
   });
   it('requires browser mutation proof before Finance writes', async () => {
@@ -155,7 +156,7 @@ describe('FinanceController mutation boundary', () => {
     expect(finance.decideCoverageReversal).toHaveBeenCalledWith('actor-id', 'school', 'request', 'key', 'operation', { decision: 'APPROVE', reason: 'Đủ điều kiện' });
   });
   it('requires browser mutation proof for immutable coverage refund eligibility evidence', async () => {
-    const controller = new FinanceController(auth as never, finance as never); const body = { studentId: 'student', reason: 'TRANSFER_OUT', effectiveOn: '2026-10-10' };
+    const controller = new FinanceController(auth as never, finance as never); const body = { studentId: 'student', enrollmentId: 'enrollment', reason: 'WITHDRAWAL', effectiveOn: '2026-10-10' };
     finance.createCoverageRefundEligibility.mockResolvedValue({ id: 'evidence' });
     await expect(controller.createCoverageRefundEligibility(request(valid), 'school', 'key', 'operation', body)).resolves.toEqual({ data: { id: 'evidence' } });
     expect(finance.createCoverageRefundEligibility).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', body);

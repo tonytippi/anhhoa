@@ -109,11 +109,11 @@ describe("FinanceReportsWorkspace", () => {
     await screen.findByText("new-entry");
   });
 
-  it("requests an opaque server export and navigates to its download without client CSV generation", async () => {
+  it("requests an opaque server export with reconciliation identifiers and navigates only from its completed outcome", async () => {
     const assign = vi.fn();
     const createObjectUrl = vi.spyOn(URL, "createObjectURL");
     vi.stubGlobal("window", { location: { assign } });
-    const fetch = vi.fn((_: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ exportId: "export-opaque-id" }) : response(report())));
+    const fetch = vi.fn((_: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ id: "operation-id", status: "COMPLETED", outcome: { exportId: "export-opaque-id" } }) : response(report())));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceReportsWorkspace {...props()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Tải CSV từ máy chủ" }));
@@ -121,8 +121,41 @@ describe("FinanceReportsWorkspace", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     vi.unstubAllGlobals();
     expect(assign).toHaveBeenCalledWith("/api/app/schools/school-a/finance/report-exports/export-opaque-id/download");
-    expect(fetch).toHaveBeenCalledWith("/api/app/schools/school-a/finance/reports/overview/exports", { method: "POST", credentials: "include", headers: { "content-type": "application/json", "x-csrf-token": "" }, body: JSON.stringify({ asOf: "2026-09-25T10:30:00+07:00", schoolYearId: null, billingMonth: null, runId: null, className: null, groupName: null, status: null }) });
+    expect(fetch).toHaveBeenCalledWith("/api/app/schools/school-a/finance/reports/overview/exports", expect.objectContaining({ method: "POST", credentials: "include", headers: expect.objectContaining({ "content-type": "application/json", "x-csrf-token": "", "idempotency-key": expect.any(String), "x-operation-id": expect.any(String) }), body: JSON.stringify({ asOf: "2026-09-25T10:30:00+07:00", schoolYearId: null, billingMonth: null, runId: null, className: null, groupName: null, status: null }) }));
     expect(createObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it("reconciles an ambiguous export POST before downloading its completed Operation outcome", async () => {
+    const assign = vi.fn(); vi.stubGlobal("window", { location: { assign } });
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") return Promise.reject(new TypeError("timeout"));
+      if (url.includes("/operations/")) return Promise.resolve(response({ id: "operation", status: "COMPLETED", outcome: { exportId: "reconciled-export" } }));
+      return Promise.resolve(response(report()));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceReportsWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Tải CSV từ máy chủ" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.unstubAllGlobals();
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/finance/operations/"), { credentials: "include" });
+    expect(assign).toHaveBeenCalledWith("/api/app/schools/school-a/finance/report-exports/reconciled-export/download");
+  });
+
+  it.each([503, 504])("reconciles HTTP %i export uncertainty once before downloading", async (status) => {
+    const assign = vi.fn(); vi.stubGlobal("window", { location: { assign } });
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") return Promise.resolve(response({}, status));
+      if (url.includes("/operations/")) return Promise.resolve(response({ id: "operation", status: "COMPLETED", outcome: { exportId: `reconciled-${status}` } }));
+      return Promise.resolve(response(report()));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceReportsWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Tải CSV từ máy chủ" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.unstubAllGlobals();
+    expect(fetch.mock.calls.filter(([, options]) => (options as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/finance/operations/"), { credentials: "include" });
+    expect(assign).toHaveBeenCalledWith(`/api/app/schools/school-a/finance/report-exports/reconciled-${status}/download`);
   });
 
   it("never navigates for an export that resolves after its School context changed", async () => {

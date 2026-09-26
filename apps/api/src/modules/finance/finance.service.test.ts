@@ -14,6 +14,14 @@ describe('FinanceService validation', () => {
     await expect(service.createGroup('identity', school, 'not-uuid', crypto.randomUUID(), { name: 'Học phí' })).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('rejects unsupported public eligibility before an Operation or evidence mutation', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const body = { studentId: crypto.randomUUID(), reason: 'TRANSFER_OUT', effectiveOn: '2026-10-10' };
+    await expect(service.createCoverageRefundEligibility('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), body)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
+    expect(prisma.operation.findFirst).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
   it('serializes BigInt VND as a safe JSON integer string and scopes catalog reads by School', async () => {
     const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([{ id: 'group', name: 'Học phí', createdAt: new Date('2026-01-01T00:00:00Z'), lifecycleTransitions: [{ status: 'ACTIVE' }] }]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'item', groupId: 'group', code: null, displayName: 'Tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, createdAt: new Date('2026-01-01T00:00:00Z'), lifecycleTransitions: [{ status: 'ACTIVE' }] }]) } };
     const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).read('identity', school);

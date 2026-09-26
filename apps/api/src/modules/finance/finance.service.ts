@@ -49,6 +49,7 @@ const routes = {
   coverageReversal: "POST /api/app/schools/:schoolId/finance/coverage-reversals",
   coverageReversalDecision: "POST /api/app/schools/:schoolId/finance/coverage-reversal-requests/:requestId/decision",
   coverageRefundEligibility: "POST /api/app/schools/:schoolId/finance/coverage-refund-eligibilities",
+  reportExport: "POST /api/app/schools/:schoolId/finance/reports/:workspace/exports",
   promotionPolicy: "POST /api/app/schools/:schoolId/finance/promotion-policies",
   promotionActivate: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/activate",
   promotionRetire: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/retire",
@@ -125,13 +126,16 @@ export class FinanceService {
     const rows = workspace === "overview" ? issued.map(row) : workspace === "collection-runs" ? runRows : workspace === "outstanding" ? currentInvoices : cashAdjustmentEvents.map(row);
     return { workspace, asOf: asOf.toISOString(), generatedAt: new Date().toISOString(), timezone: "Asia/Ho_Chi_Minh", filters, reportDefinitionVersion: "FINANCE_LEDGER_V3", sourceProvenance: "FinanceLedgerEvent immutable posting projection", summary, rows };
   }
-  async requestReportExport(identityId: string, schoolId: string, workspace: string, query: any) {
+  async requestReportExport(identityId: string, schoolId: string, workspace: string, key: string, operationId: string, query: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); const result = await this.report(identityId, schoolId, workspace, query);
     const encode = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
     const csv = Buffer.from([`# asOf=${result.asOf}; generatedAt=${result.generatedAt}; timezone=${result.timezone}; definition=${result.reportDefinitionVersion}; filters=${JSON.stringify(result.filters)}`, "postedAt,type,billingMonth,className,groupName,status,amount,grossAmount,discountAmount,netAmount,invoiceId,provenance", ...result.rows.map((row: any) => [row.postedAt, row.type, row.billingMonth, row.className, row.groupName, row.status, row.amount, row.grossAmount, row.discountAmount, row.netAmount, row.invoiceId, JSON.stringify(row.provenance)].map(encode).join(","))].join("\n"));
-    const record = await this.prisma.financeReportExport.create({ data: { schoolId, membershipId: actor.membershipId, workspace, result: result as Prisma.InputJsonValue, csv, expiresAt: new Date(Date.now() + 10 * 60_000) } });
-    await this.prisma.auditRecord.create({ data: auditData(schoolId, { identityId, type: "SCHOOL_MEMBERSHIP", reference: actor.membershipId, membershipId: actor.membershipId }, "FINANCE_REPORT_EXPORT_REQUESTED", { exportId: record.id, workspace }) });
-    return { exportId: record.id, expiresAt: record.expiresAt.toISOString(), workspace };
+    return this.mutate(actor, identityId, schoolId, routes.reportExport, key, operationId, { workspace, query }, async (tx, operation) => {
+      const record = await tx.financeReportExport.create({ data: { schoolId, membershipId: actor.membershipId, operationId: operation, workspace, result: result as Prisma.InputJsonValue, csv, expiresAt: new Date(Date.now() + 10 * 60_000) } });
+      const outcome = { exportId: record.id, expiresAt: record.expiresAt.toISOString(), workspace };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "FINANCE_REPORT_EXPORT_REQUESTED", operation, null, outcome);
+      return outcome;
+    });
   }
   async downloadReportExport(identityId: string, schoolId: string, exportId: string) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(exportId, "exportId");
@@ -515,10 +519,9 @@ export class FinanceService {
     const studentId = this.identifier(body?.studentId, "studentId");
     const enrollmentId = body?.enrollmentId == null ? null : this.identifier(body.enrollmentId, "enrollmentId");
     const reason = body?.reason;
-    if (!["WITHDRAWAL", "TRANSFER_OUT", "ELIGIBLE_SERVICE_CANCELLATION"].includes(reason)) throw validation("reason", "Lý do eligibility không hợp lệ.");
+    if (reason !== "WITHDRAWAL") throw validation("reason", "Lý do eligibility chưa có nguồn authoritative được hỗ trợ.");
     const effectiveOn = this.date(body?.effectiveOn, "effectiveOn")!;
-    if (reason === "WITHDRAWAL" && !enrollmentId) throw validation("enrollmentId", "Withdrawal phải tham chiếu enrollment.");
-    if (reason !== "WITHDRAWAL" && enrollmentId) throw validation("enrollmentId", "Chỉ withdrawal được tham chiếu enrollment.");
+    if (!enrollmentId) throw validation("enrollmentId", "Withdrawal phải tham chiếu enrollment.");
     return this.mutate(actor, identityId, schoolId, routes.coverageRefundEligibility, key, operationId, { studentId, enrollmentId, reason, effectiveOn: effectiveOn.toISOString() }, async (tx, operation) => {
       const student = await tx.student.findFirst({ where: { id: studentId, schoolId } });
       if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });

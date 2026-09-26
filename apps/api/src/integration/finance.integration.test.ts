@@ -258,7 +258,7 @@ async function coverageFixture(reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL" 
   await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode, actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   const eligibilityOperationId = uuid();
   await prisma.operation.create({ data: { id: eligibilityOperationId, schoolId: current.school.id, membershipId: current.membership.id, actorIdentityId: current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: current.membership.id, route: "fixture-eligibility", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
-  await prisma.coverageRefundEligibility.create({ data: { schoolId: current.school.id, studentId: student.student.id, reason: "ELIGIBLE_SERVICE_CANCELLATION", effectiveOn: date("2026-10-01"), actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId: eligibilityOperationId } });
+  await prisma.coverageRefundEligibility.create({ data: { schoolId: current.school.id, studentId: student.student.id, enrollmentId: student.enrollment.id, reason: "WITHDRAWAL", effectiveOn: date("2026-10-01"), actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId: eligibilityOperationId } });
   return { current, student, versionId, coveredReceivableId, otherReceivableId, runId, invoice, bank };
 }
 
@@ -2539,6 +2539,17 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.coverageReversal.aggregate({ where: { schoolId: fixture.current.school.id, coverageId: coverage.id }, _sum: { amount: true } })).toMatchObject({ _sum: { amount: 90n } });
     });
 
+    it("serializes concurrent direct reversal inserts at the PostgreSQL coverage lock", async () => {
+      const fixture = await coverageFixture(); const coverage = await closeCoverage(fixture);
+      const attempts = await Promise.allSettled([
+        prisma.coverageReversal.create({ data: { schoolId: fixture.current.school.id, coverageId: coverage.id, amount: 50n, calculatedAmount: 50n, effectiveOn: date("2026-10-01"), reason: "Direct A" } }),
+        prisma.coverageReversal.create({ data: { schoolId: fixture.current.school.id, coverageId: coverage.id, amount: 50n, calculatedAmount: 50n, effectiveOn: date("2026-10-01"), reason: "Direct B" } }),
+      ]);
+      expect(attempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(attempts.filter((result) => result.status === "rejected")).toHaveLength(1);
+      expect(await prisma.coverageReversal.aggregate({ where: { schoolId: fixture.current.school.id, coverageId: coverage.id }, _sum: { amount: true } })).toMatchObject({ _sum: { amount: 50n } });
+    });
+
     it("requires a distinct School Admin to approve or refuse reversal requests", async () => {
       const fixture = await coverageFixture("SCHOOL_ADMIN_APPROVAL"); const coverage = await closeCoverage(fixture); const body = { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Rút học", amount: "10" };
       const requested = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), body);
@@ -2693,18 +2704,23 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const beforeReceipt = new Date(events.find((event) => event.type === "RECEIPT_POSTED")!.postedAt.getTime() - 1);
       await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", { asOf: beforeReceipt.toISOString(), schoolYearId: fixture.current.year.id })).resolves.toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V3", summary: { netBilled: "100", actualReceipt: "0" } });
       for (const workspace of ["overview", "collection-runs", "outstanding", "cash-adjustments"]) await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, workspace, { billingMonth: "2026-09", className: fixture.current.activeClass.name })).resolves.toMatchObject({ workspace, timezone: "Asia/Ho_Chi_Minh" });
-      const exported = await finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", { billingMonth: "2026-09" });
-      const downloaded = await finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, exported.exportId);
+      const key = uuid(); const operationId = uuid(); const exported = await finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", key, operationId, { billingMonth: "2026-09" });
+      await expect(finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", key, uuid(), { billingMonth: "2026-09" })).resolves.toEqual(exported);
+      const exportOutcome = exported.outcome as { exportId: string };
+      expect(await finance.operation(fixture.current.identity.id, fixture.current.school.id, operationId)).toMatchObject({ id: operationId, status: "COMPLETED", outcome: { exportId: exportOutcome.exportId } });
+      expect(await prisma.financeReportExport.count({ where: { schoolId: fixture.current.school.id, operationId } })).toBe(1);
+      const downloaded = await finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, exportOutcome.exportId);
       expect(downloaded).toMatchObject({ workspace: "cash-adjustments" }); expect(Buffer.from(downloaded.csv).toString()).toContain("FINANCE_LEDGER_V3");
       expect(await prisma.auditRecord.count({ where: { schoolId: fixture.current.school.id, action: { in: ["FINANCE_REPORT_EXPORT_REQUESTED", "FINANCE_REPORT_EXPORT_DOWNLOADED"] } } })).toBe(2);
       const secondActor = await schoolAdmin(fixture.current);
-      await expect(finance.downloadReportExport(secondActor.identity.id, fixture.current.school.id, exported.exportId)).resolves.toMatchObject({ workspace: "cash-adjustments" });
-      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, action: "FINANCE_REPORT_EXPORT_DOWNLOADED", membershipId: secondActor.membership.id }, orderBy: { createdAt: "desc" } })).toMatchObject({ provenance: { exportId: exported.exportId, requestedByMembershipId: fixture.current.membership.id } });
-      await prisma.financeReportExport.update({ where: { id: exported.exportId }, data: { expiresAt: new Date(0) } });
-      await expect(finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, exported.exportId)).rejects.toMatchObject({ status: 404 });
-      const revokedExport = await finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "overview", {});
-      await prisma.financeReportExport.update({ where: { id: revokedExport.exportId }, data: { revokedAt: new Date() } });
-      await expect(finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, revokedExport.exportId)).rejects.toMatchObject({ status: 404 });
+      await expect(finance.downloadReportExport(secondActor.identity.id, fixture.current.school.id, exportOutcome.exportId)).resolves.toMatchObject({ workspace: "cash-adjustments" });
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, action: "FINANCE_REPORT_EXPORT_DOWNLOADED", membershipId: secondActor.membership.id }, orderBy: { createdAt: "desc" } })).toMatchObject({ provenance: { exportId: exportOutcome.exportId, requestedByMembershipId: fixture.current.membership.id } });
+      await prisma.financeReportExport.update({ where: { id: exportOutcome.exportId }, data: { expiresAt: new Date(0) } });
+      await expect(finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, exportOutcome.exportId)).rejects.toMatchObject({ status: 404 });
+      const revokedExport = await finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "overview", uuid(), uuid(), {});
+      const revokedOutcome = revokedExport.outcome as { exportId: string };
+      await prisma.financeReportExport.update({ where: { id: revokedOutcome.exportId }, data: { revokedAt: new Date() } });
+      await expect(finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, revokedOutcome.exportId)).rejects.toMatchObject({ status: 404 });
       const foreign = await graph();
       await expect(finance.report(foreign.identity.id, fixture.current.school.id, "overview", {})).rejects.toMatchObject({ status: 404 });
       await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "FINANCE_MANAGE" } });

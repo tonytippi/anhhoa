@@ -244,21 +244,13 @@ describe("FinanceWorkspace", () => {
     await openRun(); fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
     expect(await screen.findByText("Fact coverage tương lai từ máy chủ")).toBeTruthy(); expect(screen.getByText("2026-10")).toBeTruthy();
   });
-  it("shows exact-only wording for a server-returned coverage Invoice", async () => {
-    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "90" }] };
-    const invoice = { id: "invoice-a", status: "ISSUED", total: "90", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], coverageFacts: [{ receivableId: "meal", billingMonth: "2026-10", policyId: "policy", versionId: "coverage-version", originalPrice: "100", reduction: "10", serviceStart: "2026-10-01", serviceEnd: "2026-11-01", calendarEffectiveFrom: "2026-01-01", timezone: "Asia/Ho_Chi_Minh", issuedAt: null }], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [], issue: { obligationTotal: "90", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
-    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/invoices/") ? response(invoice) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [] }) : response(catalog))));
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Ghi thực nhận và đóng hóa đơn" }));
-    expect(screen.getByRole("dialog").textContent).toContain("chỉ số tiền đúng bằng nghĩa vụ");
-  });
   it("renders source remaining only on the outgoing debt source and inbound provenance only on its target", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "source", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }] };
     const invoice = { id: "source", status: "ISSUED", total: "100", sourceOutstanding: "60", sourceDebtTransfers: [{ targetInvoiceId: "target", amount: "40", reason: "Đối soát", postedAt: "2026-09-25T00:00:00.000Z" }], priorDebtTransfers: [], billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [], issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/invoices/") ? response(invoice) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
-    expect(await screen.findByText("Công nợ nguồn còn lại do máy chủ xác nhận: 60 VND.")).toBeTruthy(); expect(screen.getByText(/Đã chuyển sang Invoice target/)).toBeTruthy(); expect(screen.queryByText("Công nợ kỳ trước")).toBeNull(); fireEvent.click(screen.getByRole("button", { name: "Ghi thực nhận và đóng hóa đơn" })); expect(screen.getByRole("dialog").textContent).toContain("Công nợ nguồn còn lại do máy chủ xác nhận: 60 VND."); expect(screen.getByLabelText("Số thực nhận (VND)")).toHaveProperty("value", "60");
+    expect(await screen.findByText("Công nợ nguồn còn lại do máy chủ xác nhận: 60 VND.")).toBeTruthy(); expect(screen.getByText(/Đã chuyển sang Invoice target/)).toBeTruthy(); expect(screen.queryByText("Công nợ kỳ trước")).toBeNull(); expect(screen.queryByRole("button", { name: "Ghi thực nhận và đóng hóa đơn" })).toBeNull();
   });
   it("renders inbound prior-debt provenance read-only without showing source outstanding on a target", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "target", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "140" }] };
@@ -267,6 +259,22 @@ describe("FinanceWorkspace", () => {
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
     expect(await screen.findByText(/Invoice nguồn source: 40 VND/)).toBeTruthy(); expect(screen.queryByText(/Công nợ nguồn còn lại do máy chủ xác nhận/)).toBeNull(); expect(screen.getAllByText("Công nợ kỳ trước")[1]?.closest("tr")?.querySelectorAll("button")).toHaveLength(0);
+  });
+  it("keeps raw source identifiers and serialized provenance out of the default line row while providing a source disclosure", async () => {
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
+    const invoice = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", grossAmount: "100", discountAmount: "0", netAmount: "100", overrideReason: null, source: { serviceDate: "2026-09-01", attendanceState: "PRESENT", pickedUpAt: null, lateCareMinutes: null }, sourceReason: "Theo dõi", sourceRecordedAt: "2026-09-01T00:00:00.000Z", sourceProvenance: { enrollmentId: "raw-provenance-id" }, sourceAudit: { actorIdentityId: "raw-actor-id", membershipId: "raw-membership-id" } }] };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/invoices/") ? response(invoice) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
+    const row = (await screen.findByText("Học phí")).closest("tr")!;
+    expect(row.textContent).not.toContain("raw-actor-id");
+    expect(row.textContent).not.toContain("raw-membership-id");
+    expect(row.textContent).not.toContain("raw-provenance-id");
+    const disclosure = screen.getByText("Thông tin nguồn và kiểm tra").closest("details")!;
+    expect(disclosure.open).toBe(false);
+    fireEvent.click(screen.getByText("Thông tin nguồn và kiểm tra"));
+    expect(disclosure.open).toBe(true);
+    expect(screen.getByText("Nguồn đã được máy chủ xác nhận cho dòng hóa đơn này.")).toBeTruthy();
   });
   it("renders only server-projected current assignments and never renders prior School promotion data", async () => {
     const today = new Date().toISOString().slice(0, 10); const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
@@ -687,36 +695,6 @@ describe("FinanceWorkspace", () => {
     await openRun();
     expect(screen.getByRole("button", { name: "Đóng đợt thu" })).toHaveProperty("disabled", false);
   });
-  it("traps and restores receipt dialog focus, exposes server errors, and clears it after reconciled completion", async () => {
-    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }] };
-    const issued = { id: "invoice-a", status: "ISSUED", total: "100", billingMonth: "2026-09", revisesInvoiceId: "source", revisionReason: "Điều chỉnh", replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [], issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7 } } };
-    const closed = { ...issued, status: "CLOSED", receipt: { actualAmount: "90", outcome: "SHORTFALL", postedAt: "2026-09-20T00:00:00.000Z", difference: { signedAmount: "-10" } } };
-    let receiptPosts = 0;
-    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => Promise.resolve(
-      options?.method === "POST" && String(url).endsWith("/receipt") ? (++receiptPosts === 1 ? new Response(JSON.stringify({ error: { message: "Số thực nhận không hợp lệ.", fieldErrors: { actualAmount: "Chỉ dùng số nguyên VND." } } }), { status: 400 }) : new Response(null, { status: 503 })) :
-      url.includes("/operations/") ? response({ status: "COMPLETED", outcome: closed }) :
-      url.includes("/invoices/") ? response(issued) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog),
-    )));
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await openRun();
-    fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
-    const trigger = await screen.findByRole("button", { name: "Ghi thực nhận và đóng hóa đơn" });
-    fireEvent.click(trigger);
-    const input = screen.getByLabelText("Số thực nhận (VND)");
-    expect(document.activeElement).toBe(input);
-    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Hủy" }));
-    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
-    expect(document.activeElement).toBe(trigger);
-    fireEvent.click(trigger);
-    const retryInput = screen.getByLabelText("Số thực nhận (VND)");
-    fireEvent.change(retryInput, { target: { value: "90" } });
-    fireEvent.click(screen.getByRole("button", { name: "Xác nhận ghi thực nhận" }));
-    expect(await screen.findByText("Chỉ dùng số nguyên VND.", { selector: "#invoice-invoice-actualAmount-error" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Xác nhận ghi thực nhận" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByText(/Thu thiếu/)).toBeTruthy();
-  });
   it("reopens an Invoice discovered from the server run and edits only through server outcome", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: { serviceDate: "2026-09-01", attendanceState: "PRESENT", pickedUpAt: "17:30", lateCareMinutes: 30 }, sourceReason: "Theo dõi", sourceRecordedAt: "2026-09-01T00:00:00.000Z", sourceProvenance: {} }] };
@@ -728,7 +706,7 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
     await screen.findByText(/Rà soát hóa đơn HS001/);
     await screen.findByText(/Rà soát hóa đơn HS001/);
-    expect((await screen.findAllByText((_, element) => element?.tagName === "SMALL" && element.textContent?.includes("Nguồn: 2026-09-01 PRESENT 17:30 30; Theo dõi") === true))).toHaveLength(1);
+    expect((await screen.findAllByText((_, element) => element?.tagName === "SMALL" && element.textContent?.includes("Nguồn: 2026-09-01; PRESENT; 17:30; 30 phút; Theo dõi") === true))).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
     fireEvent.change(screen.getByLabelText("Số lượng"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu dòng" }));

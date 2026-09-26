@@ -670,8 +670,8 @@ model SchoolMembership {
   requestedCoverageReversals          CoverageReversalRequest[]            @relation("CoverageReversalRequester")
   decidedCoverageReversals            CoverageReversalRequest[]            @relation("CoverageReversalDecider")
   coverageRefundEligibilities         CoverageRefundEligibility[]
-  debtTransfers                       DebtTransfer[]
   financeReportExports                FinanceReportExport[]
+  debtTransfers                       DebtTransfer[]
 
   @@unique([schoolId, userIdentityId])
   @@unique([schoolId, id])
@@ -721,6 +721,7 @@ model Operation {
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
   debtTransfers                       DebtTransfer[]
   coverageRefundEligibilities         CoverageRefundEligibility[]
+  financeReportExports                FinanceReportExport[]
   collectionRunLifecycleTransitions   CollectionRunLifecycleTransition[]
   collectionRunGeneration             CollectionRunGeneration?
 
@@ -1319,20 +1320,23 @@ model FinanceLedgerEvent {
 }
 
 model FinanceReportExport {
-  id          String   @id @default(uuid()) @db.Uuid
-  schoolId    String   @db.Uuid
-  membershipId String  @db.Uuid
+  id          String    @id @default(uuid()) @db.Uuid
+  schoolId    String    @db.Uuid
+  membershipId String   @db.Uuid
+  operationId String    @db.Uuid
   workspace   String
   result      Json
   csv         Bytes
   expiresAt   DateTime
   revokedAt   DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   downloadedAt DateTime?
-  school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership  SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation   Operation @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
+  @@unique([schoolId, operationId])
   @@index([schoolId, expiresAt])
 }
 

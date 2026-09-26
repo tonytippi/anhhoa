@@ -50,7 +50,6 @@ describe('Finance Story 6.6 release evidence', () => {
       source('package.json'),
     ]);
 
-    expect(e2e).toMatch(/Ghi thực nhận và đóng hóa đơn/);
     expect(e2e).toMatch(/Thu tiền/);
     expect(e2e).toMatch(/finance\/invoices\/\*\/receipt/);
     expect(e2e).toMatch(/Xác nhận ghi thực nhận/);
@@ -60,7 +59,7 @@ describe('Finance Story 6.6 release evidence', () => {
     expect(e2e).toMatch(/expect\(receiptPosts\)\.toBe\(1\)/);
     expect(e2e).toMatch(/Release Gate B/);
     expect(e2e).toMatch(/text\/csv; charset=utf-8/);
-    expect(workspace).toMatch(/\/receipt/);
+    expect(workspace).not.toMatch(/\/receipt/);
     expect(workspace).toMatch(/Kết quả máy chủ/);
     expect(workspace).not.toMatch(/Math\.(?:round|floor|ceil)/);
     const releaseCommand = (JSON.parse(rootPackage) as { scripts: Record<string, string> }).scripts['test:release-gate'];
