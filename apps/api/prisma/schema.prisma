@@ -61,6 +61,7 @@ model School {
   debtTransfers                     DebtTransfer[]
   coverageReversalRequests          CoverageReversalRequest[]
   coverageReversals                 CoverageReversal[]
+  coverageRefundEligibilities       CoverageRefundEligibility[]
   promotionalCoverages              StudentPromotionalCoverage[]
   invoiceLines                      InvoiceLine[]
   issuedPromotionApplications       IssuedPromotionApplication[]
@@ -405,6 +406,7 @@ model Student {
   settlementCarries               SettlementCarry[]
   settlementTransfers             SettlementTransfer[]
   debtTransfers                   DebtTransfer[]
+  coverageRefundEligibilities     CoverageRefundEligibility[]
   promotionAssignments            StudentPromotionAssignment[]
   promotionalCoverages            StudentPromotionalCoverage[]
   photo                           StudentPhoto?
@@ -436,6 +438,7 @@ model StudentEnrollment {
   classroom            Class?                                 @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
   lifecycleTransitions StudentEnrollmentLifecycleTransition[]
   classAssignments     EnrollmentClassAssignment[]
+  coverageRefundEligibilities CoverageRefundEligibility[]
 
   @@unique([schoolId, studentId, schoolYearId])
   @@unique([schoolId, id])
@@ -666,6 +669,7 @@ model SchoolMembership {
   uploadedDailyJournalMedia           DailyJournalMedia[]                  @relation("DailyJournalMediaUploaderMembership")
   requestedCoverageReversals          CoverageReversalRequest[]            @relation("CoverageReversalRequester")
   decidedCoverageReversals            CoverageReversalRequest[]            @relation("CoverageReversalDecider")
+  coverageRefundEligibilities         CoverageRefundEligibility[]
   debtTransfers                       DebtTransfer[]
   financeReportExports                FinanceReportExport[]
 
@@ -716,6 +720,7 @@ model Operation {
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
   debtTransfers                       DebtTransfer[]
+  coverageRefundEligibilities         CoverageRefundEligibility[]
   collectionRunLifecycleTransitions   CollectionRunLifecycleTransition[]
   collectionRunGeneration             CollectionRunGeneration?
 
@@ -1058,6 +1063,35 @@ enum CoverageReversalRequestStatus {
   APPROVED
   REFUSED
   POSTED
+}
+
+enum CoverageRefundEligibilityReason {
+  WITHDRAWAL
+  TRANSFER_OUT
+  ELIGIBLE_SERVICE_CANCELLATION
+}
+
+// This is an immutable authorization fact, not an enrollment lifecycle replacement.
+model CoverageRefundEligibility {
+  id              String                          @id @default(uuid()) @db.Uuid
+  schoolId        String                          @db.Uuid
+  studentId       String                          @db.Uuid
+  reason          CoverageRefundEligibilityReason
+  effectiveOn     DateTime                        @db.Date
+  enrollmentId    String?                         @db.Uuid
+  actorIdentityId String                          @db.Uuid
+  membershipId    String                          @db.Uuid
+  operationId     String                          @unique @db.Uuid
+  createdAt       DateTime                        @default(now())
+  school          School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student                         @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  enrollment      StudentEnrollment?              @relation(fields: [schoolId, enrollmentId], references: [schoolId, id], onDelete: Restrict)
+  membership      SchoolMembership                @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation       Operation                       @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, enrollmentId, reason])
+  @@index([schoolId, studentId, effectiveOn])
 }
 
 model CoverageReversalRequest {

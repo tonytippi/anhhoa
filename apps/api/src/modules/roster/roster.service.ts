@@ -1580,6 +1580,19 @@ export class RosterService {
           where: { id: enrollment.id },
           data: { lifecycle, endedOn },
         });
+        if (lifecycle === "WITHDRAWN" && enrollment.lifecycle !== "WITHDRAWN" && !await tx.coverageRefundEligibility.findFirst({ where: { schoolId, enrollmentId: enrollment.id, reason: "WITHDRAWAL" } }))
+          await tx.coverageRefundEligibility.create({
+            data: {
+              schoolId,
+              studentId: enrollment.studentId,
+              enrollmentId: enrollment.id,
+              reason: "WITHDRAWAL",
+              effectiveOn: endedOn!,
+              actorIdentityId: identityId,
+              membershipId: actor.membershipId,
+              operationId: operation,
+            },
+          });
         await this.transition(
           tx,
           schoolId,

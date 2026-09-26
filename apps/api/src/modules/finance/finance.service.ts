@@ -48,6 +48,7 @@ const routes = {
   coverageReversalPreview: "POST /api/app/schools/:schoolId/finance/coverage-reversals/preview",
   coverageReversal: "POST /api/app/schools/:schoolId/finance/coverage-reversals",
   coverageReversalDecision: "POST /api/app/schools/:schoolId/finance/coverage-reversal-requests/:requestId/decision",
+  coverageRefundEligibility: "POST /api/app/schools/:schoolId/finance/coverage-refund-eligibilities",
   promotionPolicy: "POST /api/app/schools/:schoolId/finance/promotion-policies",
   promotionActivate: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/activate",
   promotionRetire: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/retire",
@@ -102,18 +103,25 @@ export class FinanceService {
     const billingMonth = query?.billingMonth == null || query?.billingMonth === "" ? null : typeof query.billingMonth === "string" && /^\d{4}-\d{2}$/.test(query.billingMonth) ? query.billingMonth : (() => { throw validation("billingMonth", "Kỳ thu phải có dạng YYYY-MM."); })();
     const filters = { schoolYearId: await scopedId(query?.schoolYearId, "schoolYearId", "schoolYear"), billingMonth, runId: await scopedId(query?.runId, "runId", "collectionRun"), className: textFilter(query?.className, "className"), groupName: textFilter(query?.groupName, "groupName"), status: textFilter(query?.status, "status") };
     const events = (await this.prisma.financeLedgerEvent.findMany({ where: { schoolId, postedAt: { lte: asOf }, ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.billingMonth ? { billingMonth: filters.billingMonth } : {}), ...(filters.runId ? { collectionRunId: filters.runId } : {}), ...(filters.className ? { className: filters.className } : {}), ...(filters.status ? { statusSnapshot: filters.status } : {}) }, orderBy: [{ postedAt: "asc" }, { id: "asc" }] })).filter((event: any) => !filters.groupName || ((event.provenance as any).lines ?? []).some((line: any) => line.groupName === filters.groupName));
-    const row = (item: any) => ({ id: item.id, type: item.type, postedAt: item.postedAt.toISOString(), billingMonth: item.billingMonth, className: item.className ?? null, groupName: item.groupName ?? null, status: item.statusSnapshot ?? null, amount: (item.type === "INVOICE_ISSUED" ? BigInt(item.netAmount ?? 0) : BigInt(item.amount ?? 0)).toString(), grossAmount: BigInt(item.grossAmount ?? 0).toString(), discountAmount: BigInt(item.discountAmount ?? 0).toString(), netAmount: BigInt(item.netAmount ?? 0).toString(), invoiceId: item.invoiceId, provenance: item.provenance });
+    const groupProjection = (item: any) => {
+      if (!filters.groupName || item.type !== "INVOICE_ISSUED") return null;
+      const lines = ((item.provenance as any).lines ?? []).filter((line: any) => line.groupName === filters.groupName);
+      return { grossAmount: lines.reduce((total: bigint, line: any) => total + BigInt(line.grossAmount ?? 0), 0n), discountAmount: lines.reduce((total: bigint, line: any) => total + BigInt(line.discountAmount ?? 0), 0n), netAmount: lines.reduce((total: bigint, line: any) => total + BigInt(line.netAmount ?? 0), 0n) };
+    };
+    const row = (item: any) => { const projected = groupProjection(item); const unallocated = Boolean(filters.groupName && !projected); const provenance = unallocated ? { ...(item.provenance as object), groupAllocation: "UNALLOCATED_WHOLE_INVOICE_EVENT" } : item.provenance; return { id: item.id, type: item.type, postedAt: item.postedAt.toISOString(), billingMonth: item.billingMonth, className: item.className ?? null, groupName: item.groupName ?? null, status: item.statusSnapshot ?? null, amount: (item.type === "INVOICE_ISSUED" ? (projected?.netAmount ?? BigInt(item.netAmount ?? 0)) : BigInt(item.amount ?? 0)).toString(), grossAmount: (projected?.grossAmount ?? BigInt(item.grossAmount ?? 0)).toString(), discountAmount: (projected?.discountAmount ?? BigInt(item.discountAmount ?? 0)).toString(), netAmount: (projected?.netAmount ?? BigInt(item.netAmount ?? 0)).toString(), invoiceId: item.invoiceId, provenance, unallocated }; };
     const cancelled = new Set(events.filter((item: any) => item.type === "INVOICE_CANCELLED").map((item: any) => item.invoiceId));
     // A legacy cancellation has no trustworthy timestamp, so only those flagged source rows are excluded from effective obligations. Other backfilled issues remain reconcilable obligations.
     const issued = events.filter((item: any) => item.type === "INVOICE_ISSUED" && !cancelled.has(item.invoiceId) && !(item.provenance as any).legacyEffectiveUnknown);
-    const issuedSum = () => issued.reduce((total: bigint, item: any) => total + BigInt(item.netAmount), 0n).toString();
-    const cashAdjustmentEvents = events.filter((item: any) => ["RECEIPT_POSTED", "SETTLEMENT_DIFFERENCE_POSTED", "SETTLEMENT_CARRY_POSTED", "SETTLEMENT_TRANSFER_POSTED", "DEBT_TRANSFER_POSTED", "COVERAGE_REVERSAL_POSTED"].includes(item.type));
+    const issuedSum = () => issued.reduce((total: bigint, item: any) => total + (groupProjection(item)?.netAmount ?? BigInt(item.netAmount)), 0n).toString();
+    const cashAdjustmentEvents = events.filter((item: any) => ["RECEIPT_POSTED", "SETTLEMENT_DIFFERENCE_POSTED", "SETTLEMENT_CARRY_POSTED", "SETTLEMENT_TRANSFER_POSTED", "DEBT_TRANSFER_POSTED", "COVERAGE_ISSUED", "COVERAGE_REVERSAL_POSTED"].includes(item.type));
     const total = (items: any[], field = "amount") => items.reduce((value: bigint, item: any) => value + BigInt(item[field] ?? 0), 0n).toString();
     const receipts = events.filter((item: any) => item.type === "RECEIPT_POSTED"); const reversals = events.filter((item: any) => item.type === "COVERAGE_REVERSAL_POSTED"); const differences = events.filter((item: any) => item.type === "SETTLEMENT_DIFFERENCE_POSTED"); const carries = events.filter((item: any) => item.type === "SETTLEMENT_CARRY_POSTED"); const debts = events.filter((item: any) => item.type === "DEBT_TRANSFER_POSTED"); const coverage = events.filter((item: any) => item.type === "COVERAGE_ISSUED");
-    const summary = { gross: total(issued, "grossAmount"), promotionDiscount: total(issued, "discountAmount"), refund: (-BigInt(total(reversals))).toString(), netBilled: issuedSum(), actualReceipt: total(receipts), settlementOutcome: { exact: total(receipts.filter((item: any) => (item.provenance as any).outcome === "EXACT")), shortfall: total(receipts.filter((item: any) => (item.provenance as any).outcome === "SHORTFALL")), overpayment: total(receipts.filter((item: any) => (item.provenance as any).outcome === "OVERPAYMENT")) }, openDifference: total(differences), carryAdjustment: total(carries), debtTransfer: total(debts), coverage: total(coverage), revisionCancellation: String(cancelled.size), outstanding: "0" };
-    const currentInvoices = issued.map((issue: any) => { const invoiceEvents = events.filter((item: any) => item.invoiceId === issue.invoiceId); const paid = total(invoiceEvents.filter((item: any) => ["RECEIPT_POSTED", "SETTLEMENT_TRANSFER_POSTED"].includes(item.type))); const outstanding = BigInt(issue.netAmount) - BigInt(paid); return { ...row(issue), actualReceipt: paid, outstanding: (outstanding > 0n ? outstanding : 0n).toString(), formula: "issued obligation - Receipt - SettlementTransfer" }; });
+    const billed = (field: "grossAmount" | "discountAmount" | "netAmount") => issued.reduce((value: bigint, item: any) => value + (groupProjection(item)?.[field] ?? BigInt(item[field] ?? 0)), 0n).toString();
+    const scopedEvents = (items: any[]) => filters.groupName ? [] : items;
+    const summary = { gross: billed("grossAmount"), promotionDiscount: billed("discountAmount"), refund: (-BigInt(total(scopedEvents(reversals)))).toString(), netBilled: issuedSum(), actualReceipt: total(scopedEvents(receipts)), settlementOutcome: { exact: total(scopedEvents(receipts.filter((item: any) => (item.provenance as any).outcome === "EXACT"))), shortfall: total(scopedEvents(receipts.filter((item: any) => (item.provenance as any).outcome === "SHORTFALL"))), overpayment: total(scopedEvents(receipts.filter((item: any) => (item.provenance as any).outcome === "OVERPAYMENT"))) }, openDifference: total(scopedEvents(differences)), carryAdjustment: total(scopedEvents(carries)), debtTransfer: total(scopedEvents(debts)), coverage: total(scopedEvents(coverage)), revisionCancellation: String(cancelled.size), outstanding: "0" };
+    const currentInvoices = issued.map((issue: any) => { const invoiceEvents = events.filter((item: any) => item.invoiceId === issue.invoiceId); const paid = filters.groupName ? "0" : total(invoiceEvents.filter((item: any) => ["RECEIPT_POSTED", "SETTLEMENT_TRANSFER_POSTED"].includes(item.type))); const transferred = filters.groupName ? "0" : total(invoiceEvents.filter((item: any) => item.type === "DEBT_TRANSFER_POSTED")); const obligation = groupProjection(issue)?.netAmount ?? BigInt(issue.netAmount); const outstanding = obligation - BigInt(paid) - BigInt(transferred); return { ...row(issue), actualReceipt: paid, outstanding: (outstanding > 0n ? outstanding : 0n).toString(), formula: filters.groupName ? "issued matching-group obligation; whole-invoice settlement unallocated" : "issued obligation - Receipt - SettlementTransfer - DebtTransfer" }; });
     summary.outstanding = total(currentInvoices.map((item) => ({ amount: item.outstanding })));
-    const runRows = [...new Set(issued.map((item: any) => item.collectionRunId).filter(Boolean))].map((collectionRunId) => { const runEvents = events.filter((item: any) => item.collectionRunId === collectionRunId); const runIssued = issued.filter((item: any) => item.collectionRunId === collectionRunId); return { id: collectionRunId, collectionRunId, billingMonth: runIssued[0]?.billingMonth ?? null, gross: total(runIssued, "grossAmount"), promotionDiscount: total(runIssued, "discountAmount"), netBilled: total(runIssued, "netAmount"), actualReceipt: total(runEvents.filter((item: any) => item.type === "RECEIPT_POSTED")), carryAdjustment: total(runEvents.filter((item: any) => item.type === "SETTLEMENT_CARRY_POSTED")), provenance: { eventIds: runEvents.map((item: any) => item.id) } }; });
+    const runRows = [...new Set(issued.map((item: any) => item.collectionRunId).filter(Boolean))].map((collectionRunId) => { const runEvents = events.filter((item: any) => item.collectionRunId === collectionRunId); const runIssued = issued.filter((item: any) => item.collectionRunId === collectionRunId); const runBilled = (field: "grossAmount" | "discountAmount" | "netAmount") => runIssued.reduce((sum: bigint, item: any) => sum + (groupProjection(item)?.[field] ?? BigInt(item[field] ?? 0)), 0n).toString(); return { id: collectionRunId, collectionRunId, billingMonth: runIssued[0]?.billingMonth ?? null, gross: runBilled("grossAmount"), promotionDiscount: runBilled("discountAmount"), netBilled: runBilled("netAmount"), actualReceipt: filters.groupName ? "0" : total(runEvents.filter((item: any) => item.type === "RECEIPT_POSTED")), carryAdjustment: filters.groupName ? "0" : total(runEvents.filter((item: any) => item.type === "SETTLEMENT_CARRY_POSTED")), provenance: { eventIds: runEvents.map((item: any) => item.id), ...(filters.groupName ? { groupAllocation: "UNALLOCATED_WHOLE_INVOICE_EVENT" } : {}) } }; });
     const rows = workspace === "overview" ? issued.map(row) : workspace === "collection-runs" ? runRows : workspace === "outstanding" ? currentInvoices : cashAdjustmentEvents.map(row);
     return { workspace, asOf: asOf.toISOString(), generatedAt: new Date().toISOString(), timezone: "Asia/Ho_Chi_Minh", filters, reportDefinitionVersion: "FINANCE_LEDGER_V3", sourceProvenance: "FinanceLedgerEvent immutable posting projection", summary, rows };
   }
@@ -429,10 +437,11 @@ export class FinanceService {
       if (invoice.status !== "ISSUED") throw new ConflictException({ code: "INVOICE_NOT_ISSUED", message: "Chỉ hóa đơn đã phát hành mới được ghi thực nhận." });
       const transferred = await tx.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId: invoice.id }, _sum: { amount: true } });
       const issuedAmount = BigInt(invoice.obligationTotalSnapshot) - BigInt(transferred._sum.amount ?? 0);
-      const signedAmount = actualAmount - issuedAmount;
+      // Canonical difference: unpaid obligation is positive; excess receipt is negative.
+      const signedAmount = issuedAmount - actualAmount;
       const facts = await tx.invoicePromotionCoverageFact.findMany({ where: { schoolId, invoiceId }, orderBy: { id: "asc" } });
       if (facts.length && signedAmount !== 0n) throw new ConflictException({ code: "COVERAGE_EXACT_AMOUNT_REQUIRED", message: "Hóa đơn có coverage chỉ được đóng khi thực nhận đúng bằng nghĩa vụ." });
-      const outcome = signedAmount === 0n ? "EXACT" : signedAmount < 0n ? "SHORTFALL" : "OVERPAYMENT";
+      const outcome = signedAmount === 0n ? "EXACT" : signedAmount > 0n ? "SHORTFALL" : "OVERPAYMENT";
        const receipt = await tx.receipt.create({ data: { schoolId, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, invoiceId: invoice.id, actualAmount, outcome } });
        await this.ledger(tx, invoice, "RECEIPT_POSTED", actualAmount, { receiptId: receipt.id, outcome });
        if (signedAmount !== 0n) {
@@ -450,11 +459,36 @@ export class FinanceService {
       return result;
     });
   }
-  private async coveragePreview(tx: any, schoolId: string, coverageId: string, effectiveOn: Date) {
+  async createCoverageRefundEligibility(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
+    const studentId = this.identifier(body?.studentId, "studentId");
+    const enrollmentId = body?.enrollmentId == null ? null : this.identifier(body.enrollmentId, "enrollmentId");
+    const reason = body?.reason;
+    if (!["WITHDRAWAL", "TRANSFER_OUT", "ELIGIBLE_SERVICE_CANCELLATION"].includes(reason)) throw validation("reason", "Lý do eligibility không hợp lệ.");
+    const effectiveOn = this.date(body?.effectiveOn, "effectiveOn")!;
+    if (reason === "WITHDRAWAL" && !enrollmentId) throw validation("enrollmentId", "Withdrawal phải tham chiếu enrollment.");
+    if (reason !== "WITHDRAWAL" && enrollmentId) throw validation("enrollmentId", "Chỉ withdrawal được tham chiếu enrollment.");
+    return this.mutate(actor, identityId, schoolId, routes.coverageRefundEligibility, key, operationId, { studentId, enrollmentId, reason, effectiveOn: effectiveOn.toISOString() }, async (tx, operation) => {
+      const student = await tx.student.findFirst({ where: { id: studentId, schoolId } });
+      if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
+      if (enrollmentId) {
+        const enrollment = await tx.studentEnrollment.findFirst({ where: { id: enrollmentId, schoolId, studentId } });
+        if (!enrollment || enrollment.lifecycle !== "WITHDRAWN" || !enrollment.endedOn || enrollment.endedOn.getTime() !== effectiveOn.getTime()) throw new ConflictException({ code: "WITHDRAWAL_ELIGIBILITY_INVALID", message: "Enrollment withdrawal không khớp evidence hiệu lực." });
+      }
+      const evidence = await tx.coverageRefundEligibility.create({ data: { schoolId, studentId, enrollmentId, reason, effectiveOn, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation } });
+      const outcome = { id: evidence.id, studentId, enrollmentId, reason, effectiveOn: effectiveOn.toISOString().slice(0, 10) };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REFUND_ELIGIBILITY_RECORDED", operation, null, outcome);
+      return outcome;
+    });
+  }
+  private async coveragePreview(tx: any, schoolId: string, coverageId: string, requestedEffectiveOn: Date) {
     const coverage = await tx.studentPromotionalCoverage.findFirst({ where: { id: coverageId, schoolId }, include: { sourceInvoice: { select: { id: true, studentId: true, schoolYearId: true, status: true, studentNameSnapshot: true, reversalModeSnapshot: true } }, sourceReceipt: true } });
     if (!coverage) throw new NotFoundException({ code: "COVERAGE_NOT_FOUND", message: "Không tìm thấy coverage đã phát hành." });
     if (!coverage.sourceInvoice || !["CLOSED", "CANCELLED"].includes(coverage.sourceInvoice.status) || !coverage.sourceReceipt || coverage.sourceReceipt.invoiceId !== coverage.sourceInvoiceId || coverage.sourceReceipt.studentId !== coverage.studentId || coverage.sourceReceipt.schoolYearId !== coverage.schoolYearId || coverage.sourceInvoice.studentId !== coverage.studentId || coverage.sourceInvoice.schoolYearId !== coverage.schoolYearId || coverage.sourceReceipt.outcome !== "EXACT") throw new ConflictException({ code: "COVERAGE_SOURCE_INVALID", message: "Provenance thanh toán coverage không còn hợp lệ." });
     if (coverage.timezone !== "Asia/Ho_Chi_Minh") throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Snapshot coverage không dùng timezone được hỗ trợ." });
+    const eligibility = await tx.coverageRefundEligibility.findFirst({ where: { schoolId, studentId: coverage.studentId, effectiveOn: requestedEffectiveOn } });
+    if (!eligibility) throw new ConflictException({ code: "COVERAGE_REFUND_ELIGIBILITY_REQUIRED", message: "Cần evidence eligibility hoàn coverage bất biến do máy chủ xác nhận." });
+    const effectiveOn = eligibility.effectiveOn;
     const calendar = await tx.schoolCalendarVersion.findFirst({ where: { schoolId, effectiveFrom: coverage.calendarEffectiveFrom }, include: { holidays: true } });
     if (!calendar) throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Không tìm thấy snapshot lịch của coverage." });
     const operatingDays = (start: Date, end: Date) => {
@@ -472,7 +506,7 @@ export class FinanceService {
     const available = paidAmount - (prior._sum.amount ?? 0n);
     const calculatedAmount = (paidAmount * BigInt(remainingDays)) / BigInt(denominator);
     if (remainingDays <= 0 || calculatedAmount <= 0n) throw new ConflictException({ code: "COVERAGE_NOT_REFUNDABLE", message: "Coverage không còn ngày vận hành để hoàn." });
-    return { coverage, denominator, remainingDays, calculatedAmount, available: available < 0n ? 0n : available, paidAmount };
+    return { coverage, eligibility, effectiveOn, denominator, remainingDays, calculatedAmount, available: available < 0n ? 0n : available, paidAmount };
   }
   async previewCoverageReversal(identityId: string, schoolId: string, body: any) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
@@ -480,7 +514,7 @@ export class FinanceService {
     return this.prisma.$transaction(async (tx) => {
       await this.transactionActor(tx, schoolId, identityId, (await this.actor(identityId, schoolId)).membershipId);
       const result = await this.coveragePreview(tx, schoolId, coverageId, effectiveOn);
-      return { coverageId, effectiveOn: effectiveOn.toISOString().slice(0, 10), denominator: result.denominator, remainingDays: result.remainingDays, calculatedAmount: result.calculatedAmount.toString(), availableAmount: result.available.toString(), source: { studentName: result.coverage.sourceInvoice.studentNameSnapshot, reversalMode: result.coverage.sourceInvoice.reversalModeSnapshot, invoiceId: result.coverage.sourceInvoiceId, receiptId: result.coverage.sourceReceiptId, serviceStart: result.coverage.serviceStart.toISOString().slice(0, 10), serviceEnd: result.coverage.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: result.coverage.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: result.coverage.timezone } };
+      return { coverageId, effectiveOn: result.effectiveOn.toISOString().slice(0, 10), denominator: result.denominator, remainingDays: result.remainingDays, calculatedAmount: result.calculatedAmount.toString(), availableAmount: result.available.toString(), source: { studentName: result.coverage.sourceInvoice.studentNameSnapshot, reversalMode: result.coverage.sourceInvoice.reversalModeSnapshot, invoiceId: result.coverage.sourceInvoiceId, receiptId: result.coverage.sourceReceiptId, serviceStart: result.coverage.serviceStart.toISOString().slice(0, 10), serviceEnd: result.coverage.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: result.coverage.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: result.coverage.timezone, eligibility: { id: result.eligibility.id, reason: result.eligibility.reason, effectiveOn: result.effectiveOn.toISOString().slice(0, 10) } } };
     });
   }
   async coverageReversalRequests(identityId: string, schoolId: string) {
@@ -505,12 +539,12 @@ export class FinanceService {
       if (!invoice?.reversalModeSnapshot) throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Không có snapshot chính sách reversal." });
       if (invoice.reversalModeSnapshot === "DIRECT") {
         if (confirmation !== preview.coverage.sourceInvoice.studentNameSnapshot) throw validation("confirmation", "Cần xác nhận đúng tên học sinh từ dữ liệu máy chủ.");
-        const reversal = await tx.coverageReversal.create({ data: { schoolId, coverageId, amount, calculatedAmount: preview.calculatedAmount, overrideReason: override !== null && override !== preview.calculatedAmount ? reason : null, effectiveOn, reason } });
-        await this.ledger(tx, invoice, "COVERAGE_REVERSAL_POSTED", -amount, { coverageReversalId: reversal.id, coverageId, effectiveOn: effectiveOn.toISOString(), calculatedAmount: preview.calculatedAmount.toString(), reason }, reversal.postedAt);
+        const reversal = await tx.coverageReversal.create({ data: { schoolId, coverageId, amount, calculatedAmount: preview.calculatedAmount, overrideReason: override !== null && override !== preview.calculatedAmount ? reason : null, effectiveOn: preview.effectiveOn, reason } });
+        await this.ledger(tx, invoice, "COVERAGE_REVERSAL_POSTED", -amount, { coverageReversalId: reversal.id, coverageId, eligibilityId: preview.eligibility.id, effectiveOn: preview.effectiveOn.toISOString(), calculatedAmount: preview.calculatedAmount.toString(), reason }, reversal.postedAt);
         await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_POSTED", operation, null, { id: reversal.id, coverageId, calculatedAmount: preview.calculatedAmount.toString(), approvedAmount: amount.toString(), status: "POSTED" }, reason);
         return { status: "POSTED", id: reversal.id, amount: amount.toString() };
       }
-      const request = await tx.coverageReversalRequest.create({ data: { schoolId, coverageId, amount, calculatedAmount: preview.calculatedAmount, overrideReason: override !== null && override !== preview.calculatedAmount ? reason : null, effectiveOn, reason, policyMode: "SCHOOL_ADMIN_APPROVAL", requestedByMembershipId: actor.membershipId } });
+      const request = await tx.coverageReversalRequest.create({ data: { schoolId, coverageId, amount, calculatedAmount: preview.calculatedAmount, overrideReason: override !== null && override !== preview.calculatedAmount ? reason : null, effectiveOn: preview.effectiveOn, reason, policyMode: "SCHOOL_ADMIN_APPROVAL", requestedByMembershipId: actor.membershipId } });
       await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_REQUESTED", operation, null, { id: request.id, coverageId, calculatedAmount: preview.calculatedAmount.toString(), approvedAmount: amount.toString(), status: "PENDING" }, reason);
       return { status: "PENDING", id: request.id, amount: amount.toString() };
     });
@@ -2027,9 +2061,10 @@ export class FinanceService {
     const invoiceIds = new Map(inserted.map((invoice) => [invoice.studentId, invoice.id]));
     const lines = invoices.flatMap((invoice) => (invoiceIds.get(invoice.studentId) ? invoice.lines.map((line: any) => ({ ...line, invoiceId: invoiceIds.get(invoice.studentId) })) : []));
     if (lines.length) await tx.invoiceLine.createMany({ data: lines });
+    const selectedForCoverage = new Set((await tx.collectionRunCoverageSelection.findMany({ where: { schoolId: invoices[0]!.schoolId, collectionRunId: invoices[0]!.collectionRunId, studentId: { in: inserted.map((invoice) => invoice.studentId) } }, select: { studentId: true } })).map((selection: { studentId: string }) => selection.studentId));
     for (const invoice of inserted) {
       const target = invoices.find((candidate) => candidate.studentId === invoice.studentId)!;
-      await this.snapshotCoverageFacts(tx, target.schoolId, invoice.id, target);
+      if (selectedForCoverage.has(invoice.studentId)) await this.snapshotCoverageFacts(tx, target.schoolId, invoice.id, target);
       await this.materializeCarries(tx, target.schoolId, invoice.id, target.studentId, target.schoolYearId, target.billingMonth);
     }
     return new Set(inserted.map((invoice: { studentId: string }) => invoice.studentId));
@@ -2050,6 +2085,7 @@ export class FinanceService {
       where: { schoolId, studentId, schoolYearId, invoice: { collectionRun: { type: "MONTHLY", billingMonth: { lt: billingMonth } } } },
       include: { carries: true, invoice: { select: { billingMonth: true } } }, orderBy: { createdAt: "asc" },
     });
+    if (!differences.length) return;
     let target = await tx.invoice.findFirstOrThrow({ where: { id: invoiceId, schoolId } });
     for (const difference of differences) {
       const eligible = await tx.invoice.findFirst({
@@ -2071,13 +2107,13 @@ export class FinanceService {
         WHERE "schoolId" = ${schoolId}::uuid AND "settlementDifferenceId" = ${difference.id}::uuid
       `;
       const applied = appliedRows[0]!.amount;
-      const remaining = (difference.signedAmount < 0n ? -difference.signedAmount : difference.signedAmount) - applied;
+       const remaining = (difference.signedAmount < 0n ? -difference.signedAmount : difference.signedAmount) - applied;
       if (remaining <= 0n) continue;
-      const isShortfall = difference.signedAmount < 0n;
+       const isShortfall = difference.signedAmount > 0n;
       const amount = isShortfall ? remaining : (remaining > target.total ? target.total : remaining);
       if (amount <= 0n) continue;
-       await tx.settlementCarry.create({ data: { schoolId, studentId, schoolYearId, settlementDifferenceId: difference.id, invoiceId, type: isShortfall ? "SHORTFALL_CARRY" : "OVERPAYMENT_CARRY", amount } });
-        await this.ledger(tx, target, "SETTLEMENT_CARRY_POSTED", amount, { settlementDifferenceId: difference.id, settlementCarryId: `${difference.id}:${invoiceId}`, type: isShortfall ? "SHORTFALL_CARRY" : "OVERPAYMENT_CARRY", statusSnapshot: "DRAFT" });
+       const carry = await tx.settlementCarry.create({ data: { schoolId, studentId, schoolYearId, settlementDifferenceId: difference.id, invoiceId, type: isShortfall ? "SHORTFALL_CARRY" : "OVERPAYMENT_CARRY", amount } });
+         await this.ledger(tx, target, "SETTLEMENT_CARRY_POSTED", amount, { settlementDifferenceId: difference.id, settlementCarryId: carry.id, type: isShortfall ? "SHORTFALL_CARRY" : "OVERPAYMENT_CARRY", statusSnapshot: "DRAFT" });
       target = await tx.invoice.findFirstOrThrow({ where: { id: invoiceId, schoolId } });
     }
   }

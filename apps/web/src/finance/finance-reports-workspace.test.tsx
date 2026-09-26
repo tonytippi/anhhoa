@@ -73,6 +73,29 @@ describe("FinanceReportsWorkspace", () => {
     await waitFor(() => expect(deniedExport).toHaveBeenCalledTimes(1));
   });
 
+  it("sends editable server filters, supports keyboard tabs, and preserves the report on an unavailable export", async () => {
+    const fetch = vi.fn((_: string, options?: RequestInit) =>
+      Promise.resolve(
+        options?.method === "POST"
+          ? response({}, 409)
+          : response(report({ filters: { schoolYearId: null, billingMonth: "2026-09", runId: null, className: "Lá 1", groupName: "Học phí", status: "ISSUED" } })),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceReportsWorkspace {...props()} />);
+    await screen.findByRole("button", { name: "Tải CSV từ máy chủ" });
+    fireEvent.change(screen.getByLabelText("Nhóm khoản thu"), { target: { value: "Học phí" } });
+    fireEvent.change(screen.getByLabelText("Lớp"), { target: { value: "Lá 1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cập nhật báo cáo" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/app/schools/school-a/finance/reports/overview?className=L%C3%A1+1&groupName=H%E1%BB%8Dc+ph%C3%AD", { credentials: "include" }));
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Tổng quan Finance" }), { key: "ArrowRight" });
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Đối soát đợt thu" })).toHaveProperty("tabIndex", 0));
+    fireEvent.click(await screen.findByRole("button", { name: "Tải CSV từ máy chủ" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("không còn cho phép xuất");
+    expect(screen.getByText(/Chốt tại 2026-09-25T10:30:00/)).toBeTruthy();
+    expect(screen.getByText("Cash, carry, debt, coverage và hoàn theo cả hóa đơn chưa được phân bổ vào nhóm.")).toBeTruthy();
+  });
+
   it("clears the prior School report while the replacement School request is pending", async () => {
     let resolveSchoolB!: (value: Response) => void;
     const fetch = vi.fn((url: string) => String(url).includes("school-b") ? new Promise<Response>((resolve) => { resolveSchoolB = resolve; }) : Promise.resolve(response(report({ rows: [{ id: "old", postedAt: "old-entry", type: "RECEIPT", billingMonth: null, amount: "1" }] }))));

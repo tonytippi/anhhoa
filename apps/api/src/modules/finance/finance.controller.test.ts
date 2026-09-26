@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
+  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageRefundEligibility: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
   it('forwards report filters and streams only server-authorized CSV bytes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     finance.report.mockResolvedValue({ workspace: 'overview' }); finance.requestReportExport.mockResolvedValue({ exportId: 'export' }); finance.downloadReportExport.mockResolvedValue({ csv: Buffer.from('a'), workspace: 'overview' });
@@ -143,6 +143,15 @@ describe('FinanceController mutation boundary', () => {
     await expect(controller.decideCoverageReversal(request(valid), 'school', 'request', 'key', 'operation', { decision: 'APPROVE', reason: 'Đủ điều kiện' })).resolves.toEqual({ data: { id: 'posted' } });
     expect(finance.createCoverageReversal).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', body);
     expect(finance.decideCoverageReversal).toHaveBeenCalledWith('actor-id', 'school', 'request', 'key', 'operation', { decision: 'APPROVE', reason: 'Đủ điều kiện' });
+  });
+  it('requires browser mutation proof for immutable coverage refund eligibility evidence', async () => {
+    const controller = new FinanceController(auth as never, finance as never); const body = { studentId: 'student', reason: 'TRANSFER_OUT', effectiveOn: '2026-10-10' };
+    finance.createCoverageRefundEligibility.mockResolvedValue({ id: 'evidence' });
+    await expect(controller.createCoverageRefundEligibility(request(valid), 'school', 'key', 'operation', body)).resolves.toEqual({ data: { id: 'evidence' } });
+    expect(finance.createCoverageRefundEligibility).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', body);
+    finance.createCoverageRefundEligibility.mockClear();
+    await expect(controller.createCoverageRefundEligibility(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', body)).rejects.toMatchObject({ status: 401 });
+    expect(finance.createCoverageRefundEligibility).not.toHaveBeenCalled();
   });
   it('rejects receipt close without origin and CSRF proof before reaching Finance', async () => {
     const controller = new FinanceController(auth as never, finance as never); finance.closeInvoice.mockClear();

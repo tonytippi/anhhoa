@@ -244,6 +244,9 @@ async function coverageFixture(reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL" 
   const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng Ánh Hoa", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: bank.id, status: "ACTIVE", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId, sequence: 1 } });
   await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode, actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+  const eligibilityOperationId = uuid();
+  await prisma.operation.create({ data: { id: eligibilityOperationId, schoolId: current.school.id, membershipId: current.membership.id, actorIdentityId: current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: current.membership.id, route: "fixture-eligibility", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
+  await prisma.coverageRefundEligibility.create({ data: { schoolId: current.school.id, studentId: student.student.id, reason: "ELIGIBLE_SERVICE_CANCELLATION", effectiveOn: date("2026-10-01"), actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId: eligibilityOperationId } });
   return { current, student, versionId, coveredReceivableId, otherReceivableId, runId, invoice, bank };
 }
 
@@ -276,6 +279,7 @@ afterEach(async () => {
     await tx.issuedPromotionApplication.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.coverageReversal.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.coverageReversalRequest.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.coverageRefundEligibility.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.debtTransfer.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.settlementTransfer.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.studentPromotionalCoverage.deleteMany({ where: { schoolId: { in: ids } } });
@@ -2330,14 +2334,15 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const shortfall = await issueFixture();
       await finance.issueInvoice(shortfall.current.identity.id, shortfall.current.school.id, shortfall.invoice.id, uuid(), uuid(), { bankAccountId: shortfall.bank.id });
       const shortfallResult = await finance.closeInvoice(shortfall.current.identity.id, shortfall.current.school.id, shortfall.invoice.id, uuid(), uuid(), { actualAmount: "9007199254740981" });
-      expect(shortfallResult.outcome).toMatchObject({ status: "CLOSED", receipt: { outcome: "SHORTFALL", difference: { signedAmount: "-10" } } });
+       expect(shortfallResult.outcome).toMatchObject({ status: "CLOSED", receipt: { outcome: "SHORTFALL", difference: { signedAmount: "10" } } });
       const nextRunId = outcomeId(await open(shortfall.current, "2026-10"));
       await finance.replaceSelection(shortfall.current.identity.id, shortfall.current.school.id, nextRunId, uuid(), uuid(), { studentIds: [shortfall.student.student.id] });
       const nextPreview = await finance.preview(shortfall.current.identity.id, shortfall.current.school.id, nextRunId);
       await finance.readyRun(shortfall.current.identity.id, shortfall.current.school.id, nextRunId, uuid(), uuid(), { previewFingerprint: nextPreview.fingerprint });
       await generate(shortfall.current, nextRunId);
-      const carried = await prisma.invoice.findFirstOrThrow({ where: { schoolId: shortfall.current.school.id, collectionRunId: nextRunId, studentId: shortfall.student.student.id }, include: { settlementCarries: true } });
-      expect(carried).toMatchObject({ status: "DRAFT", total: 11n, settlementCarries: [expect.objectContaining({ type: "SHORTFALL_CARRY", amount: 10n })] });
+       const carried = await prisma.invoice.findFirstOrThrow({ where: { schoolId: shortfall.current.school.id, collectionRunId: nextRunId, studentId: shortfall.student.student.id }, include: { settlementCarries: true } });
+       expect(carried).toMatchObject({ status: "DRAFT", total: 11n, settlementCarries: [expect.objectContaining({ type: "SHORTFALL_CARRY", amount: 10n })] });
+       expect(await prisma.financeLedgerEvent.findFirstOrThrow({ where: { schoolId: shortfall.current.school.id, invoiceId: carried.id, type: "SETTLEMENT_CARRY_POSTED" } })).toMatchObject({ provenance: { settlementCarryId: carried.settlementCarries[0]!.id } });
       await expect(prisma.settlementCarry.update({ where: { id: carried.settlementCarries[0]!.id }, data: { amount: 1n } })).rejects.toThrow(/immutable/);
 
       const concurrent = await issueFixture("100");
@@ -2352,7 +2357,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const overpayment = await issueFixture("100");
       await finance.issueInvoice(overpayment.current.identity.id, overpayment.current.school.id, overpayment.invoice.id, uuid(), uuid(), { bankAccountId: overpayment.bank.id });
       const overpaymentResult = await finance.closeInvoice(overpayment.current.identity.id, overpayment.current.school.id, overpayment.invoice.id, uuid(), uuid(), { actualAmount: "101" });
-      expect(overpaymentResult.outcome).toMatchObject({ receipt: { outcome: "OVERPAYMENT", difference: { signedAmount: "1" } } });
+       expect(overpaymentResult.outcome).toMatchObject({ receipt: { outcome: "OVERPAYMENT", difference: { signedAmount: "-1" } } });
     });
 
     it("snapshots selected prepaid coverage facts with immutable future provenance before the DRAFT Invoice is exposed", async () => {
@@ -2443,12 +2448,15 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("calculates reversal only from the coverage calendar snapshot with excluded effective day and floor VND", async () => {
       const fixture = await coverageFixture();
+      const eligibilityOperationId = uuid();
+      await prisma.operation.create({ data: { id: eligibilityOperationId, schoolId: fixture.current.school.id, membershipId: fixture.current.membership.id, actorIdentityId: fixture.current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: fixture.current.membership.id, route: "fixture-eligibility-calendar", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
+      await prisma.coverageRefundEligibility.create({ data: { schoolId: fixture.current.school.id, studentId: fixture.student.student.id, reason: "TRANSFER_OUT", effectiveOn: date("2026-10-10"), actorIdentityId: fixture.current.identity.id, membershipId: fixture.current.membership.id, operationId: eligibilityOperationId } });
       await prisma.schoolCalendarHoliday.create({ data: { schoolId: fixture.current.school.id, calendarVersionId: (await prisma.schoolCalendarVersion.findFirstOrThrow({ where: { schoolId: fixture.current.school.id } })).id, name: "Nghỉ", startsOn: date("2026-10-05"), endsOn: date("2026-10-05") } });
       const coverage = await closeCoverage(fixture);
       const preview = await finance.previewCoverageReversal(fixture.current.identity.id, fixture.current.school.id, { coverageId: coverage.id, effectiveOn: "2026-10-10" });
-      expect(preview).toMatchObject({ denominator: 26, remainingDays: 18, calculatedAmount: "62", availableAmount: "90", source: { invoiceId: fixture.invoice.id, receiptId: coverage.sourceReceiptId, timezone: "Asia/Ho_Chi_Minh" } });
+       expect(preview).toMatchObject({ denominator: 26, remainingDays: 18, calculatedAmount: "62", availableAmount: "90", source: { invoiceId: fixture.invoice.id, receiptId: coverage.sourceReceiptId, timezone: "Asia/Ho_Chi_Minh", eligibility: { reason: "TRANSFER_OUT", effectiveOn: "2026-10-10" } } });
       await prisma.$transaction(async (tx) => { await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica"); await tx.studentPromotionalCoverage.update({ where: { id: coverage.id }, data: { serviceStart: date("2026-10-04"), serviceEnd: date("2026-10-05") } }); });
-      await expect(finance.previewCoverageReversal(fixture.current.identity.id, fixture.current.school.id, { coverageId: coverage.id, effectiveOn: "2026-10-04" })).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_DENOMINATOR_INVALID" } });
+       await expect(finance.previewCoverageReversal(fixture.current.identity.id, fixture.current.school.id, { coverageId: coverage.id, effectiveOn: "2026-10-04" })).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_REFUND_ELIGIBILITY_REQUIRED" } });
     });
 
     it("caps direct reversal under replay and concurrent posts", async () => {
@@ -2535,9 +2543,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Không được sửa nguồn debt" })).rejects.toMatchObject({ status: 409, response: { code: "DEBT_TRANSFER_REVISION_FORBIDDEN" } });
       await expect(finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, target.id, uuid(), uuid(), { reason: "Không được sửa đích debt" })).rejects.toMatchObject({ status: 409, response: { code: "DEBT_TRANSFER_REVISION_FORBIDDEN" } });
       await finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { actualAmount: "19" });
-      expect(await prisma.settlementDifference.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } })).toMatchObject({ signedAmount: -1n });
+       expect(await prisma.settlementDifference.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } })).toMatchObject({ signedAmount: 1n });
       await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, target.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
-      await expect(finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, target.id, uuid(), uuid(), { actualAmount: "82" })).resolves.toMatchObject({ outcome: { receipt: { outcome: "OVERPAYMENT", difference: { signedAmount: "1" } } } });
+       await expect(finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, target.id, uuid(), uuid(), { actualAmount: "82" })).resolves.toMatchObject({ outcome: { receipt: { outcome: "OVERPAYMENT", difference: { signedAmount: "-1" } } } });
       await expect(prisma.debtTransfer.update({ where: { id: debt.id }, data: { amount: 1n } })).rejects.toThrow(/append-only/);
     });
     it("rejects foreign debt targets without creating provenance or changing source outstanding", async () => {
@@ -2630,6 +2638,23 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(finance.report(foreign.identity.id, fixture.current.school.id, "overview", {})).rejects.toMatchObject({ status: 404 });
       await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "FINANCE_MANAGE" } });
       await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", {})).rejects.toMatchObject({ status: 403 });
+    });
+    it("projects only matching immutable invoice lines for a group and marks whole-invoice cash unallocated", async () => {
+      const fixture = await issueFixture("100");
+      const primary = await prisma.receivable.findFirstOrThrow({ where: { id: fixture.receivableId, schoolId: fixture.current.school.id }, include: { group: true } });
+      const secondaryGroupId = outcomeId(await group(fixture.current, "Nhóm phụ"));
+      const secondaryReceivableId = outcomeId(await finance.createReceivable(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { groupId: secondaryGroupId, displayName: "Khoản phụ", unitLabel: "lần", defaultUnitPrice: "50" }));
+      await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { receivableId: secondaryReceivableId, quantity: "1" });
+      await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      await finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { actualAmount: "150" });
+
+      const overview = await finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", { groupName: primary.group.name });
+      expect(overview).toMatchObject({ filters: { groupName: primary.group.name }, summary: { gross: "100", netBilled: "100", actualReceipt: "0" } });
+      expect(overview.rows).toEqual([expect.objectContaining({ grossAmount: "100", netAmount: "100" })]);
+
+      const cash = await finance.report(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", { groupName: primary.group.name });
+      expect(cash.summary.actualReceipt).toBe("0");
+      expect(cash.rows).toEqual(expect.arrayContaining([expect.objectContaining({ type: "RECEIPT_POSTED", amount: "150", provenance: expect.objectContaining({ groupAllocation: "UNALLOCATED_WHOLE_INVOICE_EVENT" }) })]));
     });
   },
 );

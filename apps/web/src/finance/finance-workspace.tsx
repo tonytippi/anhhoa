@@ -73,7 +73,7 @@ type Source = { serviceDate: string | null; attendanceState: "PRESENT" | "ABSENT
 type BankAccount = { id: string; receivingBank: string; accountNumber: string; accountHolderName: string };
 type Invoice = { id: string; status: string; total: string; sourceOutstanding?: string | null; billingMonth: string; revisesInvoiceId: string | null; revisionReason: string | null; replacementInvoiceId: string | null; receipt: { actualAmount: string; outcome: "EXACT" | "SHORTFALL" | "OVERPAYMENT"; postedAt: string; difference: { signedAmount: string } | null } | null; settlementTransfer: { sourceInvoiceId: string; sourceReceiptId: string; amount: string; postedAt: string } | null; sourceDebtTransfers?: Array<{ targetInvoiceId: string; amount: string; reason: string; postedAt: string }>; priorDebtTransfers?: Array<{ sourceInvoiceId: string; amount: string; reason: string; postedAt: string }>; carries: Array<{ type: "SHORTFALL_CARRY" | "OVERPAYMENT_CARRY"; amount: string; sourceDifferenceId: string }>; coverageFacts?: Array<{ coverageId: string | null; receivableId: string; billingMonth: string; policyId: string; versionId: string; originalPrice: string; reduction: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string; issuedAt: string | null }>; student: { code: string; name: string; className: string }; lines: Array<{ id: string; kind?: "NORMAL" | "PRIOR_DEBT"; receivableId: string | null; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; grossAmount: string; discountAmount: string; netAmount: string; promotionEvaluation: { applications: Array<{ assignmentReason: string; appliedDiscount: string }> } | null; promotionApplicationSnapshot: Array<{ assignmentReason: string; appliedDiscount: string }> | null; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
 type Pending = { id: string; schoolId: string };
-type CoverageReversalPreview = { coverageId: string; effectiveOn: string; denominator: number; remainingDays: number; calculatedAmount: string; availableAmount: string; source: { studentName: string; reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL"; invoiceId: string; receiptId: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string } };
+type CoverageReversalPreview = { coverageId: string; effectiveOn: string; denominator: number; remainingDays: number; calculatedAmount: string; availableAmount: string; source: { studentName: string; reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL"; invoiceId: string; receiptId: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string; eligibility: { id: string; reason: string; effectiveOn: string } } };
 type CoverageReversalRequest = { id: string; coverageId: string; studentName: string; amount: string; effectiveOn: string; reason: string; canDecide: boolean };
 type GenerationProgress = {
   status: "QUEUED" | "RUNNING" | "PAUSED" | "FAILED" | "COMPLETED";
@@ -620,6 +620,7 @@ export function FinanceWorkspace({
     const runId = run.id;
     const token = ++request.current;
     setMessage("");
+    setPreview(undefined);
     try {
       const next = await get<Preview>(
         `/api/app/schools/${schoolId}/finance/collection-runs/${runId}/preview`,
@@ -632,8 +633,10 @@ export function FinanceWorkspace({
       )
         setPreview(next);
     } catch {
-      if (activeSchool.current === schoolId && token === request.current)
+      if (activeSchool.current === schoolId && token === request.current) {
+        setPreview(undefined);
         setMessage("Không thể tạo bản xem trước.");
+      }
     }
   };
   const ready = async () => {
@@ -807,15 +810,17 @@ export function FinanceWorkspace({
   const previewCoverageReversal = async () => {
     if (!coverageReversal.coverageId || !coverageReversal.effectiveOn) return;
     const token = ++request.current;
+    setCoverageReversalPreview(undefined);
     try {
       const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/coverage-reversals/preview`, { method: "POST", credentials: "include", headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? "") }, body: JSON.stringify({ coverageId: coverageReversal.coverageId, effectiveOn: coverageReversal.effectiveOn }) });
+      if ([401, 403].includes(response.status)) { denied(); return; }
       if (!response.ok) throw new Error(); const next = ((await response.json()) as { data: CoverageReversalPreview }).data;
        if (activeSchool.current === schoolId && token === request.current) setCoverageReversalPreview(next);
-    } catch { setMessage("Không thể tải preview hoàn coverage từ máy chủ."); }
+    } catch { if (activeSchool.current === schoolId && token === request.current) { setCoverageReversalPreview(undefined); setMessage("Không thể tải preview hoàn coverage từ máy chủ."); } }
   };
   const postCoverageReversal = async () => {
     if (!coverageReversalPreview) return;
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/coverage-reversals`, "POST", { ...coverageReversal, amount: coverageReversal.amount || null }, "invoice");
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/coverage-reversals`, "POST", { ...coverageReversal, effectiveOn: coverageReversalPreview.effectiveOn, amount: coverageReversal.amount || null }, "invoice");
     if (outcome) { setMessage(coverageReversalPreview.source.reversalMode === "DIRECT" ? "Máy chủ đã ghi nhận hoàn/reverse coverage." : "Yêu cầu hoàn coverage đã được gửi chờ School Admin duyệt."); setCoverageReversal({ coverageId: "", effectiveOn: "", reason: "", amount: "", confirmation: "" }); setCoverageReversalPreview(undefined); await load(); }
   };
   const decideCoverageReversal = async () => {
