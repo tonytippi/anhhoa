@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-26 # Epic 6 remediation and Finance release gate are complete.
+last_updated: 2026-09-26 # Approved Finance daily-work UX remediation is scheduled.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -51,7 +51,7 @@ development_status:
   4-10-teacher-portal-queue-va-release-gate-van-hanh-lop: done
   epic-4-retrospective: optional
 
-  epic-5: done
+  epic-5: in-progress
   5-1-quan-ly-receivable-catalog-theo-school: done
   5-2-tao-collectionrun-chon-student-va-server-authoritative-preview: done
   5-3-generate-invoice-draft-rong-idempotent-theo-snapshot-roster: done
@@ -67,15 +67,19 @@ development_status:
   5-13-preview-va-generate-uu-dai-authoritative: done
   5-14-recheck-issue-va-snapshot-uu-dai-bat-bien: done
   5-15-release-gate-uu-dai-theo-khoan-thu-pha-1b: done
+  5-16-finance-table-first-catalog-va-giam-tru: review
+  5-17-dot-thu-table-first-va-ra-soat-draft-tuan-tu: backlog
   epic-5-retrospective: optional
 
-  epic-6: done
+  epic-6: in-progress
   6-1-ghi-actual-receipt-dong-invoice-va-carry-chenh-lech: done
   6-2-dong-exact-invoice-co-promotion-coverage: done
   6-3-correction-va-hoan-tien-promotion-coverage-theo-operating-day-preview: done
   6-4-chuyen-prior-debt-va-year-end-settlement-an-toan: done
   6-5-bao-cao-finance-reconcile-tu-ledger: done
   6-6-release-gate-cho-actual-receipt-carry-va-promotion-coverage-refund: done
+  6-7-hang-doi-thu-tien-va-settlement-tuan-tu: backlog
+  6-8-release-gate-ux-finance-hang-ngay: backlog
   epic-6-retrospective: optional
 
   epic-7: backlog

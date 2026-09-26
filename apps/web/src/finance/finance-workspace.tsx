@@ -181,6 +181,14 @@ export function FinanceWorkspace({
     defaultUnitPrice: "",
   });
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
+  const [catalogDialog, setCatalogDialog] = useState<"group" | "receivable">();
+  const [promotionDialog, setPromotionDialog] = useState<"policy" | "assignment">();
+  const [promotionTransition, setPromotionTransition] = useState<{
+    id: string;
+    name: string;
+    action: "activate" | "retire";
+  }>();
+  const [rowMenu, setRowMenu] = useState<string>();
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle" | "promotion">(
@@ -202,6 +210,13 @@ export function FinanceWorkspace({
   const closeTrigger = useRef<HTMLButtonElement>(null);
   const coverageDecisionDialog = useRef<HTMLDivElement>(null);
   const coverageDecisionTrigger = useRef<HTMLButtonElement>(null);
+  const dialogTrigger = useRef<HTMLButtonElement | null>(null);
+  const catalogDialogRef = useRef<HTMLDivElement>(null);
+  const promotionDialogRef = useRef<HTMLDivElement>(null);
+  const lifecycleDialog = useRef<HTMLDivElement>(null);
+  const rowMenuTrigger = useRef<HTMLButtonElement>(null);
+  const rowMenuElement = useRef<HTMLDivElement>(null);
+  const rowMenuKeyboardOpen = useRef(false);
   const closedHeading = useRef<HTMLHeadingElement>(null);
   const status = useRef(onStatusChange);
   const submitting = useRef(false);
@@ -210,6 +225,10 @@ export function FinanceWorkspace({
   const promotionPolicies = promotionData.schoolId === schoolId ? promotionData.policies : [];
   const promotionStudents = promotionData.schoolId === schoolId ? promotionData.students : [];
   const activeAssignment = (item: PromotionPolicy["versions"][number]["assignments"][number]) => item.isCurrent;
+  const promotionVersions = promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => ({ policy, version })));
+  const currentAssignments = promotionVersions.flatMap(({ policy, version }) => (version.assignments ?? []).filter(activeAssignment).map((item) => ({ policy, version, item })));
+  const resetReceivable = () => setReceivable({ groupId: "", code: "", displayName: "", unitLabel: "", defaultUnitPrice: "" });
+  const resetPromotion = () => setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "", effectiveTo: "" });
 
   const get = async <T,>(path: string, mutation = false) => {
     const response = await fetch(`${apiUrl}${path}`, {
@@ -390,6 +409,10 @@ export function FinanceWorkspace({
       defaultUnitPrice: "",
     });
     setLifecycle(undefined);
+    setCatalogDialog(undefined);
+    setPromotionDialog(undefined);
+    setPromotionTransition(undefined);
+    setRowMenu(undefined);
     setErrors({});
     setMessage("");
     setGenerationProgress(undefined);
@@ -476,9 +499,87 @@ export function FinanceWorkspace({
     if (coverageDecision) coverageDecisionDialog.current?.querySelector<HTMLElement>("textarea")?.focus();
     else coverageDecisionTrigger.current?.focus();
   }, [coverageDecision]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (run?.status === "CLOSED" && !closeConfirmation) closedHeading.current?.focus();
   }, [run?.status, closeConfirmation]);
+  useEffect(() => {
+    if (rowMenu && rowMenuKeyboardOpen.current)
+      rowMenuElement.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    rowMenuKeyboardOpen.current = false;
+  }, [rowMenu]);
+  useEffect(() => {
+    const dialog = catalogDialog ? catalogDialogRef.current : promotionDialog ? promotionDialogRef.current : undefined;
+    dialog?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])")?.focus();
+  }, [catalogDialog, promotionDialog]);
+  useEffect(() => {
+    if (promotionTransition)
+      document.querySelector<HTMLElement>("#finance-promotion-transition-confirm")?.focus();
+  }, [promotionTransition]);
+  const trapDialogFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>("input, select, textarea, button")]
+      .filter((item) => !item.hasAttribute("disabled"));
+    const first = items[0], last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  const closeManagedDialog = (close: () => void) => {
+    close();
+    if (dialogTrigger.current?.isConnected) dialogTrigger.current.focus();
+    else rowMenuTrigger.current?.focus();
+    dialogTrigger.current = null;
+  };
+  const openManagedDialog = (
+    trigger: HTMLButtonElement,
+    open: () => void,
+  ) => {
+    dialogTrigger.current = trigger;
+    open();
+  };
+  const closeNewDialog = (close: () => void, reset: () => void) => {
+    if (pending) return;
+    setErrors({});
+    reset();
+    closeManagedDialog(close);
+  };
+  const handleManagedDialogKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    close: () => void,
+    reset: () => void = () => {},
+  ) => {
+    if (event.key === "Escape" && !pending) {
+      event.preventDefault();
+      closeNewDialog(close, reset);
+      return;
+    }
+    trapDialogFocus(event);
+  };
+  const handleRowMenuTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>, id: string) => {
+    if (event.key === "Escape" && rowMenu === id) {
+      event.preventDefault();
+      setRowMenu(undefined);
+      return;
+    }
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      if (rowMenu === id)
+        event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+      else {
+        rowMenuKeyboardOpen.current = true;
+        setRowMenu(id);
+      }
+    } else if (["Enter", " "].includes(event.key)) rowMenuKeyboardOpen.current = true;
+  };
+  const handleRowMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter((item) => !item.disabled);
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (!items.length) return;
+    if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); return; }
+    if (event.key === "Tab") { setRowMenu(undefined); return; }
+    const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : -1;
+    if (next >= 0) { event.preventDefault(); items[next]?.focus(); }
+  };
   const command = async (
     path: string,
     method: "POST" | "PUT" | "DELETE",
@@ -702,6 +803,7 @@ export function FinanceWorkspace({
       )
     ) {
       setGroup({ name: "" });
+      closeManagedDialog(() => setCatalogDialog(undefined));
       await load();
     }
   };
@@ -722,6 +824,7 @@ export function FinanceWorkspace({
         unitLabel: "",
         defaultUnitPrice: "",
       });
+      closeManagedDialog(() => setCatalogDialog(undefined));
       await load();
     }
   };
@@ -736,19 +839,19 @@ export function FinanceWorkspace({
         "lifecycle",
       )
     ) {
-      setLifecycle(undefined);
+      closeManagedDialog(() => setLifecycle(undefined));
       await load();
     }
   };
   const savePromotion = async (event: FormEvent) => {
     event.preventDefault();
     const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policies`, "POST", { ...promotion, effectiveTo: promotion.effectiveTo || null }, "promotion");
-    if (outcome) { setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "", effectiveTo: "" }); await load(); }
+    if (outcome) { setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "", effectiveTo: "" }); closeManagedDialog(() => setPromotionDialog(undefined)); await load(); }
   };
   const saveAssignments = async (event: FormEvent) => {
     event.preventDefault(); if (!assignment.versionId) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${assignment.versionId}/assignments`, "POST", { ...assignment, effectiveTo: assignment.effectiveTo || null }, "promotion");
-    if (outcome) { setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); await load(); }
+    if (outcome) { setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); closeManagedDialog(() => setPromotionDialog(undefined)); await load(); }
   };
   const saveCoverage = async (event: FormEvent) => {
     event.preventDefault(); if (!run || !coverage.studentId || !coverage.versionId || !coverage.billingMonth) return;
@@ -758,11 +861,21 @@ export function FinanceWorkspace({
   const endAssignment = async (event: FormEvent) => {
     event.preventDefault(); if (!endingAssignment) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-assignments/${endingAssignment.id}/end`, "POST", { effectiveTo: endingAssignment.effectiveTo, reason: endingAssignment.reason }, "promotion");
-    if (outcome) { setEndingAssignment(undefined); await load(); }
+    if (outcome) { closeManagedDialog(() => setEndingAssignment(undefined)); await load(); }
   };
   const transitionPromotionVersion = async (versionId: string, action: "activate" | "retire") => {
+    dialogTrigger.current = rowMenuTrigger.current;
+    setPromotionTransition({
+      id: versionId,
+      name: promotionPolicies
+        .flatMap((policy) => (policy.versions ?? []).map((version) => ({ policy, version })))
+        .find((item) => item.version.id === versionId)?.policy.name ?? "chính sách này",
+      action,
+    });
+  };
+  const confirmPromotionTransition = async (versionId: string, action: "activate" | "retire") => {
     const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${versionId}/${action}`, "POST", {}, "promotion");
-    if (outcome) await load();
+    if (outcome) { closeManagedDialog(() => setPromotionTransition(undefined)); await load(); }
   };
   const openInvoice = async (invoiceId: string) => {
     const token = ++request.current;
@@ -896,7 +1009,17 @@ export function FinanceWorkspace({
   const promotionField = (name: string) => field("promotion", name);
 
   return (
-    <section aria-labelledby="finance-title">
+    <section aria-labelledby="finance-title" onKeyDownCapture={(event) => {
+      const target = event.target as HTMLElement;
+      if (target instanceof HTMLButtonElement && target.getAttribute("aria-haspopup") === "menu") {
+        if (event.key === "Escape" && target.getAttribute("aria-expanded") === "true") { event.preventDefault(); event.stopPropagation(); target.click(); return; }
+        if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); if (target.getAttribute("aria-expanded") === "false") target.click(); window.setTimeout(() => target.parentElement?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); return; }
+      }
+      if (event.key !== "Escape" || pending) return;
+      if (endingAssignment) closeNewDialog(() => setEndingAssignment(undefined), () => {});
+      else if (promotionTransition) closeNewDialog(() => setPromotionTransition(undefined), () => {});
+      else if (promotionDialog === "assignment") closeNewDialog(() => setPromotionDialog(undefined), () => setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }));
+    }}>
       <h2 id="finance-title">Finance</h2>
       <p>
         {schoolName} / Eligibility, lifecycle và đơn giá được máy chủ xác nhận.
@@ -909,172 +1032,14 @@ export function FinanceWorkspace({
       <section aria-labelledby="promotion-title">
         <h3 id="promotion-title">Ưu đãi</h3>
         <p>Thay đổi cấu hình tạo phiên bản mới. Giá trị áp dụng do hệ thống đánh giá ở bước sau.</p>
-        <form onSubmit={savePromotion}>
-          <label>Chính sách hiện có (để tạo phiên bản mới)<select value={promotion.policyId} onChange={(event) => { const policy = promotionPolicies.find((item) => item.id === event.target.value); setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" }); }}><option value="">Chính sách mới</option>{promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} {...promotionField("name")} /></label>{scope === "promotion" && errors.name && <small id="invoice-promotion-name-error">{errors.name}</small>}
-          <fieldset {...promotionField("receivableIds")}><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>{scope === "promotion" && errors.receivableIds && <small id="invoice-promotion-receivableIds-error">{errors.receivableIds}</small>}
-          <label>Loại giảm<select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}><option value="PERCENTAGE">Phần trăm</option><option value="FIXED_VND">Số tiền VND</option></select></label>
-          <label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} {...promotionField("discountValue")} /></label>{scope === "promotion" && errors.discountValue && <small id="invoice-promotion-discountValue-error">{errors.discountValue}</small>}
-          <label>Hiệu lực từ<input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} /></label>
-          <label>Hiệu lực đến (bao gồm)<input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} /></label>
-          <label>Ưu tiên<input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} /></label>
-           <label>Quy tắc kết hợp<select value={promotion.stackingMode} onChange={(event) => setPromotion({ ...promotion, stackingMode: event.target.value })}><option value="STACKABLE">Có thể kết hợp</option><option value="EXCLUSIVE">Độc quyền</option></select></label><label>Cách thực hiện<select value={promotion.fulfillmentMode} onChange={(event) => setPromotion({ ...promotion, fulfillmentMode: event.target.value })}><option value="DISCOUNT">Giảm trên hóa đơn</option><option value="PREPAID_COVERAGE">Coverage nộp trước</option></select></label>
-          <button disabled={Boolean(pending)}>Lưu phiên bản ưu đãi</button>
-        </form>
-        <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Thao tác</th></tr></thead><tbody>{promotionPolicies.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td>{version.status === "DRAFT" && <button type="button" disabled={Boolean(pending)} onClick={() => void transitionPromotionVersion(version.id, "activate")}>Kích hoạt phiên bản</button>}{version.status === "ACTIVE" && <button type="button" disabled={Boolean(pending)} onClick={() => void transitionPromotionVersion(version.id, "retire")}>Ngừng phiên bản</button>}</td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
-        <form onSubmit={saveAssignments}>
-          <h4>Gán học sinh</h4><p>Cả nhóm dùng chung thời hạn và lý do; máy chủ chỉ lưu khi toàn bộ danh sách hợp lệ.</p>
-          <label>Phiên bản đang áp dụng<select value={assignment.versionId} onChange={(event) => setAssignment({ ...assignment, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionPolicies.flatMap((policy) => (policy.versions ?? []).filter((version) => version.status === "ACTIVE").map((version) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>))}</select></label>
-          <fieldset><legend>Học sinh</legend>{promotionStudents.map((student) => <label key={student.id}><input type="checkbox" checked={assignment.studentIds.includes(student.id)} onChange={() => setAssignment({ ...assignment, studentIds: assignment.studentIds.includes(student.id) ? assignment.studentIds.filter((id) => id !== student.id) : [...assignment.studentIds, student.id] })} />{student.studentCode} / {student.fullName}</label>)}</fieldset>
-          <label>Áp dụng từ<input type="date" value={assignment.effectiveFrom} onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })} /></label><label>Áp dụng đến (bao gồm)<input type="date" value={assignment.effectiveTo} onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={assignment.reason} onChange={(event) => setAssignment({ ...assignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu gán học sinh</button>
-        </form>
-        {promotionPolicies.flatMap((policy) => policy.versions ?? []).flatMap((version) => (version.assignments ?? []).filter(activeAssignment).map((item) => <div key={item.id}><span>{item.studentCode} / {item.studentName}: {item.effectiveFrom}</span><button type="button" disabled={Boolean(pending)} onClick={() => setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" })}>Kết thúc áp dụng</button></div>))}
-        {endingAssignment && <form onSubmit={endAssignment}><h4>Kết thúc áp dụng học sinh</h4><label>Ngày kết thúc (bao gồm)<input type="date" value={endingAssignment.effectiveTo} onChange={(event) => setEndingAssignment({ ...endingAssignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={endingAssignment.reason} onChange={(event) => setEndingAssignment({ ...endingAssignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Xác nhận kết thúc</button><button type="button" onClick={() => setEndingAssignment(undefined)}>Hủy</button></form>}
+        <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetPromotion(); openManagedDialog(event.currentTarget, () => setPromotionDialog("policy")); }}>Thêm chính sách</button>
+        <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody>{promotionVersions.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td><button ref={rowMenu === `promotion-${version.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${policy.name} phiên bản ${version.version}`} aria-haspopup="menu" aria-expanded={rowMenu === `promotion-${version.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `promotion-${version.id}`)} onClick={() => setRowMenu(rowMenu === `promotion-${version.id}` ? undefined : `promotion-${version.id}`)}>...</button>{rowMenu === `promotion-${version.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}>{version.status === "DRAFT" && <button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; void transitionPromotionVersion(version.id, "activate"); }}>Kích hoạt phiên bản</button>}{version.status === "ACTIVE" && <><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setAssignment({ versionId: version.id, studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); setPromotionDialog("assignment"); }}>Gán học sinh</button><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; void transitionPromotionVersion(version.id, "retire"); }}>Ngừng phiên bản</button></>}</div>}</td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
+        {currentAssignments.length > 0 && <table><caption>Học sinh đang áp dụng ưu đãi</caption><thead><tr><th>Học sinh</th><th>Chính sách</th><th>Áp dụng từ</th><th>Lý do</th><th>Tùy chọn</th></tr></thead><tbody>{currentAssignments.map(({ policy, version, item }) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{policy.name} / Phiên bản {version.version}</td><td>{item.effectiveFrom}</td><td>{item.reason}</td><td><button ref={rowMenu === `assignment-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.studentName}`} aria-haspopup="menu" aria-expanded={rowMenu === `assignment-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `assignment-${item.id}`)} onClick={() => setRowMenu(rowMenu === `assignment-${item.id}` ? undefined : `assignment-${item.id}`)}>...</button>{rowMenu === `assignment-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" }); }}>Kết thúc áp dụng</button></div>}</td></tr>)}</tbody></table>}
       </section>
       {coverageReversalRequests.length > 0 && <section aria-labelledby="coverage-approval-title"><h3 id="coverage-approval-title">Yêu cầu hoàn coverage chờ duyệt</h3><table><caption>Chỉ School Admin khác người yêu cầu được quyết định</caption><thead><tr><th>Học sinh</th><th>Ngày hiệu lực</th><th>Số tiền</th><th>Lý do</th><th>Thao tác</th></tr></thead><tbody>{coverageReversalRequests.map((item) => <tr key={item.id}><td>{item.studentName}</td><td>{item.effectiveOn}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{item.reason}</td><td>{item.canDecide ? <><button ref={coverageDecisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "APPROVE", reason: "" })}>Duyệt</button><button type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "REFUSE", reason: "" })}>Từ chối</button></> : "Không có quyền quyết định"}</td></tr>)}</tbody></table></section>}
       <section>
-        <h3>Nhóm khoản thu</h3>
-        <form onSubmit={saveGroup}>
-          <label>
-            Tên nhóm
-            <input
-              value={group.name}
-              onChange={(event) => setGroup({ name: event.target.value })}
-              {...field("group", "name")}
-            />
-          </label>
-          {scope === "group" && errors.name && (
-            <small id="group-name-error">{errors.name}</small>
-          )}
-          <button disabled={Boolean(pending)}>Thêm nhóm</button>
-        </form>
-        <table>
-          <caption>Nhóm khoản thu theo trường</caption>
-          <thead>
-            <tr>
-              <th>Tên</th>
-              <th>Trạng thái</th>
-              <th>Thao tác</th>
-            </tr>
-          </thead>
-          <tbody>
-            {catalog?.groups.length ? (
-              catalog.groups.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.name}</td>
-                  <td>
-                    {item.status === "ACTIVE"
-                      ? "Đang áp dụng"
-                      : "Ngừng áp dụng"}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      disabled={Boolean(pending)}
-                      onClick={() =>
-                        setLifecycle({
-                          kind: "receivable-groups",
-                          id: item.id,
-                          name: item.name,
-                          next:
-                            item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-                          reason: "",
-                        })
-                      }
-                    >
-                      {item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}
-                    </button>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={3}>
-                  {catalog
-                    ? "Chưa có nhóm khoản thu."
-                    : "Đang tải nhóm khoản thu."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
-      <section>
         <h3>Khoản thu</h3>
-        <form onSubmit={saveReceivable}>
-          <label>
-            Nhóm
-            <select
-              value={receivable.groupId}
-              onChange={(event) =>
-                setReceivable({ ...receivable, groupId: event.target.value })
-              }
-              {...field("receivable", "groupId")}
-            >
-              <option value="">Chọn nhóm</option>
-              {(catalog?.groups ?? [])
-                .filter((item) => item.status === "ACTIVE")
-                .map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Mã khoản thu
-            <input
-              value={receivable.code}
-              onChange={(event) =>
-                setReceivable({ ...receivable, code: event.target.value })
-              }
-            />
-          </label>
-          <label>
-            Tên khoản thu
-            <input
-              value={receivable.displayName}
-              onChange={(event) =>
-                setReceivable({
-                  ...receivable,
-                  displayName: event.target.value,
-                })
-              }
-              {...field("receivable", "displayName")}
-            />
-          </label>
-          <label>
-            Đơn vị
-            <input
-              value={receivable.unitLabel}
-              onChange={(event) =>
-                setReceivable({ ...receivable, unitLabel: event.target.value })
-              }
-              {...field("receivable", "unitLabel")}
-            />
-          </label>
-          <label>
-            Đơn giá mặc định (VND)
-            <input
-              inputMode="numeric"
-              value={receivable.defaultUnitPrice}
-              onChange={(event) =>
-                setReceivable({
-                  ...receivable,
-                  defaultUnitPrice: event.target.value,
-                })
-              }
-              {...field("receivable", "defaultUnitPrice")}
-            />
-          </label>
-          {scope === "receivable" &&
-            Object.entries(errors).map(([name, error]) => (
-              <small key={name} id={`receivable-${name}-error`}>
-                {error}
-              </small>
-            ))}
-          <button disabled={Boolean(pending)}>Thêm khoản thu</button>
-        </form>
+        <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetReceivable(); openManagedDialog(event.currentTarget, () => setCatalogDialog("receivable")); }}>Thêm khoản thu</button><button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setGroup({ name: "" }); openManagedDialog(event.currentTarget, () => setCatalogDialog("group")); }}>Quản lý nhóm</button>
         <table>
           <caption>Khoản thu theo trường</caption>
           <thead>
@@ -1084,7 +1049,7 @@ export function FinanceWorkspace({
               <th>Đơn vị</th>
               <th>Đơn giá VND</th>
               <th>Trạng thái</th>
-              <th>Thao tác</th>
+              <th>Tùy chọn</th>
             </tr>
           </thead>
           <tbody>
@@ -1094,26 +1059,9 @@ export function FinanceWorkspace({
                   <td>{item.code ?? ""}</td>
                   <td>{item.displayName}</td>
                   <td>{item.unitLabel}</td>
-                  <td>{item.defaultUnitPrice}</td>
+                  <td style={{ textAlign: "right" }}>{vnd(item.defaultUnitPrice)}</td>
                   <td>{item.available ? "Đang áp dụng" : "Ngừng áp dụng"}</td>
-                  <td>
-                    <button
-                      type="button"
-                      disabled={Boolean(pending)}
-                      onClick={() =>
-                        setLifecycle({
-                          kind: "receivables",
-                          id: item.id,
-                          name: item.displayName,
-                          next:
-                            item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-                          reason: "",
-                        })
-                      }
-                    >
-                      {item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}
-                    </button>
-                  </td>
+                   <td><button ref={rowMenu === `receivable-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.displayName}`} aria-haspopup="menu" aria-expanded={rowMenu === `receivable-${item.id}`} onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setRowMenu(`receivable-${item.id}`); } }} onClick={() => setRowMenu(rowMenu === `receivable-${item.id}` ? undefined : `receivable-${item.id}`)}>...</button>{rowMenu === `receivable-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td>
                 </tr>
               ))
             ) : (
@@ -1278,7 +1226,7 @@ export function FinanceWorkspace({
               <form onSubmit={saveCoverage}>
                 <h4>Coverage nộp trước</h4><p>Chỉ chọn phiên bản coverage và kỳ tương lai do máy chủ xác nhận. Fact chỉ được phát hành sau khi hóa đơn đóng đủ.</p>
                 <label>Học sinh<select value={coverage.studentId} onChange={(event) => setCoverage({ ...coverage, studentId: event.target.value })}><option value="">Chọn học sinh</option>{(candidates?.students ?? []).map((student) => <option key={student.id} value={student.id}>{student.studentCode} / {student.fullName}</option>)}</select></label>
-                <label>Phiên bản coverage<select value={coverage.versionId} onChange={(event) => setCoverage({ ...coverage, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionPolicies.flatMap((policy) => policy.versions.filter((version) => version.status === "ACTIVE" && version.fulfillmentMode === "PREPAID_COVERAGE").map((version) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>))}</select></label>
+                <label>Phiên bản coverage<select value={coverage.versionId} onChange={(event) => setCoverage({ ...coverage, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionVersions.filter(({ version }) => version.status === "ACTIVE" && version.fulfillmentMode === "PREPAID_COVERAGE").map(({ policy, version }) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>)}</select></label>
                 <label>Kỳ được coverage<input type="month" value={coverage.billingMonth} onChange={(event) => setCoverage({ ...coverage, billingMonth: event.target.value })} /></label>
                 <button disabled={Boolean(pending)}>Lưu lựa chọn coverage</button>
               </form>
@@ -1514,9 +1462,11 @@ export function FinanceWorkspace({
       )}
       {lifecycle && (
         <div
+          ref={lifecycleDialog}
           role="dialog"
           aria-modal="true"
           aria-labelledby="finance-lifecycle-title"
+          onKeyDown={trapDialogFocus}
         >
           <form onSubmit={saveLifecycle}>
             <h3 id="finance-lifecycle-title">
@@ -1538,11 +1488,48 @@ export function FinanceWorkspace({
               <small id="lifecycle-reason-error">{errors.reason}</small>
             )}
             <button disabled={Boolean(pending)}>Xác nhận</button>
-            <button type="button" onClick={() => setLifecycle(undefined)}>
+            <button type="button" onClick={() => closeManagedDialog(() => setLifecycle(undefined))}>
               Hủy
             </button>
           </form>
         </div>
+      )}
+      {catalogDialog === "receivable" && (
+        <div ref={catalogDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-receivable-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), resetReceivable)}>
+          <form onSubmit={saveReceivable}>
+            <h3 id="finance-receivable-title">Thêm khoản thu</h3><p>Khoản thu mới chỉ dùng được sau khi máy chủ xác nhận trong đúng Trường.</p>
+            <label>Nhóm<select value={receivable.groupId} onChange={(event) => setReceivable({ ...receivable, groupId: event.target.value })} {...field("receivable", "groupId")}><option value="">Chọn nhóm</option>{(catalog?.groups ?? []).filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>Mã khoản thu<input value={receivable.code} onChange={(event) => setReceivable({ ...receivable, code: event.target.value })} /></label>
+            <label>Tên khoản thu<input value={receivable.displayName} onChange={(event) => setReceivable({ ...receivable, displayName: event.target.value })} {...field("receivable", "displayName")} /></label>
+            <label>Đơn vị<input value={receivable.unitLabel} onChange={(event) => setReceivable({ ...receivable, unitLabel: event.target.value })} {...field("receivable", "unitLabel")} /></label>
+            <label>Đơn giá mặc định (VND)<input inputMode="numeric" value={receivable.defaultUnitPrice} onChange={(event) => setReceivable({ ...receivable, defaultUnitPrice: event.target.value })} {...field("receivable", "defaultUnitPrice")} /></label>
+            {scope === "receivable" && Object.entries(errors).map(([name, error]) => <small key={name} id={`receivable-${name}-error`}>{error}</small>)}
+            <button disabled={Boolean(pending)}>Lưu khoản thu</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), resetReceivable)}>Hủy</button>
+          </form>
+        </div>
+      )}
+      {catalogDialog === "group" && (
+        <div ref={catalogDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-group-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>
+          <form onSubmit={saveGroup}><h3 id="finance-group-title">Quản lý nhóm khoản thu</h3><p>Nhóm đang dùng trong lịch sử không bị xóa.</p><label>Tên nhóm<input value={group.name} onChange={(event) => setGroup({ name: event.target.value })} {...field("group", "name")} /></label>{scope === "group" && errors.name && <small id="group-name-error">{errors.name}</small>}<button disabled={Boolean(pending)}>Thêm nhóm</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>Đóng</button></form>
+          <table><caption>Nhóm khoản thu theo Trường</caption><thead><tr><th>Tên</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead><tbody>{catalog?.groups?.length ? catalog.groups.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.status === "ACTIVE" ? "Đang áp dụng" : "Ngừng áp dụng"}</td><td><button ref={rowMenu === `group-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.name}`} aria-haspopup="menu" aria-expanded={rowMenu === `group-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `group-${item.id}`)} onClick={() => setRowMenu(rowMenu === `group-${item.id}` ? undefined : `group-${item.id}`)}>...</button>{rowMenu === `group-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setCatalogDialog(undefined); setLifecycle({ kind: "receivable-groups", id: item.id, name: item.name, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td></tr>) : <tr><td colSpan={3}>{catalog ? "Chưa có nhóm khoản thu." : "Đang tải nhóm khoản thu."}</td></tr>}</tbody></table>
+        </div>
+      )}
+      {promotionDialog === "policy" && (
+        <div ref={promotionDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-policy-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPromotionDialog(undefined), resetPromotion)}><form onSubmit={savePromotion}><h3 id="finance-policy-title">Thêm chính sách ưu đãi</h3><p>Hệ thống kiểm tra khoản thu, hiệu lực và quy tắc kết hợp trong đúng Trường.</p><label>Chính sách hiện có (để tạo phiên bản mới)<select value={promotion.policyId} onChange={(event) => { const policy = promotionPolicies.find((item) => item.id === event.target.value); setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" }); }}><option value="">Chính sách mới</option>{promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} {...promotionField("name")} /></label>{scope === "promotion" && errors.name && <small id="invoice-promotion-name-error">{errors.name}</small>}<fieldset {...promotionField("receivableIds")}><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>{scope === "promotion" && errors.receivableIds && <small id="invoice-promotion-receivableIds-error">{errors.receivableIds}</small>}<label>Loại giảm<select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}><option value="PERCENTAGE">Phần trăm</option><option value="FIXED_VND">Số tiền VND</option></select></label><label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} {...promotionField("discountValue")} /></label>{scope === "promotion" && errors.discountValue && <small id="invoice-promotion-discountValue-error">{errors.discountValue}</small>}<label>Hiệu lực từ<input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} /></label><label>Hiệu lực đến (bao gồm)<input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} /></label><label>Ưu tiên<input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} /></label><label>Quy tắc kết hợp<select value={promotion.stackingMode} onChange={(event) => setPromotion({ ...promotion, stackingMode: event.target.value })}><option value="STACKABLE">Có thể kết hợp</option><option value="EXCLUSIVE">Độc quyền</option></select></label><label>Cách thực hiện<select value={promotion.fulfillmentMode} onChange={(event) => setPromotion({ ...promotion, fulfillmentMode: event.target.value })}><option value="DISCOUNT">Giảm trên hóa đơn</option><option value="PREPAID_COVERAGE">Coverage nộp trước</option></select></label><button disabled={Boolean(pending)}>Lưu phiên bản ưu đãi</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setPromotionDialog(undefined), resetPromotion)}>Hủy</button></form></div>
+      )}
+      {promotionTransition && (
+        <div role="dialog" aria-modal="true" aria-labelledby="finance-promotion-transition-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPromotionTransition(undefined))}>
+          <h3 id="finance-promotion-transition-title">{promotionTransition.action === "activate" ? "Kích hoạt" : "Ngừng"} phiên bản {promotionTransition.name}</h3>
+          <p>{promotionTransition.action === "activate" ? "Phiên bản này sẽ trở thành trạng thái do máy chủ xác nhận." : "Phiên bản này sẽ không còn được áp dụng cho các đánh giá mới."}</p>
+          <button id="finance-promotion-transition-confirm" type="button" disabled={Boolean(pending)} onClick={() => void confirmPromotionTransition(promotionTransition.id, promotionTransition.action)}>Xác nhận {promotionTransition.action === "activate" ? "kích hoạt" : "ngừng phiên bản"}</button>
+          <button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setPromotionTransition(undefined), () => {})}>Hủy</button>
+        </div>
+      )}
+      {promotionDialog === "assignment" && (
+        <div ref={promotionDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-assignment-title" onKeyDown={trapDialogFocus}><form onSubmit={saveAssignments}><h3 id="finance-assignment-title">Gán ưu đãi cho học sinh</h3><p>Cả nhóm dùng chung thời hạn và lý do; máy chủ chỉ lưu khi toàn bộ danh sách hợp lệ.</p><label>Phiên bản đang áp dụng<select value={assignment.versionId} onChange={(event) => setAssignment({ ...assignment, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionPolicies.flatMap((policy) => (policy.versions ?? []).filter((version) => version.status === "ACTIVE").map((version) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>))}</select></label><fieldset><legend>Học sinh</legend>{promotionStudents.map((student) => <label key={student.id}><input type="checkbox" checked={assignment.studentIds.includes(student.id)} onChange={() => setAssignment({ ...assignment, studentIds: assignment.studentIds.includes(student.id) ? assignment.studentIds.filter((id) => id !== student.id) : [...assignment.studentIds, student.id] })} />{student.studentCode} / {student.fullName}</label>)}</fieldset><label>Áp dụng từ<input type="date" value={assignment.effectiveFrom} onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })} /></label><label>Áp dụng đến (bao gồm)<input type="date" value={assignment.effectiveTo} onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={assignment.reason} onChange={(event) => setAssignment({ ...assignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu gán học sinh</button><button type="button" disabled={Boolean(pending)} onClick={() => closeManagedDialog(() => setPromotionDialog(undefined))}>Hủy</button></form></div>
+      )}
+      {endingAssignment && (
+        <div role="dialog" aria-modal="true" aria-labelledby="finance-end-assignment-title" onKeyDown={trapDialogFocus}><form onSubmit={endAssignment}><h3 id="finance-end-assignment-title">Kết thúc áp dụng ưu đãi</h3><label>Ngày kết thúc (bao gồm)<input autoFocus type="date" value={endingAssignment.effectiveTo} onChange={(event) => setEndingAssignment({ ...endingAssignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={endingAssignment.reason} onChange={(event) => setEndingAssignment({ ...endingAssignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Xác nhận kết thúc</button><button type="button" disabled={Boolean(pending)} onClick={() => closeManagedDialog(() => setEndingAssignment(undefined))}>Hủy</button></form></div>
       )}
     </section>
   );
