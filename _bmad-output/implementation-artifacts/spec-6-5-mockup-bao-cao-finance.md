@@ -2,7 +2,7 @@
 title: 'Mockup báo cáo Finance đối soát ledger'
 type: 'feature'
 created: '2026-09-16'
-status: 'done'
+status: 'blocked'
 baseline_commit: '65adf97423d259f878c21ceb97555c33438c1ffd'
 review_loop_iteration: 0
 context:
@@ -104,3 +104,26 @@ The default overview should prioritize reconciliation, not a decorative dashboar
 
 - Test mockup được đưa vào một script pnpm có thể chạy lặp lại.
   [`package.json:5`](../../package.json#L5)
+
+## Review Triage Log
+
+### 2026-09-25 — Review pass
+- intent_gap: 1 (high 1)
+- bad_spec: 0
+- patch: 0
+- defer: 0
+- reject: 18 (high 4, medium 11, low 3)
+- addressed_findings:
+  - none
+
+## Auto Run Result
+
+Status: blocked
+
+Blocking condition: intent gap
+
+- Tóm tắt: Lượt review xác nhận artifact này chỉ là mockup UX cho Finance report. Canonical Story 6.5 trong `epics-passionedu.md` vẫn yêu cầu API server-authoritative, authorization theo School, ledger aggregation/as-of, CSV opaque expiring có re-authorization và audit, integration/E2E proof. Tracker hiện ghi `6-5-bao-cao-finance-reconcile-tu-ledger: backlog`.
+- Patch đã lưu: `_bmad-output/implementation-artifacts/story-6-5-intent-gap-2026-09-25.patch`. Patch chỉ ghi nhận chuyển trạng thái review tạm thời của lượt auto-run và đã được khôi phục bằng trạng thái blocked.
+- Review findings: 0 patch; 0 deferred; 18 rejected vì thuộc mockup slice hoặc không thể tự sửa mà không thay đổi phạm vi/captured intent. Các vấn đề đáng chú ý gồm direct URL authorization, kết thúc loading khi đổi workspace/filter, bảo toàn context khi CSV expiry/revoke, drill-down destination, và test runtime độc lập package-manager.
+- Verification: chưa chạy lại các command mockup vì workflow dừng tại intent gap trước khi có phạm vi implementation hợp lệ.
+- Rủi ro còn lại: Không được cập nhật sprint status thành done hoặc tạo completion commit cho Story 6.5 khi chưa có production implementation và release proof theo epic contract.

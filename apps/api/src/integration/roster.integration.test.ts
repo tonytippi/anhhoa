@@ -44,6 +44,10 @@ async function createStudent(input: Awaited<ReturnType<typeof graph>>, overrides
 }
 
 afterEach(async () => {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
+    await tx.coverageRefundEligibility.deleteMany({ where: { schoolId: { in: schools } } });
+  });
   await prisma.auditRecord.deleteMany({ where: { schoolId: { in: schools } } });
   await prisma.schoolYear.updateMany({ where: { schoolId: { in: schools } }, data: { closeOperationId: null } });
   await prisma.operation.deleteMany({ where: { schoolId: { in: schools } } });

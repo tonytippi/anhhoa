@@ -47,7 +47,10 @@ Khi implement mot story co bề mặt portal, `DESIGN.md` va `EXPERIENCE.md` la 
 | 5.2, 5.7, 5.9, 5.10, 5.11 | `mockups/admin/invoice-generation.html` | `Đợt thu` la destination CollectionRun list/detail, template khoan thu chung, chọn Student, server preview/skips, populated DRAFT generate va reconciliation; Invoice review la deep destination theo Student/Invoice, khong co Receipt, carry, settlement KPI hay `PREPAID_COVERAGE`. Story 5.3 la historical empty-DRAFT delivery, duoc supersede boi 5.9/5.10. |
 | 5.4, 5.5, 5.6, 5.8 | `mockups/admin/invoice-detail-review.html`, `mockups/parent/parent.html` | Invoice la deep destination; Parent chi thay effective obligation sau khi API projection ton tai. |
 | 6.1, 6.2, 6.3, 6.4, 6.6 | `mockups/admin/invoice-detail-review.html`, `EXPERIENCE.md` §§ Invoice review and receipt, Adjustment/carry/refund review | Actual Receipt closes mot Invoice; outcome/carry/refund deu server-returned. |
+| 5.16 | `mockups/admin/receivable-configuration.html`, `mockups/admin/promotion-configuration.html`, `EXPERIENCE.md` §§ Management list, Accessibility Floor | Khoản thu và Giảm trừ table-first, `...` row menu và confirmation dialog; không đổi Finance authority. |
+| 5.17 | `mockups/admin/invoice-generation.html`, `mockups/admin/invoice-detail-review.html`, `EXPERIENCE.md` §§ CollectionRun list and detail, Invoice review and issue | Đợt thu table-first và Draft previous/next chỉ theo server-authorized originating order. |
 | 6.5 | `mockups/admin/finance-run-preview.html`, `EXPERIENCE.md` § Finance report | Bon workspace bao cao va CSV la server ledger-derived; mockup mốc nay khong mo rong lifecycle Finance. |
+| 6.7, 6.8 | `mockups/admin/receipt-queue.html`, `EXPERIENCE.md` §§ Daily receipt queue, Accessibility Floor | Thu tiền là Invoice `ISSUED` queue server-authorized; settlement giữ one-Invoice, Operation và ledger contract. |
 | 7.1, 7.2, 7.4, 7.5, 7.7, 7.8 | `mockups/parent/parent.html`, `mockups/parent/parent-home.html` | Mobile-first, clear protected state truoc safe fallback, khong cache protected API data. |
 | 7.3 | `mockups/parent/parent-inbox.html` | Inbox deep link phai re-authorize School/Student/date. |
 | 7.6 | `mockups/parent/parent.html`, `EXPERIENCE.md` § Payment instruction | Read-only effective Invoice; khong hien correction/ledger provenance hay payment mutation. |
@@ -1253,6 +1256,49 @@ So that ưu đãi không sai tenant, sai tiền hoặc lẫn settlement.
 **When** release gate chạy
 **Then** không có `PREPAID_COVERAGE`, StudentPromotionalCoverage, Receipt, settlement, carry, refund, debt/report, Parent/Teacher hay automatic operational pricing dependency.
 
+### Story 5.16: Finance table-first catalog và giảm trừ
+
+As a Finance Manager,
+I want to quản lý Khoản thu và Giảm trừ từ bảng ngắn có menu từng dòng,
+So that tôi tìm và thay đổi cấu hình hằng ngày nhanh mà không phải quét biểu mẫu dài.
+
+**Acceptance Criteria:**
+
+**Given** Finance user được cấp quyền mở Khoản thu hoặc Giảm trừ trong selected School
+**When** route tải xong
+**Then** bề mặt chính là bảng server-backed với cột ngắn, status text, filter/search/sort/pagination phù hợp và `Tùy chọn` cuối dòng
+**And** không có create/edit form đứng trước danh sách.
+
+**Given** Finance chọn create, lifecycle, activate/retire version, gán/kết thúc assignment hoặc thay đổi record quan trọng
+**When** UI mở thao tác
+**Then** một dialog accessible nêu record/tác động, giữ input/error, trap/restore focus và chỉ refresh sau Operation terminal
+**And** server state/capability không cho phép thì menu item không xuất hiện, không có optimistic lifecycle.
+
+### Story 5.17: Đợt thu table-first và rà soát Draft tuần tự
+
+As a Finance Manager,
+I want to làm việc với Đợt thu và Draft Invoice theo thứ tự ngữ cảnh,
+So that tôi có thể rà soát/phát hành liên tiếp nhiều Student mà không quay lại tìm danh sách.
+
+**Acceptance Criteria:**
+
+**Given** Finance mở Đợt thu khi chưa chọn run
+**When** route render
+**Then** surface chính là monthly-run table-first có filter/pagination; `Tạo đợt thu` mở dialog nêu rõ tạo run mới hay mở run đã tồn tại.
+
+**Given** Finance mở một Draft Invoice từ run/list có thứ tự server-authorized
+**When** detail render
+**Then** UI giữ query/order nguồn và chỉ hiện `Học sinh trước`/`Học sinh tiếp theo` khi adjacent Invoice còn authorized.
+
+**Given** Finance lưu thay đổi Draft hoặc Issue thành công
+**When** server trả terminal outcome
+**Then** UI hiện kết quả trước khi cho người dùng chủ động mở Draft tiếp theo
+**And** không tự nhảy, đoán next sau invalidation, hoặc mất run/filter context.
+
+**Given** template, selection, generated-Student addition, Draft monetary line hoặc run lifecycle bị thay đổi
+**When** Finance submit
+**Then** action dùng row menu/contextual CTA và confirmation dialog phù hợp mà vẫn giữ preview fingerprint, lifecycle lock, audit và Operation hiện có.
+
 ## Epic 6: Thu tiền, đối soát công nợ và báo cáo sổ cái
 
 Finance ghi actual Receipt de dong Invoice, carry chenh lech sang dot thu sau, settle exact source Invoice cua policy `PREPAID_COVERAGE`, hoan tien coverage theo operating-day preview co override/audit, va doi soat toan bo bang append-only ledger.
@@ -1421,6 +1467,53 @@ So that duplicate posting, cross-tenant settlement hoac report sai khong vao pil
 **Then** UI refresh server limits/state, vao Operation reconciliation, khong double submit va giu accessible source/error/as-of context
 **And** report fixture prove event truoc/sau `asOf`, reversal/refund, revision/cancellation, carry, debt va coverage reconcile nhat quan giua bon workspace; CSV chi co dung server result/metadata, audit va deny cross-School/expired/revoked download
 **And** Epic 6 khong complete neu reconciliation fixture hoac ledger concurrency suite con fail.
+
+### Story 6.7: Hàng đợi Thu tiền và settlement tuần tự
+
+As a Finance Manager,
+I want to xử lý Invoice `ISSUED` trong hàng đợi Thu tiền và chuyển sang hóa đơn kế tiếp,
+So that tôi ghi nhận thu tiền mỗi ngày nhanh nhưng vẫn an toàn.
+
+**Acceptance Criteria:**
+
+**Given** Finance user được cấp quyền mở Thu tiền trong selected School
+**When** route tải
+**Then** UI hiển thị table-first `ISSUED` Invoice queue theo server order ổn định, pagination bounded và filter SchoolYear, billing month, lớp, mã/tên Student
+**And** mỗi row chỉ trả DTO Finance tối thiểu và `Tùy chọn` cuối dòng.
+
+**Given** Finance chọn `Ghi thực nhận` từ row menu
+**When** receipt dialog mở và submit
+**Then** dialog chỉ hiển thị outstanding/context server-returned, nhận actual whole-VND và yêu cầu xác nhận rõ ràng
+**And** existing CSRF, Idempotency-Key, Operation reconciliation, one-Invoice close, server outcome/difference/carry/coverage contracts không đổi.
+
+**Given** Receipt Operation hoàn tất
+**When** API trả `EXACT`, `SHORTFALL` hoặc `OVERPAYMENT`
+**Then** UI hiện actual amount, outcome, difference và carry/coverage server-returned trước khi cho người dùng chọn `Hóa đơn tiếp theo`
+**And** UI không tự post, allocate, tính tiền hoặc dùng stale queue item.
+
+**Given** timeout, concurrent close, filter/order change, capability revoke hoặc School switch
+**When** Finance mở item tiếp theo
+**Then** UI reconcile/reload list server và không lộ Invoice foreign/stale hoặc gửi Receipt trùng.
+
+### Story 6.8: Release gate UX Finance hằng ngày
+
+As a release owner,
+I want automated proof cho navigation và accessibility của Finance daily-work UX,
+So that tốc độ thao tác không làm yếu an toàn Finance hoặc tenant isolation.
+
+**Acceptance Criteria:**
+
+**Given** Invoice queue API tests
+**When** filter, pagination/cursor, sort, cross-School request, capability revoke và malformed cursor được kiểm tra
+**Then** chỉ authorized same-School rows theo stable order được trả về, không có raw audit/provenance.
+
+**Given** Admin UI/E2E
+**When** Finance dùng table, row menu, confirmation dialog, Draft previous/next và receipt-next flow
+**Then** keyboard navigation, focus trap/return, error, state refresh và responsive action access đều pass.
+
+**Given** Issue/Receipt timeout hoặc concurrent mutation
+**When** outcome chưa chắc chắn
+**Then** Operation reconciliation chặn duplicate mutation và next navigation đến khi authoritative outcome/list sẵn sàng.
 
 ## Epic 7: Parent portal đa trường, read-first
 

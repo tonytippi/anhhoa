@@ -12,8 +12,8 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "test:e2e": "E2E_DATABASE_URL=${E2E_DATABASE_URL:?E2E_DATABASE_URL is required} DATABASE_URL=$E2E_DATABASE_URL NODE_ENV=test pnpm --filter @passionedu/admin-web test:e2e",
-    "test:release-gate": "TARGET_INTEGRATION_DATABASE_URL=${TARGET_INTEGRATION_DATABASE_URL:?TARGET_INTEGRATION_DATABASE_URL is required} E2E_DATABASE_URL=${E2E_DATABASE_URL:?E2E_DATABASE_URL is required} pnpm --filter @passionedu/api test:integration && pnpm --filter @passionedu/admin-web test && pnpm --filter @passionedu/teacher-web test && pnpm --filter @passionedu/parent-web test && pnpm --filter @passionedu/ops-web test && pnpm test:e2e",
+    "test:e2e": "set -a && . ./.env.test && set +a && test -n \"$E2E_DATABASE_URL\" && NODE_ENV=test DATABASE_URL=$E2E_DATABASE_URL pnpm --filter @passionedu/admin-web test:e2e",
+    "test:release-gate": "test -f ./.env.test && set -a && . ./.env.test && set +a && test -n \"$TARGET_INTEGRATION_DATABASE_URL\" && test -n \"$E2E_DATABASE_URL\" && pnpm --filter @passionedu/api test:integration && pnpm --filter @passionedu/admin-web test && pnpm --filter @passionedu/teacher-web test && pnpm --filter @passionedu/parent-web test && pnpm --filter @passionedu/ops-web test && pnpm test:e2e",
     "test:mockups": "node _bmad-output/implementation-artifacts/test-rendered-mockup-contracts.mjs && node _bmad-output/implementation-artifacts/test-finance-report-ux.mjs"
   },
   "devDependencies": {

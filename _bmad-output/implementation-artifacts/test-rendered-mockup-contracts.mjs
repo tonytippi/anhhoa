@@ -3,10 +3,10 @@ import { readFile, readdir } from 'node:fs/promises';
 
 const mockups = new URL('../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/', import.meta.url);
 const read = path => readFile(new URL(path, mockups), 'utf8');
-const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, promotions, settings, report] = await Promise.all([
+const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, generationUx, receivables, promotions, settings, report] = await Promise.all([
   read('prototype.css'), read('admin/admin-shell.js'), read('prototype.js'), read('parent/parent.html'),
   read('admin/payroll-timekeeping-import.html'), read('admin/payroll-run-review.html'),
-  read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'),
+   read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'), read('admin/invoice-generation-ux.js'),
     read('admin/receivable-configuration.html'), read('admin/promotion-configuration.html'), read('admin/school-settings.html'), read('admin/finance-report.html')
 ]);
 
@@ -106,9 +106,10 @@ assert.match(generation, /id="preview-run"/);
 assert.match(generation, /id="generate-invoices"[^>]*disabled/);
 assert.match(generation, /data-open-run="11\/2026"/);
 assert.match(generation, /function openRun\(month,readonly\)/);
-assert.match(generation, /reviewLinks\.forEach/);
-assert.match(generation, /selectAll\.indeterminate/);
-assert.match(generation, /Lựa chọn đã thay đổi\. Hãy yêu cầu preview mới từ hệ thống\./);
+assert.match(generation, /invoice-generation-ux\.js/);
+assert.match(generationUx, /reviewLinks\.forEach/);
+assert.match(generationUx, /selectAll\.indeterminate/);
+assert.match(generationUx, /Lựa chọn đã thay đổi\. Hãy yêu cầu preview mới từ hệ thống\./);
 for (const unavailable of ['Đã nhận', 'Còn thiếu', 'Receipt', 'carry', 'thực nhận', 'chênh lệch']) assert.doesNotMatch(generation, new RegExp(unavailable, 'i'));
 
 // Receivables remains catalog-only; Pha 1b promotion configuration is separate.

@@ -34,6 +34,8 @@ try {
     await tx.dailyJournalPolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.leavePolicy.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.schoolCalendarVersion.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.financeReportExport.deleteMany({ where: { schoolId: { in: schoolIds } } });
+    await tx.financeLedgerEvent.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.issuedPromotionApplication.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.invoiceLine.deleteMany({ where: { schoolId: { in: schoolIds } } });
     await tx.invoice.deleteMany({ where: { schoolId: { in: schoolIds } } });

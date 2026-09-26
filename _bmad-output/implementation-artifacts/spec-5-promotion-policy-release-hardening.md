@@ -2,7 +2,7 @@
 title: 'Finance: Release hardening cho promotion policy Pha 1b'
 type: 'bugfix'
 created: '2026-09-25'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_commit: 'c20b4c4ebbd4243a7209c6e2b5047f4b81a4fa5e'
 context:
@@ -44,6 +44,7 @@ context:
 - `apps/api/prisma/schema.prisma` -- add full monetary fields and composite relations for issued application and assignment/version/policy graph.
 - `apps/api/prisma/migrations/20260925000000_promotion_policy_phase_1b/migration.sql` -- read-only historical evidence; new migration must repair graph integrity forward-only.
 - `apps/api/prisma/migrations/20260925000002_invoice_promotion_application_snapshot/migration.sql` -- read-only historical evidence; existing trigger permits post-Issue inserts.
+- `apps/api/prisma/migrations/20260925000004_issued_promotion_application_provenance_guard/migration.sql` -- forward-only guard requires every issued application payload to exactly match its DRAFT line provenance by ordinal.
 - `apps/api/src/modules/finance/finance.service.ts` -- `addInvoiceLine()`, `editInvoiceLine()`, `promotionFacts()`, `evaluatePromotionLine()`, `recheckPromotion()` and `createIssuedPromotionApplications()` own authoritative calculation and snapshots.
 - `apps/api/src/integration/finance.integration.test.ts` -- existing multi-School PostgreSQL fixture and Finance lifecycle tests; extend for manual evaluation, graph/finality and Issue/revision races.
 - `apps/api/src/modules/finance/finance.service.test.ts` -- fast evaluator order/cap checks.
@@ -55,11 +56,11 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `apps/api/prisma/schema.prisma` and a new forward-only migration -- add composite assignment-policy-version integrity, monetary application snapshot fields, and a controlled Issue-only application finality guard.
-- [ ] `apps/api/src/modules/finance/finance.service.ts` -- evaluate manual DRAFT add/edit with the shared evaluator; choose at most one percentage after fixed reductions; recheck all evaluated DRAFT lines; persist full issued outcome.
-- [ ] `apps/api/src/integration/finance.integration.test.ts` and `apps/api/src/modules/finance/finance.service.test.ts` -- prove manual evaluation, percentage selection, assignment end, normal/revision stale recheck, concurrent mutation serialization, database finality and graph integrity.
-- [ ] `apps/web/src/finance/finance-workspace.tsx` and `.test.tsx` -- render server-projected current assignments and attach promotion form validation to its own accessible field-error scope.
-- [ ] `apps/api/prisma/migrations/` -- remove only untracked empty migration residue that blocks clean reset; do not alter published migration files.
+- [x] `apps/api/prisma/schema.prisma` and forward-only migrations -- add composite assignment-policy-version integrity, monetary application snapshots, and full DRAFT-provenance/Issue finality guards.
+- [x] `apps/api/src/modules/finance/finance.service.ts` -- evaluate manual DRAFT add/edit with the shared evaluator; choose at most one percentage after fixed reductions; recheck all evaluated DRAFT lines; persist full issued outcome.
+- [x] `apps/api/src/integration/finance.integration.test.ts` and `apps/api/src/modules/finance/finance.service.test.ts` -- prove manual evaluation, percentage selection, assignment end, normal/revision stale recheck, concurrent mutation serialization, database finality and graph integrity.
+- [x] `apps/web/src/finance/finance-workspace.tsx` and `.test.tsx` -- render server-projected current assignments and attach promotion form validation to its own accessible field-error scope.
+- [x] `apps/api/prisma/migrations/` -- remove only untracked empty migration residue that blocks clean reset; do not alter published migration files.
 
 **Acceptance Criteria:**
 - Given an eligible Student has a generated, added, or edited DRAFT line, when the line is saved or issued, then server-derived gross/discount/net and provenance use the same evaluator and stale facts atomically reject Issue.
@@ -80,3 +81,11 @@ The Issue application table is a historical explanation, not a live relation. It
 - `pnpm --filter @passionedu/api test` -- expected: Finance unit/controller tests pass.
 - `pnpm --filter @passionedu/admin-web test` -- expected: promotion UI tests pass.
 - `pnpm typecheck && pnpm test && git diff --check` -- expected: workspace checks pass.
+
+## Review Evidence
+
+- Review order: inspect commit `18a2f0d`, audit PostgreSQL regression evidence, run Finance-focused adversarial review, then re-run migration reset and Finance integration after the finality guard fix.
+- Manual eligible DRAFT regression: `addInvoiceLine()` persists `240000/25/239975` and `editInvoiceLine()` persists `300000/25/299975` for gross/discount/net, each with the assigned policy provenance.
+- Finality regression: direct inserts against a DRAFT Invoice are rejected; the Issue transaction atomically marks the Invoice `ISSUED`, then persists applications that exactly match its line provenance. A successful Issue persists `100/25/75` on `IssuedPromotionApplication`.
+- Test database evidence: `.env.test` supplied only `TARGET_INTEGRATION_DATABASE_URL=anhhoa_test`; `E2E_DATABASE_URL` was unset. Clean reset applied all 67 migrations, then deploy/seed/integration passed `132/132` tests.
+- Additional verification: Finance unit `14/14`, Admin UI `106/106`, and workspace `pnpm typecheck` passed. `git diff --check` passed.

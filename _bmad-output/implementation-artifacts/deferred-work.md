@@ -43,3 +43,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-2-dang-nhap-google-va-co-lap-session-theo-audience.md`
   summary: Bổ sung Parent active-link recheck, direct context và authorized School chooser trong Story 2.3.
   evidence: Story 1.2 cố ý từ chối Parent callback vì chưa có ParentProfile và StudentParent active-link authority.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-promotion-policy-release-hardening.md`
+  summary: Triển khai Epic 6 Story 6.1 ghi Actual Receipt dòng Invoice và carry chênh lệch.
+  evidence: Được tách khỏi đóng release-hardening Pha 1b vì Story 6.1 là một mục tiêu người dùng độc lập, có persistence, lifecycle và API/UI Finance riêng để review và phát hành.

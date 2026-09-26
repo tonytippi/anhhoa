@@ -12,7 +12,7 @@ type Receivable = {
   available: boolean;
 };
 type Catalog = { groups: Group[]; receivables: Receivable[] };
-type PromotionPolicy = { id: string; name: string; versions: Array<{ id: string; version: number; status: "DRAFT" | "ACTIVE" | "RETIRED"; discountType: "FIXED_VND" | "PERCENTAGE"; discountValue: string; priority: number; stackingMode: "STACKABLE" | "EXCLUSIVE"; effectiveFrom: string; effectiveTo: string | null; targets: Array<{ id: string; receivableId: string; receivableName: string }>; assignments: Array<{ id: string; studentId: string; studentCode: string; studentName: string; effectiveFrom: string; effectiveTo: string | null; isCurrent: boolean; reason: string; endReason: string | null }> }> };
+type PromotionPolicy = { id: string; name: string; versions: Array<{ id: string; version: number; status: "DRAFT" | "ACTIVE" | "RETIRED"; discountType: "FIXED_VND" | "PERCENTAGE"; discountValue: string; priority: number; stackingMode: "STACKABLE" | "EXCLUSIVE"; fulfillmentMode: "DISCOUNT" | "PREPAID_COVERAGE"; effectiveFrom: string; effectiveTo: string | null; targets: Array<{ id: string; receivableId: string; receivableName: string }>; assignments: Array<{ id: string; studentId: string; studentCode: string; studentName: string; effectiveFrom: string; effectiveTo: string | null; isCurrent: boolean; reason: string; endReason: string | null }> }> };
 type Year = {
   id: string;
   name: string;
@@ -31,6 +31,7 @@ type Run = {
   version: number;
   selectedStudentIds: string[];
   templateLines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; defaultUnitPrice: string; quantity: string; amount: string }>;
+  coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
   invoices?: Array<{ id: string; studentId: string; studentCode: string; studentName: string; className: string; status: string; total: string }>;
 };
 type Preview = {
@@ -49,6 +50,8 @@ type Preview = {
     reason: string;
   }>;
   fingerprint: string;
+  coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
+  futureCoverageFacts?: Array<{ studentId: string; billingMonth: string; policyId: string; versionId: string; receivableId: string; receivableName: string; originalPrice: string; reduction: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string }>;
 };
 type GenerateOutcome = {
   run: Run;
@@ -68,8 +71,10 @@ type GenerateOutcome = {
 };
 type Source = { serviceDate: string | null; attendanceState: "PRESENT" | "ABSENT" | null; pickedUpAt: string | null; lateCareMinutes: number | null };
 type BankAccount = { id: string; receivingBank: string; accountNumber: string; accountHolderName: string };
-type Invoice = { id: string; status: string; total: string; billingMonth: string; revisesInvoiceId: string | null; revisionReason: string | null; replacementInvoiceId: string | null; student: { code: string; name: string; className: string }; lines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; grossAmount: string; discountAmount: string; netAmount: string; promotionEvaluation: { applications: Array<{ assignmentReason: string; appliedDiscount: string }> } | null; promotionApplicationSnapshot: Array<{ assignmentReason: string; appliedDiscount: string }> | null; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
+type Invoice = { id: string; status: string; total: string; sourceOutstanding?: string | null; billingMonth: string; revisesInvoiceId: string | null; revisionReason: string | null; replacementInvoiceId: string | null; receipt: { actualAmount: string; outcome: "EXACT" | "SHORTFALL" | "OVERPAYMENT"; postedAt: string; difference: { signedAmount: string } | null } | null; settlementTransfer: { sourceInvoiceId: string; sourceReceiptId: string; amount: string; postedAt: string } | null; sourceDebtTransfers?: Array<{ targetInvoiceId: string; amount: string; reason: string; postedAt: string }>; priorDebtTransfers?: Array<{ sourceInvoiceId: string; amount: string; reason: string; postedAt: string }>; carries: Array<{ type: "SHORTFALL_CARRY" | "OVERPAYMENT_CARRY"; amount: string; sourceDifferenceId: string }>; coverageFacts?: Array<{ coverageId: string | null; receivableId: string; billingMonth: string; policyId: string; versionId: string; originalPrice: string; reduction: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string; issuedAt: string | null }>; student: { code: string; name: string; className: string }; lines: Array<{ id: string; kind?: "NORMAL" | "PRIOR_DEBT"; receivableId: string | null; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; grossAmount: string; discountAmount: string; netAmount: string; promotionEvaluation: { applications: Array<{ assignmentReason: string; appliedDiscount: string }> } | null; promotionApplicationSnapshot: Array<{ assignmentReason: string; appliedDiscount: string }> | null; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
 type Pending = { id: string; schoolId: string };
+type CoverageReversalPreview = { coverageId: string; effectiveOn: string; denominator: number; remainingDays: number; calculatedAmount: string; availableAmount: string; source: { studentName: string; reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL"; invoiceId: string; receiptId: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string; eligibility: { id: string; reason: string; effectiveOn: string } } };
+type CoverageReversalRequest = { id: string; coverageId: string; studentName: string; amount: string; effectiveOn: string; reason: string; canDecide: boolean };
 type GenerationProgress = {
   status: "QUEUED" | "RUNNING" | "PAUSED" | "FAILED" | "COMPLETED";
   total: number;
@@ -130,11 +135,14 @@ export function FinanceWorkspace({
 }) {
   const [catalog, setCatalog] = useState<Catalog>();
   const [promotionData, setPromotionData] = useState({ schoolId, policies: [] as PromotionPolicy[], students: [] as Candidate[] });
-  const [promotion, setPromotion] = useState({ policyId: "", name: "", receivableIds: [] as string[], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" });
+  const [promotion, setPromotion] = useState({ policyId: "", name: "", receivableIds: [] as string[], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "", effectiveTo: "" });
   const [assignment, setAssignment] = useState({ versionId: "", studentIds: [] as string[], effectiveFrom: "", effectiveTo: "", reason: "" });
+  const [coverage, setCoverage] = useState({ studentId: "", versionId: "", billingMonth: "" });
   const [endingAssignment, setEndingAssignment] = useState<{ id: string; effectiveTo: string; reason: string }>();
   const [candidates, setCandidates] = useState<Candidates>();
   const [runs, setRuns] = useState<Run[]>([]);
+  const [runsCursor, setRunsCursor] = useState<string | null>(null);
+  const [runStatus, setRunStatus] = useState("");
   const [run, setRun] = useState<Run>();
   const [preview, setPreview] = useState<Preview>();
   const [generateConfirmation, setGenerateConfirmation] = useState(false);
@@ -153,11 +161,17 @@ export function FinanceWorkspace({
   const [revisionConfirmation, setRevisionConfirmation] = useState(false);
   const [revisionReason, setRevisionReason] = useState("");
   const [revisionConfirmationName, setRevisionConfirmationName] = useState("");
+  const [coverageReversal, setCoverageReversal] = useState({ coverageId: "", effectiveOn: "", reason: "", amount: "", confirmation: "" });
+  const [coverageReversalPreview, setCoverageReversalPreview] = useState<CoverageReversalPreview>();
+  const [coverageReversalRequests, setCoverageReversalRequests] = useState<CoverageReversalRequest[]>([]);
+  const [coverageDecision, setCoverageDecision] = useState<{ request: CoverageReversalRequest; decision: "APPROVE" | "REFUSE"; reason: string }>();
   const [line, setLine] = useState({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" });
   const [editingLineId, setEditingLineId] = useState<string>();
   const [editingSource, setEditingSource] = useState(false);
   const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string }>();
   const [open, setOpen] = useState({ schoolYearId: "", billingMonth: "" });
+  const [runDialog, setRunDialog] = useState(false);
+  const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[] }>();
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [template, setTemplate] = useState({ receivableId: "", quantity: "" });
   const [group, setGroup] = useState({ name: "" });
@@ -169,9 +183,17 @@ export function FinanceWorkspace({
     defaultUnitPrice: "",
   });
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
+  const [catalogDialog, setCatalogDialog] = useState<"group" | "receivable">();
+  const [promotionDialog, setPromotionDialog] = useState<"policy" | "assignment">();
+  const [promotionTransition, setPromotionTransition] = useState<{
+    id: string;
+    name: string;
+    action: "activate" | "retire";
+  }>();
+  const [rowMenu, setRowMenu] = useState<string>();
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle" | "promotion">(
+  const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle" | "promotion" | "run">(
     "group",
   );
   const [pending, setPending] = useState<Pending>();
@@ -186,6 +208,16 @@ export function FinanceWorkspace({
   const revisionTrigger = useRef<HTMLButtonElement>(null);
   const closeDialog = useRef<HTMLDivElement>(null);
   const closeTrigger = useRef<HTMLButtonElement>(null);
+  const coverageDecisionDialog = useRef<HTMLDivElement>(null);
+  const coverageDecisionTrigger = useRef<HTMLButtonElement>(null);
+  const dialogTrigger = useRef<HTMLButtonElement | null>(null);
+  const catalogDialogRef = useRef<HTMLDivElement>(null);
+  const runDialogRef = useRef<HTMLDivElement>(null);
+  const promotionDialogRef = useRef<HTMLDivElement>(null);
+  const lifecycleDialog = useRef<HTMLDivElement>(null);
+  const rowMenuTrigger = useRef<HTMLButtonElement>(null);
+  const rowMenuElement = useRef<HTMLDivElement>(null);
+  const rowMenuKeyboardOpen = useRef(false);
   const closedHeading = useRef<HTMLHeadingElement>(null);
   const status = useRef(onStatusChange);
   const submitting = useRef(false);
@@ -194,6 +226,10 @@ export function FinanceWorkspace({
   const promotionPolicies = promotionData.schoolId === schoolId ? promotionData.policies : [];
   const promotionStudents = promotionData.schoolId === schoolId ? promotionData.students : [];
   const activeAssignment = (item: PromotionPolicy["versions"][number]["assignments"][number]) => item.isCurrent;
+  const promotionVersions = promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => ({ policy, version })));
+  const currentAssignments = promotionVersions.flatMap(({ policy, version }) => (version.assignments ?? []).filter(activeAssignment).map((item) => ({ policy, version, item })));
+  const resetReceivable = () => setReceivable({ groupId: "", code: "", displayName: "", unitLabel: "", defaultUnitPrice: "" });
+  const resetPromotion = () => setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "", effectiveTo: "" });
 
   const get = async <T,>(path: string, mutation = false) => {
     const response = await fetch(`${apiUrl}${path}`, {
@@ -209,29 +245,29 @@ export function FinanceWorkspace({
     if (!response.ok) throw new Error("Không thể tải dữ liệu Finance.");
     return ((await response.json()) as { data: T }).data;
   };
+  const runsPath = (cursor?: string | null) => `/api/app/schools/${schoolId}/finance/collection-runs?limit=25${runStatus ? `&status=${encodeURIComponent(runStatus)}` : ""}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
   const load = async () => {
     const token = ++request.current;
-    const [nextCatalog, nextRuns, nextCandidates, nextPolicies, nextPromotionStudents] = await Promise.all([
+    const [nextCatalog, nextRuns, nextCandidates, nextPolicies, nextPromotionStudents, nextReversalRequests] = await Promise.all([
       get<Catalog>(`/api/app/schools/${schoolId}/finance/receivables`),
-      get<{ runs: Run[] }>(
-        `/api/app/schools/${schoolId}/finance/collection-runs`,
+      get<{ runs: Run[]; meta: { nextCursor: string | null } }>(
+        runsPath(),
       ),
       get<Candidates>(
         `/api/app/schools/${schoolId}/finance/collection-run-candidates${(run?.schoolYearId ?? open.schoolYearId) ? `?schoolYearId=${run?.schoolYearId ?? open.schoolYearId}` : ""}`,
       ),
       get<{ policies: PromotionPolicy[] }>(`/api/app/schools/${schoolId}/finance/promotion-policies`),
       get<{ students: Candidate[] }>(`/api/app/schools/${schoolId}/finance/promotion-students`),
+      get<{ requests: CoverageReversalRequest[] }>(`/api/app/schools/${schoolId}/finance/coverage-reversal-requests`),
     ]);
     if (activeSchool.current !== schoolId || token !== request.current) return;
     setCatalog(nextCatalog);
     setRuns(nextRuns.runs);
+    setRunsCursor(nextRuns.meta?.nextCursor ?? null);
     setCandidates(nextCandidates);
     setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: nextPromotionStudents.students ?? [] });
+    setCoverageReversalRequests(nextReversalRequests.requests ?? []);
     if (run) {
-      const refreshedRun = nextRuns.runs.find((item) => item.id === run.id);
-      setRun(refreshedRun);
-      if (refreshedRun && refreshedRun.status !== "DRAFT")
-        setSelectedStudentIds(refreshedRun.selectedStudentIds);
     }
   };
   const loadBankAccounts = async () => {
@@ -246,6 +282,28 @@ export function FinanceWorkspace({
     );
     if (activeSchool.current === schoolId && token === request.current)
       setCandidates(next);
+  };
+  const loadMoreRuns = async () => {
+    if (!runsCursor) return;
+    const token = ++request.current;
+    setInvoiceQueue(undefined);
+    const next = await get<{ runs: Run[]; meta: { nextCursor: string | null } }>(runsPath(runsCursor));
+    if (activeSchool.current !== schoolId || token !== request.current) return;
+    setRuns((current) => [...current, ...next.runs]);
+    setRunsCursor(next.meta?.nextCursor ?? null);
+  };
+  const refreshRun = async (runId: string) => {
+    const token = ++request.current;
+    setInvoiceQueue(undefined);
+    const [next, refreshedRun] = await Promise.all([
+      get<{ runs: Run[]; meta: { nextCursor: string | null } }>(runsPath()),
+      get<Run>(`/api/app/schools/${schoolId}/finance/collection-runs/${runId}`),
+    ]);
+    if (activeSchool.current !== schoolId || token !== request.current) return;
+    setRuns(next.runs);
+    setRunsCursor(next.meta?.nextCursor ?? null);
+    chooseRun(refreshedRun);
+    return refreshedRun;
   };
   const reconcile = async (operation: Pending) => {
     if (operation.schoolId !== activeSchool.current) return;
@@ -273,8 +331,12 @@ export function FinanceWorkspace({
       setGenerationProgress(result.progress ?? undefined);
       submitting.current = false;
       if (result.status === "COMPLETED") {
-        if ((result.outcome as GenerateOutcome | undefined)?.created)
-          setGeneratedOutcome(result.outcome as GenerateOutcome);
+        setMessage("");
+        const generated = result.outcome as GenerateOutcome | undefined;
+        if (generated?.created) {
+          setGeneratedOutcome(generated);
+          try { await refreshRun(generated.run.id); } catch { chooseRun(generated.run); setMessage("Đã tạo hóa đơn; chưa thể tải lại đợt thu mới nhất."); }
+        }
         if ((result.outcome as Invoice | undefined)?.lines) applyInvoice(result.outcome as Invoice);
         if (["DRAFT", "READY", "GENERATED", "CLOSED"].includes((result.outcome as Run | undefined)?.status ?? ""))
           chooseRun(result.outcome as Run);
@@ -310,11 +372,14 @@ export function FinanceWorkspace({
       window.clearTimeout(reconciliationTimer.current);
     setCatalog(undefined);
     setPromotionData({ schoolId, policies: [], students: [] });
-    setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" });
+    setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "", effectiveTo: "" });
     setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" });
+    setCoverage({ studentId: "", versionId: "", billingMonth: "" });
     setEndingAssignment(undefined);
     setCandidates(undefined);
     setRuns([]);
+    setRunsCursor(null);
+    setRunStatus("");
     setRun(undefined);
     setPreview(undefined);
     setGenerateConfirmation(false);
@@ -333,10 +398,16 @@ export function FinanceWorkspace({
     setRevisionConfirmation(false);
     setRevisionReason("");
     setRevisionConfirmationName("");
+    setCoverageReversal({ coverageId: "", effectiveOn: "", reason: "", amount: "", confirmation: "" });
+    setCoverageReversalPreview(undefined);
+    setCoverageReversalRequests([]);
+    setCoverageDecision(undefined);
     setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" });
     setEditingLineId(undefined);
     setEditingSource(false);
     setOpen({ schoolYearId: "", billingMonth: "" });
+    setRunDialog(false);
+    setInvoiceQueue(undefined);
     setSelectedStudentIds([]);
     setTemplate({ receivableId: "", quantity: "" });
     setGroup({ name: "" });
@@ -348,6 +419,10 @@ export function FinanceWorkspace({
       defaultUnitPrice: "",
     });
     setLifecycle(undefined);
+    setCatalogDialog(undefined);
+    setPromotionDialog(undefined);
+    setPromotionTransition(undefined);
+    setRowMenu(undefined);
     setErrors({});
     setMessage("");
     setGenerationProgress(undefined);
@@ -427,8 +502,97 @@ export function FinanceWorkspace({
     else closeTrigger.current?.focus();
   }, [closeConfirmation]);
   useEffect(() => {
+    if (coverageDecision) coverageDecisionDialog.current?.querySelector<HTMLElement>("textarea")?.focus();
+    else coverageDecisionTrigger.current?.focus();
+  }, [coverageDecision]);
+  useLayoutEffect(() => {
     if (run?.status === "CLOSED" && !closeConfirmation) closedHeading.current?.focus();
   }, [run?.status, closeConfirmation]);
+  useEffect(() => {
+    if (!catalog) return;
+    void load().catch((error: Error) => activeSchool.current === schoolId && setMessage(error.message));
+  }, [runStatus]);
+  useEffect(() => {
+    if (rowMenu && rowMenuKeyboardOpen.current)
+      rowMenuElement.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    rowMenuKeyboardOpen.current = false;
+  }, [rowMenu]);
+  useEffect(() => {
+    const dialog = catalogDialog ? catalogDialogRef.current : promotionDialog ? promotionDialogRef.current : undefined;
+    dialog?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])")?.focus();
+  }, [catalogDialog, promotionDialog]);
+  useEffect(() => {
+    if (runDialog) runDialogRef.current?.querySelector<HTMLElement>("select, input, button")?.focus();
+  }, [runDialog]);
+  useEffect(() => {
+    if (promotionTransition)
+      document.querySelector<HTMLElement>("#finance-promotion-transition-confirm")?.focus();
+  }, [promotionTransition]);
+  const trapDialogFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>("input, select, textarea, button")]
+      .filter((item) => !item.hasAttribute("disabled"));
+    const first = items[0], last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  const closeManagedDialog = (close: () => void) => {
+    close();
+    if (dialogTrigger.current?.isConnected) dialogTrigger.current.focus();
+    else rowMenuTrigger.current?.focus();
+    dialogTrigger.current = null;
+  };
+  const openManagedDialog = (
+    trigger: HTMLButtonElement,
+    open: () => void,
+  ) => {
+    dialogTrigger.current = trigger;
+    open();
+  };
+  const closeNewDialog = (close: () => void, reset: () => void) => {
+    if (pending) return;
+    setErrors({});
+    reset();
+    closeManagedDialog(close);
+  };
+  const handleManagedDialogKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    close: () => void,
+    reset: () => void = () => {},
+  ) => {
+    if (event.key === "Escape" && !pending) {
+      event.preventDefault();
+      closeNewDialog(close, reset);
+      return;
+    }
+    trapDialogFocus(event);
+  };
+  const handleRowMenuTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>, id: string) => {
+    if (event.key === "Escape" && rowMenu === id) {
+      event.preventDefault();
+      setRowMenu(undefined);
+      return;
+    }
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      if (rowMenu === id)
+        event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+      else {
+        rowMenuKeyboardOpen.current = true;
+        setRowMenu(id);
+      }
+    } else if (["Enter", " "].includes(event.key)) rowMenuKeyboardOpen.current = true;
+  };
+  const handleRowMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter((item) => !item.disabled);
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (!items.length) return;
+    if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); return; }
+    if (event.key === "Tab") { setRowMenu(undefined); return; }
+    const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : -1;
+    if (next >= 0) { event.preventDefault(); items[next]?.focus(); }
+  };
   const command = async (
     path: string,
     method: "POST" | "PUT" | "DELETE",
@@ -437,6 +601,7 @@ export function FinanceWorkspace({
   ) => {
     if (submitting.current || pending) return undefined;
     const token = ++request.current;
+    setInvoiceQueue(undefined);
     submitting.current = true;
     const operation = { id: crypto.randomUUID(), schoolId };
     setMessage("");
@@ -514,10 +679,12 @@ export function FinanceWorkspace({
     }
   };
   const chooseRun = (next: Run) => {
-    setRun(next);
-    setSelectedStudentIds(next.selectedStudentIds);
+    setInvoiceQueue(undefined);
+    const normalized = { ...next, selectedStudentIds: next.selectedStudentIds ?? [], templateLines: next.templateLines ?? [], invoices: next.invoices ?? [] };
+    setRun(normalized);
+    setSelectedStudentIds(normalized.selectedStudentIds);
     setPreview(undefined);
-    void loadCandidates(next.schoolYearId).catch(() =>
+    void loadCandidates(normalized.schoolYearId).catch(() =>
       setMessage("Không thể tải danh sách học sinh."),
     );
   };
@@ -527,9 +694,11 @@ export function FinanceWorkspace({
       `/api/app/schools/${schoolId}/finance/collection-runs`,
       "POST",
       open,
+      "run",
     );
     if (outcome) {
       setOpen({ schoolYearId: "", billingMonth: "" });
+      closeManagedDialog(() => setRunDialog(false));
       chooseRun(outcome as Run);
       await load();
     }
@@ -570,6 +739,7 @@ export function FinanceWorkspace({
     const runId = run.id;
     const token = ++request.current;
     setMessage("");
+    setPreview(undefined);
     try {
       const next = await get<Preview>(
         `/api/app/schools/${schoolId}/finance/collection-runs/${runId}/preview`,
@@ -582,8 +752,10 @@ export function FinanceWorkspace({
       )
         setPreview(next);
     } catch {
-      if (activeSchool.current === schoolId && token === request.current)
+      if (activeSchool.current === schoolId && token === request.current) {
+        setPreview(undefined);
         setMessage("Không thể tạo bản xem trước.");
+      }
     }
   };
   const ready = async () => {
@@ -609,8 +781,15 @@ export function FinanceWorkspace({
       setGenerateConfirmation(false);
       setGenerateConfirmationMonth("");
       setGeneratedOutcome(outcome as GenerateOutcome);
-      chooseRun((outcome as GenerateOutcome).run);
-      await load();
+      // The generation Operation's run snapshot predates its newly written invoices.
+      // Reload the selected run before exposing its server-authorized review rows.
+      const generatedRun = (outcome as GenerateOutcome).run;
+      try {
+        await refreshRun(generatedRun.id);
+      } catch {
+        chooseRun(generatedRun);
+        setMessage("Đã tạo hóa đơn; chưa thể tải lại đợt thu mới nhất.");
+      }
     }
   };
   const addGeneratedStudent = async () => {
@@ -649,6 +828,7 @@ export function FinanceWorkspace({
       )
     ) {
       setGroup({ name: "" });
+      closeManagedDialog(() => setCatalogDialog(undefined));
       await load();
     }
   };
@@ -669,6 +849,7 @@ export function FinanceWorkspace({
         unitLabel: "",
         defaultUnitPrice: "",
       });
+      closeManagedDialog(() => setCatalogDialog(undefined));
       await load();
     }
   };
@@ -683,36 +864,58 @@ export function FinanceWorkspace({
         "lifecycle",
       )
     ) {
-      setLifecycle(undefined);
+      closeManagedDialog(() => setLifecycle(undefined));
       await load();
     }
   };
   const savePromotion = async (event: FormEvent) => {
     event.preventDefault();
     const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policies`, "POST", { ...promotion, effectiveTo: promotion.effectiveTo || null }, "promotion");
-    if (outcome) { setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "", effectiveTo: "" }); await load(); }
+    if (outcome) { setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "", effectiveTo: "" }); closeManagedDialog(() => setPromotionDialog(undefined)); await load(); }
   };
   const saveAssignments = async (event: FormEvent) => {
     event.preventDefault(); if (!assignment.versionId) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${assignment.versionId}/assignments`, "POST", { ...assignment, effectiveTo: assignment.effectiveTo || null }, "promotion");
-    if (outcome) { setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); await load(); }
+    if (outcome) { setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); closeManagedDialog(() => setPromotionDialog(undefined)); await load(); }
+  };
+  const saveCoverage = async (event: FormEvent) => {
+    event.preventDefault(); if (!run || !coverage.studentId || !coverage.versionId || !coverage.billingMonth) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/coverage-selection`, "PUT", { selections: [...(run.coverageSelections ?? []).filter((item) => !(item.studentId === coverage.studentId && item.versionId === coverage.versionId && item.billingMonth === coverage.billingMonth)), coverage] }, "promotion");
+    if (outcome) { chooseRun(outcome as Run); setCoverage({ studentId: "", versionId: "", billingMonth: "" }); await load(); }
   };
   const endAssignment = async (event: FormEvent) => {
     event.preventDefault(); if (!endingAssignment) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-assignments/${endingAssignment.id}/end`, "POST", { effectiveTo: endingAssignment.effectiveTo, reason: endingAssignment.reason }, "promotion");
-    if (outcome) { setEndingAssignment(undefined); await load(); }
+    if (outcome) { closeManagedDialog(() => setEndingAssignment(undefined)); await load(); }
   };
   const transitionPromotionVersion = async (versionId: string, action: "activate" | "retire") => {
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${versionId}/${action}`, "POST", {}, "promotion");
-    if (outcome) await load();
+    dialogTrigger.current = rowMenuTrigger.current;
+    setPromotionTransition({
+      id: versionId,
+      name: promotionPolicies
+        .flatMap((policy) => (policy.versions ?? []).map((version) => ({ policy, version })))
+        .find((item) => item.version.id === versionId)?.policy.name ?? "chính sách này",
+      action,
+    });
   };
-  const openInvoice = async (invoiceId: string) => {
+  const confirmPromotionTransition = async (versionId: string, action: "activate" | "retire") => {
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${versionId}/${action}`, "POST", {}, "promotion");
+    if (outcome) { closeManagedDialog(() => setPromotionTransition(undefined)); await load(); }
+  };
+  const openInvoice = async (invoiceId: string, sourceRun?: Run) => {
     const token = ++request.current;
+    setInvoiceQueue(undefined);
     try {
       const next = await get<Invoice>(`/api/app/schools/${schoolId}/finance/invoices/${invoiceId}`);
-      if (activeSchool.current === schoolId && token === request.current) setInvoice(next);
+      if (activeSchool.current === schoolId && token === request.current) {
+        setInvoice(next);
+        if (sourceRun) setInvoiceQueue({ runId: sourceRun.id, ids: (sourceRun.invoices ?? []).map((item) => item.id) });
+      }
     } catch (error: any) {
-      if (activeSchool.current === schoolId) setMessage(error.message);
+      if (activeSchool.current === schoolId) {
+        setInvoice(undefined);
+        setMessage(error.message || "Không thể mở hóa đơn đã chọn.");
+      }
     }
   };
   const saveLine = async (event: FormEvent) => {
@@ -725,23 +928,45 @@ export function FinanceWorkspace({
       body.sourceReason = line.sourceReason;
     } else if (editingLineId && editingSource) body.source = null;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/lines${editingLineId ? `/${editingLineId}` : ""}`, editingLineId ? "PUT" : "POST", body, "invoice");
-    if (outcome) { applyInvoice(outcome as Invoice); setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }
+    if (outcome) { applyInvoice(outcome as Invoice); setInvoiceQueue(undefined); setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); if (run) { try { const refreshed = await refreshRun(run.id); if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: (refreshed.invoices ?? []).map((item) => item.id) }); } catch { setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất."); } } }
   };
   const removeLine = async (lineId: string) => {
     if (!invoice) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/lines/${lineId}`, "DELETE", {}, "receivable");
-    if (outcome) applyInvoice(outcome as Invoice);
+    if (outcome) { applyInvoice(outcome as Invoice); setInvoiceQueue(undefined); if (run) { try { const refreshed = await refreshRun(run.id); if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: (refreshed.invoices ?? []).map((item) => item.id) }); } catch { setMessage("Đã xóa; chưa thể tải lại danh sách hóa đơn mới nhất."); } } }
     setRemoveConfirmation(undefined);
   };
   const issueInvoice = async () => {
     if (!invoice || !issueBankAccountId) return;
+    const runId = run?.id;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/${invoice.revisesInvoiceId ? "issue-revision" : "issue"}`, "POST", { bankAccountId: issueBankAccountId }, "invoice");
-    if (outcome) { applyInvoice(outcome as Invoice); setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); try { await load(); } catch { setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất."); } }
+    if (outcome) { applyInvoice(outcome as Invoice); setInvoiceQueue(undefined); setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); try { if (runId) { const refreshed = await refreshRun(runId); if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: (refreshed.invoices ?? []).map((item) => item.id) }); } } catch { setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất."); } }
   };
   const prepareRevision = async () => {
     if (!invoice) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/revisions`, "POST", { reason: revisionReason }, "invoice");
     if (outcome) { applyInvoice(outcome as Invoice); setRevisionConfirmation(false); setRevisionReason(""); setRevisionConfirmationName(""); try { await load(); } catch { setMessage("Bản điều chỉnh đã được chuẩn bị; chưa thể tải lại dữ liệu mới nhất."); } }
+  };
+  const previewCoverageReversal = async () => {
+    if (!coverageReversal.coverageId || !coverageReversal.effectiveOn) return;
+    const token = ++request.current;
+    setCoverageReversalPreview(undefined);
+    try {
+      const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/coverage-reversals/preview`, { method: "POST", credentials: "include", headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? "") }, body: JSON.stringify({ coverageId: coverageReversal.coverageId, effectiveOn: coverageReversal.effectiveOn }) });
+      if ([401, 403].includes(response.status)) { denied(); return; }
+      if (!response.ok) throw new Error(); const next = ((await response.json()) as { data: CoverageReversalPreview }).data;
+       if (activeSchool.current === schoolId && token === request.current) setCoverageReversalPreview(next);
+    } catch { if (activeSchool.current === schoolId && token === request.current) { setCoverageReversalPreview(undefined); setMessage("Không thể tải preview hoàn coverage từ máy chủ."); } }
+  };
+  const postCoverageReversal = async () => {
+    if (!coverageReversalPreview) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/coverage-reversals`, "POST", { ...coverageReversal, effectiveOn: coverageReversalPreview.effectiveOn, amount: coverageReversal.amount || null }, "invoice");
+    if (outcome) { setMessage(coverageReversalPreview.source.reversalMode === "DIRECT" ? "Máy chủ đã ghi nhận hoàn/reverse coverage." : "Yêu cầu hoàn coverage đã được gửi chờ School Admin duyệt."); setCoverageReversal({ coverageId: "", effectiveOn: "", reason: "", amount: "", confirmation: "" }); setCoverageReversalPreview(undefined); await load(); }
+  };
+  const decideCoverageReversal = async () => {
+    if (!coverageDecision) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/coverage-reversal-requests/${coverageDecision.request.id}/decision`, "POST", { decision: coverageDecision.decision, reason: coverageDecision.reason }, "invoice");
+    if (outcome) { setCoverageDecision(undefined); await load(); }
   };
   const openIssueConfirmation = async () => {
     if (!invoice) return;
@@ -784,6 +1009,13 @@ export function FinanceWorkspace({
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   };
+  const trapCoverageDecisionFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const items = [...(coverageDecisionDialog.current?.querySelectorAll<HTMLElement>("textarea, button") ?? [])].filter((item) => !item.hasAttribute("disabled")); const first = items[0], last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
   const field = (nextScope: typeof scope, name: string) =>
     scope === nextScope && errors[name]
       ? {
@@ -794,9 +1026,22 @@ export function FinanceWorkspace({
       : {};
   const invoiceField = (name: string) => field("invoice", name);
   const promotionField = (name: string) => field("promotion", name);
+  const invoiceQueueIndex = invoice && invoiceQueue ? invoiceQueue.ids.indexOf(invoice.id) : -1;
+  const previousInvoiceId = invoiceQueueIndex > 0 ? invoiceQueue!.ids[invoiceQueueIndex - 1] : undefined;
+  const nextInvoiceId = invoiceQueueIndex >= 0 && invoiceQueueIndex < invoiceQueue!.ids.length - 1 ? invoiceQueue!.ids[invoiceQueueIndex + 1] : undefined;
 
   return (
-    <section aria-labelledby="finance-title">
+    <section aria-labelledby="finance-title" onKeyDownCapture={(event) => {
+      const target = event.target as HTMLElement;
+      if (target instanceof HTMLButtonElement && target.getAttribute("aria-haspopup") === "menu") {
+        if (event.key === "Escape" && target.getAttribute("aria-expanded") === "true") { event.preventDefault(); event.stopPropagation(); target.click(); return; }
+        if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); if (target.getAttribute("aria-expanded") === "false") target.click(); window.setTimeout(() => target.parentElement?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); return; }
+      }
+      if (event.key !== "Escape" || pending) return;
+      if (endingAssignment) closeNewDialog(() => setEndingAssignment(undefined), () => {});
+      else if (promotionTransition) closeNewDialog(() => setPromotionTransition(undefined), () => {});
+      else if (promotionDialog === "assignment") closeNewDialog(() => setPromotionDialog(undefined), () => setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }));
+    }}>
       <h2 id="finance-title">Finance</h2>
       <p>
         {schoolName} / Eligibility, lifecycle và đơn giá được máy chủ xác nhận.
@@ -809,171 +1054,14 @@ export function FinanceWorkspace({
       <section aria-labelledby="promotion-title">
         <h3 id="promotion-title">Ưu đãi</h3>
         <p>Thay đổi cấu hình tạo phiên bản mới. Giá trị áp dụng do hệ thống đánh giá ở bước sau.</p>
-        <form onSubmit={savePromotion}>
-          <label>Chính sách hiện có (để tạo phiên bản mới)<select value={promotion.policyId} onChange={(event) => { const policy = promotionPolicies.find((item) => item.id === event.target.value); setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" }); }}><option value="">Chính sách mới</option>{promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} {...promotionField("name")} /></label>{scope === "promotion" && errors.name && <small id="invoice-promotion-name-error">{errors.name}</small>}
-          <fieldset {...promotionField("receivableIds")}><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>{scope === "promotion" && errors.receivableIds && <small id="invoice-promotion-receivableIds-error">{errors.receivableIds}</small>}
-          <label>Loại giảm<select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}><option value="PERCENTAGE">Phần trăm</option><option value="FIXED_VND">Số tiền VND</option></select></label>
-          <label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} {...promotionField("discountValue")} /></label>{scope === "promotion" && errors.discountValue && <small id="invoice-promotion-discountValue-error">{errors.discountValue}</small>}
-          <label>Hiệu lực từ<input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} /></label>
-          <label>Hiệu lực đến (bao gồm)<input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} /></label>
-          <label>Ưu tiên<input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} /></label>
-          <label>Quy tắc kết hợp<select value={promotion.stackingMode} onChange={(event) => setPromotion({ ...promotion, stackingMode: event.target.value })}><option value="STACKABLE">Có thể kết hợp</option><option value="EXCLUSIVE">Độc quyền</option></select></label>
-          <button disabled={Boolean(pending)}>Lưu phiên bản ưu đãi</button>
-        </form>
-        <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Thao tác</th></tr></thead><tbody>{promotionPolicies.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td>{version.status === "DRAFT" && <button type="button" disabled={Boolean(pending)} onClick={() => void transitionPromotionVersion(version.id, "activate")}>Kích hoạt phiên bản</button>}{version.status === "ACTIVE" && <button type="button" disabled={Boolean(pending)} onClick={() => void transitionPromotionVersion(version.id, "retire")}>Ngừng phiên bản</button>}</td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
-        <form onSubmit={saveAssignments}>
-          <h4>Gán học sinh</h4><p>Cả nhóm dùng chung thời hạn và lý do; máy chủ chỉ lưu khi toàn bộ danh sách hợp lệ.</p>
-          <label>Phiên bản đang áp dụng<select value={assignment.versionId} onChange={(event) => setAssignment({ ...assignment, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionPolicies.flatMap((policy) => (policy.versions ?? []).filter((version) => version.status === "ACTIVE").map((version) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>))}</select></label>
-          <fieldset><legend>Học sinh</legend>{promotionStudents.map((student) => <label key={student.id}><input type="checkbox" checked={assignment.studentIds.includes(student.id)} onChange={() => setAssignment({ ...assignment, studentIds: assignment.studentIds.includes(student.id) ? assignment.studentIds.filter((id) => id !== student.id) : [...assignment.studentIds, student.id] })} />{student.studentCode} / {student.fullName}</label>)}</fieldset>
-          <label>Áp dụng từ<input type="date" value={assignment.effectiveFrom} onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })} /></label><label>Áp dụng đến (bao gồm)<input type="date" value={assignment.effectiveTo} onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={assignment.reason} onChange={(event) => setAssignment({ ...assignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu gán học sinh</button>
-        </form>
-        {promotionPolicies.flatMap((policy) => policy.versions ?? []).flatMap((version) => (version.assignments ?? []).filter(activeAssignment).map((item) => <div key={item.id}><span>{item.studentCode} / {item.studentName}: {item.effectiveFrom}</span><button type="button" disabled={Boolean(pending)} onClick={() => setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" })}>Kết thúc áp dụng</button></div>))}
-        {endingAssignment && <form onSubmit={endAssignment}><h4>Kết thúc áp dụng học sinh</h4><label>Ngày kết thúc (bao gồm)<input type="date" value={endingAssignment.effectiveTo} onChange={(event) => setEndingAssignment({ ...endingAssignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={endingAssignment.reason} onChange={(event) => setEndingAssignment({ ...endingAssignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Xác nhận kết thúc</button><button type="button" onClick={() => setEndingAssignment(undefined)}>Hủy</button></form>}
+        <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetPromotion(); openManagedDialog(event.currentTarget, () => setPromotionDialog("policy")); }}>Thêm chính sách</button>
+        <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody>{promotionVersions.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td><button ref={rowMenu === `promotion-${version.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${policy.name} phiên bản ${version.version}`} aria-haspopup="menu" aria-expanded={rowMenu === `promotion-${version.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `promotion-${version.id}`)} onClick={() => setRowMenu(rowMenu === `promotion-${version.id}` ? undefined : `promotion-${version.id}`)}>...</button>{rowMenu === `promotion-${version.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}>{version.status === "DRAFT" && <button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; void transitionPromotionVersion(version.id, "activate"); }}>Kích hoạt phiên bản</button>}{version.status === "ACTIVE" && <><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setAssignment({ versionId: version.id, studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); setPromotionDialog("assignment"); }}>Gán học sinh</button><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; void transitionPromotionVersion(version.id, "retire"); }}>Ngừng phiên bản</button></>}</div>}</td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
+        {currentAssignments.length > 0 && <table><caption>Học sinh đang áp dụng ưu đãi</caption><thead><tr><th>Học sinh</th><th>Chính sách</th><th>Áp dụng từ</th><th>Lý do</th><th>Tùy chọn</th></tr></thead><tbody>{currentAssignments.map(({ policy, version, item }) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{policy.name} / Phiên bản {version.version}</td><td>{item.effectiveFrom}</td><td>{item.reason}</td><td><button ref={rowMenu === `assignment-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.studentName}`} aria-haspopup="menu" aria-expanded={rowMenu === `assignment-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `assignment-${item.id}`)} onClick={() => setRowMenu(rowMenu === `assignment-${item.id}` ? undefined : `assignment-${item.id}`)}>...</button>{rowMenu === `assignment-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" }); }}>Kết thúc áp dụng</button></div>}</td></tr>)}</tbody></table>}
       </section>
-      <section>
-        <h3>Nhóm khoản thu</h3>
-        <form onSubmit={saveGroup}>
-          <label>
-            Tên nhóm
-            <input
-              value={group.name}
-              onChange={(event) => setGroup({ name: event.target.value })}
-              {...field("group", "name")}
-            />
-          </label>
-          {scope === "group" && errors.name && (
-            <small id="group-name-error">{errors.name}</small>
-          )}
-          <button disabled={Boolean(pending)}>Thêm nhóm</button>
-        </form>
-        <table>
-          <caption>Nhóm khoản thu theo trường</caption>
-          <thead>
-            <tr>
-              <th>Tên</th>
-              <th>Trạng thái</th>
-              <th>Thao tác</th>
-            </tr>
-          </thead>
-          <tbody>
-            {catalog?.groups.length ? (
-              catalog.groups.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.name}</td>
-                  <td>
-                    {item.status === "ACTIVE"
-                      ? "Đang áp dụng"
-                      : "Ngừng áp dụng"}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      disabled={Boolean(pending)}
-                      onClick={() =>
-                        setLifecycle({
-                          kind: "receivable-groups",
-                          id: item.id,
-                          name: item.name,
-                          next:
-                            item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-                          reason: "",
-                        })
-                      }
-                    >
-                      {item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}
-                    </button>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={3}>
-                  {catalog
-                    ? "Chưa có nhóm khoản thu."
-                    : "Đang tải nhóm khoản thu."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+      {coverageReversalRequests.length > 0 && <section aria-labelledby="coverage-approval-title"><h3 id="coverage-approval-title">Yêu cầu hoàn coverage chờ duyệt</h3><table><caption>Chỉ School Admin khác người yêu cầu được quyết định</caption><thead><tr><th>Học sinh</th><th>Ngày hiệu lực</th><th>Số tiền</th><th>Lý do</th><th>Thao tác</th></tr></thead><tbody>{coverageReversalRequests.map((item) => <tr key={item.id}><td>{item.studentName}</td><td>{item.effectiveOn}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{item.reason}</td><td>{item.canDecide ? <><button ref={coverageDecisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "APPROVE", reason: "" })}>Duyệt</button><button type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "REFUSE", reason: "" })}>Từ chối</button></> : "Không có quyền quyết định"}</td></tr>)}</tbody></table></section>}
       <section>
         <h3>Khoản thu</h3>
-        <form onSubmit={saveReceivable}>
-          <label>
-            Nhóm
-            <select
-              value={receivable.groupId}
-              onChange={(event) =>
-                setReceivable({ ...receivable, groupId: event.target.value })
-              }
-              {...field("receivable", "groupId")}
-            >
-              <option value="">Chọn nhóm</option>
-              {(catalog?.groups ?? [])
-                .filter((item) => item.status === "ACTIVE")
-                .map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Mã khoản thu
-            <input
-              value={receivable.code}
-              onChange={(event) =>
-                setReceivable({ ...receivable, code: event.target.value })
-              }
-            />
-          </label>
-          <label>
-            Tên khoản thu
-            <input
-              value={receivable.displayName}
-              onChange={(event) =>
-                setReceivable({
-                  ...receivable,
-                  displayName: event.target.value,
-                })
-              }
-              {...field("receivable", "displayName")}
-            />
-          </label>
-          <label>
-            Đơn vị
-            <input
-              value={receivable.unitLabel}
-              onChange={(event) =>
-                setReceivable({ ...receivable, unitLabel: event.target.value })
-              }
-              {...field("receivable", "unitLabel")}
-            />
-          </label>
-          <label>
-            Đơn giá mặc định (VND)
-            <input
-              inputMode="numeric"
-              value={receivable.defaultUnitPrice}
-              onChange={(event) =>
-                setReceivable({
-                  ...receivable,
-                  defaultUnitPrice: event.target.value,
-                })
-              }
-              {...field("receivable", "defaultUnitPrice")}
-            />
-          </label>
-          {scope === "receivable" &&
-            Object.entries(errors).map(([name, error]) => (
-              <small key={name} id={`receivable-${name}-error`}>
-                {error}
-              </small>
-            ))}
-          <button disabled={Boolean(pending)}>Thêm khoản thu</button>
-        </form>
+        <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetReceivable(); openManagedDialog(event.currentTarget, () => setCatalogDialog("receivable")); }}>Thêm khoản thu</button><button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setGroup({ name: "" }); openManagedDialog(event.currentTarget, () => setCatalogDialog("group")); }}>Quản lý nhóm</button>
         <table>
           <caption>Khoản thu theo trường</caption>
           <thead>
@@ -983,7 +1071,7 @@ export function FinanceWorkspace({
               <th>Đơn vị</th>
               <th>Đơn giá VND</th>
               <th>Trạng thái</th>
-              <th>Thao tác</th>
+              <th>Tùy chọn</th>
             </tr>
           </thead>
           <tbody>
@@ -993,26 +1081,9 @@ export function FinanceWorkspace({
                   <td>{item.code ?? ""}</td>
                   <td>{item.displayName}</td>
                   <td>{item.unitLabel}</td>
-                  <td>{item.defaultUnitPrice}</td>
+                  <td style={{ textAlign: "right" }}>{vnd(item.defaultUnitPrice)}</td>
                   <td>{item.available ? "Đang áp dụng" : "Ngừng áp dụng"}</td>
-                  <td>
-                    <button
-                      type="button"
-                      disabled={Boolean(pending)}
-                      onClick={() =>
-                        setLifecycle({
-                          kind: "receivables",
-                          id: item.id,
-                          name: item.displayName,
-                          next:
-                            item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-                          reason: "",
-                        })
-                      }
-                    >
-                      {item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}
-                    </button>
-                  </td>
+                   <td><button ref={rowMenu === `receivable-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.displayName}`} aria-haspopup="menu" aria-expanded={rowMenu === `receivable-${item.id}`} onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setRowMenu(`receivable-${item.id}`); } }} onClick={() => setRowMenu(rowMenu === `receivable-${item.id}` ? undefined : `receivable-${item.id}`)}>...</button>{rowMenu === `receivable-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td>
                 </tr>
               ))
             ) : (
@@ -1026,7 +1097,11 @@ export function FinanceWorkspace({
         </table>
       </section>
       <section>
-        <h3>Mở đợt thu tháng</h3>
+        <h3>Đợt thu</h3>
+        <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setOpen({ schoolYearId: "", billingMonth: "" }); openManagedDialog(event.currentTarget, () => setRunDialog(true)); }}>Tạo đợt thu</button>
+        <label>Lọc trạng thái<select value={runStatus} onChange={(event) => { setRunStatus(event.target.value); setRun(undefined); setInvoice(undefined); setInvoiceQueue(undefined); }}><option value="">Tất cả trạng thái</option><option value="DRAFT">Nháp</option><option value="READY">Sẵn sàng</option><option value="GENERATED">Đã tạo</option><option value="CLOSED">Đã đóng</option></select></label>
+        {runDialog && <div ref={runDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-run-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setRunDialog(false), () => setOpen({ schoolYearId: "", billingMonth: "" }))}>
+        <h4 id="finance-run-title">Tạo hoặc mở đợt thu</h4><p>Máy chủ sẽ tạo đợt thu mới hoặc mở đợt thu đã có cho tháng này.</p>
         <form onSubmit={openRun}>
           <label>
             Năm học
@@ -1040,7 +1115,7 @@ export function FinanceWorkspace({
                   setMessage("Không thể tải danh sách học sinh."),
                 );
               }}
-              aria-invalid={Boolean(errors.schoolYearId)}
+              {...field("run", "schoolYearId")}
             >
               <option value="">Chọn năm học</option>
               {candidates?.schoolYears?.map((year) => (
@@ -1054,6 +1129,7 @@ export function FinanceWorkspace({
                 </option>
               ))}
             </select>
+            {scope === "run" && errors.schoolYearId && <small id="invoice-run-schoolYearId-error" role="alert">{errors.schoolYearId}</small>}
           </label>
           <label>
             Tháng thu
@@ -1063,11 +1139,13 @@ export function FinanceWorkspace({
               onChange={(event) =>
                 setOpen({ ...open, billingMonth: event.target.value })
               }
-              aria-invalid={Boolean(errors.billingMonth)}
+              {...field("run", "billingMonth")}
             />
+            {scope === "run" && errors.billingMonth && <small id="invoice-run-billingMonth-error" role="alert">{errors.billingMonth}</small>}
           </label>
-          <button disabled={Boolean(pending)}>Mở hoặc vào đợt thu</button>
+          <button disabled={Boolean(pending)}>Xác nhận tạo hoặc mở</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setRunDialog(false), () => setOpen({ schoolYearId: "", billingMonth: "" }))}>Hủy</button>
         </form>
+        </div>}
         <table>
           <caption>Đợt thu theo trường</caption>
           <thead>
@@ -1075,7 +1153,7 @@ export function FinanceWorkspace({
               <th>Tháng</th>
               <th>Năm học</th>
               <th>Trạng thái</th>
-              <th>Thao tác</th>
+                <th>Tùy chọn</th>
             </tr>
           </thead>
           <tbody>
@@ -1089,11 +1167,7 @@ export function FinanceWorkspace({
                     )?.name ?? item.schoolYearId}
                   </td>
                   <td>{item.status}</td>
-                  <td>
-                    <button type="button" onClick={() => chooseRun(item)}>
-                      Mở chi tiết
-                    </button>
-                  </td>
+                    <td><button ref={rowMenu === `run-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho đợt thu ${item.billingMonth}`} aria-haspopup="menu" aria-expanded={rowMenu === `run-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `run-${item.id}`)} onClick={() => setRowMenu(rowMenu === `run-${item.id}` ? undefined : `run-${item.id}`)}>...</button>{rowMenu === `run-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); chooseRun(item); }}>Mở chi tiết</button></div>}</td>
                 </tr>
               ))
             ) : (
@@ -1105,6 +1179,7 @@ export function FinanceWorkspace({
             )}
           </tbody>
         </table>
+        {runsCursor && <button type="button" disabled={Boolean(pending)} onClick={() => void loadMoreRuns().catch(() => setMessage("Không thể tải thêm đợt thu."))}>Xem thêm đợt thu</button>}
       </section>
       {run && (
         <section aria-labelledby="run-detail-title">
@@ -1174,12 +1249,20 @@ export function FinanceWorkspace({
               >
                 Xem trước từ máy chủ
               </button>
+              <form onSubmit={saveCoverage}>
+                <h4>Coverage nộp trước</h4><p>Chỉ chọn phiên bản coverage và kỳ tương lai do máy chủ xác nhận. Fact chỉ được phát hành sau khi hóa đơn đóng đủ.</p>
+                <label>Học sinh<select value={coverage.studentId} onChange={(event) => setCoverage({ ...coverage, studentId: event.target.value })}><option value="">Chọn học sinh</option>{(candidates?.students ?? []).map((student) => <option key={student.id} value={student.id}>{student.studentCode} / {student.fullName}</option>)}</select></label>
+                <label>Phiên bản coverage<select value={coverage.versionId} onChange={(event) => setCoverage({ ...coverage, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionVersions.filter(({ version }) => version.status === "ACTIVE" && version.fulfillmentMode === "PREPAID_COVERAGE").map(({ policy, version }) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>)}</select></label>
+                <label>Kỳ được coverage<input type="month" value={coverage.billingMonth} onChange={(event) => setCoverage({ ...coverage, billingMonth: event.target.value })} /></label>
+                <button disabled={Boolean(pending)}>Lưu lựa chọn coverage</button>
+              </form>
+              {(run.coverageSelections ?? []).length > 0 && <p>Coverage đã chọn: {(run.coverageSelections ?? []).map((item) => `${item.billingMonth}`).join(", ")}. Máy chủ sẽ snapshot các fact trước khi hóa đơn nháp được hiển thị.</p>}
             </>
           )}
           {preview && (
             <section aria-labelledby="preview-title">
               <h4 id="preview-title">Xem trước authoritative</h4>
-              <table>
+               <table>
                 <caption>Học sinh đủ điều kiện</caption>
                 <thead>
                   <tr>
@@ -1197,7 +1280,8 @@ export function FinanceWorkspace({
                     </tr>
                   )}
                 </tbody>
-              </table>
+               </table>
+               {(preview.futureCoverageFacts ?? []).length > 0 && <table><caption>Fact coverage tương lai từ máy chủ</caption><thead><tr><th>Kỳ</th><th>Khoản thu</th><th>Giá gốc VND</th><th>Giảm VND</th><th>Khoảng dịch vụ</th><th>Lịch</th></tr></thead><tbody>{preview.futureCoverageFacts?.map((fact) => <tr key={`${fact.studentId}-${fact.versionId}-${fact.receivableId}-${fact.billingMonth}`}><td>{fact.billingMonth}</td><td>{fact.receivableName}</td><td style={{ textAlign: "right" }}>{vnd(fact.originalPrice)}</td><td style={{ textAlign: "right" }}>{vnd(fact.reduction)}</td><td>{fact.serviceStart} đến {fact.serviceEnd}</td><td>{fact.calendarEffectiveFrom} / {fact.timezone}</td></tr>)}</tbody></table>}
               <table>
                 <caption>Học sinh bị bỏ qua</caption>
                 <thead>
@@ -1275,10 +1359,10 @@ export function FinanceWorkspace({
           <table>
             <caption>Hóa đơn hiện có trong đợt thu</caption>
             <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th>Tổng VND</th><th>Thao tác</th></tr></thead>
-            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Rà soát hóa đơn</button></td></tr>)}</tbody>
+            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id, run)}>Rà soát hóa đơn</button></td></tr>)}</tbody>
           </table>
            {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? <p>Chưa thể đóng: còn hóa đơn nháp cần phát hành.</p> : null}
-           <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0"))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
+             <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => !["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === "0")))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
         </section>
       )}
       {run?.status === "CLOSED" && (
@@ -1288,7 +1372,7 @@ export function FinanceWorkspace({
           <table>
             <caption>Hóa đơn đã khóa theo đợt thu</caption>
             <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th>Tổng VND</th><th>Chi tiết</th></tr></thead>
-            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Xem hóa đơn</button></td></tr>)}</tbody>
+            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id, run)}>Xem hóa đơn</button></td></tr>)}</tbody>
           </table>
         </section>
       )}
@@ -1308,7 +1392,7 @@ export function FinanceWorkspace({
                     {item.studentCode} / {item.fullName}
                   </td>
                   <td>{item.className}</td>
-                  <td>{item.invoiceId && <button type="button" onClick={() => void openInvoice(item.invoiceId!)}>Rà soát hóa đơn</button>}</td>
+                   <td>{item.invoiceId && <button type="button" onClick={() => void openInvoice(item.invoiceId!, run)}>Rà soát hóa đơn</button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -1333,18 +1417,24 @@ export function FinanceWorkspace({
       {invoice && (
         <section aria-labelledby="invoice-review-title">
           <h3 id="invoice-review-title">Rà soát hóa đơn {invoice.student.code} / {invoice.student.name}</h3>
-          <p>Đợt {invoice.billingMonth}, lớp {invoice.student.className}, trạng thái {invoice.status}.</p>
+           <p>Đợt {invoice.billingMonth}, lớp {invoice.student.className}, trạng thái {invoice.status}.</p>
+           {(previousInvoiceId || nextInvoiceId) && <p>{previousInvoiceId && <button type="button" disabled={Boolean(pending)} onClick={() => void openInvoice(previousInvoiceId, run)}>Học sinh trước</button>} {nextInvoiceId && <button type="button" disabled={Boolean(pending)} onClick={() => void openInvoice(nextInvoiceId, run)}>Học sinh tiếp theo</button>}</p>}
            {invoice.status === "DRAFT" && <button ref={issueTrigger} type="button" disabled={Boolean(pending) || !invoice.lines.length || invoice.total === "0"} onClick={() => void openIssueConfirmation()}>{invoice.revisesInvoiceId ? "Phát hành bản thay thế" : "Phát hành hóa đơn"}</button>}
-            {invoice.status === "ISSUED" && !invoice.revisesInvoiceId && <button ref={revisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => { setRevisionReason(""); setRevisionConfirmationName(""); setRevisionConfirmation(true); }}>Chuẩn bị bản điều chỉnh</button>}
+                {invoice.status === "ISSUED" && !invoice.revisesInvoiceId && <button ref={revisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => { setRevisionReason(""); setRevisionConfirmationName(""); setRevisionConfirmation(true); }}>Chuẩn bị bản điều chỉnh</button>}
            {(invoice.revisesInvoiceId || invoice.replacementInvoiceId) && <p>Lineage: {invoice.revisesInvoiceId ? `thay thế ${invoice.revisesInvoiceId}` : `được thay thế bởi ${invoice.replacementInvoiceId}`}. {invoice.revisionReason ? `Lý do: ${invoice.revisionReason}.` : ""}</p>}
-            {(invoice.status === "ISSUED" || invoice.status === "CANCELLED") && <section aria-label="Snapshot phát hành"><h4>Hướng dẫn thanh toán đã phát hành</h4><p>Tổng nghĩa vụ: {vnd(invoice.issue?.obligationTotal ?? invoice.total)} VND. Hạn thanh toán: {invoice.issue?.dueOn}.</p><p>{invoice.issue?.bankAccount.receivingBank} / {invoice.issue?.bankAccount.accountNumber} / {invoice.issue?.bankAccount.accountHolderName}</p><p>Nội dung chuyển khoản: {invoice.issue?.transferContent}</p><p>Chính sách {invoice.issue?.policy.effectiveFrom}: {invoice.issue?.policy.dueDaysAfterIssue} ngày; {invoice.issue?.policy.taxTreatment}; {invoice.issue?.policy.debtScope}; {invoice.issue?.policy.reversalMode}.</p><p>{invoice.status === "CANCELLED" ? "Hóa đơn đã hủy và chỉ đọc." : "Chưa có trạng thái thanh toán trong phạm vi này."}</p></section>}
-           <table><caption>Dòng hóa đơn do máy chủ tính</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Gross VND</th><th>Ưu đãi VND</th><th>Net VND</th><th>Lý do ưu đãi</th><th>Thao tác</th></tr></thead><tbody>{invoice.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.source && <small> Nguồn: {item.source.serviceDate ?? ""} {item.source.attendanceState ?? ""} {item.source.pickedUpAt ?? ""} {item.source.lateCareMinutes ?? ""}; {item.sourceReason}; ghi lúc {item.sourceRecordedAt ?? ""}; actor {item.sourceAudit?.actorIdentityId ?? ""}; membership {item.sourceAudit?.membershipId ?? ""}; provenance {JSON.stringify(item.sourceProvenance)}</small>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.grossAmount ?? item.amount)}</td><td style={{ textAlign: "right" }}>{vnd(item.discountAmount ?? "0")}</td><td style={{ textAlign: "right" }}>{vnd(item.netAmount ?? item.amount)}</td><td>{(invoice.status === "DRAFT" ? item.promotionEvaluation?.applications : item.promotionApplicationSnapshot)?.map((application) => application.assignmentReason).join(", ") || "Không áp dụng"}</td><td>{invoice.status === "DRAFT" && <><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId, quantity: item.quantity, unitPrice: item.overrideReason ? item.unitPrice : "", overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={5}>Tổng cần thu</th><th style={{ textAlign: "right" }}>{vnd(invoice.total)}</th><td colSpan={2} /></tr></tbody></table>
+                {(["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status)) && <section aria-label="Snapshot phát hành"><h4>Hướng dẫn thanh toán đã phát hành</h4><p>Tổng nghĩa vụ: {vnd(invoice.issue?.obligationTotal ?? invoice.total)} VND. Hạn thanh toán: {invoice.issue?.dueOn}.</p><p>{invoice.issue?.bankAccount.receivingBank} / {invoice.issue?.bankAccount.accountNumber} / {invoice.issue?.bankAccount.accountHolderName}</p><p>Nội dung chuyển khoản: {invoice.issue?.transferContent}</p>{invoice.receipt ? <p>Thực nhận: {vnd(invoice.receipt.actualAmount)} VND. Kết quả máy chủ: {invoice.receipt.outcome === "EXACT" ? "Đủ" : invoice.receipt.outcome === "SHORTFALL" ? "Thu thiếu" : "Thu thừa"}. Chênh lệch: {vnd(invoice.receipt.difference?.signedAmount ?? "0")} VND.</p> : invoice.settlementTransfer ? <p>Đã settled qua Receipt nguồn chuyển tiếp: {vnd(invoice.settlementTransfer.amount)} VND, ghi nhận {invoice.settlementTransfer.postedAt}, Invoice nguồn {invoice.settlementTransfer.sourceInvoiceId}, Receipt nguồn {invoice.settlementTransfer.sourceReceiptId}.</p> : <p>{invoice.status === "CANCELLED" ? "Hóa đơn đã hủy và chỉ đọc." : "Chưa có trạng thái thanh toán trong phạm vi này."}</p>}{(invoice.carries ?? []).map((carry) => <p key={`${carry.sourceDifferenceId}-${carry.type}`}>{carry.type === "SHORTFALL_CARRY" ? "Khoản thu thiếu chuyển sang" : "Khoản thu thừa khấu trừ"}: {vnd(carry.amount)} VND. Phần còn lại của chênh lệch chỉ được máy chủ chuyển vào đợt monthly kế tiếp đủ điều kiện.</p>)}</section>}
+               {(invoice.sourceDebtTransfers ?? []).length > 0 && <section aria-label="Công nợ nguồn đã chuyển"><h4>Công nợ đã chuyển</h4><p>Công nợ nguồn còn lại do máy chủ xác nhận: {vnd(invoice.sourceOutstanding ?? "0")} VND.</p>{invoice.sourceDebtTransfers?.map((transfer) => <p key={`${transfer.targetInvoiceId}-${transfer.postedAt}`}>Đã chuyển sang Invoice {transfer.targetInvoiceId}: {vnd(transfer.amount)} VND. Lý do: {transfer.reason}. Ghi nhận {transfer.postedAt}.</p>)}</section>}
+               {(invoice.priorDebtTransfers ?? []).length > 0 && <section aria-label="Nguồn công nợ kỳ trước"><h4>Công nợ kỳ trước</h4>{invoice.priorDebtTransfers?.map((transfer) => <p key={`${transfer.sourceInvoiceId}-${transfer.postedAt}`}>Invoice nguồn {transfer.sourceInvoiceId}: {vnd(transfer.amount)} VND. Lý do: {transfer.reason}. Ghi nhận {transfer.postedAt}.</p>)}</section>}
+              {(invoice.coverageFacts ?? []).length > 0 && <section aria-label="Coverage snapshot"><h4>Coverage nộp trước</h4>{invoice.coverageFacts?.map((fact) => <p key={`${fact.receivableId}-${fact.billingMonth}`}>Kỳ {fact.billingMonth}: giá gốc {vnd(fact.originalPrice)} VND, giảm {vnd(fact.reduction)} VND, khoảng dịch vụ {fact.serviceStart} đến {fact.serviceEnd}, lịch {fact.calendarEffectiveFrom} / {fact.timezone}. {fact.issuedAt ? `Đã phát hành ${fact.issuedAt}.` : "Chờ hóa đơn đóng đúng số tiền."}</p>)}</section>}
+              {(invoice.coverageFacts ?? []).some((fact) => fact.issuedAt && fact.coverageId) && <section aria-label="Hoàn coverage"><h4>Hoàn/reverse coverage</h4><p>Chọn coverage đã phát hành; ngày vận hành, số tiền floor và giới hạn đều do máy chủ trả về.</p><label>Coverage fact<select value={coverageReversal.coverageId} onChange={(event) => { setCoverageReversal({ ...coverageReversal, coverageId: event.target.value }); setCoverageReversalPreview(undefined); }}><option value="">Chọn coverage</option>{invoice.coverageFacts?.filter((fact) => fact.issuedAt && fact.coverageId).map((fact) => <option key={fact.coverageId} value={fact.coverageId!}>{fact.billingMonth} / {fact.receivableId}</option>)}</select></label><label>Ngày hiệu lực<input type="date" value={coverageReversal.effectiveOn} onChange={(event) => setCoverageReversal({ ...coverageReversal, effectiveOn: event.target.value })} /></label><button type="button" onClick={() => void previewCoverageReversal()}>Xem preview hoàn từ máy chủ</button>{coverageReversalPreview && <div><p>Snapshot: {coverageReversalPreview.remainingDays}/{coverageReversalPreview.denominator} ngày, tính floor {vnd(coverageReversalPreview.calculatedAmount)} VND, còn {vnd(coverageReversalPreview.availableAmount)} VND.</p><p>{coverageReversalPreview.source.reversalMode === "DIRECT" ? "Direct cần xác nhận tên học sinh." : "Workflow này sẽ gửi yêu cầu chờ School Admin khác duyệt."}</p><label>Số tiền override (VND)<input inputMode="numeric" value={coverageReversal.amount} onChange={(event) => setCoverageReversal({ ...coverageReversal, amount: event.target.value })} /></label><label>Lý do<textarea value={coverageReversal.reason} onChange={(event) => setCoverageReversal({ ...coverageReversal, reason: event.target.value })} /></label>{coverageReversalPreview.source.reversalMode === "DIRECT" && <label>Nhập tên học sinh {coverageReversalPreview.source.studentName} để xác nhận direct<input value={coverageReversal.confirmation} onChange={(event) => setCoverageReversal({ ...coverageReversal, confirmation: event.target.value })} /></label>}<button type="button" disabled={Boolean(pending) || !coverageReversal.reason || (coverageReversalPreview.source.reversalMode === "DIRECT" && coverageReversal.confirmation !== coverageReversalPreview.source.studentName)} onClick={() => void postCoverageReversal()}>{coverageReversalPreview.source.reversalMode === "DIRECT" ? "Xác nhận hoàn/reverse coverage" : "Gửi yêu cầu duyệt hoàn coverage"}</button></div>}</section>}
+           <table><caption>Dòng hóa đơn do máy chủ tính</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Gross VND</th><th>Ưu đãi VND</th><th>Net VND</th><th>Lý do ưu đãi</th><th>Thao tác</th></tr></thead><tbody>{invoice.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.source && <small> Nguồn: {[item.source.serviceDate, item.source.attendanceState, item.source.pickedUpAt, item.source.lateCareMinutes != null ? `${item.source.lateCareMinutes} phút` : null].filter(Boolean).join("; ") || "Máy chủ đã ghi nhận"}{item.sourceReason ? `; ${item.sourceReason}` : ""}</small>}{item.source && <details><summary>Thông tin nguồn và kiểm tra</summary><p>Thời điểm ghi nhận: {item.sourceRecordedAt ?? "Máy chủ không trả về"}</p><p>Nguồn đã được máy chủ xác nhận cho dòng hóa đơn này.</p></details>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.grossAmount ?? item.amount)}</td><td style={{ textAlign: "right" }}>{vnd(item.discountAmount ?? "0")}</td><td style={{ textAlign: "right" }}>{vnd(item.netAmount ?? item.amount)}</td><td>{(invoice.status === "DRAFT" ? item.promotionEvaluation?.applications : item.promotionApplicationSnapshot)?.map((application) => application.assignmentReason).join(", ") || "Không áp dụng"}</td><td>{invoice.status === "DRAFT" && item.receivableId !== null && <><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId ?? "", quantity: item.quantity, unitPrice: item.overrideReason ? item.unitPrice : "", overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={5}>Tổng cần thu</th><th style={{ textAlign: "right" }}>{vnd(invoice.total)}</th><td colSpan={2} /></tr></tbody></table>
           {invoice.status === "DRAFT" ? <form onSubmit={saveLine}><h4>{editingLineId ? "Sửa dòng" : "Thêm dòng"}</h4><label>Khoản thu<select disabled={Boolean(editingLineId)} value={line.receivableId} onChange={(event) => setLine({ ...line, receivableId: event.target.value })} {...invoiceField("receivableId")}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>{scope === "invoice" && errors.receivableId && <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>}<label>Số lượng<input inputMode="numeric" value={line.quantity} onChange={(event) => setLine({ ...line, quantity: event.target.value })} {...invoiceField("quantity")} /></label>{scope === "invoice" && errors.quantity && <small id="invoice-invoice-quantity-error">{errors.quantity}</small>}<label>Đơn giá override VND (không bắt buộc)<input inputMode="numeric" value={line.unitPrice} onChange={(event) => setLine({ ...line, unitPrice: event.target.value })} {...invoiceField("unitPrice")} /></label>{scope === "invoice" && errors.unitPrice && <small id="invoice-invoice-unitPrice-error">{errors.unitPrice}</small>}<label>Lý do override<input value={line.overrideReason} onChange={(event) => setLine({ ...line, overrideReason: event.target.value })} {...invoiceField("overrideReason")} /></label>{scope === "invoice" && errors.overrideReason && <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>}<fieldset><legend>Nguồn giải thích thủ công</legend><label>Ngày dịch vụ<input type="date" value={line.serviceDate} onChange={(event) => setLine({ ...line, serviceDate: event.target.value })} /></label><label>Điểm danh<select value={line.attendanceState} onChange={(event) => setLine({ ...line, attendanceState: event.target.value })}><option value="">Không có</option><option value="PRESENT">Có mặt</option><option value="ABSENT">Vắng mặt</option></select></label><label>Giờ đón (HH:MM)<input value={line.pickedUpAt} onChange={(event) => setLine({ ...line, pickedUpAt: event.target.value })} /></label><label>Số phút trông muộn<input inputMode="numeric" value={line.lateCareMinutes} onChange={(event) => setLine({ ...line, lateCareMinutes: event.target.value })} /></label><label>Lý do nguồn giải thích<input value={line.sourceReason} onChange={(event) => setLine({ ...line, sourceReason: event.target.value })} /></label></fieldset><button disabled={Boolean(pending)}>{editingLineId ? "Lưu dòng" : "Thêm dòng"}</button>{editingLineId && <button type="button" onClick={() => { setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }}>Hủy sửa</button>}</form> : <p>Hóa đơn {invoice.status} chỉ đọc; dòng hóa đơn không thể thay đổi.</p>}
         </section>
       )}
       {removeConfirmation && <div ref={removeDialog} role="dialog" aria-modal="true" aria-labelledby="finance-remove-line-title" onKeyDown={trapRemoveFocus}><h3 id="finance-remove-line-title">Xóa dòng {removeConfirmation.name}</h3><p>Dòng này sẽ không còn áp dụng cho hóa đơn nháp.</p><button type="button" disabled={Boolean(pending)} onClick={() => void removeLine(removeConfirmation.id)}>Xác nhận xóa dòng</button><button type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation(undefined)}>Hủy</button></div>}
        {issueConfirmation && invoice && <div ref={issueDialog} role="dialog" aria-modal="true" aria-labelledby="finance-issue-title" onKeyDown={trapIssueFocus}><h3 id="finance-issue-title">{invoice.revisesInvoiceId ? "Phát hành bản thay thế" : "Phát hành hóa đơn"} cho {invoice.student.name}</h3><p>Chỉ snapshot tài khoản đang hoạt động từ máy chủ được dùng. Không thể chỉnh sửa sau phát hành.</p><label>Tài khoản nhận<select value={issueBankAccountId} onChange={(event) => setIssueBankAccountId(event.target.value)}><option value="">Chọn tài khoản</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.receivingBank} / {account.accountNumber} / {account.accountHolderName}</option>)}</select></label><label>Nhập chính xác tên học sinh {invoice.student.name} để xác nhận<input value={issueConfirmationName} onChange={(event) => setIssueConfirmationName(event.target.value)} /></label><button type="button" disabled={Boolean(pending) || !issueBankAccountId || issueConfirmationName !== invoice.student.name} onClick={() => void issueInvoice()}>Xác nhận phát hành</button><button type="button" disabled={Boolean(pending)} onClick={() => { setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); }}>Hủy</button></div>}
        {revisionConfirmation && invoice && <div ref={revisionDialog} role="dialog" aria-modal="true" aria-labelledby="finance-revision-title" onKeyDown={trapRevisionFocus}><h3 id="finance-revision-title">Chuẩn bị bản điều chỉnh cho {invoice.student.name}</h3><p>Hóa đơn đã phát hành vẫn giữ nguyên cho đến khi bản thay thế được phát hành.</p><label>Lý do điều chỉnh<textarea value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} /></label><label>Nhập chính xác tên học sinh {invoice.student.name} để xác nhận<input value={revisionConfirmationName} onChange={(event) => setRevisionConfirmationName(event.target.value)} /></label><button type="button" disabled={Boolean(pending) || !revisionReason.trim() || revisionConfirmationName !== invoice.student.name} onClick={() => void prepareRevision()}>Xác nhận chuẩn bị bản điều chỉnh</button><button type="button" disabled={Boolean(pending)} onClick={() => setRevisionConfirmation(false)}>Hủy</button></div>}
+         {coverageDecision && <div ref={coverageDecisionDialog} role="dialog" aria-modal="true" aria-labelledby="coverage-decision-title" onKeyDown={trapCoverageDecisionFocus}><h3 id="coverage-decision-title">{coverageDecision.decision === "APPROVE" ? "Duyệt" : "Từ chối"} hoàn coverage cho {coverageDecision.request.studentName}</h3><p>Số tiền server đã chốt: {vnd(coverageDecision.request.amount)} VND. Bạn không thể tự duyệt yêu cầu của mình.</p><label>Lý do quyết định<textarea autoFocus value={coverageDecision.reason} onChange={(event) => setCoverageDecision({ ...coverageDecision, reason: event.target.value })} /></label><button type="button" disabled={Boolean(pending) || !coverageDecision.reason.trim()} onClick={() => void decideCoverageReversal()}>Xác nhận {coverageDecision.decision === "APPROVE" ? "duyệt" : "từ chối"}</button><button type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision(undefined)}>Hủy</button></div>}
       {closeConfirmation && run && <div ref={closeDialog} role="dialog" aria-modal="true" aria-labelledby="finance-close-run-title" onKeyDown={trapCloseFocus}><h3 id="finance-close-run-title">Đóng đợt thu {run.billingMonth}</h3><p>Chỉ đóng được khi mọi hóa đơn đã phát hành. Sau khi đóng, máy chủ từ chối thêm học sinh và các thao tác tạo hoặc sửa.</p><label>Nhập chính xác tháng thu {run.billingMonth} để xác nhận<input value={closeConfirmationMonth} onChange={(event) => setCloseConfirmationMonth(event.target.value)} /></label><label>Lý do đóng đợt thu<textarea id="finance-close-reason-field" aria-invalid={Boolean(errors.reason)} aria-describedby={errors.reason ? "finance-close-reason-error" : undefined} value={closeReason} onChange={(event) => setCloseReason(event.target.value)} /></label>{errors.reason && <small id="finance-close-reason-error">{errors.reason}</small>}<button type="button" disabled={Boolean(pending) || !closeReason.trim() || closeConfirmationMonth !== run.billingMonth} onClick={() => void closeRun()}>Xác nhận đóng đợt thu</button><button type="button" disabled={Boolean(pending)} onClick={() => { setCloseConfirmation(false); setCloseReason(""); setCloseConfirmationMonth(""); }}>Hủy</button></div>}
       {generateConfirmation && run && (
         <div
@@ -1398,9 +1488,11 @@ export function FinanceWorkspace({
       )}
       {lifecycle && (
         <div
+          ref={lifecycleDialog}
           role="dialog"
           aria-modal="true"
           aria-labelledby="finance-lifecycle-title"
+          onKeyDown={trapDialogFocus}
         >
           <form onSubmit={saveLifecycle}>
             <h3 id="finance-lifecycle-title">
@@ -1422,11 +1514,48 @@ export function FinanceWorkspace({
               <small id="lifecycle-reason-error">{errors.reason}</small>
             )}
             <button disabled={Boolean(pending)}>Xác nhận</button>
-            <button type="button" onClick={() => setLifecycle(undefined)}>
+            <button type="button" onClick={() => closeManagedDialog(() => setLifecycle(undefined))}>
               Hủy
             </button>
           </form>
         </div>
+      )}
+      {catalogDialog === "receivable" && (
+        <div ref={catalogDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-receivable-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), resetReceivable)}>
+          <form onSubmit={saveReceivable}>
+            <h3 id="finance-receivable-title">Thêm khoản thu</h3><p>Khoản thu mới chỉ dùng được sau khi máy chủ xác nhận trong đúng Trường.</p>
+            <label>Nhóm<select value={receivable.groupId} onChange={(event) => setReceivable({ ...receivable, groupId: event.target.value })} {...field("receivable", "groupId")}><option value="">Chọn nhóm</option>{(catalog?.groups ?? []).filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>Mã khoản thu<input value={receivable.code} onChange={(event) => setReceivable({ ...receivable, code: event.target.value })} /></label>
+            <label>Tên khoản thu<input value={receivable.displayName} onChange={(event) => setReceivable({ ...receivable, displayName: event.target.value })} {...field("receivable", "displayName")} /></label>
+            <label>Đơn vị<input value={receivable.unitLabel} onChange={(event) => setReceivable({ ...receivable, unitLabel: event.target.value })} {...field("receivable", "unitLabel")} /></label>
+            <label>Đơn giá mặc định (VND)<input inputMode="numeric" value={receivable.defaultUnitPrice} onChange={(event) => setReceivable({ ...receivable, defaultUnitPrice: event.target.value })} {...field("receivable", "defaultUnitPrice")} /></label>
+            {scope === "receivable" && Object.entries(errors).map(([name, error]) => <small key={name} id={`receivable-${name}-error`}>{error}</small>)}
+            <button disabled={Boolean(pending)}>Lưu khoản thu</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), resetReceivable)}>Hủy</button>
+          </form>
+        </div>
+      )}
+      {catalogDialog === "group" && (
+        <div ref={catalogDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-group-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>
+          <form onSubmit={saveGroup}><h3 id="finance-group-title">Quản lý nhóm khoản thu</h3><p>Nhóm đang dùng trong lịch sử không bị xóa.</p><label>Tên nhóm<input value={group.name} onChange={(event) => setGroup({ name: event.target.value })} {...field("group", "name")} /></label>{scope === "group" && errors.name && <small id="group-name-error">{errors.name}</small>}<button disabled={Boolean(pending)}>Thêm nhóm</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>Đóng</button></form>
+          <table><caption>Nhóm khoản thu theo Trường</caption><thead><tr><th>Tên</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead><tbody>{catalog?.groups?.length ? catalog.groups.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.status === "ACTIVE" ? "Đang áp dụng" : "Ngừng áp dụng"}</td><td><button ref={rowMenu === `group-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.name}`} aria-haspopup="menu" aria-expanded={rowMenu === `group-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `group-${item.id}`)} onClick={() => setRowMenu(rowMenu === `group-${item.id}` ? undefined : `group-${item.id}`)}>...</button>{rowMenu === `group-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setCatalogDialog(undefined); setLifecycle({ kind: "receivable-groups", id: item.id, name: item.name, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td></tr>) : <tr><td colSpan={3}>{catalog ? "Chưa có nhóm khoản thu." : "Đang tải nhóm khoản thu."}</td></tr>}</tbody></table>
+        </div>
+      )}
+      {promotionDialog === "policy" && (
+        <div ref={promotionDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-policy-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPromotionDialog(undefined), resetPromotion)}><form onSubmit={savePromotion}><h3 id="finance-policy-title">Thêm chính sách ưu đãi</h3><p>Hệ thống kiểm tra khoản thu, hiệu lực và quy tắc kết hợp trong đúng Trường.</p><label>Chính sách hiện có (để tạo phiên bản mới)<select value={promotion.policyId} onChange={(event) => { const policy = promotionPolicies.find((item) => item.id === event.target.value); setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" }); }}><option value="">Chính sách mới</option>{promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} {...promotionField("name")} /></label>{scope === "promotion" && errors.name && <small id="invoice-promotion-name-error">{errors.name}</small>}<fieldset {...promotionField("receivableIds")}><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>{scope === "promotion" && errors.receivableIds && <small id="invoice-promotion-receivableIds-error">{errors.receivableIds}</small>}<label>Loại giảm<select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}><option value="PERCENTAGE">Phần trăm</option><option value="FIXED_VND">Số tiền VND</option></select></label><label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} {...promotionField("discountValue")} /></label>{scope === "promotion" && errors.discountValue && <small id="invoice-promotion-discountValue-error">{errors.discountValue}</small>}<label>Hiệu lực từ<input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} /></label><label>Hiệu lực đến (bao gồm)<input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} /></label><label>Ưu tiên<input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} /></label><label>Quy tắc kết hợp<select value={promotion.stackingMode} onChange={(event) => setPromotion({ ...promotion, stackingMode: event.target.value })}><option value="STACKABLE">Có thể kết hợp</option><option value="EXCLUSIVE">Độc quyền</option></select></label><label>Cách thực hiện<select value={promotion.fulfillmentMode} onChange={(event) => setPromotion({ ...promotion, fulfillmentMode: event.target.value })}><option value="DISCOUNT">Giảm trên hóa đơn</option><option value="PREPAID_COVERAGE">Coverage nộp trước</option></select></label><button disabled={Boolean(pending)}>Lưu phiên bản ưu đãi</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setPromotionDialog(undefined), resetPromotion)}>Hủy</button></form></div>
+      )}
+      {promotionTransition && (
+        <div role="dialog" aria-modal="true" aria-labelledby="finance-promotion-transition-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPromotionTransition(undefined))}>
+          <h3 id="finance-promotion-transition-title">{promotionTransition.action === "activate" ? "Kích hoạt" : "Ngừng"} phiên bản {promotionTransition.name}</h3>
+          <p>{promotionTransition.action === "activate" ? "Phiên bản này sẽ trở thành trạng thái do máy chủ xác nhận." : "Phiên bản này sẽ không còn được áp dụng cho các đánh giá mới."}</p>
+          <button id="finance-promotion-transition-confirm" type="button" disabled={Boolean(pending)} onClick={() => void confirmPromotionTransition(promotionTransition.id, promotionTransition.action)}>Xác nhận {promotionTransition.action === "activate" ? "kích hoạt" : "ngừng phiên bản"}</button>
+          <button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setPromotionTransition(undefined), () => {})}>Hủy</button>
+        </div>
+      )}
+      {promotionDialog === "assignment" && (
+        <div ref={promotionDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-assignment-title" onKeyDown={trapDialogFocus}><form onSubmit={saveAssignments}><h3 id="finance-assignment-title">Gán ưu đãi cho học sinh</h3><p>Cả nhóm dùng chung thời hạn và lý do; máy chủ chỉ lưu khi toàn bộ danh sách hợp lệ.</p><label>Phiên bản đang áp dụng<select value={assignment.versionId} onChange={(event) => setAssignment({ ...assignment, versionId: event.target.value })}><option value="">Chọn phiên bản</option>{promotionPolicies.flatMap((policy) => (policy.versions ?? []).filter((version) => version.status === "ACTIVE").map((version) => <option key={version.id} value={version.id}>{policy.name} / Phiên bản {version.version}</option>))}</select></label><fieldset><legend>Học sinh</legend>{promotionStudents.map((student) => <label key={student.id}><input type="checkbox" checked={assignment.studentIds.includes(student.id)} onChange={() => setAssignment({ ...assignment, studentIds: assignment.studentIds.includes(student.id) ? assignment.studentIds.filter((id) => id !== student.id) : [...assignment.studentIds, student.id] })} />{student.studentCode} / {student.fullName}</label>)}</fieldset><label>Áp dụng từ<input type="date" value={assignment.effectiveFrom} onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })} /></label><label>Áp dụng đến (bao gồm)<input type="date" value={assignment.effectiveTo} onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={assignment.reason} onChange={(event) => setAssignment({ ...assignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu gán học sinh</button><button type="button" disabled={Boolean(pending)} onClick={() => closeManagedDialog(() => setPromotionDialog(undefined))}>Hủy</button></form></div>
+      )}
+      {endingAssignment && (
+        <div role="dialog" aria-modal="true" aria-labelledby="finance-end-assignment-title" onKeyDown={trapDialogFocus}><form onSubmit={endAssignment}><h3 id="finance-end-assignment-title">Kết thúc áp dụng ưu đãi</h3><label>Ngày kết thúc (bao gồm)<input autoFocus type="date" value={endingAssignment.effectiveTo} onChange={(event) => setEndingAssignment({ ...endingAssignment, effectiveTo: event.target.value })} /></label><label>Lý do<textarea value={endingAssignment.reason} onChange={(event) => setEndingAssignment({ ...endingAssignment, reason: event.target.value })} /></label><button disabled={Boolean(pending)}>Xác nhận kết thúc</button><button type="button" disabled={Boolean(pending)} onClick={() => closeManagedDialog(() => setEndingAssignment(undefined))}>Hủy</button></form></div>
       )}
     </section>
   );

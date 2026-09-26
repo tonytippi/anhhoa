@@ -54,6 +54,15 @@ model School {
   collectionRunGenerations          CollectionRunGeneration[]
   collectionRunLifecycleTransitions CollectionRunLifecycleTransition[]
   invoices                          Invoice[]
+  receipts                          Receipt[]
+  settlementDifferences             SettlementDifference[]
+  settlementCarries                 SettlementCarry[]
+  settlementTransfers               SettlementTransfer[]
+  debtTransfers                     DebtTransfer[]
+  coverageReversalRequests          CoverageReversalRequest[]
+  coverageReversals                 CoverageReversal[]
+  coverageRefundEligibilities       CoverageRefundEligibility[]
+  promotionalCoverages              StudentPromotionalCoverage[]
   invoiceLines                      InvoiceLine[]
   issuedPromotionApplications       IssuedPromotionApplication[]
   promotionPolicies                 PromotionPolicy[]
@@ -62,6 +71,8 @@ model School {
   studentPromotionAssignments       StudentPromotionAssignment[]
   studentPhotos                     StudentPhoto[]
   staffCodeRegistry                 StaffCodeRegistry[]
+  financeLedgerEvents               FinanceLedgerEvent[]
+  financeReportExports              FinanceReportExport[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
@@ -81,24 +92,31 @@ enum StudentEnrollmentLifecycle {
 }
 
 model SchoolYear {
-  id                         String                      @id @default(uuid()) @db.Uuid
-  schoolId                   String                      @db.Uuid
-  name                       String
-  startsOn                   DateTime                    @db.Date
-  endsOn                     DateTime                    @db.Date
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
-  school                     School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  classes                    Class[]
-  enrollments                StudentEnrollment[]
-  staffClassAssignments      StaffClassAssignment[]
-  enrollmentClassAssignments EnrollmentClassAssignment[]
-  collectionRuns             CollectionRun[]
-  invoices                   Invoice[]
-  closedAt                   DateTime?
-  closedByMembershipId       String?                     @db.Uuid
-  closeOperationId           String?                     @unique @db.Uuid
-  closeOperation             Operation?                  @relation("SchoolYearCloseOperation", fields: [schoolId, closeOperationId], references: [schoolId, id], onDelete: Restrict)
+  id                            String                         @id @default(uuid()) @db.Uuid
+  schoolId                      String                         @db.Uuid
+  name                          String
+  startsOn                      DateTime                       @db.Date
+  endsOn                        DateTime                       @db.Date
+  createdAt                     DateTime                       @default(now())
+  updatedAt                     DateTime                       @updatedAt
+  school                        School                         @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classes                       Class[]
+  enrollments                   StudentEnrollment[]
+  staffClassAssignments         StaffClassAssignment[]
+  enrollmentClassAssignments    EnrollmentClassAssignment[]
+  collectionRuns                CollectionRun[]
+  invoices                      Invoice[]
+  receipts                      Receipt[]
+  settlementDifferences         SettlementDifference[]
+  settlementCarries             SettlementCarry[]
+  settlementTransfers           SettlementTransfer[]
+  debtTransfers                 DebtTransfer[]
+  closedAt                      DateTime?
+  closedByMembershipId          String?                        @db.Uuid
+  closeOperationId              String?                        @unique @db.Uuid
+  closeOperation                Operation?                     @relation("SchoolYearCloseOperation", fields: [schoolId, closeOperationId], references: [schoolId, id], onDelete: Restrict)
+  invoicePromotionCoverageFacts InvoicePromotionCoverageFact[]
+  studentPromotionalCoverages   StudentPromotionalCoverage[]
 
   @@unique([schoolId, id])
   @@index([schoolId, startsOn])
@@ -119,8 +137,8 @@ model Class {
   enrollmentClassAssignments EnrollmentClassAssignment[]
   attendanceRecords          AttendanceRecord[]
   uploadedEvidenceReferences EvidenceReference[]         @relation("EvidenceUploadedClass")
-  dailyJournals             DailyJournal[]
-  dailyJournalMedia         DailyJournalMedia[]
+  dailyJournals              DailyJournal[]
+  dailyJournalMedia          DailyJournalMedia[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, id])
@@ -153,9 +171,9 @@ model StaffProfile {
   attendanceRecords          AttendanceRecord[]
   handoverRecords            HandoverRecord[]
   uploadedEvidenceReferences EvidenceReference[]    @relation("EvidenceUploadedStaffProfile")
-  dailyJournals             DailyJournal[]
-  dailyJournalVersions      DailyJournalVersion[]
-  uploadedDailyJournalMedia DailyJournalMedia[]     @relation("DailyJournalMediaUploader")
+  dailyJournals              DailyJournal[]
+  dailyJournalVersions       DailyJournalVersion[]
+  uploadedDailyJournalMedia  DailyJournalMedia[]    @relation("DailyJournalMediaUploader")
   photo                      StaffPhoto?
   issuedCodes                StaffCodeRegistry[]
 
@@ -359,32 +377,41 @@ model LeaveDaySourceExclusion {
 }
 
 model Student {
-  id                          String                    @id @default(uuid()) @db.Uuid
-  schoolId                    String                    @db.Uuid
-  studentCode                 String
-  fullName                    String
-  dateOfBirth                 DateTime                  @db.Date
-  preferredName               String?
-  gender                      StudentGender?
-  address                     String?
-  personalIdentifier          String?
-  createdAt                   DateTime                  @default(now())
-  updatedAt                   DateTime                  @updatedAt
-  school                      School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  enrollments                 StudentEnrollment[]
-  parentLinks                 StudentParent[]
-  leaveRequests               LeaveRequest[]
-  leaveDaySources             LeaveDaySource[]
-  attendanceRecords           AttendanceRecord[]
-  confirmedEvidenceReferences EvidenceReference[]       @relation("EvidenceConfirmedStudent")
-  handoverRecords             HandoverRecord[]
-  dailyJournals               DailyJournal[]
-  dailyJournalMedia           DailyJournalMedia[]
-  notificationSourceEvents    NotificationSourceEvent[]
-  collectionRunSelections     CollectionRunSelection[]
-  invoices                    Invoice[]
-  promotionAssignments        StudentPromotionAssignment[]
-  photo                       StudentPhoto?
+  id                              String                           @id @default(uuid()) @db.Uuid
+  schoolId                        String                           @db.Uuid
+  studentCode                     String
+  fullName                        String
+  dateOfBirth                     DateTime                         @db.Date
+  preferredName                   String?
+  gender                          StudentGender?
+  address                         String?
+  personalIdentifier              String?
+  createdAt                       DateTime                         @default(now())
+  updatedAt                       DateTime                         @updatedAt
+  school                          School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  enrollments                     StudentEnrollment[]
+  parentLinks                     StudentParent[]
+  leaveRequests                   LeaveRequest[]
+  leaveDaySources                 LeaveDaySource[]
+  attendanceRecords               AttendanceRecord[]
+  confirmedEvidenceReferences     EvidenceReference[]              @relation("EvidenceConfirmedStudent")
+  handoverRecords                 HandoverRecord[]
+  dailyJournals                   DailyJournal[]
+  dailyJournalMedia               DailyJournalMedia[]
+  notificationSourceEvents        NotificationSourceEvent[]
+  collectionRunSelections         CollectionRunSelection[]
+  invoices                        Invoice[]
+  receipts                        Receipt[]
+  settlementDifferences           SettlementDifference[]
+  settlementCarries               SettlementCarry[]
+  settlementTransfers             SettlementTransfer[]
+  debtTransfers                   DebtTransfer[]
+  coverageRefundEligibilities     CoverageRefundEligibility[]
+  promotionAssignments            StudentPromotionAssignment[]
+  promotionalCoverages            StudentPromotionalCoverage[]
+  photo                           StudentPhoto?
+  collectionRunCoverageSelections CollectionRunCoverageSelection[]
+  invoicePromotionCoverageFacts   InvoicePromotionCoverageFact[]
 
   @@unique([schoolId, id])
   @@index([schoolId, studentCode])
@@ -411,6 +438,7 @@ model StudentEnrollment {
   classroom            Class?                                 @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
   lifecycleTransitions StudentEnrollmentLifecycleTransition[]
   classAssignments     EnrollmentClassAssignment[]
+  coverageRefundEligibilities CoverageRefundEligibility[]
 
   @@unique([schoolId, studentId, schoolYearId])
   @@unique([schoolId, id])
@@ -540,6 +568,7 @@ model UserIdentity {
   updatedAt             DateTime               @updatedAt
   memberships           SchoolMembership[]
   audits                AuditRecord[]
+  debtTransfers         DebtTransfer[]
   operations            Operation[]
   platformGrant         PlatformOperatorGrant?
   initiallyOwnedSchools School[]               @relation("InitialSchoolOwner")
@@ -566,18 +595,18 @@ model ParentProfile {
 }
 
 model StudentParent {
-  id              String              @id @default(uuid()) @db.Uuid
-  schoolId        String              @db.Uuid
-  studentId       String              @db.Uuid
-  parentProfileId String              @db.Uuid
-  relationshipLabel String            @default("Người thân")
-  status          StudentParentStatus @default(ACTIVE)
-  createdAt       DateTime            @default(now())
-  revokedAt       DateTime?
-  school          School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  student         Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  parentProfile   ParentProfile       @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
-  leaveRequests   LeaveRequest[]
+  id                String              @id @default(uuid()) @db.Uuid
+  schoolId          String              @db.Uuid
+  studentId         String              @db.Uuid
+  parentProfileId   String              @db.Uuid
+  relationshipLabel String              @default("Người thân")
+  status            StudentParentStatus @default(ACTIVE)
+  createdAt         DateTime            @default(now())
+  revokedAt         DateTime?
+  school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student           Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  parentProfile     ParentProfile       @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
+  leaveRequests     LeaveRequest[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, studentId, parentProfileId])
@@ -638,6 +667,11 @@ model SchoolMembership {
   dailyJournals                       DailyJournal[]
   dailyJournalVersions                DailyJournalVersion[]
   uploadedDailyJournalMedia           DailyJournalMedia[]                  @relation("DailyJournalMediaUploaderMembership")
+  requestedCoverageReversals          CoverageReversalRequest[]            @relation("CoverageReversalRequester")
+  decidedCoverageReversals            CoverageReversalRequest[]            @relation("CoverageReversalDecider")
+  coverageRefundEligibilities         CoverageRefundEligibility[]
+  financeReportExports                FinanceReportExport[]
+  debtTransfers                       DebtTransfer[]
 
   @@unique([schoolId, userIdentityId])
   @@unique([schoolId, id])
@@ -685,6 +719,9 @@ model Operation {
   bankAccountLifecycleTransitions     BankAccountLifecycleTransition[]     @relation("BankAccountLifecycleOperation")
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
+  debtTransfers                       DebtTransfer[]
+  coverageRefundEligibilities         CoverageRefundEligibility[]
+  financeReportExports                FinanceReportExport[]
   collectionRunLifecycleTransitions   CollectionRunLifecycleTransition[]
   collectionRunGeneration             CollectionRunGeneration?
 
@@ -735,23 +772,24 @@ model CollectionRunLifecycleTransition {
 }
 
 model CollectionRun {
-  id                   String                             @id @default(uuid()) @db.Uuid
-  schoolId             String                             @db.Uuid
-  schoolYearId         String                             @db.Uuid
-  type                 CollectionRunType                  @default(MONTHLY)
-  billingMonth         String
-  status               CollectionRunStatus                @default(DRAFT)
-  version              Int                                @default(1)
-  createdAt            DateTime                           @default(now())
-  updatedAt            DateTime                           @updatedAt
-  school               School                             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  schoolYear           SchoolYear                         @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  selections           CollectionRunSelection[]
-  lifecycleTransitions CollectionRunLifecycleTransition[]
-  invoices             Invoice[]
-  generation           CollectionRunGeneration?
-  templateLines        CollectionRunTemplateLine[]
-  templateSnapshot     Json?
+  id                      String                             @id @default(uuid()) @db.Uuid
+  schoolId                String                             @db.Uuid
+  schoolYearId            String                             @db.Uuid
+  type                    CollectionRunType                  @default(MONTHLY)
+  billingMonth            String
+  status                  CollectionRunStatus                @default(DRAFT)
+  version                 Int                                @default(1)
+  createdAt               DateTime                           @default(now())
+  updatedAt               DateTime                           @updatedAt
+  school                  School                             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  schoolYear              SchoolYear                         @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  selections              CollectionRunSelection[]
+  lifecycleTransitions    CollectionRunLifecycleTransition[]
+  invoices                Invoice[]
+  generation              CollectionRunGeneration?
+  templateLines           CollectionRunTemplateLine[]
+  coverageSelections      CollectionRunCoverageSelection[]
+  templateSnapshot        Json?
   readyPreviewFingerprint String?
 
   @@unique([schoolId, id])
@@ -791,26 +829,26 @@ enum CollectionRunGenerationItemStatus {
 }
 
 model CollectionRunGeneration {
-  id                String                        @id @default(uuid()) @db.Uuid
-  schoolId          String                        @db.Uuid
-  collectionRunId   String                        @db.Uuid
-  operationId       String                        @db.Uuid
-  actorIdentityId   String                        @db.Uuid
-  membershipId      String                        @db.Uuid
-  status            CollectionRunGenerationStatus @default(QUEUED)
-  totalCount        Int
-  processedCount    Int                           @default(0)
-  eligibleCount     Int                           @default(0)
-  skippedCount      Int                           @default(0)
-  leaseExpiresAt    DateTime?
-  lastErrorCode     String?
-  lastErrorMessage  String?
-  createdAt         DateTime                      @default(now())
-  updatedAt         DateTime                      @updatedAt
-  school            School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  collectionRun     CollectionRun                 @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
-  operation         Operation                     @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
-  items             CollectionRunGenerationItem[]
+  id               String                        @id @default(uuid()) @db.Uuid
+  schoolId         String                        @db.Uuid
+  collectionRunId  String                        @db.Uuid
+  operationId      String                        @db.Uuid
+  actorIdentityId  String                        @db.Uuid
+  membershipId     String                        @db.Uuid
+  status           CollectionRunGenerationStatus @default(QUEUED)
+  totalCount       Int
+  processedCount   Int                           @default(0)
+  eligibleCount    Int                           @default(0)
+  skippedCount     Int                           @default(0)
+  leaseExpiresAt   DateTime?
+  lastErrorCode    String?
+  lastErrorMessage String?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+  school           School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  collectionRun    CollectionRun                 @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
+  operation        Operation                     @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+  items            CollectionRunGenerationItem[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, collectionRunId])
@@ -819,16 +857,16 @@ model CollectionRunGeneration {
 }
 
 model CollectionRunGenerationItem {
-  id            String                                 @id @default(uuid()) @db.Uuid
-  schoolId      String                                 @db.Uuid
-  generationId  String                                 @db.Uuid
-  studentId     String                                 @db.Uuid
-  ordinal       Int
-  status        CollectionRunGenerationItemStatus      @default(PENDING)
-  snapshot      Json?
-  skip          Json?
-  createdAt     DateTime                               @default(now())
-  generation    CollectionRunGeneration                @relation(fields: [schoolId, generationId], references: [schoolId, id], onDelete: Restrict)
+  id           String                            @id @default(uuid()) @db.Uuid
+  schoolId     String                            @db.Uuid
+  generationId String                            @db.Uuid
+  studentId    String                            @db.Uuid
+  ordinal      Int
+  status       CollectionRunGenerationItemStatus @default(PENDING)
+  snapshot     Json?
+  skip         Json?
+  createdAt    DateTime                          @default(now())
+  generation   CollectionRunGeneration           @relation(fields: [schoolId, generationId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@unique([schoolId, generationId, studentId])
@@ -839,123 +877,494 @@ model CollectionRunGenerationItem {
 enum InvoiceStatus {
   DRAFT
   ISSUED
+  CLOSED
   CANCELLED
 }
 
+enum SettlementOutcome {
+  EXACT
+  SHORTFALL
+  OVERPAYMENT
+}
+
+enum SettlementCarryType {
+  SHORTFALL_CARRY
+  OVERPAYMENT_CARRY
+}
+
 model Invoice {
-  id                        String    @id @default(uuid()) @db.Uuid
-  schoolId                  String    @db.Uuid
-  studentId                 String    @db.Uuid
-  collectionRunId           String    @db.Uuid
-  schoolYearId              String    @db.Uuid
-  billingMonth              String
-  rosterAsOf                DateTime  @db.Date
-  studentCodeSnapshot       String
-  studentNameSnapshot       String
-  enrollmentIdSnapshot      String    @db.Uuid
-  enrollmentLifecycleSnapshot StudentEnrollmentLifecycle
-  enrollmentEffectiveFromSnapshot DateTime @db.Date
-  enrollmentEndedOnSnapshot DateTime? @db.Date
-   // Legacy invoices can predate assignment snapshots; newly generated invoices always provide both.
-   classAssignmentIdSnapshot String?   @db.Uuid
-   classAssignmentEffectiveFromSnapshot DateTime? @db.Date
-  classAssignmentEffectiveToSnapshot DateTime? @db.Date
-  classIdSnapshot           String    @db.Uuid
-  classNameSnapshot         String
-  selectionProvenance       Json
-  status                    InvoiceStatus @default(DRAFT)
-  total                     BigInt    @default(0) @db.BigInt
-  issuedAt                  DateTime?
-  bankAccountIdSnapshot     String?   @db.Uuid
-  receivingBankSnapshot     String?
-  accountNumberSnapshot     String?
-  accountHolderNameSnapshot String?
-  transferContentSnapshot   String?
-  obligationLinesSnapshot   Json?
-  obligationTotalSnapshot   BigInt?   @db.BigInt
-  financePolicyEffectiveFrom DateTime? @db.Date
-  dueDaysAfterIssueSnapshot Int?
-  taxTreatmentSnapshot      FinanceTaxTreatment?
-  debtScopeSnapshot         FinanceDebtScope?
-  reversalModeSnapshot      FinanceReversalMode?
-  dueOn                     DateTime? @db.Date
-  revisesInvoiceId          String?   @db.Uuid
-  revisionReason            String?
-  createdAt                 DateTime  @default(now())
-  school                    School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  student                   Student   @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  collectionRun             CollectionRun @relation(fields: [schoolId, collectionRunId, schoolYearId, billingMonth], references: [schoolId, id, schoolYearId, billingMonth], onDelete: Restrict)
-  schoolYear                SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  lines                     InvoiceLine[]
-  promotionApplications     IssuedPromotionApplication[]
-  revisesInvoice            Invoice?  @relation("InvoiceRevision", fields: [schoolId, revisesInvoiceId], references: [schoolId, id], onDelete: Restrict)
-  replacementInvoices       Invoice[] @relation("InvoiceRevision")
+  id                                   String                         @id @default(uuid()) @db.Uuid
+  schoolId                             String                         @db.Uuid
+  studentId                            String                         @db.Uuid
+  collectionRunId                      String                         @db.Uuid
+  schoolYearId                         String                         @db.Uuid
+  billingMonth                         String
+  rosterAsOf                           DateTime                       @db.Date
+  studentCodeSnapshot                  String
+  studentNameSnapshot                  String
+  enrollmentIdSnapshot                 String                         @db.Uuid
+  enrollmentLifecycleSnapshot          StudentEnrollmentLifecycle
+  enrollmentEffectiveFromSnapshot      DateTime                       @db.Date
+  enrollmentEndedOnSnapshot            DateTime?                      @db.Date
+  // Legacy invoices can predate assignment snapshots; newly generated invoices always provide both.
+  classAssignmentIdSnapshot            String?                        @db.Uuid
+  classAssignmentEffectiveFromSnapshot DateTime?                      @db.Date
+  classAssignmentEffectiveToSnapshot   DateTime?                      @db.Date
+  classIdSnapshot                      String                         @db.Uuid
+  classNameSnapshot                    String
+  selectionProvenance                  Json
+  status                               InvoiceStatus                  @default(DRAFT)
+  total                                BigInt                         @default(0) @db.BigInt
+  issuedAt                             DateTime?
+  bankAccountIdSnapshot                String?                        @db.Uuid
+  receivingBankSnapshot                String?
+  accountNumberSnapshot                String?
+  accountHolderNameSnapshot            String?
+  transferContentSnapshot              String?
+  obligationLinesSnapshot              Json?
+  obligationTotalSnapshot              BigInt?                        @db.BigInt
+  financePolicyEffectiveFrom           DateTime?                      @db.Date
+  dueDaysAfterIssueSnapshot            Int?
+  taxTreatmentSnapshot                 FinanceTaxTreatment?
+  debtScopeSnapshot                    FinanceDebtScope?
+  reversalModeSnapshot                 FinanceReversalMode?
+  dueOn                                DateTime?                      @db.Date
+  revisesInvoiceId                     String?                        @db.Uuid
+  revisionReason                       String?
+  createdAt                            DateTime                       @default(now())
+  school                               School                         @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student                              Student                        @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  collectionRun                        CollectionRun                  @relation(fields: [schoolId, collectionRunId, schoolYearId, billingMonth], references: [schoolId, id, schoolYearId, billingMonth], onDelete: Restrict)
+  schoolYear                           SchoolYear                     @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  lines                                InvoiceLine[]
+  promotionApplications                IssuedPromotionApplication[]
+  revisesInvoice                       Invoice?                       @relation("InvoiceRevision", fields: [schoolId, revisesInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  replacementInvoices                  Invoice[]                      @relation("InvoiceRevision")
+  receipt                              Receipt?
+  settlementDifference                 SettlementDifference?
+  settlementCarries                    SettlementCarry[]
+  settlementTransfersFrom              SettlementTransfer[]                 @relation("SettlementTransferSource")
+  settlementTransferTo                 SettlementTransfer?                  @relation("SettlementTransferReplacement")
+  debtTransfersFrom                    DebtTransfer[]                       @relation("DebtTransferSource")
+  debtTransfersTo                      DebtTransfer[]                       @relation("DebtTransferTarget")
+  coverageFacts                        InvoicePromotionCoverageFact[]
+  studentPromotionalCoverages          StudentPromotionalCoverage[]
 
   @@unique([schoolId, id])
   @@index([schoolId, collectionRunId])
   @@index([schoolId, status])
+  @@index([schoolId, status, schoolYearId, billingMonth, classIdSnapshot, issuedAt, id])
+}
+
+model CollectionRunCoverageSelection {
+  id              String                 @id @default(uuid()) @db.Uuid
+  schoolId        String                 @db.Uuid
+  collectionRunId String                 @db.Uuid
+  studentId       String                 @db.Uuid
+  versionId       String                 @db.Uuid
+  billingMonth    String
+  createdAt       DateTime               @default(now())
+  collectionRun   CollectionRun          @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
+  student         Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  version         PromotionPolicyVersion @relation(fields: [schoolId, versionId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, collectionRunId, studentId, versionId, billingMonth])
+  @@unique([schoolId, id])
+  @@index([schoolId, collectionRunId, studentId])
+}
+
+model Receipt {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  schoolId             String                       @db.Uuid
+  studentId            String                       @db.Uuid
+  schoolYearId         String                       @db.Uuid
+  invoiceId            String                       @db.Uuid
+  actualAmount         BigInt                       @db.BigInt
+  outcome              SettlementOutcome
+  postedAt             DateTime                     @default(now())
+  school               School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student              Student                      @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear           SchoolYear                   @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  invoice              Invoice                      @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+  difference           SettlementDifference?
+  promotionalCoverages StudentPromotionalCoverage[]
+  settlementTransfers  SettlementTransfer[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, invoiceId])
+  @@index([schoolId, studentId, schoolYearId, postedAt])
+}
+
+model SettlementDifference {
+  id           String            @id @default(uuid()) @db.Uuid
+  schoolId     String            @db.Uuid
+  studentId    String            @db.Uuid
+  schoolYearId String            @db.Uuid
+  invoiceId    String            @db.Uuid
+  receiptId    String            @db.Uuid
+  signedAmount BigInt            @db.BigInt
+  createdAt    DateTime          @default(now())
+  school       School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student      Student           @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear   SchoolYear        @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  invoice      Invoice           @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+  receipt      Receipt           @relation(fields: [schoolId, receiptId], references: [schoolId, id], onDelete: Restrict)
+  carries      SettlementCarry[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, invoiceId])
+  @@unique([schoolId, receiptId])
+  @@index([schoolId, studentId, schoolYearId, createdAt])
+}
+
+model SettlementCarry {
+  id                     String               @id @default(uuid()) @db.Uuid
+  schoolId               String               @db.Uuid
+  studentId              String               @db.Uuid
+  schoolYearId           String               @db.Uuid
+  settlementDifferenceId String               @db.Uuid
+  invoiceId              String               @db.Uuid
+  type                   SettlementCarryType
+  amount                 BigInt               @db.BigInt
+  createdAt              DateTime             @default(now())
+  school                 School               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student                Student              @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear             SchoolYear           @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  settlementDifference   SettlementDifference @relation(fields: [schoolId, settlementDifferenceId], references: [schoolId, id], onDelete: Restrict)
+  invoice                Invoice              @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, settlementDifferenceId, invoiceId])
+  @@index([schoolId, invoiceId])
+}
+
+model SettlementTransfer {
+  id                   String   @id @default(uuid()) @db.Uuid
+  schoolId             String   @db.Uuid
+  studentId            String   @db.Uuid
+  schoolYearId         String   @db.Uuid
+  sourceInvoiceId      String   @db.Uuid
+  sourceReceiptId      String   @db.Uuid
+  replacementInvoiceId String   @unique @db.Uuid
+  amount               BigInt   @db.BigInt
+  createdAt            DateTime @default(now())
+  school               School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student              Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear           SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  sourceInvoice        Invoice  @relation("SettlementTransferSource", fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  sourceReceipt        Receipt  @relation(fields: [schoolId, sourceReceiptId], references: [schoolId, id], onDelete: Restrict)
+  replacementInvoice   Invoice  @relation("SettlementTransferReplacement", fields: [schoolId, replacementInvoiceId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, replacementInvoiceId])
+  @@index([schoolId, sourceInvoiceId])
+}
+
+enum CoverageReversalRequestStatus {
+  PENDING
+  APPROVED
+  REFUSED
+  POSTED
+}
+
+enum CoverageRefundEligibilityReason {
+  WITHDRAWAL
+  TRANSFER_OUT
+  ELIGIBLE_SERVICE_CANCELLATION
+}
+
+// This is an immutable authorization fact, not an enrollment lifecycle replacement.
+model CoverageRefundEligibility {
+  id              String                          @id @default(uuid()) @db.Uuid
+  schoolId        String                          @db.Uuid
+  studentId       String                          @db.Uuid
+  reason          CoverageRefundEligibilityReason
+  effectiveOn     DateTime                        @db.Date
+  enrollmentId    String?                         @db.Uuid
+  actorIdentityId String                          @db.Uuid
+  membershipId    String                          @db.Uuid
+  operationId     String                          @unique @db.Uuid
+  createdAt       DateTime                        @default(now())
+  school          School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student                         @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  enrollment      StudentEnrollment?              @relation(fields: [schoolId, enrollmentId], references: [schoolId, id], onDelete: Restrict)
+  membership      SchoolMembership                @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation       Operation                       @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, enrollmentId, reason])
+  @@index([schoolId, studentId, effectiveOn])
+}
+
+model CoverageReversalRequest {
+  id                    String                        @id @default(uuid()) @db.Uuid
+  schoolId              String                        @db.Uuid
+  coverageId            String                        @db.Uuid
+  amount                BigInt                        @db.BigInt
+  calculatedAmount      BigInt                        @db.BigInt
+  overrideReason        String?
+  effectiveOn           DateTime                      @db.Date
+  reason                String
+  policyMode            FinanceReversalMode
+  status                CoverageReversalRequestStatus @default(PENDING)
+  requestedByMembershipId String                      @db.Uuid
+  decidedByMembershipId String?                       @db.Uuid
+  decidedAt             DateTime?
+  refusalReason         String?
+  createdAt             DateTime                      @default(now())
+  school                School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  coverage              StudentPromotionalCoverage    @relation(fields: [schoolId, coverageId], references: [schoolId, id], onDelete: Restrict)
+  requestedByMembership SchoolMembership              @relation("CoverageReversalRequester", fields: [schoolId, requestedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  decidedByMembership   SchoolMembership?             @relation("CoverageReversalDecider", fields: [schoolId, decidedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  reversal              CoverageReversal?
+
+  @@unique([schoolId, id])
+  @@index([schoolId, coverageId, status])
+}
+
+model CoverageReversal {
+  id          String                  @id @default(uuid()) @db.Uuid
+  schoolId    String                  @db.Uuid
+  coverageId  String                  @db.Uuid
+  requestId   String?                 @unique @db.Uuid
+  amount      BigInt                  @db.BigInt
+  calculatedAmount BigInt             @db.BigInt
+  overrideReason String?
+  effectiveOn DateTime                @db.Date
+  reason      String
+  postedAt    DateTime                @default(now())
+  school      School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  coverage    StudentPromotionalCoverage @relation(fields: [schoolId, coverageId], references: [schoolId, id], onDelete: Restrict)
+  request     CoverageReversalRequest? @relation(fields: [schoolId, requestId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, requestId])
+  @@index([schoolId, coverageId])
+}
+
+model InvoicePromotionCoverageFact {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  schoolId              String                      @db.Uuid
+  invoiceId             String                      @db.Uuid
+  studentId             String                      @db.Uuid
+  schoolYearId          String                      @db.Uuid
+  receivableId          String                      @db.Uuid
+  billingMonth          String
+  policyId              String                      @db.Uuid
+  versionId             String                      @db.Uuid
+  targetId              String                      @db.Uuid
+  assignmentId          String                      @db.Uuid
+  originalPrice         BigInt                      @db.BigInt
+  reduction             BigInt                      @db.BigInt
+  serviceStart          DateTime                    @db.Date
+  serviceEnd            DateTime                    @db.Date
+  calendarEffectiveFrom DateTime                    @db.Date
+  timezone              String                      @default("Asia/Ho_Chi_Minh")
+  createdAt             DateTime                    @default(now())
+  invoice               Invoice                     @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+  student               Student                     @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear            SchoolYear                  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  receivable            Receivable                  @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  issuedCoverage        StudentPromotionalCoverage?
+
+  @@unique([schoolId, invoiceId, receivableId, billingMonth])
+  @@unique([schoolId, id])
+  @@index([schoolId, studentId, schoolYearId, receivableId, billingMonth])
+}
+
+model StudentPromotionalCoverage {
+  id                    String                       @id @default(uuid()) @db.Uuid
+  schoolId              String                       @db.Uuid
+  studentId             String                       @db.Uuid
+  schoolYearId          String                       @db.Uuid
+  receivableId          String                       @db.Uuid
+  billingMonth          String
+  sourceFactId          String                       @db.Uuid
+  sourceInvoiceId       String                       @db.Uuid
+  sourceReceiptId       String                       @db.Uuid
+  policyId              String                       @db.Uuid
+  versionId             String                       @db.Uuid
+  originalPrice         BigInt                       @db.BigInt
+  reduction             BigInt                       @db.BigInt
+  serviceStart          DateTime                     @db.Date
+  serviceEnd            DateTime                     @db.Date
+  calendarEffectiveFrom DateTime                     @db.Date
+  timezone              String                       @default("Asia/Ho_Chi_Minh")
+  issuedAt              DateTime                     @default(now())
+  school                School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student               Student                      @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear            SchoolYear                   @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  receivable            Receivable                   @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  sourceFact            InvoicePromotionCoverageFact @relation(fields: [schoolId, sourceFactId], references: [schoolId, id], onDelete: Restrict)
+  sourceInvoice         Invoice                      @relation(fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  sourceReceipt         Receipt                      @relation(fields: [schoolId, sourceReceiptId], references: [schoolId, id], onDelete: Restrict)
+  reversalRequests      CoverageReversalRequest[]
+  reversals             CoverageReversal[]
+
+  @@unique([schoolId, sourceFactId])
+  @@unique([schoolId, studentId, schoolYearId, receivableId, billingMonth])
+  @@unique([schoolId, id])
+  @@index([schoolId, studentId, schoolYearId, receivableId, billingMonth])
 }
 
 model InvoiceLine {
-  id                         String    @id @default(uuid()) @db.Uuid
-  schoolId                   String    @db.Uuid
-  invoiceId                  String    @db.Uuid
-  receivableId               String    @db.Uuid
-  receivableCodeSnapshot     String?
-  receivableNameSnapshot     String
-  unitLabelSnapshot          String
-  defaultUnitPriceSnapshot   BigInt    @db.BigInt
-  unitPrice                  BigInt    @db.BigInt
-   quantity                   Int
-   amount                     BigInt    @db.BigInt
-   grossAmount                BigInt    @default(0) @db.BigInt
-   discountAmount             BigInt    @default(0) @db.BigInt
-   netAmount                  BigInt    @default(0) @db.BigInt
-   promotionEvaluationProvenance Json?
-  overrideReason             String?
-  source                     Json?
-  sourceReason               String?
-  sourceActorIdentityId      String?   @db.Uuid
-  sourceMembershipId         String?   @db.Uuid
-  sourceRecordedAt           DateTime?
-  sourceProvenance           Json?
-  createdAt                  DateTime  @default(now())
-  updatedAt                  DateTime  @updatedAt
-  school                     School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  invoice                    Invoice   @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
-  receivable                 Receivable @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
-  promotionApplications      IssuedPromotionApplication[]
+  id                            String                       @id @default(uuid()) @db.Uuid
+  schoolId                      String                       @db.Uuid
+  invoiceId                     String                       @db.Uuid
+  receivableId                  String?                      @db.Uuid
+  kind                          InvoiceLineKind              @default(NORMAL)
+  receivableCodeSnapshot        String?
+  receivableNameSnapshot        String
+  unitLabelSnapshot             String
+  defaultUnitPriceSnapshot      BigInt                       @db.BigInt
+  unitPrice                     BigInt                       @db.BigInt
+  quantity                      Int
+  amount                        BigInt                       @db.BigInt
+  grossAmount                   BigInt                       @default(0) @db.BigInt
+  discountAmount                BigInt                       @default(0) @db.BigInt
+  netAmount                     BigInt                       @default(0) @db.BigInt
+  promotionEvaluationProvenance Json?
+  overrideReason                String?
+  source                        Json?
+  sourceReason                  String?
+  sourceActorIdentityId         String?                      @db.Uuid
+  sourceMembershipId            String?                      @db.Uuid
+  sourceRecordedAt              DateTime?
+  sourceProvenance              Json?
+  createdAt                     DateTime                     @default(now())
+  updatedAt                     DateTime                     @updatedAt
+  school                        School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  invoice                       Invoice                      @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+  receivable                    Receivable?                  @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  promotionApplications         IssuedPromotionApplication[]
+  debtTransfer                 DebtTransfer?
 
   @@unique([schoolId, id])
   @@index([schoolId, invoiceId])
   @@index([schoolId, receivableId])
 }
 
+enum InvoiceLineKind {
+  NORMAL
+  PRIOR_DEBT
+}
+
+model DebtTransfer {
+  id              String   @id @default(uuid()) @db.Uuid
+  schoolId        String   @db.Uuid
+  studentId       String   @db.Uuid
+  schoolYearId    String   @db.Uuid
+  sourceInvoiceId String   @db.Uuid
+  targetInvoiceId String   @db.Uuid
+  targetLineId    String   @unique @db.Uuid
+  amount          BigInt   @db.BigInt
+  reason          String
+  actorIdentityId String   @db.Uuid
+  membershipId    String   @db.Uuid
+  operationId     String   @unique @db.Uuid
+  createdAt       DateTime @default(now())
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear      SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  sourceInvoice   Invoice  @relation("DebtTransferSource", fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  targetInvoice   Invoice  @relation("DebtTransferTarget", fields: [schoolId, targetInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  targetLine      InvoiceLine @relation(fields: [schoolId, targetLineId], references: [schoolId, id], onDelete: Restrict)
+  membership      SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation       Operation @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+  actorIdentity   UserIdentity @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, targetLineId])
+  @@index([schoolId, sourceInvoiceId])
+  @@index([schoolId, targetInvoiceId])
+}
+
+enum FinanceLedgerEventType {
+  INVOICE_ISSUED
+  INVOICE_CANCELLED
+  RECEIPT_POSTED
+  SETTLEMENT_DIFFERENCE_POSTED
+  SETTLEMENT_CARRY_POSTED
+  SETTLEMENT_TRANSFER_POSTED
+  DEBT_TRANSFER_POSTED
+  COVERAGE_ISSUED
+  COVERAGE_REVERSAL_POSTED
+}
+
+model FinanceLedgerEvent {
+  id              String                 @id @default(uuid()) @db.Uuid
+  schoolId        String                 @db.Uuid
+  type            FinanceLedgerEventType
+  postedAt        DateTime               @default(now()) @db.Timestamptz(3)
+  invoiceId       String?                @db.Uuid
+  collectionRunId String?                @db.Uuid
+  schoolYearId    String?                @db.Uuid
+  studentId       String?                @db.Uuid
+  billingMonth    String?
+  className       String?
+  groupName       String?
+  statusSnapshot  String?
+  sourceKey       String?
+  amount          BigInt                 @default(0) @db.BigInt
+  grossAmount     BigInt                 @default(0) @db.BigInt
+  discountAmount  BigInt                 @default(0) @db.BigInt
+  netAmount       BigInt                 @default(0) @db.BigInt
+  provenance      Json
+  school          School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, type, sourceKey])
+  @@index([schoolId, postedAt])
+  @@index([schoolId, billingMonth, collectionRunId])
+  @@index([schoolId, schoolYearId, postedAt])
+}
+
+model FinanceReportExport {
+  id          String    @id @default(uuid()) @db.Uuid
+  schoolId    String    @db.Uuid
+  membershipId String   @db.Uuid
+  operationId String    @db.Uuid
+  workspace   String
+  result      Json
+  csv         Bytes
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  downloadedAt DateTime?
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership  SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation   Operation @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, operationId])
+  @@index([schoolId, expiresAt])
+}
+
 model IssuedPromotionApplication {
-  id                 String    @id @default(uuid()) @db.Uuid
-  schoolId           String    @db.Uuid
-  invoiceId          String    @db.Uuid
-  invoiceLineId      String    @db.Uuid
+  id                 String                @id @default(uuid()) @db.Uuid
+  schoolId           String                @db.Uuid
+  invoiceId          String                @db.Uuid
+  invoiceLineId      String                @db.Uuid
   ordinal            Int
-  policyId           String    @db.Uuid
-  versionId          String    @db.Uuid
-  targetId           String    @db.Uuid
-  assignmentId       String    @db.Uuid
+  policyId           String                @db.Uuid
+  versionId          String                @db.Uuid
+  targetId           String                @db.Uuid
+  assignmentId       String                @db.Uuid
   discountType       PromotionDiscountType
-  discountValue      BigInt    @db.BigInt
+  discountValue      BigInt                @db.BigInt
   priority           Int
   stackingMode       PromotionStackingMode
-  appliedDiscount    BigInt    @db.BigInt
-  grossAmount        BigInt    @db.BigInt
-  discountAmount     BigInt    @db.BigInt
-  netAmount          BigInt    @db.BigInt
+  appliedDiscount    BigInt                @db.BigInt
+  grossAmount        BigInt                @db.BigInt
+  discountAmount     BigInt                @db.BigInt
+  netAmount          BigInt                @db.BigInt
   versionInterval    Json
   assignmentInterval Json
   assignmentReason   String
-  createdAt          DateTime  @default(now())
-  school             School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  invoice            Invoice   @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
-  invoiceLine        InvoiceLine @relation(fields: [schoolId, invoiceLineId], references: [schoolId, id], onDelete: Restrict)
+  createdAt          DateTime              @default(now())
+  school             School                @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  invoice            Invoice               @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+  invoiceLine        InvoiceLine           @relation(fields: [schoolId, invoiceLineId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@unique([schoolId, invoiceLineId, ordinal])
@@ -1002,9 +1411,11 @@ model Receivable {
   school               School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   group                ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
   lifecycleTransitions ReceivableLifecycleTransition[]
-  invoiceLines          InvoiceLine[]
-  templateLines         CollectionRunTemplateLine[]
-  promotionTargets      PromotionPolicyTarget[]
+  invoiceLines         InvoiceLine[]
+  templateLines        CollectionRunTemplateLine[]
+  promotionTargets     PromotionPolicyTarget[]
+  coverageFacts        InvoicePromotionCoverageFact[]
+  promotionalCoverages StudentPromotionalCoverage[]
 
   @@unique([schoolId, id])
   @@index([schoolId, groupId])
@@ -1067,6 +1478,11 @@ enum PromotionStackingMode {
   EXCLUSIVE
 }
 
+enum PromotionFulfillmentMode {
+  DISCOUNT
+  PREPAID_COVERAGE
+}
+
 model PromotionPolicy {
   id        String                   @id @default(uuid()) @db.Uuid
   schoolId  String                   @db.Uuid
@@ -1082,23 +1498,25 @@ model PromotionPolicy {
 }
 
 model PromotionPolicyVersion {
-  id            String                       @id @default(uuid()) @db.Uuid
-  schoolId      String                       @db.Uuid
-  policyId      String                       @db.Uuid
-  version       Int
-  status        PromotionPolicyVersionStatus @default(DRAFT)
-  discountType  PromotionDiscountType
-  discountValue BigInt                       @db.BigInt
-  priority      Int
-  stackingMode  PromotionStackingMode
-  effectiveFrom DateTime                     @db.Date
-  effectiveTo   DateTime?                    @db.Date
-  createdAt     DateTime                     @default(now())
-  updatedAt     DateTime                     @updatedAt
-  school        School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  policy        PromotionPolicy              @relation(fields: [schoolId, policyId], references: [schoolId, id], onDelete: Restrict)
-  targets       PromotionPolicyTarget[]
-  assignments   StudentPromotionAssignment[]
+  id                 String                           @id @default(uuid()) @db.Uuid
+  schoolId           String                           @db.Uuid
+  policyId           String                           @db.Uuid
+  version            Int
+  status             PromotionPolicyVersionStatus     @default(DRAFT)
+  discountType       PromotionDiscountType
+  discountValue      BigInt                           @db.BigInt
+  priority           Int
+  stackingMode       PromotionStackingMode
+  fulfillmentMode    PromotionFulfillmentMode         @default(DISCOUNT)
+  effectiveFrom      DateTime                         @db.Date
+  effectiveTo        DateTime?                        @db.Date
+  createdAt          DateTime                         @default(now())
+  updatedAt          DateTime                         @updatedAt
+  school             School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  policy             PromotionPolicy                  @relation(fields: [schoolId, policyId], references: [schoolId, id], onDelete: Restrict)
+  targets            PromotionPolicyTarget[]
+  assignments        StudentPromotionAssignment[]
+  coverageSelections CollectionRunCoverageSelection[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, id, policyId])
@@ -1107,14 +1525,14 @@ model PromotionPolicyVersion {
 }
 
 model PromotionPolicyTarget {
-  id        String                 @id @default(uuid()) @db.Uuid
-  schoolId  String                 @db.Uuid
-  versionId String                 @db.Uuid
-  receivableId String               @db.Uuid
-  createdAt DateTime               @default(now())
-  school    School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  version   PromotionPolicyVersion @relation(fields: [schoolId, versionId], references: [schoolId, id], onDelete: Restrict)
-  receivable Receivable            @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  id           String                 @id @default(uuid()) @db.Uuid
+  schoolId     String                 @db.Uuid
+  versionId    String                 @db.Uuid
+  receivableId String                 @db.Uuid
+  createdAt    DateTime               @default(now())
+  school       School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  version      PromotionPolicyVersion @relation(fields: [schoolId, versionId], references: [schoolId, id], onDelete: Restrict)
+  receivable   Receivable             @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@unique([schoolId, versionId, receivableId])
@@ -1122,21 +1540,21 @@ model PromotionPolicyTarget {
 }
 
 model StudentPromotionAssignment {
-  id        String                 @id @default(uuid()) @db.Uuid
-  schoolId  String                 @db.Uuid
-  studentId String                 @db.Uuid
-  policyId  String                 @db.Uuid
-  versionId String                 @db.Uuid
-  effectiveFrom DateTime           @db.Date
-  effectiveTo DateTime?            @db.Date
-  reason    String
-  endReason String?
-  endedAt   DateTime?
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
-  school    School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  student   Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  version   PromotionPolicyVersion @relation(fields: [schoolId, versionId, policyId], references: [schoolId, id, policyId], onDelete: Restrict)
+  id            String                 @id @default(uuid()) @db.Uuid
+  schoolId      String                 @db.Uuid
+  studentId     String                 @db.Uuid
+  policyId      String                 @db.Uuid
+  versionId     String                 @db.Uuid
+  effectiveFrom DateTime               @db.Date
+  effectiveTo   DateTime?              @db.Date
+  reason        String
+  endReason     String?
+  endedAt       DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  school        School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student       Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  version       PromotionPolicyVersion @relation(fields: [schoolId, versionId, policyId], references: [schoolId, id, policyId], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@index([schoolId, studentId, policyId, effectiveFrom])
@@ -1384,28 +1802,28 @@ model DailyJournalPolicy {
 }
 
 model DailyJournal {
-  id                  String               @id @default(uuid()) @db.Uuid
-  schoolId            String               @db.Uuid
-  classId             String               @db.Uuid
-  studentId           String               @db.Uuid
-  enrollmentIdSnapshot String              @db.Uuid
-  enrollmentEndedOnSnapshot DateTime?      @db.Date
-  journalDate         DateTime             @db.Date
-  text                String
-  currentVersion      Int                  @default(1)
-  policyEffectiveFrom DateTime             @db.Date
-  actorIdentityId     String               @db.Uuid
-  membershipId        String               @db.Uuid
-  staffProfileId      String               @db.Uuid
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  school              School               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  classroom           Class                @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
-  student             Student              @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  policy              DailyJournalPolicy   @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
-  membership          SchoolMembership     @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
-  staffProfile        StaffProfile         @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
-  versions            DailyJournalVersion[]
+  id                        String                @id @default(uuid()) @db.Uuid
+  schoolId                  String                @db.Uuid
+  classId                   String                @db.Uuid
+  studentId                 String                @db.Uuid
+  enrollmentIdSnapshot      String                @db.Uuid
+  enrollmentEndedOnSnapshot DateTime?             @db.Date
+  journalDate               DateTime              @db.Date
+  text                      String
+  currentVersion            Int                   @default(1)
+  policyEffectiveFrom       DateTime              @db.Date
+  actorIdentityId           String                @db.Uuid
+  membershipId              String                @db.Uuid
+  staffProfileId            String                @db.Uuid
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+  school                    School                @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classroom                 Class                 @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
+  student                   Student               @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  policy                    DailyJournalPolicy    @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  membership                SchoolMembership      @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  staffProfile              StaffProfile          @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+  versions                  DailyJournalVersion[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, studentId, journalDate])
@@ -1413,47 +1831,47 @@ model DailyJournal {
 }
 
 model DailyJournalVersion {
-  id                String              @id @default(uuid()) @db.Uuid
-  schoolId          String              @db.Uuid
-  dailyJournalId    String              @db.Uuid
-  version           Int
-  text              String
-  policyEffectiveFrom DateTime          @db.Date
-  actorIdentityId   String              @db.Uuid
-  membershipId      String              @db.Uuid
-  staffProfileId    String              @db.Uuid
-  createdAt         DateTime            @default(now())
-  school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  dailyJournal      DailyJournal        @relation(fields: [schoolId, dailyJournalId], references: [schoolId, id], onDelete: Restrict)
-  membership        SchoolMembership    @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
-  staffProfile      StaffProfile        @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
-  policy            DailyJournalPolicy  @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
-  media             DailyJournalVersionMedia[]
+  id                  String                     @id @default(uuid()) @db.Uuid
+  schoolId            String                     @db.Uuid
+  dailyJournalId      String                     @db.Uuid
+  version             Int
+  text                String
+  policyEffectiveFrom DateTime                   @db.Date
+  actorIdentityId     String                     @db.Uuid
+  membershipId        String                     @db.Uuid
+  staffProfileId      String                     @db.Uuid
+  createdAt           DateTime                   @default(now())
+  school              School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  dailyJournal        DailyJournal               @relation(fields: [schoolId, dailyJournalId], references: [schoolId, id], onDelete: Restrict)
+  membership          SchoolMembership           @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  staffProfile        StaffProfile               @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+  policy              DailyJournalPolicy         @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  media               DailyJournalVersionMedia[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, dailyJournalId, version])
 }
 
 model DailyJournalMedia {
-  id                String              @id @default(uuid()) @db.Uuid
-  schoolId          String              @db.Uuid
-  classId           String              @db.Uuid
-  studentId         String              @db.Uuid
-  journalDate       DateTime            @db.Date
-  contentType       String
-  blob              Bytes
-  uploadedByMembershipId String         @db.Uuid
-  uploadedByStaffProfileId String       @db.Uuid
-  policyEffectiveFrom DateTime          @db.Date
-  attachedDailyJournalId String?        @db.Uuid
-  createdAt         DateTime            @default(now())
-  school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  classroom         Class               @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
-  student           Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  policy            DailyJournalPolicy  @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
-  uploadedByMembership SchoolMembership @relation("DailyJournalMediaUploaderMembership", fields: [schoolId, uploadedByMembershipId], references: [schoolId, id], onDelete: Restrict)
-  uploadedByStaffProfile StaffProfile   @relation("DailyJournalMediaUploader", fields: [schoolId, uploadedByStaffProfileId], references: [schoolId, id], onDelete: Restrict)
-  versionMedia      DailyJournalVersionMedia[]
+  id                       String                     @id @default(uuid()) @db.Uuid
+  schoolId                 String                     @db.Uuid
+  classId                  String                     @db.Uuid
+  studentId                String                     @db.Uuid
+  journalDate              DateTime                   @db.Date
+  contentType              String
+  blob                     Bytes
+  uploadedByMembershipId   String                     @db.Uuid
+  uploadedByStaffProfileId String                     @db.Uuid
+  policyEffectiveFrom      DateTime                   @db.Date
+  attachedDailyJournalId   String?                    @db.Uuid
+  createdAt                DateTime                   @default(now())
+  school                   School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classroom                Class                      @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
+  student                  Student                    @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  policy                   DailyJournalPolicy         @relation(fields: [schoolId, policyEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
+  uploadedByMembership     SchoolMembership           @relation("DailyJournalMediaUploaderMembership", fields: [schoolId, uploadedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  uploadedByStaffProfile   StaffProfile               @relation("DailyJournalMediaUploader", fields: [schoolId, uploadedByStaffProfileId], references: [schoolId, id], onDelete: Restrict)
+  versionMedia             DailyJournalVersionMedia[]
 
   @@unique([schoolId, id])
   @@index([schoolId, classId, studentId, journalDate])

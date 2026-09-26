@@ -3,6 +3,10 @@ ALTER TABLE "IssuedPromotionApplication"
   ADD COLUMN "discountAmount" BIGINT,
   ADD COLUMN "netAmount" BIGINT;
 
+-- This migration backfills columns added after the immutable trigger exists.
+-- Scope the trigger bypass to this transaction-local historical repair only.
+SELECT set_config('passionedu.allow_history_cleanup', 'on', false);
+
 UPDATE "IssuedPromotionApplication" application
 SET
   "grossAmount" = line."grossAmount",
@@ -10,6 +14,8 @@ SET
   "netAmount" = line."netAmount"
 FROM "InvoiceLine" line
 WHERE line."schoolId" = application."schoolId" AND line."id" = application."invoiceLineId";
+
+SELECT set_config('passionedu.allow_history_cleanup', 'off', false);
 
 ALTER TABLE "IssuedPromotionApplication"
   ALTER COLUMN "grossAmount" SET NOT NULL,
