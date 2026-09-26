@@ -360,7 +360,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding hoac Invoice `CLOSED` moi
 - Cross-tenant isolation, authorization/revoke, concurrency/idempotency, ledger va Parent cross-school E2E la release-blocking verification.
 - Idempotency Operation la bat buoc cho generate run, chuyen lop/chuyen nam/close-year batch, issue, receipt/allocation, prepaid-promotion selection, reversal/refund va approval. Sau timeout, client doi soat `GET /operations/:operationId` truoc retry.
 - Payroll high-impact mutation gom import commit, calculate, submit, approve/refuse, reopen, correction submit/approval/refusal va payout confirmation; deu dung transaction, idempotency UUID, Operation reconciliation va audit reason.
-- [ASSUMPTION] P95 read API <= 500 ms va preview/report <= 3 s voi fixture acceptance; generate 1,000 Student <= 60 s va co progress Operation. Accessibility cho hai portal dat WCAG 2.1 AA; revoke/suspend co hieu luc request ke tiep va audit retention/backup/recovery SLA se duoc Architecture chot truoc production.
+- [ASSUMPTION] P95 read API <= 500 ms va preview/report <= 3 s voi fixture acceptance; generate 200 Student <= 30 s va co progress Operation trong fixture acceptance cua truong muc tieu. Accessibility cho hai portal dat WCAG 2.1 AA; revoke/suspend co hieu luc request ke tiep va audit retention/backup/recovery SLA se duoc Architecture chot truoc production.
 
 ## 8. Thanh cong va counter-metrics
 

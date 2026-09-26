@@ -111,7 +111,7 @@ NFR-4: VND luu PostgreSQL BIGINT va REST safe JSON integer; issued obligation/in
 
 NFR-5: Tenant isolation, revoke, concurrency/idempotency ledger va Parent cross-School E2E la release-blocking proof; E1 isolation gate block cac release sau.
 
-NFR-6: P95 read API <= 500 ms; preview/report <= 3 s; generate 1,000 Student <= 60 s va co Operation progress trong fixture acceptance. WCAG 2.1 AA cho ca bon portal.
+NFR-6: P95 read API <= 500 ms; preview/report <= 3 s; generate 200 Student <= 30 s va co Operation progress trong fixture acceptance cua truong muc tieu. WCAG 2.1 AA cho ca bon portal.
 
 NFR-7: Pilot dung mot VPS Docker Compose, source build, TLS proxy va PostgreSQL durable volume; secrets ngoai Git, migration deploy truoc API can no, khong destructive rollback. Production controls la gate Spine rieng.
 
@@ -1070,9 +1070,9 @@ So that CollectionRun/Invoice khong duplicate, tinh sai VND, expose du lieu cros
 **Then** School/Student/Invoice state, required reason/audit, integer VND/quantity, immutable issued snapshot va absence cua auto-pricing deu duoc prove
 **And** khong co route, bundle hay authorization dependency vao `teacher-web`, `parent-web`, attendance, service enrollment, `PromotionPolicy` hay Payroll.
 
-**Given** pilot performance fixture 1,000 Student
+**Given** target-school performance fixture 200 Student
 **When** CollectionRun generate chay
-**Then** Operation co progress observable va hoan tat trong <= 60 giay
+**Then** Operation co progress observable va hoan tat trong <= 30 giay
 **And** failure tra outcome/retry-safe state, khong tra mot client-estimated success.
 
 ### Story 5.7: Đóng CollectionRun đã generate
@@ -1705,7 +1705,7 @@ So that latency va kha nang su dung khong duoc suy doan tu happy path.
 
 **Given** acceptance fixture va telemetry harness da duoc cau hinh
 **When** read API, CollectionRun preview va finance report benchmark chay trong target pilot topology
-**Then** P95 read API <= 500 ms, preview/report <= 3 s, va CollectionRun generate 1,000 Student <= 60 giay voi Operation progress observable
+**Then** P95 read API <= 500 ms, preview/report <= 3 s, va CollectionRun generate 200 Student <= 30 giay voi Operation progress observable trong fixture acceptance cua truong muc tieu
 **And** benchmark report luu fixture, environment, timing va failure outcome; client khong tu claim success khi server chua terminal.
 
 **Given** Admin, Teacher, Ops va Parent portal routes/components trong release
