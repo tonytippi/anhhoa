@@ -13,6 +13,11 @@ async function login(context: import('@playwright/test').BrowserContext) {
   const callback = await context.request.get(`${api}/api/app/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { maxRedirects: 0 });
   expect(callback.status()).toBe(302);
 }
+async function openRun(page: import('@playwright/test').Page, month: string) {
+  const trigger = page.getByRole('button', { name: `Tùy chọn cho đợt thu ${month}` });
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'Mở chi tiết' }).click();
+}
 
 test.describe.configure({ mode: 'serial' });
 
@@ -24,9 +29,12 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 1');
 
-  await page.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
-  await page.getByLabel('Tháng thu').fill('2026-09');
-  await page.getByRole('button', { name: 'Mở hoặc vào đợt thu' }).click();
+  await page.getByRole('button', { name: 'Tạo đợt thu' }).click();
+  const runDialog = page.getByRole('dialog', { name: 'Tạo hoặc mở đợt thu' });
+  await runDialog.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
+  await runDialog.getByLabel('Tháng thu').fill('2026-09');
+  await runDialog.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
+  await openRun(page, '2026-09');
   await expect(page.getByRole('heading', { name: 'Đợt thu 2026-09 / DRAFT' })).toBeVisible();
   const template = page.getByRole('region', { name: 'Khoản thu trong đợt' });
   await template.getByLabel('Khoản thu').selectOption({ label: 'Học phí Release 1' });
@@ -56,7 +64,8 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await expect(page.getByRole('heading', { name: 'Kết quả tạo hóa đơn từ máy chủ' })).toBeVisible({ timeout: 10000 });
   await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tbody tr').filter({ hasText: 'RG1-1 / Bé An' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
   await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
-  await expect(page.getByText('trạng thái DRAFT')).toBeVisible();
+   await expect(page.getByText('trạng thái DRAFT')).toBeVisible();
+   await expect(page.getByRole('button', { name: 'Học sinh tiếp theo' })).toBeVisible();
 
    const invoiceReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-1/ });
    const invoiceLines = invoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' });
@@ -68,7 +77,8 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé An' });
   await firstIssue.getByLabel('Nhập chính xác tên học sinh Bé An để xác nhận').fill('Bé An');
    await firstIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
-    await expect(invoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 135.000 VND');
+     await expect(invoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 135.000 VND');
+     await expect(invoiceReview.getByRole('button', { name: 'Học sinh tiếp theo' })).toBeVisible();
     await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
    await invoiceReview.getByRole('button', { name: 'Ghi thực nhận và đóng hóa đơn' }).click();
    const receiptDialog = page.getByRole('dialog', { name: 'Ghi thực nhận cho Bé An' });

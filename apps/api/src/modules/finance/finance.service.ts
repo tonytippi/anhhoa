@@ -1058,7 +1058,7 @@ export class FinanceService {
     templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } } }, orderBy: { id: "asc" } },
     invoices: {
       select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true },
-      orderBy: { studentCodeSnapshot: "asc" },
+      orderBy: [{ studentCodeSnapshot: "asc" }, { id: "asc" }],
     },
     lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
   };
@@ -1149,16 +1149,38 @@ export class FinanceService {
       await tx.collectionRunTemplateLine.delete({ where: { id: line.id } }); const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude }); const outcome = this.runDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_TEMPLATE_REMOVED", operation, this.templateLineDto(line), outcome); return outcome;
     });
   }
-  async runs(identityId: string, schoolId: string, schoolYearId?: string) {
+  private runCursor(value: unknown) {
+    if (typeof value !== "string" || !value) return null;
+    try {
+      const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+      if (typeof parsed?.billingMonth !== "string" || !/^\d{4}-\d{2}$/.test(parsed.billingMonth) || typeof parsed?.id !== "string" || !uuid.test(parsed.id)) throw new Error();
+      return parsed as { billingMonth: string; id: string };
+    } catch {
+      throw validation("cursor", "Con trỏ không hợp lệ.");
+    }
+  }
+  async runs(identityId: string, schoolId: string, query: { schoolYearId?: string; status?: string; limit?: string; cursor?: string } = {}) {
     schoolId = this.school(schoolId);
     await this.actor(identityId, schoolId);
+    const schoolYearId = query.schoolYearId;
     if (schoolYearId) this.identifier(schoolYearId, "schoolYearId");
+    if (query.status && !["DRAFT", "READY", "GENERATED", "CLOSED"].includes(query.status)) throw validation("status", "Trạng thái không hợp lệ.");
+    const limit = query.limit === undefined ? 25 : Number(query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw validation("limit", "Giới hạn phải từ 1 đến 100.");
+    const cursor = this.runCursor(query.cursor);
+    if (cursor) {
+      const cursorRun = await this.prisma.collectionRun.findFirst({ where: { id: cursor.id, schoolId, billingMonth: cursor.billingMonth, ...(schoolYearId ? { schoolYearId } : {}), ...(query.status ? { status: query.status as any } : {}) }, select: { id: true } });
+      if (!cursorRun) throw validation("cursor", "Con trỏ không thuộc kết quả hiện tại.");
+    }
     const runs = await this.prisma.collectionRun.findMany({
-      where: { schoolId, ...(schoolYearId ? { schoolYearId } : {}) },
+      where: { schoolId, ...(schoolYearId ? { schoolYearId } : {}), ...(query.status ? { status: query.status as any } : {}), ...(cursor ? { OR: [{ billingMonth: { lt: cursor.billingMonth } }, { billingMonth: cursor.billingMonth, id: { lt: cursor.id } }] } : {}) },
       include: this.runInclude,
-      orderBy: { billingMonth: "desc" },
+      orderBy: [{ billingMonth: "desc" }, { id: "desc" }],
+      take: limit + 1,
     });
-    return { runs: runs.map((run) => this.runDto(run)) };
+    const page = runs.slice(0, limit);
+    const last = page.at(-1);
+    return { runs: page.map((run) => this.runDto(run)), meta: { limit, nextCursor: runs.length > limit && last ? Buffer.from(JSON.stringify({ billingMonth: last.billingMonth, id: last.id })).toString("base64url") : null } };
   }
   async candidates(
     identityId: string,

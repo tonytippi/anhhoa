@@ -141,6 +141,8 @@ export function FinanceWorkspace({
   const [endingAssignment, setEndingAssignment] = useState<{ id: string; effectiveTo: string; reason: string }>();
   const [candidates, setCandidates] = useState<Candidates>();
   const [runs, setRuns] = useState<Run[]>([]);
+  const [runsCursor, setRunsCursor] = useState<string | null>(null);
+  const [runStatus, setRunStatus] = useState("");
   const [run, setRun] = useState<Run>();
   const [preview, setPreview] = useState<Preview>();
   const [generateConfirmation, setGenerateConfirmation] = useState(false);
@@ -170,6 +172,8 @@ export function FinanceWorkspace({
   const [editingSource, setEditingSource] = useState(false);
   const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string }>();
   const [open, setOpen] = useState({ schoolYearId: "", billingMonth: "" });
+  const [runDialog, setRunDialog] = useState(false);
+  const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[] }>();
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [template, setTemplate] = useState({ receivableId: "", quantity: "" });
   const [group, setGroup] = useState({ name: "" });
@@ -191,7 +195,7 @@ export function FinanceWorkspace({
   const [rowMenu, setRowMenu] = useState<string>();
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle" | "promotion">(
+  const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle" | "promotion" | "run">(
     "group",
   );
   const [pending, setPending] = useState<Pending>();
@@ -212,6 +216,7 @@ export function FinanceWorkspace({
   const coverageDecisionTrigger = useRef<HTMLButtonElement>(null);
   const dialogTrigger = useRef<HTMLButtonElement | null>(null);
   const catalogDialogRef = useRef<HTMLDivElement>(null);
+  const runDialogRef = useRef<HTMLDivElement>(null);
   const promotionDialogRef = useRef<HTMLDivElement>(null);
   const lifecycleDialog = useRef<HTMLDivElement>(null);
   const rowMenuTrigger = useRef<HTMLButtonElement>(null);
@@ -244,12 +249,13 @@ export function FinanceWorkspace({
     if (!response.ok) throw new Error("Không thể tải dữ liệu Finance.");
     return ((await response.json()) as { data: T }).data;
   };
+  const runsPath = (cursor?: string | null) => `/api/app/schools/${schoolId}/finance/collection-runs?limit=25${runStatus ? `&status=${encodeURIComponent(runStatus)}` : ""}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
   const load = async () => {
     const token = ++request.current;
     const [nextCatalog, nextRuns, nextCandidates, nextPolicies, nextPromotionStudents, nextReversalRequests] = await Promise.all([
       get<Catalog>(`/api/app/schools/${schoolId}/finance/receivables`),
-      get<{ runs: Run[] }>(
-        `/api/app/schools/${schoolId}/finance/collection-runs`,
+      get<{ runs: Run[]; meta: { nextCursor: string | null } }>(
+        runsPath(),
       ),
       get<Candidates>(
         `/api/app/schools/${schoolId}/finance/collection-run-candidates${(run?.schoolYearId ?? open.schoolYearId) ? `?schoolYearId=${run?.schoolYearId ?? open.schoolYearId}` : ""}`,
@@ -261,14 +267,11 @@ export function FinanceWorkspace({
     if (activeSchool.current !== schoolId || token !== request.current) return;
     setCatalog(nextCatalog);
     setRuns(nextRuns.runs);
+    setRunsCursor(nextRuns.meta?.nextCursor ?? null);
     setCandidates(nextCandidates);
     setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: nextPromotionStudents.students ?? [] });
     setCoverageReversalRequests(nextReversalRequests.requests ?? []);
     if (run) {
-      const refreshedRun = nextRuns.runs.find((item) => item.id === run.id);
-      setRun(refreshedRun);
-      if (refreshedRun && refreshedRun.status !== "DRAFT")
-        setSelectedStudentIds(refreshedRun.selectedStudentIds);
     }
   };
   const loadBankAccounts = async () => {
@@ -284,17 +287,27 @@ export function FinanceWorkspace({
     if (activeSchool.current === schoolId && token === request.current)
       setCandidates(next);
   };
+  const loadMoreRuns = async () => {
+    if (!runsCursor) return;
+    const token = ++request.current;
+    setInvoiceQueue(undefined);
+    const next = await get<{ runs: Run[]; meta: { nextCursor: string | null } }>(runsPath(runsCursor));
+    if (activeSchool.current !== schoolId || token !== request.current) return;
+    setRuns((current) => [...current, ...next.runs]);
+    setRunsCursor(next.meta?.nextCursor ?? null);
+  };
   const refreshRun = async (runId: string) => {
     const token = ++request.current;
-    const next = await get<{ runs: Run[] }>(
-      `/api/app/schools/${schoolId}/finance/collection-runs`,
-    );
+    setInvoiceQueue(undefined);
+    const [next, refreshedRun] = await Promise.all([
+      get<{ runs: Run[]; meta: { nextCursor: string | null } }>(runsPath()),
+      get<Run>(`/api/app/schools/${schoolId}/finance/collection-runs/${runId}`),
+    ]);
     if (activeSchool.current !== schoolId || token !== request.current) return;
     setRuns(next.runs);
-    const refreshedRun = next.runs.find((item) => item.id === runId);
-    setRun(refreshedRun);
-    if (refreshedRun && refreshedRun.status !== "DRAFT")
-      setSelectedStudentIds(refreshedRun.selectedStudentIds);
+    setRunsCursor(next.meta?.nextCursor ?? null);
+    chooseRun(refreshedRun);
+    return refreshedRun;
   };
   const reconcile = async (operation: Pending) => {
     if (operation.schoolId !== activeSchool.current) return;
@@ -370,6 +383,8 @@ export function FinanceWorkspace({
     setEndingAssignment(undefined);
     setCandidates(undefined);
     setRuns([]);
+    setRunsCursor(null);
+    setRunStatus("");
     setRun(undefined);
     setPreview(undefined);
     setGenerateConfirmation(false);
@@ -398,6 +413,8 @@ export function FinanceWorkspace({
     setEditingLineId(undefined);
     setEditingSource(false);
     setOpen({ schoolYearId: "", billingMonth: "" });
+    setRunDialog(false);
+    setInvoiceQueue(undefined);
     setSelectedStudentIds([]);
     setTemplate({ receivableId: "", quantity: "" });
     setGroup({ name: "" });
@@ -503,6 +520,10 @@ export function FinanceWorkspace({
     if (run?.status === "CLOSED" && !closeConfirmation) closedHeading.current?.focus();
   }, [run?.status, closeConfirmation]);
   useEffect(() => {
+    if (!catalog) return;
+    void load().catch((error: Error) => activeSchool.current === schoolId && setMessage(error.message));
+  }, [runStatus]);
+  useEffect(() => {
     if (rowMenu && rowMenuKeyboardOpen.current)
       rowMenuElement.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
     rowMenuKeyboardOpen.current = false;
@@ -511,6 +532,9 @@ export function FinanceWorkspace({
     const dialog = catalogDialog ? catalogDialogRef.current : promotionDialog ? promotionDialogRef.current : undefined;
     dialog?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])")?.focus();
   }, [catalogDialog, promotionDialog]);
+  useEffect(() => {
+    if (runDialog) runDialogRef.current?.querySelector<HTMLElement>("select, input, button")?.focus();
+  }, [runDialog]);
   useEffect(() => {
     if (promotionTransition)
       document.querySelector<HTMLElement>("#finance-promotion-transition-confirm")?.focus();
@@ -588,6 +612,7 @@ export function FinanceWorkspace({
   ) => {
     if (submitting.current || pending) return undefined;
     const token = ++request.current;
+    setInvoiceQueue(undefined);
     submitting.current = true;
     const operation = { id: crypto.randomUUID(), schoolId };
     setMessage("");
@@ -665,10 +690,12 @@ export function FinanceWorkspace({
     }
   };
   const chooseRun = (next: Run) => {
-    setRun(next);
-    setSelectedStudentIds(next.selectedStudentIds);
+    setInvoiceQueue(undefined);
+    const normalized = { ...next, selectedStudentIds: next.selectedStudentIds ?? [], templateLines: next.templateLines ?? [], invoices: next.invoices ?? [] };
+    setRun(normalized);
+    setSelectedStudentIds(normalized.selectedStudentIds);
     setPreview(undefined);
-    void loadCandidates(next.schoolYearId).catch(() =>
+    void loadCandidates(normalized.schoolYearId).catch(() =>
       setMessage("Không thể tải danh sách học sinh."),
     );
   };
@@ -678,9 +705,11 @@ export function FinanceWorkspace({
       `/api/app/schools/${schoolId}/finance/collection-runs`,
       "POST",
       open,
+      "run",
     );
     if (outcome) {
       setOpen({ schoolYearId: "", billingMonth: "" });
+      closeManagedDialog(() => setRunDialog(false));
       chooseRun(outcome as Run);
       await load();
     }
@@ -877,13 +906,20 @@ export function FinanceWorkspace({
     const outcome = await command(`/api/app/schools/${schoolId}/finance/promotion-policy-versions/${versionId}/${action}`, "POST", {}, "promotion");
     if (outcome) { closeManagedDialog(() => setPromotionTransition(undefined)); await load(); }
   };
-  const openInvoice = async (invoiceId: string) => {
+  const openInvoice = async (invoiceId: string, sourceRun?: Run) => {
     const token = ++request.current;
+    setInvoiceQueue(undefined);
     try {
       const next = await get<Invoice>(`/api/app/schools/${schoolId}/finance/invoices/${invoiceId}`);
-      if (activeSchool.current === schoolId && token === request.current) setInvoice(next);
+      if (activeSchool.current === schoolId && token === request.current) {
+        setInvoice(next);
+        if (sourceRun) setInvoiceQueue({ runId: sourceRun.id, ids: (sourceRun.invoices ?? []).map((item) => item.id) });
+      }
     } catch (error: any) {
-      if (activeSchool.current === schoolId) setMessage(error.message);
+      if (activeSchool.current === schoolId) {
+        setInvoice(undefined);
+        setMessage(error.message || "Không thể mở hóa đơn đã chọn.");
+      }
     }
   };
   const saveLine = async (event: FormEvent) => {
@@ -896,19 +932,19 @@ export function FinanceWorkspace({
       body.sourceReason = line.sourceReason;
     } else if (editingLineId && editingSource) body.source = null;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/lines${editingLineId ? `/${editingLineId}` : ""}`, editingLineId ? "PUT" : "POST", body, "invoice");
-    if (outcome) { applyInvoice(outcome as Invoice); setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }
+    if (outcome) { applyInvoice(outcome as Invoice); setInvoiceQueue(undefined); setEditingLineId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); if (run) { try { const refreshed = await refreshRun(run.id); if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: (refreshed.invoices ?? []).map((item) => item.id) }); } catch { setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất."); } } }
   };
   const removeLine = async (lineId: string) => {
     if (!invoice) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/lines/${lineId}`, "DELETE", {}, "receivable");
-    if (outcome) applyInvoice(outcome as Invoice);
+    if (outcome) { applyInvoice(outcome as Invoice); setInvoiceQueue(undefined); if (run) { try { const refreshed = await refreshRun(run.id); if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: (refreshed.invoices ?? []).map((item) => item.id) }); } catch { setMessage("Đã xóa; chưa thể tải lại danh sách hóa đơn mới nhất."); } } }
     setRemoveConfirmation(undefined);
   };
   const issueInvoice = async () => {
     if (!invoice || !issueBankAccountId) return;
     const runId = run?.id;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/${invoice.revisesInvoiceId ? "issue-revision" : "issue"}`, "POST", { bankAccountId: issueBankAccountId }, "invoice");
-    if (outcome) { applyInvoice(outcome as Invoice); setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); try { if (runId) await refreshRun(runId); } catch { setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất."); } }
+    if (outcome) { applyInvoice(outcome as Invoice); setInvoiceQueue(undefined); setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); try { if (runId) { const refreshed = await refreshRun(runId); if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: (refreshed.invoices ?? []).map((item) => item.id) }); } } catch { setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất."); } }
   };
   const prepareRevision = async () => {
     if (!invoice) return;
@@ -1007,6 +1043,9 @@ export function FinanceWorkspace({
       : {};
   const invoiceField = (name: string) => field("invoice", name);
   const promotionField = (name: string) => field("promotion", name);
+  const invoiceQueueIndex = invoice && invoiceQueue ? invoiceQueue.ids.indexOf(invoice.id) : -1;
+  const previousInvoiceId = invoiceQueueIndex > 0 ? invoiceQueue!.ids[invoiceQueueIndex - 1] : undefined;
+  const nextInvoiceId = invoiceQueueIndex >= 0 && invoiceQueueIndex < invoiceQueue!.ids.length - 1 ? invoiceQueue!.ids[invoiceQueueIndex + 1] : undefined;
 
   return (
     <section aria-labelledby="finance-title" onKeyDownCapture={(event) => {
@@ -1075,7 +1114,11 @@ export function FinanceWorkspace({
         </table>
       </section>
       <section>
-        <h3>Mở đợt thu tháng</h3>
+        <h3>Đợt thu</h3>
+        <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setOpen({ schoolYearId: "", billingMonth: "" }); openManagedDialog(event.currentTarget, () => setRunDialog(true)); }}>Tạo đợt thu</button>
+        <label>Lọc trạng thái<select value={runStatus} onChange={(event) => { setRunStatus(event.target.value); setRun(undefined); setInvoice(undefined); setInvoiceQueue(undefined); }}><option value="">Tất cả trạng thái</option><option value="DRAFT">Nháp</option><option value="READY">Sẵn sàng</option><option value="GENERATED">Đã tạo</option><option value="CLOSED">Đã đóng</option></select></label>
+        {runDialog && <div ref={runDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-run-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setRunDialog(false), () => setOpen({ schoolYearId: "", billingMonth: "" }))}>
+        <h4 id="finance-run-title">Tạo hoặc mở đợt thu</h4><p>Máy chủ sẽ tạo đợt thu mới hoặc mở đợt thu đã có cho tháng này.</p>
         <form onSubmit={openRun}>
           <label>
             Năm học
@@ -1089,7 +1132,7 @@ export function FinanceWorkspace({
                   setMessage("Không thể tải danh sách học sinh."),
                 );
               }}
-              aria-invalid={Boolean(errors.schoolYearId)}
+              {...field("run", "schoolYearId")}
             >
               <option value="">Chọn năm học</option>
               {candidates?.schoolYears?.map((year) => (
@@ -1103,6 +1146,7 @@ export function FinanceWorkspace({
                 </option>
               ))}
             </select>
+            {scope === "run" && errors.schoolYearId && <small id="invoice-run-schoolYearId-error" role="alert">{errors.schoolYearId}</small>}
           </label>
           <label>
             Tháng thu
@@ -1112,11 +1156,13 @@ export function FinanceWorkspace({
               onChange={(event) =>
                 setOpen({ ...open, billingMonth: event.target.value })
               }
-              aria-invalid={Boolean(errors.billingMonth)}
+              {...field("run", "billingMonth")}
             />
+            {scope === "run" && errors.billingMonth && <small id="invoice-run-billingMonth-error" role="alert">{errors.billingMonth}</small>}
           </label>
-          <button disabled={Boolean(pending)}>Mở hoặc vào đợt thu</button>
+          <button disabled={Boolean(pending)}>Xác nhận tạo hoặc mở</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setRunDialog(false), () => setOpen({ schoolYearId: "", billingMonth: "" }))}>Hủy</button>
         </form>
+        </div>}
         <table>
           <caption>Đợt thu theo trường</caption>
           <thead>
@@ -1124,7 +1170,7 @@ export function FinanceWorkspace({
               <th>Tháng</th>
               <th>Năm học</th>
               <th>Trạng thái</th>
-              <th>Thao tác</th>
+                <th>Tùy chọn</th>
             </tr>
           </thead>
           <tbody>
@@ -1138,11 +1184,7 @@ export function FinanceWorkspace({
                     )?.name ?? item.schoolYearId}
                   </td>
                   <td>{item.status}</td>
-                  <td>
-                    <button type="button" onClick={() => chooseRun(item)}>
-                      Mở chi tiết
-                    </button>
-                  </td>
+                    <td><button ref={rowMenu === `run-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho đợt thu ${item.billingMonth}`} aria-haspopup="menu" aria-expanded={rowMenu === `run-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `run-${item.id}`)} onClick={() => setRowMenu(rowMenu === `run-${item.id}` ? undefined : `run-${item.id}`)}>...</button>{rowMenu === `run-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); chooseRun(item); }}>Mở chi tiết</button></div>}</td>
                 </tr>
               ))
             ) : (
@@ -1154,6 +1196,7 @@ export function FinanceWorkspace({
             )}
           </tbody>
         </table>
+        {runsCursor && <button type="button" disabled={Boolean(pending)} onClick={() => void loadMoreRuns().catch(() => setMessage("Không thể tải thêm đợt thu."))}>Xem thêm đợt thu</button>}
       </section>
       {run && (
         <section aria-labelledby="run-detail-title">
@@ -1333,7 +1376,7 @@ export function FinanceWorkspace({
           <table>
             <caption>Hóa đơn hiện có trong đợt thu</caption>
             <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th>Tổng VND</th><th>Thao tác</th></tr></thead>
-            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Rà soát hóa đơn</button></td></tr>)}</tbody>
+            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id, run)}>Rà soát hóa đơn</button></td></tr>)}</tbody>
           </table>
            {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? <p>Chưa thể đóng: còn hóa đơn nháp cần phát hành.</p> : null}
              <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => !["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === "0")))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
@@ -1346,7 +1389,7 @@ export function FinanceWorkspace({
           <table>
             <caption>Hóa đơn đã khóa theo đợt thu</caption>
             <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th>Tổng VND</th><th>Chi tiết</th></tr></thead>
-            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Xem hóa đơn</button></td></tr>)}</tbody>
+            <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id, run)}>Xem hóa đơn</button></td></tr>)}</tbody>
           </table>
         </section>
       )}
@@ -1391,7 +1434,8 @@ export function FinanceWorkspace({
       {invoice && (
         <section aria-labelledby="invoice-review-title">
           <h3 id="invoice-review-title">Rà soát hóa đơn {invoice.student.code} / {invoice.student.name}</h3>
-          <p>Đợt {invoice.billingMonth}, lớp {invoice.student.className}, trạng thái {invoice.status}.</p>
+           <p>Đợt {invoice.billingMonth}, lớp {invoice.student.className}, trạng thái {invoice.status}.</p>
+           {(previousInvoiceId || nextInvoiceId) && <p>{previousInvoiceId && <button type="button" disabled={Boolean(pending)} onClick={() => void openInvoice(previousInvoiceId, run)}>Học sinh trước</button>} {nextInvoiceId && <button type="button" disabled={Boolean(pending)} onClick={() => void openInvoice(nextInvoiceId, run)}>Học sinh tiếp theo</button>}</p>}
            {invoice.status === "DRAFT" && <button ref={issueTrigger} type="button" disabled={Boolean(pending) || !invoice.lines.length || invoice.total === "0"} onClick={() => void openIssueConfirmation()}>{invoice.revisesInvoiceId ? "Phát hành bản thay thế" : "Phát hành hóa đơn"}</button>}
                {invoice.status === "ISSUED" && <>{!invoice.revisesInvoiceId && <button ref={revisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => { setRevisionReason(""); setRevisionConfirmationName(""); setRevisionConfirmation(true); }}>Chuẩn bị bản điều chỉnh</button>}<button ref={receiptTrigger} type="button" disabled={Boolean(pending)} onClick={() => { setActualReceipt(invoice.sourceOutstanding ?? invoice.issue?.obligationTotal ?? invoice.total); setReceiptConfirmation(true); }}>Ghi thực nhận và đóng hóa đơn</button></>}
            {(invoice.revisesInvoiceId || invoice.replacementInvoiceId) && <p>Lineage: {invoice.revisesInvoiceId ? `thay thế ${invoice.revisesInvoiceId}` : `được thay thế bởi ${invoice.replacementInvoiceId}`}. {invoice.revisionReason ? `Lý do: ${invoice.revisionReason}.` : ""}</p>}
