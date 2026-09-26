@@ -67,10 +67,20 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await invoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
   const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé An' });
   await firstIssue.getByLabel('Nhập chính xác tên học sinh Bé An để xác nhận').fill('Bé An');
-  await firstIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
-   await expect(invoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 135.000 VND');
-   await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
-  await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tbody tr').filter({ hasText: 'RG1-2 / Bé Bình' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
+   await firstIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
+    await expect(invoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 135.000 VND');
+    await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
+   await invoiceReview.getByRole('button', { name: 'Ghi thực nhận và đóng hóa đơn' }).click();
+   const receiptDialog = page.getByRole('dialog', { name: 'Ghi thực nhận cho Bé An' });
+   await expect(receiptDialog.getByLabel('Số thực nhận (VND)')).toHaveValue('135000');
+   const receiptResponse = page.waitForResponse((response) =>
+     response.url().includes('/receipt') && response.request().method() === 'POST',
+   );
+   await receiptDialog.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).click();
+   expect((await receiptResponse).status()).toBe(201);
+   await expect(invoiceReview.getByText('trạng thái CLOSED')).toBeVisible();
+   await expect(invoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Thực nhận: 135.000 VND. Kết quả máy chủ: Đủ. Chênh lệch: 0 VND.');
+   await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tbody tr').filter({ hasText: 'RG1-2 / Bé Bình' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
   await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' })).toBeVisible();
   const secondInvoiceReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-2/ });
   await expect(secondInvoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('150.000');
