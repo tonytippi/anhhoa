@@ -70,6 +70,8 @@ model School {
   studentPromotionAssignments       StudentPromotionAssignment[]
   studentPhotos                     StudentPhoto[]
   staffCodeRegistry                 StaffCodeRegistry[]
+  financeLedgerEvents               FinanceLedgerEvent[]
+  financeReportExports              FinanceReportExport[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
 }
 
@@ -665,6 +667,7 @@ model SchoolMembership {
   requestedCoverageReversals          CoverageReversalRequest[]            @relation("CoverageReversalRequester")
   decidedCoverageReversals            CoverageReversalRequest[]            @relation("CoverageReversalDecider")
   debtTransfers                       DebtTransfer[]
+  financeReportExports                FinanceReportExport[]
 
   @@unique([schoolId, userIdentityId])
   @@unique([schoolId, id])
@@ -1238,6 +1241,64 @@ model DebtTransfer {
   @@unique([schoolId, targetLineId])
   @@index([schoolId, sourceInvoiceId])
   @@index([schoolId, targetInvoiceId])
+}
+
+enum FinanceLedgerEventType {
+  INVOICE_ISSUED
+  INVOICE_CANCELLED
+  RECEIPT_POSTED
+  SETTLEMENT_DIFFERENCE_POSTED
+  SETTLEMENT_CARRY_POSTED
+  SETTLEMENT_TRANSFER_POSTED
+  DEBT_TRANSFER_POSTED
+  COVERAGE_ISSUED
+  COVERAGE_REVERSAL_POSTED
+}
+
+model FinanceLedgerEvent {
+  id              String                 @id @default(uuid()) @db.Uuid
+  schoolId        String                 @db.Uuid
+  type            FinanceLedgerEventType
+  postedAt        DateTime               @default(now()) @db.Timestamptz(3)
+  invoiceId       String?                @db.Uuid
+  collectionRunId String?                @db.Uuid
+  schoolYearId    String?                @db.Uuid
+  studentId       String?                @db.Uuid
+  billingMonth    String?
+  className       String?
+  groupName       String?
+  statusSnapshot  String?
+  sourceKey       String?
+  amount          BigInt                 @default(0) @db.BigInt
+  grossAmount     BigInt                 @default(0) @db.BigInt
+  discountAmount  BigInt                 @default(0) @db.BigInt
+  netAmount       BigInt                 @default(0) @db.BigInt
+  provenance      Json
+  school          School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, type, sourceKey])
+  @@index([schoolId, postedAt])
+  @@index([schoolId, billingMonth, collectionRunId])
+  @@index([schoolId, schoolYearId, postedAt])
+}
+
+model FinanceReportExport {
+  id          String   @id @default(uuid()) @db.Uuid
+  schoolId    String   @db.Uuid
+  membershipId String  @db.Uuid
+  workspace   String
+  result      Json
+  csv         Bytes
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+  downloadedAt DateTime?
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership  SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, expiresAt])
 }
 
 model IssuedPromotionApplication {

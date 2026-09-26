@@ -25,6 +25,17 @@ describe('FinanceService validation', () => {
     const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'item', groupId: 'group', code: null, displayName: 'Tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { lifecycleTransitions: [{ status: 'INACTIVE' }] } }]) } };
     await expect(new FinanceService(prisma as never, authorization as never).read('identity', crypto.randomUUID())).resolves.toMatchObject({ receivables: [{ status: 'ACTIVE', available: false }] });
   });
+  it('aggregates only same-School ledger facts at or before the normalized cutoff', async () => {
+    const events = [{ id: 'issued', type: 'INVOICE_ISSUED', postedAt: new Date('2026-09-01T00:00:00.000Z'), amount: 0n, netAmount: 100n, billingMonth: '2026-09', invoiceId: 'invoice', provenance: {} }, { id: 'receipt', type: 'RECEIPT_POSTED', postedAt: new Date('2026-09-02T00:00:00.000Z'), amount: 90n, netAmount: 0n, billingMonth: '2026-09', invoiceId: 'invoice', provenance: {} }];
+    const prisma = { financeLedgerEvent: { findMany: vi.fn().mockResolvedValue(events) } };
+    const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).report('identity', school, 'overview', { asOf: '2026-09-03T00:00:00.000Z', billingMonth: '2026-09' });
+    expect(result).toMatchObject({ timezone: 'Asia/Ho_Chi_Minh', reportDefinitionVersion: 'FINANCE_LEDGER_V3', summary: { netBilled: '100', actualReceipt: '90' } });
+    expect(prisma.financeLedgerEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, postedAt: { lte: new Date('2026-09-03T00:00:00.000Z') }, billingMonth: '2026-09' }) }));
+  });
+  it('rejects ambiguous report cutoffs instead of silently choosing the current time', async () => {
+    const service = new FinanceService({} as never, authorization as never);
+    await expect(service.report('identity', crypto.randomUUID(), 'overview', { asOf: '2026-09-03T00:00' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { asOf: expect.any(String) } } });
+  });
   it('replays an existing idempotent result and rejects an operation ID collision', async () => {
     const operation = { id: crypto.randomUUID(), fingerprint: expect.any(String), status: 'COMPLETED', outcome: { id: 'group' } };
     const prisma = { operation: { findFirst: vi.fn().mockResolvedValueOnce({ ...operation, fingerprint: undefined }).mockResolvedValueOnce(null) }, $transaction: vi.fn() };

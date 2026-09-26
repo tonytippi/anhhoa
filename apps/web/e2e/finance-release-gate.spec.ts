@@ -81,15 +81,48 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await secondIssue.getByLabel('Nhập chính xác tên học sinh Bé Bình để xác nhận').fill('Bé Bình');
   await secondIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
   await expect(secondInvoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 150.000 VND');
-  await page.getByRole('button', { name: 'Đóng đợt thu' }).click();
-  const closeDialog = page.getByRole('dialog', { name: 'Đóng đợt thu 2026-09' });
-  await closeDialog.getByLabel('Nhập chính xác tháng thu 2026-09 để xác nhận').fill('2026-09');
-  await closeDialog.getByLabel('Lý do đóng đợt thu').fill('Đã phát hành hóa đơn đã rà soát');
-  await closeDialog.getByRole('button', { name: 'Xác nhận đóng đợt thu' }).click();
-  await expect(page.getByRole('heading', { name: 'Đợt thu 2026-09 / CLOSED' })).toBeVisible();
+   const reportResponse = page.waitForResponse((response) =>
+    response.url().includes('/finance/reports/overview') &&
+    response.request().method() === 'GET',
+  );
+  await page.getByRole('button', { name: 'Báo cáo' }).click();
+  const overviewResponse = await reportResponse;
+  expect(overviewResponse.status()).toBe(200);
+  expect(overviewResponse.headers()['cache-control']).toBe('private, no-store');
+  await expect(page.getByRole('heading', { name: 'Báo cáo Finance' })).toBeVisible();
+  await expect(page.getByRole('tablist', { name: 'Không gian báo cáo' }).getByRole('tab')).toHaveCount(4);
+  await expect(page.getByText(/Chốt tại .*Asia\/Ho_Chi_Minh; FINANCE_LEDGER_V3\./)).toBeVisible();
+  await expect(page.getByText('285.000 VND').first()).toBeVisible();
+
+  const exportResponse = page.waitForResponse((response) =>
+    response.url().includes('/finance/reports/overview/exports') &&
+    response.request().method() === 'POST',
+  );
+  const downloadResponse = page.waitForResponse((response) =>
+    /\/finance\/report-exports\/[0-9a-f-]{36}\/download$/.test(new URL(response.url()).pathname) &&
+    response.request().method() === 'GET',
+  );
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Tải CSV từ máy chủ' }).click();
+  expect((await exportResponse).status()).toBe(201);
+  const csvResponse = await downloadResponse;
+  expect(csvResponse.status()).toBe(200);
+  expect(csvResponse.headers()['cache-control']).toBe('private, no-store');
+  expect(csvResponse.headers()['content-type']).toContain('text/csv; charset=utf-8');
+  expect(csvResponse.headers()['x-content-type-options']).toBe('nosniff');
+  expect((await download).suggestedFilename()).toBe('finance-overview.csv');
 
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeFocused();
+  const otherSchoolReport = page.waitForResponse((response) =>
+    response.url().includes('/finance/reports/overview') &&
+    response.request().method() === 'GET',
+  );
+  await page.getByRole('button', { name: 'Báo cáo' }).click();
+  expect((await otherSchoolReport).status()).toBe(200);
+  await expect(page.getByText('285.000 VND')).toHaveCount(0);
+  await expect(page.getByText('RG1-1 / Bé An')).toHaveCount(0);
+  await expect(page.getByText('Không có hoạt động sổ cái phù hợp tại thời điểm chốt.')).toBeVisible();
   await page.getByRole('button', { name: 'Khoản thu' }).click();
   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 2');
    await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).not.toContainText('Học phí Release 1');

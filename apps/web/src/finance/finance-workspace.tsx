@@ -265,6 +265,18 @@ export function FinanceWorkspace({
     if (activeSchool.current === schoolId && token === request.current)
       setCandidates(next);
   };
+  const refreshRun = async (runId: string) => {
+    const token = ++request.current;
+    const next = await get<{ runs: Run[] }>(
+      `/api/app/schools/${schoolId}/finance/collection-runs`,
+    );
+    if (activeSchool.current !== schoolId || token !== request.current) return;
+    setRuns(next.runs);
+    const refreshedRun = next.runs.find((item) => item.id === runId);
+    setRun(refreshedRun);
+    if (refreshedRun && refreshedRun.status !== "DRAFT")
+      setSelectedStudentIds(refreshedRun.selectedStudentIds);
+  };
   const reconcile = async (operation: Pending) => {
     if (operation.schoolId !== activeSchool.current) return;
     const token = ++request.current;
@@ -778,8 +790,9 @@ export function FinanceWorkspace({
   };
   const issueInvoice = async () => {
     if (!invoice || !issueBankAccountId) return;
+    const runId = run?.id;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/${invoice.revisesInvoiceId ? "issue-revision" : "issue"}`, "POST", { bankAccountId: issueBankAccountId }, "invoice");
-    if (outcome) { applyInvoice(outcome as Invoice); setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); try { await load(); } catch { setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất."); } }
+    if (outcome) { applyInvoice(outcome as Invoice); setIssueConfirmation(false); setIssueConfirmationName(""); setIssueBankAccountId(""); try { if (runId) await refreshRun(runId); } catch { setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất."); } }
   };
   const prepareRevision = async () => {
     if (!invoice) return;
@@ -1370,7 +1383,7 @@ export function FinanceWorkspace({
             <tbody>{(run.invoices ?? []).map((item) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{item.className}</td><td>{item.status}</td><td style={{ textAlign: "right" }}>{vnd(item.total)}</td><td><button type="button" onClick={() => void openInvoice(item.id)}>Rà soát hóa đơn</button></td></tr>)}</tbody>
           </table>
            {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? <p>Chưa thể đóng: còn hóa đơn nháp cần phát hành.</p> : null}
-            <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => !["CLOSED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === "0")))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
+             <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => !["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === "0")))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
         </section>
       )}
       {run?.status === "CLOSED" && (

@@ -1,0 +1,2 @@
+-- Existing ledger rows remain byte-for-byte immutable. PostgreSQL UNIQUE permits
+-- multiple NULL source keys; all new source events receive a non-null sourceKey.

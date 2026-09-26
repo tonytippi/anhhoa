@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, Headers, Param, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Post, Put, Query, Req, Res } from '@nestjs/common';
 import { audienceConfig } from '../auth/auth.config.js';
 import { AuthService } from '../auth/auth.service.js';
 import { assertCookieMutation } from '../common/mutation-protection.js';
 import { FinanceService } from './finance.service.js';
 
 type RequestLike = { headers: Record<string, string | undefined> };
+type ResponseLike = { setHeader(name: string, value: string): void; send(value: Uint8Array): void };
 const cookie = (request: RequestLike, name: string) => request.headers.cookie?.split(';').map((item) => item.trim().split('=')).find(([key]) => key === name)?.[1];
 
 @Controller('api/app/schools/:schoolId/finance')
@@ -20,6 +21,9 @@ export class FinanceController {
   @Get('invoices/:invoiceId') async invoice(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('invoiceId') invoiceId: string) { return { data: await this.finance.invoice(this.identity(request), schoolId, invoiceId) }; }
   @Get('bank-accounts') async bankAccounts(@Req() request: RequestLike, @Param('schoolId') schoolId: string) { return { data: await this.finance.bankAccounts(this.identity(request), schoolId) }; }
   @Get('coverage-reversal-requests') async coverageReversalRequests(@Req() request: RequestLike, @Param('schoolId') schoolId: string) { return { data: await this.finance.coverageReversalRequests(this.identity(request), schoolId) }; }
+  @Get('reports/:workspace') async report(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('workspace') workspace: string, @Query() query: unknown, @Res({ passthrough: true }) response?: ResponseLike) { response?.setHeader('Cache-Control', 'private, no-store'); return { data: await this.finance.report(this.identity(request), schoolId, workspace, query) }; }
+  @Post('reports/:workspace/exports') async requestReportExport(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('workspace') workspace: string, @Body() body: unknown) { this.mutation(request); return { data: await this.finance.requestReportExport(this.identity(request), schoolId, workspace, body) }; }
+  @Get('report-exports/:exportId/download') async downloadReportExport(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('exportId') exportId: string, @Res() response: ResponseLike) { const result = await this.finance.downloadReportExport(this.identity(request), schoolId, exportId); response.setHeader('Content-Type', 'text/csv; charset=utf-8'); response.setHeader('Content-Disposition', `attachment; filename="finance-${result.workspace}.csv"`); response.setHeader('Cache-Control', 'private, no-store'); response.setHeader('X-Content-Type-Options', 'nosniff'); response.send(result.csv); }
   @Post('coverage-reversals/preview') async previewCoverageReversal(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Body() body: unknown) { this.mutation(request); return { data: await this.finance.previewCoverageReversal(this.identity(request), schoolId, body) }; }
   @Post('coverage-reversals') async createCoverageReversal(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Body() body: unknown) { return { data: await this.finance.createCoverageReversal(this.identity(request), schoolId, this.mutation(request, key), operationId ?? '', body) }; }
   @Post('coverage-reversal-requests/:requestId/decision') async decideCoverageReversal(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('requestId') requestId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Body() body: unknown) { return { data: await this.finance.decideCoverageReversal(this.identity(request), schoolId, requestId, this.mutation(request, key), operationId ?? '', body) }; }

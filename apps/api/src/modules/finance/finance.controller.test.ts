@@ -6,7 +6,21 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn() };
+  const finance = { read: vi.fn(), operation: vi.fn(), invoice: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), replaceCoverageSelection: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
+  it('forwards report filters and streams only server-authorized CSV bytes', async () => {
+    const controller = new FinanceController(auth as never, finance as never);
+    finance.report.mockResolvedValue({ workspace: 'overview' }); finance.requestReportExport.mockResolvedValue({ exportId: 'export' }); finance.downloadReportExport.mockResolvedValue({ csv: Buffer.from('a'), workspace: 'overview' });
+    await expect(controller.report(request({}), 'school', 'overview', { asOf: '2026-09-25T00:00:00.000Z' })).resolves.toEqual({ data: { workspace: 'overview' } });
+    await expect(controller.requestReportExport(request(valid), 'school', 'overview', { asOf: '2026-09-25T00:00:00.000Z' })).resolves.toEqual({ data: { exportId: 'export' } });
+    const response = { setHeader: vi.fn(), send: vi.fn() };
+    await controller.downloadReportExport(request({}), 'school', 'export', response);
+    expect(finance.report).toHaveBeenCalledWith('actor-id', 'school', 'overview', expect.any(Object));
+    expect(response.send).toHaveBeenCalledWith(Buffer.from('a'));
+    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    finance.requestReportExport.mockClear();
+    await expect(controller.requestReportExport(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'overview', {})).rejects.toMatchObject({ status: 401 });
+    expect(finance.requestReportExport).not.toHaveBeenCalled();
+  });
   it('requires browser mutation proof before Finance writes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     await expect(controller.group(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });

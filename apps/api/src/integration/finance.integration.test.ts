@@ -269,6 +269,8 @@ afterEach(async () => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.auditRecord.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.financeReportExport.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.financeLedgerEvent.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.collectionRunGenerationItem.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.collectionRunGeneration.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.issuedPromotionApplication.deleteMany({ where: { schoolId: { in: ids } } });
@@ -1992,8 +1994,13 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.processNextGeneration();
       const progress = await finance.operation(current.identity.id, current.school.id, queued.id);
       expect(progress).toMatchObject({ status: "PENDING", progress: { status: "RUNNING", processed: 50, eligible: 50, skipped: 0 } });
-      while ((await finance.operation(current.identity.id, current.school.id, queued.id)).status === "PENDING") await finance.processNextGeneration();
-      const generated = await finance.operation(current.identity.id, current.school.id, queued.id);
+        let generated = await finance.operation(current.identity.id, current.school.id, queued.id);
+        while (generated.status !== "COMPLETED" || !generated.outcome) {
+          if (generated.status === "FAILED") throw new Error(`Generation failed: ${JSON.stringify(generated.outcome)}`);
+          // A concurrently enabled worker may own the generation lease; yield until it publishes the terminal Operation.
+          if (!await finance.processNextGeneration()) await new Promise((resolve) => setTimeout(resolve, 25));
+          generated = await finance.operation(current.identity.id, current.school.id, queued.id);
+       }
       expect(performance.now() - started).toBeLessThanOrEqual(60000);
       expect(
         (generated.outcome as { created: unknown[] }).created,
@@ -2595,6 +2602,34 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.coverageReversal.count({ where: { schoolId: direct.current.school.id } })).toBe(0);
       const approval = await coverageFixture("SCHOOL_ADMIN_APPROVAL"); const approvalCoverage = await closeCoverage(approval); const requested = await finance.createCoverageReversal(approval.current.identity.id, approval.current.school.id, uuid(), uuid(), { coverageId: approvalCoverage.id, effectiveOn: "2026-10-01", reason: "Chờ duyệt", amount: "1" });
       await expect(prisma.coverageReversalRequest.delete({ where: { id: (requested.outcome as any).id } })).rejects.toThrow(/append-only/);
+    });
+    it("projects immutable report cutoffs, four workspaces, export audit, expiry, tenant and revoked denial", async () => {
+      const fixture = await issueFixture("100");
+      await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      await finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { actualAmount: "90" });
+      const events = await prisma.financeLedgerEvent.findMany({ where: { schoolId: fixture.current.school.id }, orderBy: { postedAt: "asc" } });
+      expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["INVOICE_ISSUED", "RECEIPT_POSTED", "SETTLEMENT_DIFFERENCE_POSTED"]));
+      expect(events.find((event) => event.type === "RECEIPT_POSTED")?.provenance).toMatchObject({ invoiceId: fixture.invoice.id, lines: expect.any(Array) });
+      await expect(prisma.financeLedgerEvent.delete({ where: { id: events[0]!.id } })).rejects.toThrow(/append-only/);
+      const beforeReceipt = new Date(events.find((event) => event.type === "RECEIPT_POSTED")!.postedAt.getTime() - 1);
+      await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", { asOf: beforeReceipt.toISOString(), schoolYearId: fixture.current.year.id })).resolves.toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V3", summary: { netBilled: "100", actualReceipt: "0" } });
+      for (const workspace of ["overview", "collection-runs", "outstanding", "cash-adjustments"]) await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, workspace, { billingMonth: "2026-09", className: fixture.current.activeClass.name })).resolves.toMatchObject({ workspace, timezone: "Asia/Ho_Chi_Minh" });
+      const exported = await finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", { billingMonth: "2026-09" });
+      const downloaded = await finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, exported.exportId);
+      expect(downloaded).toMatchObject({ workspace: "cash-adjustments" }); expect(Buffer.from(downloaded.csv).toString()).toContain("FINANCE_LEDGER_V3");
+      expect(await prisma.auditRecord.count({ where: { schoolId: fixture.current.school.id, action: { in: ["FINANCE_REPORT_EXPORT_REQUESTED", "FINANCE_REPORT_EXPORT_DOWNLOADED"] } } })).toBe(2);
+      const secondActor = await schoolAdmin(fixture.current);
+      await expect(finance.downloadReportExport(secondActor.identity.id, fixture.current.school.id, exported.exportId)).resolves.toMatchObject({ workspace: "cash-adjustments" });
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, action: "FINANCE_REPORT_EXPORT_DOWNLOADED", membershipId: secondActor.membership.id }, orderBy: { createdAt: "desc" } })).toMatchObject({ provenance: { exportId: exported.exportId, requestedByMembershipId: fixture.current.membership.id } });
+      await prisma.financeReportExport.update({ where: { id: exported.exportId }, data: { expiresAt: new Date(0) } });
+      await expect(finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, exported.exportId)).rejects.toMatchObject({ status: 404 });
+      const revokedExport = await finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "overview", {});
+      await prisma.financeReportExport.update({ where: { id: revokedExport.exportId }, data: { revokedAt: new Date() } });
+      await expect(finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, revokedExport.exportId)).rejects.toMatchObject({ status: 404 });
+      const foreign = await graph();
+      await expect(finance.report(foreign.identity.id, fixture.current.school.id, "overview", {})).rejects.toMatchObject({ status: 404 });
+      await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "FINANCE_MANAGE" } });
+      await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", {})).rejects.toMatchObject({ status: 403 });
     });
   },
 );
