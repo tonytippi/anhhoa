@@ -4,6 +4,7 @@ import { AuthorizationService } from "../modules/authorization/authorization.ser
 import { PrismaService } from "../modules/identity/prisma.service.js";
 import { FinanceService } from "../modules/finance/finance.service.js";
 import { RosterService } from "../modules/roster/roster.service.js";
+import { createApi } from "../main.js";
 
 const prisma = new PrismaService();
 const authorization = new AuthorizationService(prisma);
@@ -12,6 +13,17 @@ const rosterService = new RosterService(prisma, authorization);
 const schools: string[] = [];
 const uuid = () => crypto.randomUUID();
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
+
+async function appSession(baseUrl: string, email: string) {
+  const start = await fetch(`${baseUrl}/api/app/auth/google/start`, { redirect: "manual" });
+  const authorizationUrl = new URL(start.headers.get("location")!);
+  const correlation = start.headers.getSetCookie().find((value) => value.startsWith("app_oauth_correlation="))!.split(";")[0]!;
+  const nonce = authorizationUrl.searchParams.get("nonce")!;
+  const clientId = authorizationUrl.searchParams.get("client_id")!;
+  const code = Buffer.from(JSON.stringify({ iss: "https://accounts.google.com", sub: `finance-${uuid()}`, email, email_verified: true, aud: clientId, nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString("base64url");
+  const callback = await fetch(`${baseUrl}/api/app/auth/google/callback?state=${encodeURIComponent(authorizationUrl.searchParams.get("state")!)}&code=${encodeURIComponent(code)}`, { redirect: "manual", headers: { cookie: correlation } });
+  return callback.headers.getSetCookie().find((value) => value.startsWith("app_session="))!.split(";")[0]!;
+}
 
 async function graph() {
   const school = await prisma.school.create({
@@ -2125,6 +2137,50 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.closeInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { actualAmount: "9007199254740991" });
       await expect(finance.receiptQueueDetail(current.identity.id, current.school.id, invoice.id)).rejects.toMatchObject({ status: 404, response: { code: "RECEIPT_QUEUE_INVOICE_UNAVAILABLE" } });
       await expect(finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: invoice.billingMonth })).resolves.toMatchObject({ invoices: [] });
+    });
+
+    it("pages only authorized minimal issued queue rows and rejects foreign, filtered, or revoked reads", async () => {
+      const fixture = await issueFixture("100");
+      const later = await enrolled(fixture.current);
+      await finance.addGeneratedStudent(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { studentId: later.student.id });
+      const laterInvoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, collectionRunId: fixture.invoice.collectionRunId, studentId: later.student.id } });
+      await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+      await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, laterInvoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
+
+      const first = await finance.receiptQueue(fixture.current.identity.id, fixture.current.school.id, { billingMonth: fixture.invoice.billingMonth, limit: "1" });
+      expect(first.invoices).toHaveLength(1);
+      expect(first.meta.nextCursor).toEqual(expect.any(String));
+      expect(Object.keys(first.invoices[0]!).sort()).toEqual(["billingMonth", "class", "id", "issuedAt", "outstanding", "schoolYearId", "status", "student"]);
+      expect(first.invoices[0]).toMatchObject({ status: "ISSUED", outstanding: "100", student: { code: expect.any(String), name: expect.any(String) } });
+      expect(first.invoices[0]).not.toHaveProperty("lines");
+      expect(first.invoices[0]).not.toHaveProperty("issue");
+
+      const second = await finance.receiptQueue(fixture.current.identity.id, fixture.current.school.id, { billingMonth: fixture.invoice.billingMonth, limit: "1", cursor: first.meta.nextCursor });
+      expect(second.invoices).toHaveLength(1);
+      expect(second.invoices[0]!.id).not.toBe(first.invoices[0]!.id);
+
+      const app = await createApi();
+      await app.listen(0, "127.0.0.1");
+      try {
+        const baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as { port: number }).port}`;
+        const response = await fetch(`${baseUrl}/api/app/schools/${fixture.current.school.id}/finance/receipt-queue?billingMonth=${fixture.invoice.billingMonth}&limit=1`, { headers: { cookie: await appSession(baseUrl, fixture.current.identity.emailNormalized) } });
+        expect(response.status).toBe(200);
+        const body = await response.json() as { data: typeof first };
+        expect(Object.keys(body)).toEqual(["data"]);
+        expect(Object.keys(body.data.invoices[0]!).sort()).toEqual(["billingMonth", "class", "id", "issuedAt", "outstanding", "schoolYearId", "status", "student"]);
+      } finally {
+        await app.close();
+      }
+
+      const foreign = await issueFixture("100");
+      await finance.issueInvoice(foreign.current.identity.id, foreign.current.school.id, foreign.invoice.id, uuid(), uuid(), { bankAccountId: foreign.bank.id });
+      const foreignIssued = await prisma.invoice.findUniqueOrThrow({ where: { id: foreign.invoice.id } });
+      const foreignCursor = Buffer.from(JSON.stringify({ id: foreign.invoice.id, issuedAt: foreignIssued.issuedAt!.toISOString(), filters: first.filters })).toString("base64url");
+      const mismatched = Buffer.from(JSON.stringify({ id: first.invoices[0]!.id, issuedAt: first.invoices[0]!.issuedAt, filters: { ...first.filters, student: "Không khớp" } })).toString("base64url");
+      await expect(finance.receiptQueue(fixture.current.identity.id, fixture.current.school.id, { billingMonth: fixture.invoice.billingMonth, limit: "1", cursor: foreignCursor })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { cursor: expect.any(String) } } });
+      await expect(finance.receiptQueue(fixture.current.identity.id, fixture.current.school.id, { billingMonth: fixture.invoice.billingMonth, limit: "1", cursor: mismatched })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { cursor: expect.any(String) } } });
+      await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: fixture.current.school.id, positionId: fixture.current.position.id, capability: "FINANCE_MANAGE" } });
+      await expect(finance.receiptQueue(fixture.current.identity.id, fixture.current.school.id, { billingMonth: fixture.invoice.billingMonth })).rejects.toMatchObject({ status: 403, response: { code: "CAPABILITY_DENIED" } });
     });
 
     it("rechecks calculated promotion facts before Issue and persists only immutable issued applications", async () => {

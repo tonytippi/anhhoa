@@ -43,7 +43,7 @@ describe('Finance Story 6.6 release evidence', () => {
     ]) expect(integration).toMatch(evidence);
   });
 
-  it('requires the Admin actual-receipt surface and the complete root release command', async () => {
+  it('requires the Admin receipt-queue reconciliation surface and the complete root release command', async () => {
     const [e2e, workspace, rootPackage] = await Promise.all([
       source('apps/web/e2e/finance-release-gate.spec.ts'),
       source('apps/web/src/finance/finance-workspace.tsx'),
@@ -51,14 +51,28 @@ describe('Finance Story 6.6 release evidence', () => {
     ]);
 
     expect(e2e).toMatch(/Ghi thực nhận và đóng hóa đơn/);
+    expect(e2e).toMatch(/Thu tiền/);
+    expect(e2e).toMatch(/finance\/invoices\/\*\/receipt/);
     expect(e2e).toMatch(/Xác nhận ghi thực nhận/);
-    expect(e2e).toMatch(/trạng thái CLOSED/);
-    expect(e2e).toMatch(/Kết quả máy chủ: Đủ/);
+    expect(e2e).toMatch(/status: 504/);
+    expect(e2e).toMatch(/Kết quả ghi thực nhận/);
+    expect(e2e).toMatch(/Hóa đơn tiếp theo/);
+    expect(e2e).toMatch(/expect\(receiptPosts\)\.toBe\(1\)/);
     expect(e2e).toMatch(/Release Gate B/);
     expect(e2e).toMatch(/text\/csv; charset=utf-8/);
-    expect(workspace).toMatch(/\/receipt/,);
+    expect(workspace).toMatch(/\/receipt/);
     expect(workspace).toMatch(/Kết quả máy chủ/);
     expect(workspace).not.toMatch(/Math\.(?:round|floor|ceil)/);
-    expect(rootPackage).toMatch(/"test:release-gate":\s*"[^"]*--filter @passionedu\/api test:integration[^"]*--filter @passionedu\/admin-web test[^"]*--filter @passionedu\/teacher-web test[^"]*--filter @passionedu\/parent-web test[^"]*--filter @passionedu\/ops-web test[^"]*pnpm test:e2e/);
+    const releaseCommand = (JSON.parse(rootPackage) as { scripts: Record<string, string> }).scripts['test:release-gate'];
+    expect(releaseCommand).toMatch(/test -f \.\/\.env\.test/);
+    expect(releaseCommand).toMatch(/\. \.\/\.env\.test/);
+    expect(releaseCommand).toMatch(/TARGET_INTEGRATION_DATABASE_URL/);
+    expect(releaseCommand).toMatch(/E2E_DATABASE_URL/);
+    expect(releaseCommand).toMatch(/--filter @passionedu\/api test:integration/);
+    expect(releaseCommand).toMatch(/--filter @passionedu\/admin-web test/);
+    expect(releaseCommand).toMatch(/--filter @passionedu\/teacher-web test/);
+    expect(releaseCommand).toMatch(/--filter @passionedu\/parent-web test/);
+    expect(releaseCommand).toMatch(/--filter @passionedu\/ops-web test/);
+    expect(releaseCommand).toMatch(/pnpm test:e2e/);
   });
 });

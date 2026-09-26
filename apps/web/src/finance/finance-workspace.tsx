@@ -336,8 +336,11 @@ export function FinanceWorkspace({
       submitting.current = false;
       if (result.status === "COMPLETED") {
         setMessage("");
-        if ((result.outcome as GenerateOutcome | undefined)?.created)
-          setGeneratedOutcome(result.outcome as GenerateOutcome);
+        const generated = result.outcome as GenerateOutcome | undefined;
+        if (generated?.created) {
+          setGeneratedOutcome(generated);
+          try { await refreshRun(generated.run.id); } catch { chooseRun(generated.run); setMessage("Đã tạo hóa đơn; chưa thể tải lại đợt thu mới nhất."); }
+        }
         if ((result.outcome as Invoice | undefined)?.lines) applyInvoice(result.outcome as Invoice);
         if ((result.outcome as Invoice | undefined)?.receipt) {
           setReceiptConfirmation(false);
@@ -792,8 +795,15 @@ export function FinanceWorkspace({
       setGenerateConfirmation(false);
       setGenerateConfirmationMonth("");
       setGeneratedOutcome(outcome as GenerateOutcome);
-      chooseRun((outcome as GenerateOutcome).run);
-      await load();
+      // The generation Operation's run snapshot predates its newly written invoices.
+      // Reload the selected run before exposing its server-authorized review rows.
+      const generatedRun = (outcome as GenerateOutcome).run;
+      try {
+        await refreshRun(generatedRun.id);
+      } catch {
+        chooseRun(generatedRun);
+        setMessage("Đã tạo hóa đơn; chưa thể tải lại đợt thu mới nhất.");
+      }
     }
   };
   const addGeneratedStudent = async () => {
@@ -1019,6 +1029,12 @@ export function FinanceWorkspace({
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   };
   const trapReceiptFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && !pending) {
+      event.preventDefault();
+      setReceiptConfirmation(false);
+      setActualReceipt("");
+      return;
+    }
     if (event.key !== "Tab") return;
     const items = [...(receiptDialog.current?.querySelectorAll<HTMLElement>("input, button") ?? [])].filter((item) => !item.hasAttribute("disabled"));
     const first = items[0], last = items.at(-1);
@@ -1409,7 +1425,7 @@ export function FinanceWorkspace({
                     {item.studentCode} / {item.fullName}
                   </td>
                   <td>{item.className}</td>
-                  <td>{item.invoiceId && <button type="button" onClick={() => void openInvoice(item.invoiceId!)}>Rà soát hóa đơn</button>}</td>
+                   <td>{item.invoiceId && <button type="button" onClick={() => void openInvoice(item.invoiceId!, run)}>Rà soát hóa đơn</button>}</td>
                 </tr>
               ))}
             </tbody>
