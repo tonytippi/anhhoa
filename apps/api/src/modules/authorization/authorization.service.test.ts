@@ -15,4 +15,23 @@ describe('AuthorizationService audience projection', () => {
     prisma.schoolMembership.findFirst = async () => ({ id: 'membership', schoolId: 'school', school: { name: 'Trường A', slug: 'truong-a' }, boundStaffProfile: { id: 'staff', primaryPosition: { grants: [{ capability: 'SCHOOL_CONTEXT_READ' }] } } });
     await expect(new AuthorizationService(prisma).resolve('identity', 'school', audience)).resolves.toMatchObject({ schoolId: 'school', schoolSlug: 'truong-a' });
   });
+
+  it('projects the three Finance destinations only with FINANCE_MANAGE', async () => {
+    const prisma = { schoolMembership: { findFirst: async () => ({ id: 'membership', schoolId: 'school', school: { name: 'Trường A', slug: 'truong-a' }, boundStaffProfile: { id: 'staff', primaryPosition: { grants: [{ capability: 'SCHOOL_CONTEXT_READ' }, { capability: 'FINANCE_MANAGE' }] } } }) } } as any;
+    await expect(new AuthorizationService(prisma).resolve('identity', 'school', 'app')).resolves.toMatchObject({
+      navigation: [
+        { id: 'receivables', label: 'Khoản thu' },
+        { id: 'promotions', label: 'Ưu đãi' },
+        { id: 'collection-runs', label: 'Đợt thu' },
+        { id: 'receipt-queue', label: 'Thu tiền' },
+        { id: 'finance-reports', label: 'Báo cáo' },
+      ],
+    });
+  });
+
+  it('does not project Finance destinations without FINANCE_MANAGE', async () => {
+    const prisma = { schoolMembership: { findFirst: async () => ({ id: 'membership', schoolId: 'school', school: { name: 'Trường A', slug: 'truong-a' }, boundStaffProfile: { id: 'staff', primaryPosition: { grants: [{ capability: 'SCHOOL_CONTEXT_READ' }] } } }) } } as any;
+    const context = await new AuthorizationService(prisma).resolve('identity', 'school', 'app');
+    expect(context.navigation.map((item) => item.id)).not.toEqual(expect.arrayContaining(['finance', 'receivables', 'promotions', 'collection-runs', 'receipt-queue', 'finance-reports']));
+  });
 });

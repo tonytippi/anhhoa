@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-const api = 'http://localhost:3000';
+const api = `http://localhost:${process.env.E2E_API_PORT ?? '3000'}`;
+const app = `http://localhost:${process.env.E2E_APP_PORT ?? '5173'}`;
 
 async function login(context: import('@playwright/test').BrowserContext) {
   const start = await context.request.get(`${api}/api/app/auth/google/start`, { maxRedirects: 0 });
@@ -23,11 +24,15 @@ test.describe.configure({ mode: 'serial' });
 
 test('Admin Finance uses server-returned promotion values and clears the other School context', async ({ page }) => {
   await login(page.context());
-  await page.goto('http://localhost:5173');
+  await page.goto(app);
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await page.getByRole('button', { name: 'Khoản thu' }).click();
-  await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Khoản thu', level: 1 })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 1');
+  await page.getByRole('button', { name: 'Ưu đãi' }).click();
+  await expect(page.getByRole('heading', { name: 'Ưu đãi', level: 1 })).toBeVisible();
+  await page.getByRole('button', { name: 'Đợt thu' }).click();
+  await expect(page.getByRole('heading', { name: 'Đợt thu', level: 1 })).toBeVisible();
 
   await page.getByRole('button', { name: 'Tạo đợt thu' }).click();
   const runDialog = page.getByRole('dialog', { name: 'Tạo hoặc mở đợt thu' });
@@ -43,7 +48,13 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(page.getByRole('table', { name: 'Khoản thu mẫu chung' })).toContainText('150.000');
    await page.getByLabel('Chọn RG1-1 Bé An').check();
    await page.getByLabel('Chọn RG1-2 Bé Bình').check();
+  const selectionResponse = page.waitForResponse((response) =>
+    response.url().includes('/finance/collection-runs/') &&
+    response.url().endsWith('/selection') &&
+    response.request().method() === 'PUT',
+  );
   await page.getByRole('button', { name: 'Lưu danh sách đã chọn' }).click();
+  expect((await selectionResponse).status()).toBe(200);
   const previewResponse = page.waitForResponse((response) =>
     response.url().includes('/finance/collection-runs/') &&
     response.url().endsWith('/preview') &&

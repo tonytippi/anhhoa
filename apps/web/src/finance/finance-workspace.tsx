@@ -96,6 +96,7 @@ export type FinanceStatus = {
   pending: boolean;
   reconcile?: () => void;
 };
+export type FinancePage = "receivables" | "promotions" | "collection-runs";
 
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const csrfName =
@@ -125,11 +126,13 @@ const skipReason = (reason: string) =>
 export function FinanceWorkspace({
   schoolId,
   schoolName,
+  page,
   denied,
   onStatusChange,
 }: {
   schoolId: string;
   schoolName: string;
+  page: FinancePage;
   denied: () => void;
   onStatusChange?: (status: FinanceStatus) => void;
 }) {
@@ -199,6 +202,9 @@ export function FinanceWorkspace({
   const [pending, setPending] = useState<Pending>();
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress>();
   const activeSchool = useRef(schoolId);
+  const activePage = useRef(page);
+  activePage.current = page;
+  const routeHeading = useRef<HTMLHeadingElement>(null);
   const summary = useRef<HTMLDivElement>(null);
   const removeDialog = useRef<HTMLDivElement>(null);
   const removeTrigger = useRef<HTMLButtonElement>(null);
@@ -248,27 +254,31 @@ export function FinanceWorkspace({
   const runsPath = (cursor?: string | null) => `/api/app/schools/${schoolId}/finance/collection-runs?limit=25${runStatus ? `&status=${encodeURIComponent(runStatus)}` : ""}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
   const load = async () => {
     const token = ++request.current;
-    const [nextCatalog, nextRuns, nextCandidates, nextPolicies, nextPromotionStudents, nextReversalRequests] = await Promise.all([
-      get<Catalog>(`/api/app/schools/${schoolId}/finance/receivables`),
-      get<{ runs: Run[]; meta: { nextCursor: string | null } }>(
-        runsPath(),
-      ),
-      get<Candidates>(
-        `/api/app/schools/${schoolId}/finance/collection-run-candidates${(run?.schoolYearId ?? open.schoolYearId) ? `?schoolYearId=${run?.schoolYearId ?? open.schoolYearId}` : ""}`,
-      ),
+    const nextCatalog = await get<Catalog>(`/api/app/schools/${schoolId}/finance/receivables`);
+    if (activeSchool.current !== schoolId || token !== request.current) return;
+    setCatalog(nextCatalog);
+    if (activePage.current === "receivables") return;
+    if (activePage.current === "promotions") {
+      const [nextPolicies, nextPromotionStudents] = await Promise.all([
+        get<{ policies: PromotionPolicy[] }>(`/api/app/schools/${schoolId}/finance/promotion-policies`),
+        get<{ students: Candidate[] }>(`/api/app/schools/${schoolId}/finance/promotion-students`),
+      ]);
+      if (activeSchool.current === schoolId && token === request.current)
+        setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: nextPromotionStudents.students ?? [] });
+      return;
+    }
+    const [nextRuns, nextCandidates, nextPolicies, nextReversalRequests] = await Promise.all([
+      get<{ runs: Run[]; meta: { nextCursor: string | null } }>(runsPath()),
+      get<Candidates>(`/api/app/schools/${schoolId}/finance/collection-run-candidates${(run?.schoolYearId ?? open.schoolYearId) ? `?schoolYearId=${run?.schoolYearId ?? open.schoolYearId}` : ""}`),
       get<{ policies: PromotionPolicy[] }>(`/api/app/schools/${schoolId}/finance/promotion-policies`),
-      get<{ students: Candidate[] }>(`/api/app/schools/${schoolId}/finance/promotion-students`),
       get<{ requests: CoverageReversalRequest[] }>(`/api/app/schools/${schoolId}/finance/coverage-reversal-requests`),
     ]);
     if (activeSchool.current !== schoolId || token !== request.current) return;
-    setCatalog(nextCatalog);
     setRuns(nextRuns.runs);
     setRunsCursor(nextRuns.meta?.nextCursor ?? null);
     setCandidates(nextCandidates);
-    setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: nextPromotionStudents.students ?? [] });
+    setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: [] });
     setCoverageReversalRequests(nextReversalRequests.requests ?? []);
-    if (run) {
-    }
   };
   const loadBankAccounts = async () => {
     const next = await get<{ accounts: BankAccount[] }>(`/api/app/schools/${schoolId}/finance/bank-accounts`);
@@ -426,13 +436,6 @@ export function FinanceWorkspace({
     setErrors({});
     setMessage("");
     setGenerationProgress(undefined);
-    void load().catch(
-      (error: Error) =>
-        activeSchool.current === schoolId && setMessage(error.message),
-    );
-    void loadBankAccounts().catch(() => {
-      if (activeSchool.current === schoolId) setBankAccounts([]);
-    });
     const saved = sessionStorage.getItem(pendingKey);
     if (saved)
       try {
@@ -449,6 +452,10 @@ export function FinanceWorkspace({
         window.clearTimeout(reconciliationTimer.current);
     };
   }, [schoolId]);
+  useEffect(() => {
+    if (!pending) void load().catch((error: Error) => activeSchool.current === schoolId && setMessage(error.message));
+  }, [schoolId, page]);
+  useLayoutEffect(() => { routeHeading.current?.focus(); }, [page]);
   const selectionDirty = Boolean(
     run &&
       (selectedStudentIds.length !== run.selectedStudentIds.length ||
@@ -1042,7 +1049,7 @@ export function FinanceWorkspace({
       else if (promotionTransition) closeNewDialog(() => setPromotionTransition(undefined), () => {});
       else if (promotionDialog === "assignment") closeNewDialog(() => setPromotionDialog(undefined), () => setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }));
     }}>
-      <h2 id="finance-title">Finance</h2>
+      <h1 id="finance-title" ref={routeHeading} tabIndex={-1}>{page === "receivables" ? "Khoản thu" : page === "promotions" ? "Ưu đãi" : "Đợt thu"}</h1>
       <p>
         {schoolName} / Eligibility, lifecycle và đơn giá được máy chủ xác nhận.
       </p>
@@ -1051,15 +1058,15 @@ export function FinanceWorkspace({
           {message}
         </div>
       )}
-      <section aria-labelledby="promotion-title">
+      {page === "promotions" && <section aria-labelledby="promotion-title">
         <h3 id="promotion-title">Ưu đãi</h3>
         <p>Thay đổi cấu hình tạo phiên bản mới. Giá trị áp dụng do hệ thống đánh giá ở bước sau.</p>
         <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetPromotion(); openManagedDialog(event.currentTarget, () => setPromotionDialog("policy")); }}>Thêm chính sách</button>
         <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody>{promotionVersions.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td><button ref={rowMenu === `promotion-${version.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${policy.name} phiên bản ${version.version}`} aria-haspopup="menu" aria-expanded={rowMenu === `promotion-${version.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `promotion-${version.id}`)} onClick={() => setRowMenu(rowMenu === `promotion-${version.id}` ? undefined : `promotion-${version.id}`)}>...</button>{rowMenu === `promotion-${version.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}>{version.status === "DRAFT" && <button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; void transitionPromotionVersion(version.id, "activate"); }}>Kích hoạt phiên bản</button>}{version.status === "ACTIVE" && <><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setAssignment({ versionId: version.id, studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); setPromotionDialog("assignment"); }}>Gán học sinh</button><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; void transitionPromotionVersion(version.id, "retire"); }}>Ngừng phiên bản</button></>}</div>}</td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
         {currentAssignments.length > 0 && <table><caption>Học sinh đang áp dụng ưu đãi</caption><thead><tr><th>Học sinh</th><th>Chính sách</th><th>Áp dụng từ</th><th>Lý do</th><th>Tùy chọn</th></tr></thead><tbody>{currentAssignments.map(({ policy, version, item }) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{policy.name} / Phiên bản {version.version}</td><td>{item.effectiveFrom}</td><td>{item.reason}</td><td><button ref={rowMenu === `assignment-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.studentName}`} aria-haspopup="menu" aria-expanded={rowMenu === `assignment-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `assignment-${item.id}`)} onClick={() => setRowMenu(rowMenu === `assignment-${item.id}` ? undefined : `assignment-${item.id}`)}>...</button>{rowMenu === `assignment-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" }); }}>Kết thúc áp dụng</button></div>}</td></tr>)}</tbody></table>}
-      </section>
-      {coverageReversalRequests.length > 0 && <section aria-labelledby="coverage-approval-title"><h3 id="coverage-approval-title">Yêu cầu hoàn coverage chờ duyệt</h3><table><caption>Chỉ School Admin khác người yêu cầu được quyết định</caption><thead><tr><th>Học sinh</th><th>Ngày hiệu lực</th><th>Số tiền</th><th>Lý do</th><th>Thao tác</th></tr></thead><tbody>{coverageReversalRequests.map((item) => <tr key={item.id}><td>{item.studentName}</td><td>{item.effectiveOn}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{item.reason}</td><td>{item.canDecide ? <><button ref={coverageDecisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "APPROVE", reason: "" })}>Duyệt</button><button type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "REFUSE", reason: "" })}>Từ chối</button></> : "Không có quyền quyết định"}</td></tr>)}</tbody></table></section>}
-      <section>
+      </section>}
+      {page === "collection-runs" && coverageReversalRequests.length > 0 && <section aria-labelledby="coverage-approval-title"><h3 id="coverage-approval-title">Yêu cầu hoàn coverage chờ duyệt</h3><table><caption>Chỉ School Admin khác người yêu cầu được quyết định</caption><thead><tr><th>Học sinh</th><th>Ngày hiệu lực</th><th>Số tiền</th><th>Lý do</th><th>Thao tác</th></tr></thead><tbody>{coverageReversalRequests.map((item) => <tr key={item.id}><td>{item.studentName}</td><td>{item.effectiveOn}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{item.reason}</td><td>{item.canDecide ? <><button ref={coverageDecisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "APPROVE", reason: "" })}>Duyệt</button><button type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "REFUSE", reason: "" })}>Từ chối</button></> : "Không có quyền quyết định"}</td></tr>)}</tbody></table></section>}
+      {page === "receivables" && <section>
         <h3>Khoản thu</h3>
         <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetReceivable(); openManagedDialog(event.currentTarget, () => setCatalogDialog("receivable")); }}>Thêm khoản thu</button><button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setGroup({ name: "" }); openManagedDialog(event.currentTarget, () => setCatalogDialog("group")); }}>Quản lý nhóm</button>
         <table>
@@ -1075,7 +1082,7 @@ export function FinanceWorkspace({
             </tr>
           </thead>
           <tbody>
-            {catalog?.receivables.length ? (
+            {catalog?.receivables?.length ? (
               catalog.receivables.map((item) => (
                 <tr key={item.id}>
                   <td>{item.code ?? ""}</td>
@@ -1095,8 +1102,8 @@ export function FinanceWorkspace({
             )}
           </tbody>
         </table>
-      </section>
-      <section>
+      </section>}
+      {page === "collection-runs" && <section>
         <h3>Đợt thu</h3>
         <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setOpen({ schoolYearId: "", billingMonth: "" }); openManagedDialog(event.currentTarget, () => setRunDialog(true)); }}>Tạo đợt thu</button>
         <label>Lọc trạng thái<select value={runStatus} onChange={(event) => { setRunStatus(event.target.value); setRun(undefined); setInvoice(undefined); setInvoiceQueue(undefined); }}><option value="">Tất cả trạng thái</option><option value="DRAFT">Nháp</option><option value="READY">Sẵn sàng</option><option value="GENERATED">Đã tạo</option><option value="CLOSED">Đã đóng</option></select></label>
@@ -1180,8 +1187,8 @@ export function FinanceWorkspace({
           </tbody>
         </table>
         {runsCursor && <button type="button" disabled={Boolean(pending)} onClick={() => void loadMoreRuns().catch(() => setMessage("Không thể tải thêm đợt thu."))}>Xem thêm đợt thu</button>}
-      </section>
-      {run && (
+      </section>}
+      {page === "collection-runs" && run && (
         <section aria-labelledby="run-detail-title">
           <h3 id="run-detail-title">
             Đợt thu {run.billingMonth} / {run.status}
@@ -1319,6 +1326,7 @@ export function FinanceWorkspace({
           )}
         </section>
       )}
+      {page === "collection-runs" && <>
       {run?.status === "READY" && (
         <button
           type="button"
@@ -1486,6 +1494,7 @@ export function FinanceWorkspace({
           <button type="button" disabled={Boolean(pending)} onClick={() => { setAdditionConfirmation(undefined); setAdditionConfirmationName(""); }}>Hủy</button>
         </div>
       )}
+      </>}
       {lifecycle && (
         <div
           ref={lifecycleDialog}

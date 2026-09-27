@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FinanceWorkspace } from "./finance-workspace";
+import { FinanceWorkspace as FinanceWorkspaceBase } from "./finance-workspace";
+
+const FinanceWorkspace = (props: Omit<ComponentProps<typeof FinanceWorkspaceBase>, "page"> & { page?: ComponentProps<typeof FinanceWorkspaceBase>["page"] }) => <FinanceWorkspaceBase page="collection-runs" {...props} />;
 
 const catalog = { groups: [], receivables: [] };
 const run = {
@@ -39,6 +42,25 @@ afterEach(() => {
 });
 
 describe("FinanceWorkspace", () => {
+  it("loads only the receivables surface and stays usable when a promotion endpoint would fail", async () => {
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("promotion")) return Promise.resolve(new Response(null, { status: 500 }));
+      return Promise.resolve(response(catalog));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Khoản thu", level: 1 });
+    expect(screen.getByRole("button", { name: "Thêm khoản thu" })).toBeTruthy();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("promotion") || String(url).includes("collection-runs"))).toBe(false);
+  });
+  it("loads promotion data without collection runs", async () => {
+    const fetch = vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Ưu đãi", level: 1 });
+    expect(screen.getByRole("button", { name: "Thêm chính sách" })).toBeTruthy();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("collection-runs"))).toBe(false);
+  });
   it("uses a named run dialog and only exposes Draft navigation from the captured run order", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }, { id: "invoice-b", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = (id: string, name: string, code: string) => ({ id, status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code, name, className: "Lá 1" }, lines: [] });
@@ -105,7 +127,7 @@ describe("FinanceWorkspace", () => {
     const policy = { id: "policy", name: "Con cán bộ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: policy }) : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalogWithReceivables)));
     vi.stubGlobal("fetch", fetch);
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     expect((await screen.findAllByText("Con cán bộ / Phiên bản 1")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Thêm chính sách" }));
     fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Hỗ trợ" } });
@@ -120,7 +142,7 @@ describe("FinanceWorkspace", () => {
     const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "DRAFT", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: policy }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     const menuTrigger = await screen.findByRole("button", { name: "Tùy chọn cho Hỗ trợ phiên bản 1" });
     fireEvent.keyDown(menuTrigger, { key: "ArrowDown" });
     const action = await screen.findByRole("menuitem", { name: "Kích hoạt phiên bản" });
@@ -135,7 +157,7 @@ describe("FinanceWorkspace", () => {
     const groups = [{ id: "group", name: "Học tập", status: "ACTIVE" as const }];
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: { id: "receivable" } }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : response({ groups, receivables: [] })));
     vi.stubGlobal("fetch", fetch);
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
     const trigger = await screen.findByRole("button", { name: "Thêm khoản thu" });
     fireEvent.click(trigger);
     fireEvent.change(screen.getByLabelText("Nhóm"), { target: { value: "group" } });
@@ -150,17 +172,11 @@ describe("FinanceWorkspace", () => {
     const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
     const groups = [{ id: "group", name: "Học tập", status: "ACTIVE" as const }];
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response({ groups, receivables: [] }))));
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Thêm khoản thu" }));
-    expect(document.activeElement).toBe(screen.getByLabelText("Nhóm"));
-    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
-    fireEvent.click(screen.getByRole("button", { name: "Quản lý nhóm" }));
-    expect(document.activeElement).toBe(screen.getByLabelText("Tên nhóm"));
-    fireEvent.click(screen.getByRole("button", { name: "Đóng" }));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Thêm chính sách" }));
     expect(document.activeElement).toBe(screen.getByLabelText("Chính sách hiện có (để tạo phiên bản mới)"));
     fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
-    const menu = screen.getByRole("button", { name: "Tùy chọn cho Hỗ trợ phiên bản 1" });
+    const menu = await screen.findByRole("button", { name: "Tùy chọn cho Hỗ trợ phiên bản 1" });
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     const assign = await screen.findByRole("menuitem", { name: "Gán học sinh" });
     fireEvent.click(assign);
@@ -174,7 +190,7 @@ describe("FinanceWorkspace", () => {
     const catalogWithReceivable = { groups: [], receivables: [{ id: "receivable", groupId: "group", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE" as const, available: true }] };
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: {} }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalogWithReceivable)));
     vi.stubGlobal("fetch", fetch);
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
     const trigger = await screen.findByRole("button", { name: "Tùy chọn cho Học phí" });
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Ngừng áp dụng" }));
@@ -187,7 +203,7 @@ describe("FinanceWorkspace", () => {
     const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [{ id: "assignment", studentId: "student", studentCode: "HS001", studentName: "Bé An", effectiveFrom: "2026-09-01", effectiveTo: null, isCurrent: true, reason: "Hỗ trợ", endReason: null }] }] };
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: {} }) : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     const policyMenu = await screen.findByRole("button", { name: "Tùy chọn cho Hỗ trợ phiên bản 1" });
     fireEvent.keyDown(policyMenu, { key: "ArrowDown" });
     const assign = await screen.findByRole("menuitem", { name: "Gán học sinh" });
@@ -209,7 +225,7 @@ describe("FinanceWorkspace", () => {
     const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: policy }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     const trigger = await screen.findByRole("button", { name: "Tùy chọn cho Hỗ trợ phiên bản 1" });
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Ngừng phiên bản" }));
@@ -220,7 +236,7 @@ describe("FinanceWorkspace", () => {
   });
   it("dismisses a new dialog with Escape, restores its trigger, and resets its draft", async () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog))));
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     const trigger = await screen.findByRole("button", { name: "Thêm chính sách" });
     fireEvent.click(trigger);
     fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Tạm" } });
@@ -233,7 +249,7 @@ describe("FinanceWorkspace", () => {
   it("renders policies safely when versions or assignments are omitted", async () => {
     const policy = { id: "policy", name: "Thiếu mảng" };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog))));
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     expect(await screen.findByText("Chưa có chính sách ưu đãi.")).toBeTruthy();
   });
   it("renders server-derived future coverage facts and keeps exact-only receipt messaging", async () => {
@@ -280,9 +296,9 @@ describe("FinanceWorkspace", () => {
     const today = new Date().toISOString().slice(0, 10); const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
     const policy = { id: "policy", name: "Ưu đãi Trường A", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", effectiveFrom: today, effectiveTo: null, targets: [], assignments: [{ id: "current", studentId: "s1", studentCode: "HS001", studentName: "Bé An", effectiveFrom: today, effectiveTo: null, isCurrent: true, reason: "A", endReason: null }, { id: "future", studentId: "s2", studentCode: "HS002", studentName: "Bé Bình", effectiveFrom: day(1), effectiveTo: null, isCurrent: false, reason: "B", endReason: null }, { id: "ended", studentId: "s3", studentCode: "HS003", studentName: "Bé Chi", effectiveFrom: day(-2), effectiveTo: day(-1), isCurrent: false, reason: "C", endReason: "Hết" }] }] };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog))));
-    const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     expect(await screen.findByText("1 đang áp dụng")).toBeTruthy(); expect(screen.queryByText(/HS002 \/ Bé Bình:/)).toBeNull();
-    view.rerender(<FinanceWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
+    view.rerender(<FinanceWorkspace schoolId="school-b" schoolName="Trường B" page="promotions" denied={vi.fn()} />);
     expect(screen.queryByText("Ưu đãi Trường A / Phiên bản 1")).toBeNull(); expect(screen.queryByText(/HS001 \/ Bé An:/)).toBeNull();
   });
   it("keeps promotion validation in the promotion field-error scope", async () => {
@@ -292,7 +308,7 @@ describe("FinanceWorkspace", () => {
         : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog),
     ));
     vi.stubGlobal("fetch", fetch);
-    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Thêm chính sách" }));
     fireEvent.change(await screen.findByLabelText("Tên chính sách"), { target: { value: "Hỗ trợ" } });
     fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "0" } });
@@ -778,7 +794,7 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
     const dialog = await screen.findByRole("dialog"); const confirm = screen.getByRole("button", { name: "Xác nhận phát hành" });
     expect(dialog.textContent).toContain("Ngân hàng A / 123 / Ánh Hoa"); expect(dialog.textContent).not.toContain("inactive"); expect(confirm).toHaveProperty("disabled", true);
-    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Tài khoản nhận" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Tài khoản nhận" })));
     fireEvent.change(screen.getByLabelText("Nhập chính xác tên học sinh Bé An để xác nhận"), { target: { value: "Bé An" } });
     expect(confirm).toHaveProperty("disabled", false);
     fireEvent.keyDown(confirm, { key: "Tab" }); expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Tài khoản nhận" }));

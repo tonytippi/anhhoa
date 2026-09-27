@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-const api = 'http://localhost:3000';
+const api = `http://localhost:${process.env.E2E_API_PORT ?? '3000'}`;
+const app = `http://localhost:${process.env.E2E_APP_PORT ?? '5173'}`;
 const users = {
   app: { email: 'release-gate-admin@example.com', subject: 'release-gate-admin' },
   teacher: { email: 'release-gate-teacher@example.com', subject: 'release-gate-teacher' },
@@ -22,7 +23,7 @@ async function login(context: import('@playwright/test').BrowserContext, audienc
 
 test('four portal origins expose safe signed-out state and no Parent protected content', async ({ browser }) => {
   for (const [origin, heading] of [
-    ['http://localhost:5173', 'Quản trị trường'],
+    [app, 'Quản trị trường'],
     ['http://localhost:5175', 'PassionEdu - Giáo viên'],
     ['http://localhost:5174', 'PassionEdu'],
     ['http://localhost:5176', 'PassionEdu - Vận hành nền tảng'],
@@ -37,11 +38,11 @@ test('four portal origins expose safe signed-out state and no Parent protected c
 test('deterministic Parent callback redirects to the safe portal state', async ({ browser }) => {
   const email = `release-browser-${crypto.randomUUID()}@example.com`;
   const context = await browser.newContext();
-  const start = await context.request.get('http://localhost:3000/api/parent/auth/google/start', { maxRedirects: 0 });
-  const location = start.headers().location!; const state = new URL(location, 'http://localhost:3000').searchParams.get('state')!; const nonce = new URL(location, 'http://localhost:3000').searchParams.get('nonce')!;
-  const clientId = new URL(location, 'http://localhost:3000').searchParams.get('client_id')!;
+  const start = await context.request.get(`${api}/api/parent/auth/google/start`, { maxRedirects: 0 });
+  const location = start.headers().location!; const state = new URL(location, api).searchParams.get('state')!; const nonce = new URL(location, api).searchParams.get('nonce')!;
+  const clientId = new URL(location, api).searchParams.get('client_id')!;
   const token = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', sub: `release-browser-${crypto.randomUUID()}`, email, email_verified: true, aud: clientId, nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString('base64url');
-  const parent = await context.request.get(`http://localhost:3000/api/parent/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(token)}`, { maxRedirects: 0 });
+  const parent = await context.request.get(`${api}/api/parent/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(token)}`, { maxRedirects: 0 });
   expect(parent.status()).toBe(302); expect(parent.headers().location).toBe('http://localhost:5174');
   expect((await context.cookies(api)).some((cookie) => cookie.name === 'parent_session')).toBe(false);
   await context.close();
@@ -64,7 +65,7 @@ test('Parent callback issues a session only for the seeded active links and rend
 test.describe.configure({ mode: 'serial' });
 
 test('Admin uses an authenticated two-School context for clean, dirty, timeout, and suspended deep-link states', async ({ page, browser }) => {
-  await login(page.context(), 'app'); await page.goto('http://localhost:5173');
+  await login(page.context(), 'app'); await page.goto(app);
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate A' })).toBeFocused();
   await page.getByRole('button', { name: 'Nhân viên' }).click();
