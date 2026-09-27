@@ -178,6 +178,40 @@ test("Parent foreground denial clears the selected School before the signed-out 
   await context.close();
 });
 
+test("Parent renders only the issued obligation snapshot and clears it after revoke", async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await page.getByRole("button", { name: "Khoản cần thanh toán" }).click();
+  await expect(page.getByText("OBL-202609-000001")).toBeVisible();
+  await page.getByRole("button", { name: /OBL-202609-000001/ }).click();
+  await expect(page.getByText("Tổng tiền khi phát hành")).toBeVisible();
+  await expect(page.getByText("Còn phải thanh toán", { exact: true })).toBeVisible();
+  await expect(page.getByText("Ngân hàng Release 1")).toBeVisible();
+  await expect(page.getByText(/Tôi đã thanh toán|VietQR|Sao chép|Hoàn tiền/)).toHaveCount(0);
+  await page.route("**/api/parent/schools/*/obligations/*", async (route) => route.fulfill({ status: 403 }));
+  await page.getByRole("button", { name: "Quay lại danh sách" }).click();
+  await page.getByRole("button", { name: /OBL-202609-000001/ }).click();
+  await expect(page.getByRole("heading", { name: "Chọn trường để xem" })).toBeFocused();
+  await expect(page.getByText("OBL-202609-000001")).toHaveCount(0);
+  await context.close();
+});
+
+test("Parent loads and refreshes the authorized obligation list from its direct route", async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174/obligations");
+  await expect(page.getByRole("heading", { name: "Khoản cần thanh toán" })).toBeVisible();
+  await expect(page.getByText("OBL-202609-000001")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Khoản cần thanh toán" })).toBeVisible();
+  await expect(page.getByText("OBL-202609-000001")).toBeVisible();
+  await context.close();
+});
+
 test("Parent child endpoint denial clears child detail and returns focus to the safe fallback", async ({
   browser,
 }) => {

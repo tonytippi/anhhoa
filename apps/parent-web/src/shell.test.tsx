@@ -6,6 +6,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.cookie = 'parent_cs
 
 function parentResponse(session: object, input: RequestInfo | URL) {
   const path = String(input);
+  if (path.includes('/obligations')) { const obligation = { id: 'invoice-a', studentId: 'student-a', obligationCode: 'OBL-202609-000001', period: '2026-09', issuedTotal: '2100000', actualReceipt: '0', outcome: null, outstanding: '2100000', state: 'ISSUED', effectiveAt: '2026-09-27T00:00:00.000Z', paymentInstruction: { receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferContent: 'BE AN' } }; return Promise.resolve(new Response(JSON.stringify({ data: /obligations\/[^/]+$/.test(path) ? obligation : [obligation] }))); }
   if (path.includes('/inbox')) return Promise.resolve(new Response(JSON.stringify({ data: [], meta: { unreadCount: 0 } })));
   if (path.includes('/attendance?')) return Promise.resolve(new Response(JSON.stringify({ data: [{ studentId: 'student-a', studentDisplayName: 'Bé An', date: '2026-09-27', status: 'NOT_RECORDED', updatedAt: null }] })));
   if (path.includes('/daily-journal?')) return Promise.resolve(new Response(JSON.stringify({ data: null })));
@@ -54,6 +55,76 @@ describe('ParentShell', () => {
     await screen.findByRole('heading', { name: 'Bé An' });
     expect(screen.getByText('Trường chưa ghi nhận')).toBeTruthy();
     expect(fetch.mock.calls.some(([input]) => String(input).includes('/daily-journal-media/'))).toBe(false);
+  });
+
+  it('shows the read-only obligation snapshot with distinct issued and outstanding values', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => parentResponse(session, input)));
+    render(<ParentShell />);
+    await screen.findByRole('button', { name: 'Khoản cần thanh toán' });
+    fireEvent.click(screen.getByRole('button', { name: 'Khoản cần thanh toán' }));
+    await screen.findByText('OBL-202609-000001');
+    fireEvent.click(screen.getByRole('button', { name: /OBL-202609-000001/ }));
+    await screen.findByText('Tổng tiền khi phát hành');
+    expect(screen.getByText('Còn phải thanh toán')).toBeTruthy();
+    expect(screen.queryByText(/Tôi đã thanh toán|VietQR|Sao chép/)).toBeNull();
+  });
+
+  it('loads and preserves the obligation list for an initial or refreshed obligations route', async () => {
+    window.history.replaceState(null, '', '/obligations');
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    const fetch = vi.fn().mockImplementation((input) => parentResponse(session, input));
+    vi.stubGlobal('fetch', fetch);
+    const first = render(<ParentShell />);
+    await screen.findByRole('heading', { name: 'Khoản cần thanh toán' });
+    expect(screen.getByText('OBL-202609-000001')).toBeTruthy();
+    expect(fetch.mock.calls.some(([input]) => String(input).endsWith('/obligations'))).toBe(true);
+    first.unmount();
+    render(<ParentShell />);
+    await screen.findByRole('heading', { name: 'Khoản cần thanh toán' });
+    expect(screen.getByText('OBL-202609-000001')).toBeTruthy();
+    expect(window.location.pathname).toBe('/obligations');
+  });
+
+  it('clears obligation and payment snapshot state when the detail request is denied', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    let denyDetail = false;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => {
+      if (denyDetail && /obligations\/invoice-a$/.test(String(input))) return Promise.resolve(new Response(null, { status: 403 }));
+      return parentResponse(session, input);
+    }));
+    render(<ParentShell />);
+    await screen.findByRole('button', { name: 'Khoản cần thanh toán' });
+    fireEvent.click(screen.getByRole('button', { name: 'Khoản cần thanh toán' }));
+    await screen.findByText('OBL-202609-000001');
+    denyDetail = true;
+    fireEvent.click(screen.getByRole('button', { name: /OBL-202609-000001/ }));
+    const fallback = await screen.findByRole('heading', { name: 'Chọn trường để xem' });
+    expect(document.activeElement).toBe(fallback);
+    expect(screen.queryByText('OBL-202609-000001')).toBeNull();
+    expect(screen.queryByText('Ngân hàng A')).toBeNull();
+  });
+
+  it('ignores a stale denied obligation detail after a newer detail succeeds', async () => {
+    const first = deferred<Response>(); const second = deferred<Response>();
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => {
+      const path = String(input);
+      if (path.endsWith('/obligations')) return Promise.resolve(new Response(JSON.stringify({ data: [
+        { id: 'invoice-a', studentId: 'student-a', obligationCode: 'OBL-202609-000001', period: '2026-09', issuedTotal: '100', actualReceipt: '0', outcome: null, outstanding: '100', state: 'ISSUED', effectiveAt: '2026-09-27T00:00:00.000Z', paymentInstruction: { receivingBank: 'A', accountNumber: '1', accountHolderName: 'A', transferContent: 'A' } },
+        { id: 'invoice-b', studentId: 'student-a', obligationCode: 'OBL-202610-000001', period: '2026-10', issuedTotal: '200', actualReceipt: '0', outcome: null, outstanding: '200', state: 'ISSUED', effectiveAt: '2026-10-01T00:00:00.000Z', paymentInstruction: { receivingBank: 'B', accountNumber: '2', accountHolderName: 'B', transferContent: 'B' } },
+      ] }))); if (path.endsWith('/obligations/invoice-a')) return first.promise; if (path.endsWith('/obligations/invoice-b')) return second.promise; return parentResponse(session, input);
+    }));
+    render(<ParentShell />); await screen.findByRole('button', { name: 'Khoản cần thanh toán' }); fireEvent.click(screen.getByRole('button', { name: 'Khoản cần thanh toán' })); await screen.findByText('OBL-202610-000001'); fireEvent.click(screen.getByRole('button', { name: /OBL-202609-000001/ })); await screen.findByRole('button', { name: 'Quay lại danh sách' }); fireEvent.click(screen.getByRole('button', { name: 'Quay lại danh sách' })); fireEvent.click(screen.getByRole('button', { name: /OBL-202610-000001/ }));
+    second.resolve(new Response(JSON.stringify({ data: { id: 'invoice-b', studentId: 'student-a', obligationCode: 'OBL-202610-000001', period: '2026-10', issuedTotal: '200', actualReceipt: '0', outcome: null, outstanding: '200', state: 'ISSUED', effectiveAt: '2026-10-01T00:00:00.000Z', paymentInstruction: { receivingBank: 'Ngân hàng B', accountNumber: '2', accountHolderName: 'Chủ B', transferContent: 'Nội dung B' } } }))); await screen.findByText('Ngân hàng nhận'); expect(screen.getByText('Ngân hàng B')).toBeTruthy(); first.resolve(new Response(null, { status: 403 })); await new Promise<void>((resolve) => queueMicrotask(resolve)); expect(screen.getByText('OBL-202610-000001')).toBeTruthy(); expect(screen.queryByRole('heading', { name: 'Chọn trường để xem' })).toBeNull();
+  });
+
+  it('keeps the obligation list when a detail request resolves after returning', async () => {
+    const detail = deferred<Response>();
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    const item = { id: 'invoice-a', studentId: 'student-a', obligationCode: 'OBL-202609-000001', period: '2026-09', issuedTotal: '100', actualReceipt: '0', outcome: null, outstanding: '100', state: 'ISSUED', effectiveAt: '2026-09-27T00:00:00.000Z', paymentInstruction: { receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferContent: 'BE AN' } };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => String(input).endsWith('/obligations/invoice-a') ? detail.promise : String(input).endsWith('/obligations') ? Promise.resolve(new Response(JSON.stringify({ data: [item] }))) : parentResponse(session, input)));
+    render(<ParentShell />); await screen.findByRole('button', { name: 'Khoản cần thanh toán' }); fireEvent.click(screen.getByRole('button', { name: 'Khoản cần thanh toán' })); await screen.findByText(item.obligationCode); fireEvent.click(screen.getByRole('button', { name: new RegExp(item.obligationCode) })); await screen.findByRole('button', { name: 'Quay lại danh sách' }); fireEvent.click(screen.getByRole('button', { name: 'Quay lại danh sách' })); detail.resolve(new Response(JSON.stringify({ data: item }))); await new Promise<void>((resolve) => queueMicrotask(resolve)); expect(screen.getByText(item.obligationCode)).toBeTruthy(); expect(screen.queryByRole('button', { name: 'Quay lại danh sách' })).toBeNull(); expect(screen.queryByText('Thông tin chuyển khoản')).toBeNull();
   });
 
   it('clears child detail and focuses the safe fallback when its journal endpoint is denied', async () => {

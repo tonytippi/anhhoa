@@ -15,3 +15,19 @@ describe("ParentsController phone", () => {
     await expect(controller.phone({ headers: { cookie: "parent_session=session" } }, "school", crypto.randomUUID(), crypto.randomUUID(), { phone: "090" })).rejects.toMatchObject({ response: { code: "CSRF_INVALID" } });
   });
 });
+
+describe("ParentsController obligations", () => {
+  it("returns only the Parent obligation projection with no-store for list and detail", async () => {
+    const obligation = { id: "invoice", obligationCode: "OBL-202609-000001", outstanding: "100" };
+    const parents = { obligations: vi.fn().mockResolvedValue(obligation) };
+    const auth = { session: vi.fn().mockReturnValue({ userIdentityId: "parent" }) };
+    const controller = new ParentsController(auth as never, parents as never);
+    const response = { setHeader: vi.fn() };
+    const request = { headers: { cookie: "parent_session=session" } };
+    await expect(controller.obligations(request, "school", response)).resolves.toEqual({ data: obligation });
+    await expect(controller.obligation(request, "school", "invoice", response)).resolves.toEqual({ data: obligation });
+    expect(parents.obligations).toHaveBeenNthCalledWith(1, "parent", "school");
+    expect(parents.obligations).toHaveBeenNthCalledWith(2, "parent", "school", "invoice");
+    expect(response.setHeader).toHaveBeenCalledWith("Cache-Control", "private, no-store");
+  });
+});

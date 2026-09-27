@@ -62,6 +62,8 @@ type LeaveRequest = {
   createdAt: string;
 };
 type PhoneOperation = { id: string; status: string; outcome: { phone: string } };
+type Obligation = { id: string; studentId: string; obligationCode: string; period: string; issuedTotal: string; actualReceipt: string; outcome: string | null; outstanding: string; state: "ISSUED" | "CLOSED"; effectiveAt: string; paymentInstruction: { receivingBank: string; accountNumber: string; accountHolderName: string; transferContent: string } };
+const vnd = (value: string) => new Intl.NumberFormat("vi-VN").format(BigInt(value)) + " đ";
 const today = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -188,7 +190,10 @@ function ParentWorkspace({
   const [journal, setJournal] = useState<Journal | null | undefined>();
   const [inbox, setInbox] = useState<InboxEvent[]>([]);
   const [unread, setUnread] = useState(0);
-  const [view, setView] = useState<"today" | "inbox">("today");
+  const [view, setView] = useState<"today" | "inbox" | "obligations">("today");
+  const [obligations, setObligations] = useState<Obligation[]>([]);
+  const [obligation, setObligation] = useState<Obligation>();
+  const [obligationLoading, setObligationLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -215,6 +220,8 @@ function ParentWorkspace({
   const journalRequest = useRef<AbortController | undefined>(undefined);
   const resolver = useRef<AbortController | undefined>(undefined);
   const media = useRef<AbortController | undefined>(undefined);
+  const obligationRequest = useRef<AbortController | undefined>(undefined);
+  const obligationGeneration = useRef(0);
   const workspaceGeneration = useRef(0);
   const generation = useRef(0);
   const resolverGeneration = useRef(0);
@@ -248,12 +255,17 @@ function ParentWorkspace({
     setConfirmCancel(undefined);
   };
   const fallback = (safePath = "/") => {
+    obligationRequest.current?.abort();
+    obligationGeneration.current += 1;
     clearDetail();
     setLoading(false);
     if (window.location.pathname !== safePath)
       window.history.replaceState(null, "", safePath);
     setAttendance({});
     setInbox([]);
+    setObligations([]);
+    setObligation(undefined);
+    setObligationLoading(false);
     setUnread(0);
     onDenied();
   };
@@ -325,7 +337,7 @@ function ParentWorkspace({
     if (!requested) {
       pendingSelector.current = null;
       clearDetail();
-      setView(window.location.pathname === "/inbox" ? "inbox" : "today");
+       setView(window.location.pathname === "/inbox" ? "inbox" : window.location.pathname === "/obligations" ? "obligations" : "today");
       return;
     }
     pendingSelector.current = requested;
@@ -377,6 +389,7 @@ function ParentWorkspace({
     workspaceLoad.current = controller;
     const id = ++workspaceGeneration.current;
     const requested = pendingSelector.current;
+    setView(window.location.pathname === "/inbox" ? "inbox" : window.location.pathname === "/obligations" ? "obligations" : "today");
     let pending = requested ? 1 : school.children.length + 1;
     setLoading(true);
     setError(false);
@@ -452,6 +465,12 @@ function ParentWorkspace({
       if (controller.signal.aborted || id !== workspaceGeneration.current || result.kind === "aborted") return;
       if (result.kind === "auth" || result.kind === "denied") { controller.abort(); return fallback(); }
       if (result.kind === "ok") { setPhone(result.data.phone); setPhoneInput(result.data.phone); }
+      else if (result.kind === "error") setError(true);
+    });
+    void parentGet<Obligation[]>(`/api/parent/schools/${school.schoolId}/obligations`, controller.signal).then((result) => {
+      if (controller.signal.aborted || id !== workspaceGeneration.current || result.kind === "aborted") return;
+      if (result.kind === "auth" || result.kind === "denied") { controller.abort(); return fallback(); }
+      if (result.kind === "ok" && Array.isArray(result.data)) setObligations(result.data);
       else if (result.kind === "error") setError(true);
     });
     return () => {
@@ -658,11 +677,33 @@ function ParentWorkspace({
   useEffect(() => {
     if (selected || view === "inbox") headingRef.current?.focus();
   }, [selected, view, headingRef]);
-  const navigate = (next: "today" | "inbox") => {
+  const openObligation = async (id: string) => {
+    obligationRequest.current?.abort();
+    const generation = ++obligationGeneration.current;
+    const controller = new AbortController();
+    obligationRequest.current = controller;
+    setObligation(undefined);
+    setObligationLoading(true);
+    const result = await parentGet<Obligation>(`/api/parent/schools/${school.schoolId}/obligations/${id}`, controller.signal);
+    if (controller.signal.aborted || generation !== obligationGeneration.current || result.kind === "aborted") return;
+    if (result.kind === "auth" || result.kind === "denied") return fallback("/obligations");
+    if (result.kind === "ok" && result.data.id === id) { setObligation(result.data); setObligationLoading(false); return; }
+    setObligationLoading(false);
+    setError(true);
+  };
+  const navigate = (next: "today" | "inbox" | "obligations") => {
+    obligationRequest.current?.abort();
+    obligationGeneration.current += 1;
     pendingSelector.current = null;
     clearDetail();
-    window.history.pushState(null, "", next === "inbox" ? "/inbox" : "/");
+    window.history.pushState(null, "", next === "inbox" ? "/inbox" : next === "obligations" ? "/obligations" : "/");
     setView(next);
+  };
+  const closeObligation = () => {
+    obligationRequest.current?.abort();
+    obligationGeneration.current += 1;
+    setObligation(undefined);
+    setObligationLoading(false);
   };
   return (
     <div className="parent-app">
@@ -686,6 +727,7 @@ function ParentWorkspace({
         >
           Thông báo {unread > 0 && <span className="unread">{unread}</span>}
         </button>
+        <button className={`side-link ${view === "obligations" ? "active" : ""}`} onClick={() => navigate("obligations")}>Khoản cần thanh toán</button>
         <div className="sidebar-account">
           <button className="text-button" onClick={() => setContactOpen(true)}>Thông tin liên hệ</button>
           <button className="text-button" onClick={onLogout}>
@@ -709,6 +751,8 @@ function ParentWorkspace({
             <h1 ref={headingRef} tabIndex={-1}>
               {view === "inbox"
                 ? "Thông báo"
+                : view === "obligations"
+                  ? obligation ? "Khoản cần thanh toán" : "Khoản cần thanh toán"
                 : selected
                   ? school.children.find((child) => child.id === selected)
                       ?.fullName
@@ -717,6 +761,8 @@ function ParentWorkspace({
             <p>
               {view === "inbox"
                 ? "Sự kiện điểm danh trong 30 ngày gần đây"
+                : view === "obligations"
+                  ? "Thông tin bản chụp của nghĩa vụ đã phát hành."
                 : selected
                   ? `Ngày ${selectedDate}`
                   : `Những cập nhật phụ huynh cần biết từ ${school.schoolName}.`}
@@ -737,7 +783,12 @@ function ParentWorkspace({
               </form>
             </section>
           )}
-          {view === "inbox" ? (
+           {view === "obligations" ? (
+              obligation || obligationLoading ? <>
+                <button className="text-button" onClick={closeObligation}>Quay lại danh sách</button>
+                {obligation ? <><section className="panel"><h2>{obligation.state === "ISSUED" ? "Đang chờ thanh toán" : "Đã hoàn tất"}</h2><dl className="payment-facts"><div><dt>Mã nghĩa vụ</dt><dd>{obligation.obligationCode}</dd></div><div><dt>Kỳ thu</dt><dd>{obligation.period}</dd></div><div><dt>Tổng tiền khi phát hành</dt><dd>{vnd(obligation.issuedTotal)}</dd></div><div><dt>Đã nhận thực tế</dt><dd>{vnd(obligation.actualReceipt)}</dd></div><div><dt>Còn phải thanh toán</dt><dd>{vnd(obligation.outstanding)}</dd></div><div><dt>Cập nhật</dt><dd>{new Date(obligation.effectiveAt).toLocaleString("vi-VN")}</dd></div></dl></section><section className="panel"><h2>Thông tin chuyển khoản</h2><dl className="payment-facts"><div><dt>Ngân hàng nhận</dt><dd>{obligation.paymentInstruction.receivingBank}</dd></div><div><dt>Số tài khoản</dt><dd>{obligation.paymentInstruction.accountNumber}</dd></div><div><dt>Chủ tài khoản</dt><dd>{obligation.paymentInstruction.accountHolderName}</dd></div><div><dt>Nội dung</dt><dd>{obligation.paymentInstruction.transferContent}</dd></div></dl>{BigInt(obligation.outstanding) > 0n ? <p className="muted">Vui lòng chuyển đúng số tiền còn phải thanh toán.</p> : <p className="muted">Nghĩa vụ này đã hoàn tất. Không có thao tác thanh toán.</p>}</section></> : <p aria-live="polite">Đang tải khoản cần thanh toán...</p>}
+             </> : <>{!loading && obligations.length === 0 ? <p className="empty-state">Không có khoản cần thanh toán hoặc lịch sử còn hiệu lực.</p> : obligations.map((item) => <button className="child-card" key={item.id} onClick={() => void openObligation(item.id)}><strong>{item.obligationCode}</strong><span>{item.period} · Còn phải thanh toán {vnd(item.outstanding)}</span></button>)}</>
+           ) : view === "inbox" ? (
             <>
               {!loading && inbox.length === 0 ? (
                 <p className="empty-state">
@@ -1034,10 +1085,13 @@ export function ParentShell() {
       }
       setSession(next);
       const direct = route();
+      const directObligations = window.location.pathname === "/obligations";
       const target = direct
         ? schools.find((school) =>
             school.children.some((child) => child.id === direct.studentId),
           )?.schoolId
+        : directObligations
+          ? schools[0]?.schoolId
         : previous;
       if (target && schools.some((school) => school.schoolId === target)) {
         currentSchool.current = target;

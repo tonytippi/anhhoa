@@ -624,6 +624,55 @@ try {
             },
           });
         }
+        if (index === 0) {
+          const run = await tx.collectionRun.create({
+            data: {
+              schoolId: school.id,
+              schoolYearId: year.id,
+              billingMonth: "2026-09",
+              status: "GENERATED",
+            },
+          });
+          const issuedAt = new Date("2026-09-05T01:12:00.000Z");
+          await tx.invoice.create({
+            data: {
+              schoolId: school.id,
+              studentId: student.id,
+              collectionRunId: run.id,
+              schoolYearId: year.id,
+              billingMonth: run.billingMonth,
+              rosterAsOf: new Date("2026-09-01T00:00:00.000Z"),
+              studentCodeSnapshot: student.studentCode,
+              studentNameSnapshot: student.fullName,
+              enrollmentIdSnapshot: enrollment.id,
+              enrollmentLifecycleSnapshot: "ENROLLED",
+              enrollmentEffectiveFromSnapshot: enrollment.effectiveFrom,
+              classAssignmentIdSnapshot: null,
+              classAssignmentEffectiveFromSnapshot: null,
+              classAssignmentEffectiveToSnapshot: null,
+              classIdSnapshot: classroom.id,
+              classNameSnapshot: classroom.name,
+              selectionProvenance: { fixture: "parent-obligation" },
+              status: "ISSUED",
+              total: 150000n,
+              issuedAt,
+              obligationCodeSnapshot: "OBL-202609-000001",
+              bankAccountIdSnapshot: bankAccount.id,
+              receivingBankSnapshot: bankAccount.receivingBank,
+              accountNumberSnapshot: bankAccount.accountNumber,
+              accountHolderNameSnapshot: bankAccount.accountHolderName,
+              transferContentSnapshot: "Be An Mam Release 1",
+              obligationLinesSnapshot: [{ name: receivable.displayName, amount: "150000" }],
+              obligationTotalSnapshot: 150000n,
+              financePolicyEffectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
+              dueDaysAfterIssueSnapshot: 7,
+              taxTreatmentSnapshot: "NOT_APPLICABLE",
+              debtScopeSnapshot: "CURRENT_SCHOOL_YEAR_ONLY",
+              reversalModeSnapshot: "DIRECT",
+              dueOn: new Date("2026-09-12T00:00:00.000Z"),
+            },
+          });
+        }
       }
     },
     { timeout: 30000 },

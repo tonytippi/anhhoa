@@ -24,7 +24,7 @@ Story 7.6 exposes a Finance-owned, Parent-specific read projection for current-e
 
 - Finance exports a narrow Parent projection/query. Parent controller/service does not duplicate outstanding calculation.
 - Server derives outstanding from Finance facts including actual Receipt, SettlementTransfer and debt-transfer reduction, without exposing their identifiers or provenance.
-- Parent `effectiveAt` is the latest permitted lifecycle instant among `issuedAt`, Receipt `postedAt` and SettlementTransfer `createdAt`; no underlying source detail is returned.
+- Parent `effectiveAt` is the latest permitted lifecycle instant among `issuedAt`, Receipt `postedAt`, SettlementTransfer `createdAt` and DebtTransfer `createdAt`; no underlying source detail is returned.
 
 ### Payment snapshot display
 

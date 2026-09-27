@@ -11,6 +11,7 @@ import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
 import { AuthorizationService } from "../authorization/authorization.service.js";
 import { PrismaService } from "../identity/prisma.service.js";
+import { FinanceService } from "../finance/finance.service.js";
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -21,6 +22,7 @@ export class ParentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
+    private readonly finance?: FinanceService,
   ) {}
   private async actor(identityId: string, schoolId: string) {
     return this.authorization.resolve(
@@ -458,6 +460,13 @@ export class ParentsService {
   async parentPhone(identityId: string, schoolId: string) {
     const parent = await this.authorizedParent(identityId, schoolId);
     return { phone: parent.phone };
+  }
+  async obligations(identityId: string, schoolId: string, invoiceId?: string) {
+    const parent = await this.authorizedParent(identityId, schoolId);
+    const links = await this.prisma.studentParent.findMany({ where: { schoolId, parentProfileId: parent.id, status: "ACTIVE", school: { status: "ACTIVE" } }, select: { studentId: true } });
+    const result = await this.finance!.parentObligations(schoolId, links.map((link) => link.studentId), invoiceId);
+    if (invoiceId && !result) throw new NotFoundException({ code: "OBLIGATION_NOT_FOUND", message: "Không tìm thấy nghĩa vụ." });
+    return result;
   }
   async updateParentPhone(identityId: string, schoolId: string, key: string, operationId: string, body: unknown) {
     if (!uuid.test(key) || !uuid.test(operationId)) throw new UnauthorizedException({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Cần Idempotency-Key và X-Operation-Id UUID." });
