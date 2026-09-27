@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bootstrapSession, logout, parentGet, parentMedia } from './auth-session';
+import { bootstrapSession, logout, parentGet, parentMedia, parentPost } from './auth-session';
 
 describe('Parent session safe state', () => {
   it('clears protected state for startup denial and logout even after a server failure', async () => {
@@ -27,5 +27,10 @@ describe('Parent session safe state', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('Aborted', 'AbortError')));
     await expect(parentGet('/api/parent/schools/school/students/student/attendance?from=2026-09-01&to=2026-09-01', controller.signal)).resolves.toEqual({ kind: 'aborted' });
     await expect(parentMedia('/api/parent/schools/school/daily-journal-media/media', controller.signal)).resolves.toEqual({ kind: 'aborted' });
+  });
+  it('uses credentialed no-store CSRF transport for the inbox resolver', async () => {
+    document.cookie = 'parent_csrf=csrf-token'; const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { studentId: 'student', date: '2026-09-27' } }))); vi.stubGlobal('fetch', fetch);
+    await expect(parentPost('/api/parent/schools/school/inbox/event/open')).resolves.toMatchObject({ kind: 'ok', data: { studentId: 'student' } });
+    expect(fetch).toHaveBeenCalledWith('/api/parent/schools/school/inbox/event/open', expect.objectContaining({ method: 'POST', credentials: 'include', cache: 'no-store', headers: { 'x-csrf-token': 'csrf-token' } }));
   });
 });

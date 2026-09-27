@@ -44,6 +44,7 @@ model School {
   handoverRecords                   HandoverRecord[]
   evidenceReferences                EvidenceReference[]
   notificationSourceEvents          NotificationSourceEvent[]
+  parentInboxEventReads             ParentInboxEventRead[]
   dailyJournals                     DailyJournal[]
   dailyJournalVersions              DailyJournalVersion[]
   dailyJournalMedia                 DailyJournalMedia[]
@@ -592,6 +593,7 @@ model ParentProfile {
   userIdentity    UserIdentity?   @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   studentParents  StudentParent[]
   leaveRequests   LeaveRequest[]
+  inboxEventReads ParentInboxEventRead[]
 }
 
 model StudentParent {
@@ -607,6 +609,7 @@ model StudentParent {
   student           Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   parentProfile     ParentProfile       @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
   leaveRequests     LeaveRequest[]
+  inboxEventReads   ParentInboxEventRead[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, studentId, parentProfileId])
@@ -1690,14 +1693,33 @@ model NotificationSourceEvent {
   attendanceOn   DateTime               @db.Date
   state          AttendanceState?
   pickedUpAt     DateTime?
+  studentDisplayNameSnapshot String?
   payload        Json
   createdAt      DateTime               @default(now())
   school         School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student        Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  inboxReads     ParentInboxEventRead[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, sourceType, sourceRecordId])
   @@index([schoolId, studentId, attendanceOn])
+}
+
+model ParentInboxEventRead {
+  id                        String                  @id @default(uuid()) @db.Uuid
+  schoolId                  String                  @db.Uuid
+  parentProfileId           String                  @db.Uuid
+  notificationSourceEventId String                  @db.Uuid
+  readAt                    DateTime                @default(now())
+  school                    School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  parentProfile             ParentProfile           @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
+  sourceEvent               NotificationSourceEvent @relation(fields: [schoolId, notificationSourceEventId], references: [schoolId, id], onDelete: Restrict)
+  studentParent             StudentParent           @relation(fields: [schoolId, studentId, parentProfileId], references: [schoolId, studentId, parentProfileId], onDelete: Restrict)
+  studentId                 String                  @db.Uuid
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, parentProfileId, notificationSourceEventId])
+  @@index([schoolId, parentProfileId, readAt])
 }
 
 enum NotificationSourceType {

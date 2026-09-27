@@ -33,4 +33,16 @@ describe('AttendanceController daily journal media', () => {
     expect(response.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
     expect(response.send).toHaveBeenCalledWith(new Uint8Array([2]));
   });
+  it('uses Parent cookie mutation protection for inbox open and exposes only the server destination', async () => {
+    const attendance = { parentInbox: vi.fn().mockResolvedValue({ data: [{ id: 'event' }], unreadCount: 1 }), openParentInbox: vi.fn().mockResolvedValue({ studentId: 'student', date: '2026-09-27' }) };
+    const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'parent' }) };
+    const controller = new AttendanceController(auth as never, attendance as never);
+    const request = { headers: { cookie: 'parent_session=session; parent_csrf=csrf', origin: 'http://localhost:5174', 'x-csrf-token': 'csrf' } };
+    const response = { setHeader: vi.fn(), send: vi.fn() };
+    await expect(controller.parentInbox(request, 'school', response)).resolves.toEqual({ data: [{ id: 'event' }], meta: { unreadCount: 1 } });
+    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    await expect(controller.openParentInbox(request, 'school', 'event', response)).resolves.toEqual({ data: { studentId: 'student', date: '2026-09-27' } });
+    expect(attendance.openParentInbox).toHaveBeenCalledWith('parent', 'school', 'event');
+    await expect(controller.openParentInbox({ headers: { cookie: 'parent_session=session' } }, 'school', 'event')).rejects.toMatchObject({ response: { code: 'CSRF_INVALID' } });
+  });
 });

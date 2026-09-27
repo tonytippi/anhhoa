@@ -259,6 +259,36 @@ export class AttendanceService {
       })
     ).map((request) => this.dto(request, true));
   }
+  async parentInbox(identityId: string, schoolId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const events = await tx.notificationSourceEvent.findMany({
+        where: { schoolId, studentDisplayNameSnapshot: { not: null } },
+        include: { inboxReads: { where: { schoolId, parentProfileId: parent.id }, select: { readAt: true } } },
+        orderBy: [{ attendanceOn: "desc" }, { createdAt: "desc" }],
+      });
+      const eligible = await Promise.all(events.map(async (event) => {
+        if (!await this.parentInboxEligible(tx, schoolId, parent.id, event.studentId, event.attendanceOn)) return null;
+        return this.parentInboxDto(schoolId, event);
+      }));
+      const data = eligible.filter((event): event is NonNullable<typeof event> => event !== null);
+      return { data, unreadCount: data.filter((event) => event.unread).length };
+    }, { isolationLevel: "RepeatableRead" });
+  }
+  async openParentInbox(identityId: string, schoolId: string, eventId: string) {
+    if (!uuid.test(eventId)) throw new NotFoundException({ code: "INBOX_EVENT_NOT_FOUND", message: "Không tìm thấy thông báo." });
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const event = await tx.notificationSourceEvent.findFirst({ where: { id: eventId, schoolId, studentDisplayNameSnapshot: { not: null } } });
+      if (!event || !await this.parentInboxEligible(tx, schoolId, parent.id, event.studentId, event.attendanceOn)) throw new NotFoundException({ code: "INBOX_EVENT_NOT_FOUND", message: "Không tìm thấy thông báo." });
+      await tx.parentInboxEventRead.upsert({
+        where: { schoolId_parentProfileId_notificationSourceEventId: { schoolId, parentProfileId: parent.id, notificationSourceEventId: event.id } },
+        create: { schoolId, parentProfileId: parent.id, notificationSourceEventId: event.id, studentId: event.studentId },
+        update: {},
+      });
+      return { studentId: event.studentId, date: event.attendanceOn.toISOString().slice(0, 10) };
+    }, { isolationLevel: "RepeatableRead" });
+  }
   async parentDailyJournals(
     identityId: string,
     schoolId: string,
@@ -859,14 +889,18 @@ export class AttendanceService {
   }
   private async writeNotificationSource(tx: Db, schoolId: string, sourceType: "ATTENDANCE", sourceRecordId: string, studentId: string, attendanceOn: string, state: "PRESENT" | "ABSENT") {
     try {
-      await tx.notificationSourceEvent.create({ data: { schoolId, sourceType, sourceRecordId, studentId, attendanceOn: this.day(attendanceOn), state, payload: { schoolId, studentId, attendanceOn, state } } });
+      const student = await tx.student.findFirst({ where: { schoolId, id: studentId }, select: { fullName: true } });
+      if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
+      await tx.notificationSourceEvent.create({ data: { schoolId, sourceType, sourceRecordId, studentId, attendanceOn: this.day(attendanceOn), state, studentDisplayNameSnapshot: student.fullName, payload: { schoolId, studentId, attendanceOn, state } } });
     } catch (error) {
       if (!(error instanceof Error) || !("code" in error) || error.code !== "P2002") throw error;
     }
   }
   private async writeHandoverNotificationSource(tx: Db, schoolId: string, sourceRecordId: string, studentId: string, handoverOn: string, pickedUpAt: Date) {
     try {
-      await tx.notificationSourceEvent.create({ data: { schoolId, sourceType: "HANDOVER", sourceRecordId, studentId, attendanceOn: this.day(handoverOn), pickedUpAt, payload: { schoolId, studentId, handoverOn, pickedUpAt: pickedUpAt.toISOString() } } });
+      const student = await tx.student.findFirst({ where: { schoolId, id: studentId }, select: { fullName: true } });
+      if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
+      await tx.notificationSourceEvent.create({ data: { schoolId, sourceType: "HANDOVER", sourceRecordId, studentId, attendanceOn: this.day(handoverOn), pickedUpAt, studentDisplayNameSnapshot: student.fullName, payload: { schoolId, studentId, handoverOn, pickedUpAt: pickedUpAt.toISOString() } } });
     } catch (error) {
       if (!(error instanceof Error) || !("code" in error) || error.code !== "P2002") throw error;
     }
@@ -1088,6 +1122,26 @@ export class AttendanceService {
     const expiry = new Date(`${endedOn.toISOString().slice(0, 10)}T00:00:00.000Z`);
     expiry.setUTCDate(expiry.getUTCDate() + 30);
     return this.now().day <= expiry.toISOString().slice(0, 10);
+  }
+  private parentInboxRetained(attendanceOn: Date) {
+    const earliest = this.day(this.now().day);
+    earliest.setUTCDate(earliest.getUTCDate() - 29);
+    return attendanceOn >= earliest && attendanceOn <= this.day(this.now().day);
+  }
+  private async parentInboxEligible(tx: Db, schoolId: string, parentProfileId: string, studentId: string, attendanceOn: Date) {
+    if (!this.parentInboxRetained(attendanceOn)) return false;
+    const link = await tx.studentParent.findFirst({ where: { schoolId, studentId, parentProfileId, status: "ACTIVE" }, select: { id: true } });
+    if (!link) return false;
+    const enrollment = await tx.studentEnrollment.findFirst({
+      where: { schoolId, studentId, effectiveFrom: { lte: attendanceOn }, OR: [{ endedOn: null }, { endedOn: { gt: attendanceOn } }] },
+      orderBy: { effectiveFrom: "desc" }, select: { endedOn: true },
+    });
+    return Boolean(enrollment && this.parentJournalRetained(enrollment.endedOn));
+  }
+  private parentInboxDto(schoolId: string, event: { id: string; studentId: string; studentDisplayNameSnapshot: string | null; sourceType: string; state: string | null; attendanceOn: Date; pickedUpAt: Date | null; createdAt: Date; inboxReads: Array<{ readAt: Date }> }) {
+    const eventTime = event.pickedUpAt ?? event.createdAt;
+    const text = event.sourceType === "HANDOVER" ? "Đã xác nhận trả trẻ" : event.state === "PRESENT" ? "Đã ghi nhận có mặt" : "Đã ghi nhận vắng mặt";
+    return { id: event.id, schoolId, studentId: event.studentId, studentDisplayName: event.studentDisplayNameSnapshot!, eventType: event.sourceType, text, date: event.attendanceOn.toISOString().slice(0, 10), time: eventTime.toISOString(), unread: event.inboxReads.length === 0, readAt: event.inboxReads[0]?.readAt.toISOString() ?? null };
   }
   private async handoverAdmin(identityId: string, schoolId: string, tx: Db = this.prisma) {
     const actor = await tx.schoolMembership.findFirst({ where: { schoolId, userIdentityId: identityId, status: "ACTIVE", school: { status: "ACTIVE" }, boundStaffProfile: { boundAt: { not: null }, boundByMembershipId: { not: null }, employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SETTINGS_MANAGE" } } } } }, select: { id: true } });

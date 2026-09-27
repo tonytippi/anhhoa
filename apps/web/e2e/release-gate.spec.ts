@@ -99,6 +99,27 @@ test('Parent child endpoint denial clears child detail and returns focus to the 
   await context.close();
 });
 
+test('Parent inbox displays an unread event, resolves it before child navigation, and clears on denied open', async ({ browser }) => {
+  const context = await browser.newContext(); await login(context, 'parent');
+  const page = await context.newPage(); await page.goto('http://localhost:5174');
+  await page.getByRole('button', { name: /Release Gate A/ }).click();
+  await page.getByRole('button', { name: /Thông báo/ }).click();
+  await expect(page.getByRole('heading', { name: 'Thông báo' })).toBeVisible();
+  await expect(page.getByText('Bé An lúc phát sự kiện')).toBeVisible();
+  await expect(page.getByText('Đã ghi nhận có mặt')).toBeVisible();
+  await page.getByRole('button', { name: /Bé An lúc phát sự kiện/ }).click();
+  await expect(page).toHaveURL(/\/children\/.*\/days\//);
+  await expect(page.getByRole('heading', { name: 'Bé An' })).toBeVisible();
+  const destination = page.url(); await page.goto(destination);
+  await expect(page.getByRole('heading', { name: 'Bé An' })).toBeVisible();
+  await page.getByRole('button', { name: 'Thông báo' }).click();
+  await page.route('**/api/parent/schools/*/inbox/*/open', async (route) => route.fulfill({ status: 404 }));
+  await page.getByRole('button', { name: /Bé An lúc phát sự kiện/ }).click();
+  await expect(page.getByRole('heading', { name: 'Chọn trường để xem' })).toBeFocused();
+  await expect(page.getByText('Bé An lúc phát sự kiện')).toHaveCount(0);
+  await context.close();
+});
+
 test.describe.configure({ mode: 'serial' });
 
 test('Admin uses an authenticated two-School context for clean, dirty, timeout, and suspended deep-link states', async ({ page, browser }) => {

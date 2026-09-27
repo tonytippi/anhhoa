@@ -37,6 +37,7 @@ afterEach(async () => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_daily_journal_history_cleanup', 'on', true)`;
     await tx.auditRecord.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.operation.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.parentInboxEventRead.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.notificationSourceEvent.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.leaveDaySourceExclusion.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.leaveDaySource.deleteMany({ where: { schoolId: { in: ids } } });
@@ -129,6 +130,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: 'ATTENDANCE_RECORDED' } })).toBe(1);
     const source = await prisma.notificationSourceEvent.findUniqueOrThrow({ where: { schoolId_sourceType_sourceRecordId: { schoolId: current.school.id, sourceType: 'ATTENDANCE', sourceRecordId: (first.outcome as { id: string }).id } } });
     expect(source.payload).toEqual({ schoolId: current.school.id, studentId: current.student.id, attendanceOn: '2026-02-09', state: 'PRESENT' });
+    expect(source.studentDisplayNameSnapshot).toBe('Bé An');
     expect(await prisma.notificationSourceEvent.count({ where: { schoolId: current.school.id } })).toBe(1);
     await expect(attendance.record(current.identity.id, current.school.id, key, uuid(), { ...body, state: 'ABSENT' })).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
     await expect(attendance.teacherRoster(current.identity.id, current.school.id, current.classroom.id, '2026-02-09')).resolves.toMatchObject({ students: [{ studentId: current.student.id, state: 'PRESENT' }] });
@@ -373,6 +375,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     const source = await prisma.notificationSourceEvent.findFirstOrThrow({ where: { schoolId: current.school.id, sourceType: 'HANDOVER' } });
     expect(source.payload).toEqual({ schoolId: current.school.id, studentId: current.student.id, handoverOn: '2026-02-09', pickedUpAt: '2026-02-09T03:00:00.000Z' });
     expect(source.state).toBeNull();
+    expect(source.studentDisplayNameSnapshot).toBe('Bé An');
     expect(source.pickedUpAt?.toISOString()).toBe('2026-02-09T03:00:00.000Z');
     await expect(attendance.recordHandover(current.identity.id, current.school.id, uuid(), uuid(), body)).rejects.toMatchObject({ response: { code: 'HANDOVER_ALREADY_RECORDED' } });
   });

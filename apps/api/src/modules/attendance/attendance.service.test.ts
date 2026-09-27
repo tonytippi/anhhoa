@@ -79,6 +79,12 @@ describe('AttendanceService leave matrix', () => {
     vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-03-13', time: '09:00' });
     await expect(attendance.parentAttendance('parent-identity', school, student, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'ATTENDANCE_NOT_FOUND' } });
   });
+  it('keeps inbox events on the inclusive 30th HCM business day and excludes day 31', () => {
+    const { attendance } = service();
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-03-01', time: '00:05' });
+    expect((attendance as any).parentInboxRetained(day('2026-01-31'))).toBe(true);
+    expect((attendance as any).parentInboxRetained(day('2026-01-30'))).toBe(false);
+  });
   it('requires the current operating day, effective policy, and placed enrollment before journal persistence', async () => {
     const { attendance } = service();
     vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '09:00' });
@@ -111,13 +117,13 @@ describe('AttendanceService leave matrix', () => {
   });
   it('requires valid handover evidence without reading a Class assignment and emits a minimal source payload', async () => {
     const { attendance } = service();
-    const tx = { schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) }, handoverPolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), photoEvidenceMode: 'REQUIRED' }) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ id: 'enrollment' }) }, evidenceReference: { findFirst: vi.fn().mockResolvedValue(null) }, notificationSourceEvent: { create: vi.fn() } };
+    const tx = { schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), holidays: [] }) }, handoverPolicy: { findFirst: vi.fn().mockResolvedValue({ effectiveFrom: day('2026-01-01'), photoEvidenceMode: 'REQUIRED' }) }, studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ id: 'enrollment' }) }, evidenceReference: { findFirst: vi.fn().mockResolvedValue(null) }, student: { findFirst: vi.fn().mockResolvedValue({ fullName: 'Bé An' }) }, notificationSourceEvent: { create: vi.fn() } };
     await expect((attendance as any).handoverFacts(tx, school, student, '2026-02-09', null, { id: 'member', staffProfileId: 'staff' })).rejects.toMatchObject({ response: { fieldErrors: { evidenceId: expect.any(String) } } });
     tx.handoverPolicy.findFirst.mockResolvedValueOnce({ effectiveFrom: day('2026-01-01'), photoEvidenceMode: 'OPTIONAL' });
     await expect((attendance as any).handoverFacts(tx, school, student, '2026-02-09', null, { id: 'member', staffProfileId: 'staff' })).resolves.toMatchObject({ policy: expect.anything() });
     const pickedUpAt = new Date('2026-02-09T10:00:00.000Z');
     await (attendance as any).writeHandoverNotificationSource(tx, school, operation, student, '2026-02-09', pickedUpAt);
-    expect(tx.notificationSourceEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ sourceType: 'HANDOVER', payload: { schoolId: school, studentId: student, handoverOn: '2026-02-09', pickedUpAt: pickedUpAt.toISOString() } }) });
+    expect(tx.notificationSourceEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ sourceType: 'HANDOVER', studentDisplayNameSnapshot: 'Bé An', payload: { schoolId: school, studentId: student, handoverOn: '2026-02-09', pickedUpAt: pickedUpAt.toISOString() } }) });
   });
 
   it('rejects non-operating attendance before a record or operation can be written', async () => {
