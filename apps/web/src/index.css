@@ -37,6 +37,13 @@ a {
   outline: 3px solid #277e48;
   outline-offset: 3px;
 }
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 0;
+  border-color: #277e48;
+  box-shadow: 0 0 0 2px rgb(39 126 72 / 22%);
+}
 .app-shell {
   min-height: 100vh;
   background: #fffdf7;
