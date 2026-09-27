@@ -391,11 +391,20 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         groupId,
         defaultUnitPrice: 123456789n,
       });
-      expect(
-        await prisma.operation.findUniqueOrThrow({ where: { id: created.id } }),
-      ).toMatchObject({ schoolId: current.school.id, status: "COMPLETED" });
-      expect(
-        await prisma.auditRecord.findFirstOrThrow({
+       expect(
+         await prisma.operation.findUniqueOrThrow({ where: { id: created.id } }),
+       ).toMatchObject({ schoolId: current.school.id, status: "COMPLETED" });
+       const groupTransition = await prisma.receivableGroupLifecycleTransition.findUniqueOrThrow({
+         where: { schoolId_receivableGroupId_sequence: { schoolId: current.school.id, receivableGroupId: groupId, sequence: 1 } },
+       });
+       expect(groupTransition).toMatchObject({
+         actorIdentityId: current.identity.id,
+         membershipId: current.membership.id,
+         operationId: createdGroup.id,
+         status: "ACTIVE",
+       });
+       expect(
+         await prisma.auditRecord.findFirstOrThrow({
           where: { schoolId: current.school.id, action: "RECEIVABLE_CREATED" },
         }),
       ).toMatchObject({

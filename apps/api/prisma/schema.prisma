@@ -1430,12 +1430,12 @@ model ReceivableGroupLifecycleTransition {
   status            ReceivableStatus
   reason            String?
   actorIdentityId   String            @db.Uuid
-  membershipId      String            @db.Uuid
+  membershipId      String?           @db.Uuid
   operationId       String            @db.Uuid
   sequence          Int
   changedAt         DateTime          @default(now())
   group             ReceivableGroup   @relation(fields: [schoolId, receivableGroupId], references: [schoolId, id], onDelete: Restrict)
-  membership        SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  membership        SchoolMembership? @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   operation         Operation         @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])

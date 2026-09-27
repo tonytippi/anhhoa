@@ -24,6 +24,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
             include: { boundStaffProfile: { include: { primaryPosition: { include: { grants: true } } } } },
           },
           schoolYears: { where: { name: '2026-2027' } },
+          receivableGroups: { include: { lifecycleTransitions: true }, orderBy: { name: 'asc' } },
         },
       });
       expect(school).toMatchObject({
@@ -52,6 +53,9 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
         },
       });
       expect(membership.boundStaffProfile?.primaryPosition.grants.some((grant) => grant.capability === 'SCHOOL_CONTEXT_READ')).toBe(true);
+      expect(school.receivableGroups.map((group) => group.name)).toEqual(['Khoản thu chung', 'Khoản thu đột xuất', 'Ngoại khóa']);
+      expect(school.initialOwnerIdentity).not.toBeNull();
+      expect(school.receivableGroups.flatMap((group) => group.lifecycleTransitions)).toEqual(expect.arrayContaining(school.receivableGroups.map((group) => expect.objectContaining({ schoolId: school.id, receivableGroupId: group.id, previousStatus: null, status: 'ACTIVE', actorIdentityId: school.initialOwnerIdentity!.id, membershipId: membership.id, sequence: 1 }))));
     } finally {
       await prisma.$disconnect();
     }
@@ -109,15 +113,36 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
       expect(voHuong.assignments).toEqual([expect.objectContaining({ effectiveFrom: new Date('2026-08-01T00:00:00.000Z'), effectiveTo: null, reason: 'PeakLand development seed', className: 'Archimedes' })]);
       const hana = school.staffProfiles.find((staff) => staff.staffCode === 'KSC-2023-2688-795757')!;
       expect(hana.assignments).toHaveLength(7);
-      expect(school.staffProfiles.filter((staff) => staff.primaryPosition.code !== 'GIAO_VIEN').flatMap((staff) => staff.assignments)).toHaveLength(0);
-      for (const staff of school.staffProfiles) expect(staff.issuedCodes).toEqual([expect.objectContaining({ schoolId: school.id, staffId: staff.id, staffCode: staff.staffCode })]);
-      await execFileAsync('pnpm', ['exec', 'tsx', 'prisma/seed.ts'], {
+       expect(school.staffProfiles.filter((staff) => staff.primaryPosition.code !== 'GIAO_VIEN').flatMap((staff) => staff.assignments)).toHaveLength(0);
+       for (const staff of school.staffProfiles) expect(staff.issuedCodes).toEqual([expect.objectContaining({ schoolId: school.id, staffId: staff.id, staffCode: staff.staffCode })]);
+       const defaultGroupsBefore = await prisma.receivableGroup.findMany({
+         where: { schoolId: school.id },
+         include: { lifecycleTransitions: true },
+         orderBy: { name: 'asc' },
+       });
+       const defaultOperationBefore = await prisma.operation.findFirstOrThrow({
+         where: { schoolId: school.id, route: 'development-seed/default-receivable-groups', idempotencyKey: '4e1a3ac3-659a-4c01-a567-51b06f8b2feb' },
+       });
+       await execFileAsync('pnpm', ['exec', 'tsx', 'prisma/seed.ts'], {
         cwd: process.cwd(),
         env: { ...process.env, DATABASE_URL: databaseUrl!, NODE_ENV: 'development', PRISMA_SEED: 'true' },
       });
       expect(await prisma.staffProfile.count({ where: { schoolId: school.id, staffCode: { not: null } } })).toBe(31);
       expect(await prisma.staffCodeRegistry.count({ where: { schoolId: school.id } })).toBe(31);
       expect(await prisma.staffClassAssignment.count({ where: { schoolId: school.id, schoolYearId: school.schoolYears[0]!.id } })).toBe(28);
+       expect(await prisma.receivableGroup.count({ where: { schoolId: school.id } })).toBe(3);
+       expect(await prisma.receivableGroupLifecycleTransition.count({ where: { schoolId: school.id } })).toBe(3);
+       const defaultGroupsAfter = await prisma.receivableGroup.findMany({
+         where: { schoolId: school.id },
+         include: { lifecycleTransitions: true },
+         orderBy: { name: 'asc' },
+       });
+       const defaultOperationAfter = await prisma.operation.findFirstOrThrow({
+         where: { schoolId: school.id, route: 'development-seed/default-receivable-groups', idempotencyKey: '4e1a3ac3-659a-4c01-a567-51b06f8b2feb' },
+       });
+       const ownerMembership = await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: school.id, userIdentityId: school.initialOwnerIdentityId! } });
+       expect(defaultGroupsAfter.map((group) => ({ id: group.id, name: group.name, transitions: group.lifecycleTransitions.map((transition) => ({ id: transition.id, operationId: transition.operationId, actorIdentityId: transition.actorIdentityId, membershipId: transition.membershipId })) }))).toEqual(defaultGroupsBefore.map((group) => ({ id: group.id, name: group.name, transitions: group.lifecycleTransitions.map((transition) => ({ id: transition.id, operationId: transition.operationId, actorIdentityId: transition.actorIdentityId, membershipId: transition.membershipId })) })));
+       expect(defaultOperationAfter).toMatchObject({ id: defaultOperationBefore.id, status: 'COMPLETED', schoolId: school.id, actorType: 'SCHOOL_MEMBERSHIP', actorIdentityId: school.initialOwnerIdentityId, membershipId: ownerMembership.id, actorReference: ownerMembership.id, fingerprint: 'peakland-default-receivable-groups-v1' });
     } finally {
       await prisma.$disconnect();
     }

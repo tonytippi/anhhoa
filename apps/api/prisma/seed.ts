@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { assertDevelopmentEnvironment as assertDevelopment } from '../scripts/development-environment.js';
+import { defaultReceivableGroupNames, developmentSeedDefaultReceivableGroupsFingerprint, developmentSeedDefaultReceivableGroupsKey, developmentSeedDefaultReceivableGroupsRoute } from '../src/modules/finance/default-receivable-groups.js';
 
 const peakLand = {
   name: 'Mầm Non Giáo dục Đỉnh Cao - PeakLand Preschool',
@@ -328,6 +329,25 @@ export async function seed(): Promise<void> {
           address: 'Chưa cập nhật',
         },
       });
+      const defaultGroupOperations = await tx.operation.findMany({ where: { schoolId: school.id, route: developmentSeedDefaultReceivableGroupsRoute, idempotencyKey: developmentSeedDefaultReceivableGroupsKey } });
+      const defaultGroups = await tx.receivableGroup.findMany({ where: { schoolId: school.id, name: { in: [...defaultReceivableGroupNames] } }, include: { lifecycleTransitions: true } });
+      if (defaultGroupOperations.length === 0 && defaultGroups.length === 0) {
+        const defaultGroupOperation = await tx.operation.create({ data: { schoolId: school.id, membershipId: membership.id, actorIdentityId: owner.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membership.id, route: developmentSeedDefaultReceivableGroupsRoute, fingerprint: developmentSeedDefaultReceivableGroupsFingerprint, idempotencyKey: developmentSeedDefaultReceivableGroupsKey, status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
+        for (const name of defaultReceivableGroupNames) {
+          const group = await tx.receivableGroup.create({ data: { schoolId: school.id, name } });
+          await tx.receivableGroupLifecycleTransition.create({ data: { schoolId: school.id, receivableGroupId: group.id, status: 'ACTIVE', actorIdentityId: owner.id, membershipId: membership.id, operationId: defaultGroupOperation.id, sequence: 1 } });
+        }
+      } else {
+        const [defaultGroupOperation] = defaultGroupOperations;
+        const validOperation = defaultGroupOperations.length === 1 && defaultGroupOperation?.actorType === 'SCHOOL_MEMBERSHIP' && defaultGroupOperation.actorReference === membership.id && defaultGroupOperation.membershipId === membership.id && defaultGroupOperation.actorIdentityId === owner.id && defaultGroupOperation.fingerprint === developmentSeedDefaultReceivableGroupsFingerprint;
+        const validGroups = defaultGroups.length === defaultReceivableGroupNames.length && defaultReceivableGroupNames.every((name) => defaultGroups.some((group) => group.name === name && group.lifecycleTransitions.length === 1 && group.lifecycleTransitions[0]?.previousStatus === null && group.lifecycleTransitions[0]?.status === 'ACTIVE' && group.lifecycleTransitions[0]?.actorIdentityId === owner.id && group.lifecycleTransitions[0]?.membershipId === membership.id && group.lifecycleTransitions[0]?.operationId === defaultGroupOperation?.id && group.lifecycleTransitions[0]?.sequence === 1));
+        if (!validOperation || !validGroups || !defaultGroupOperation) throw new Error('Nhóm khoản thu mặc định PeakLand không đúng provenance; hãy reset development database trước khi seed lại.');
+        if (defaultGroupOperation.status === 'PENDING') {
+          await tx.operation.update({ where: { id: defaultGroupOperation.id }, data: { status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
+        } else if (defaultGroupOperation.status !== 'COMPLETED') {
+          throw new Error('Nhóm khoản thu mặc định PeakLand có Operation không thể hoàn tất an toàn; hãy reset development database trước khi seed lại.');
+        }
+      }
       if (school.studentCodeSequence < roster.length) {
         await tx.school.update({ where: { id: school.id }, data: { studentCodeSequence: roster.length } });
       }
