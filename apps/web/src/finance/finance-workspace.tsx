@@ -1537,17 +1537,19 @@ export function FinanceWorkspace({
         </div>
       )}
       {catalogDialog === "receivable" && (
-        <div ref={catalogDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-receivable-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), resetReceivable)}>
-          <form onSubmit={saveReceivable}>
-            <h3 id="finance-receivable-title">Thêm khoản thu</h3><p>Khoản thu mới chỉ dùng được sau khi máy chủ xác nhận trong đúng Trường.</p>
-            <label>Nhóm<select value={receivable.groupId} onChange={(event) => setReceivable({ ...receivable, groupId: event.target.value })} {...field("receivable", "groupId")}><option value="">Chọn nhóm</option>{(catalog?.groups ?? []).filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label>Mã khoản thu<input value={receivable.code} onChange={(event) => setReceivable({ ...receivable, code: event.target.value })} /></label>
-            <label>Tên khoản thu<input value={receivable.displayName} onChange={(event) => setReceivable({ ...receivable, displayName: event.target.value })} {...field("receivable", "displayName")} /></label>
-            <label>Đơn vị<input value={receivable.unitLabel} onChange={(event) => setReceivable({ ...receivable, unitLabel: event.target.value })} {...field("receivable", "unitLabel")} /></label>
-            <label>Đơn giá mặc định (VND)<input inputMode="numeric" value={receivable.defaultUnitPrice} onChange={(event) => setReceivable({ ...receivable, defaultUnitPrice: event.target.value })} {...field("receivable", "defaultUnitPrice")} /></label>
-            {scope === "receivable" && Object.entries(errors).map(([name, error]) => <small key={name} id={`receivable-${name}-error`}>{error}</small>)}
-            <button disabled={Boolean(pending)}>Lưu khoản thu</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), resetReceivable)}>Hủy</button>
-          </form>
+        <div className="dialog-backdrop">
+          <div ref={catalogDialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="finance-receivable-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), resetReceivable)}>
+            <form onSubmit={saveReceivable}>
+              <h3 id="finance-receivable-title">Thêm khoản thu</h3><p>Khoản thu mới chỉ dùng được sau khi máy chủ xác nhận trong đúng Trường.</p>
+              <label>Nhóm<select value={receivable.groupId} onChange={(event) => setReceivable({ ...receivable, groupId: event.target.value })} {...field("receivable", "groupId")}><option value="">Chọn nhóm</option>{(catalog?.groups ?? []).filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label>Mã khoản thu<input value={receivable.code} onChange={(event) => setReceivable({ ...receivable, code: event.target.value })} /></label>
+              <label>Tên khoản thu<input value={receivable.displayName} onChange={(event) => setReceivable({ ...receivable, displayName: event.target.value })} {...field("receivable", "displayName")} /></label>
+              <label>Đơn vị<input value={receivable.unitLabel} onChange={(event) => setReceivable({ ...receivable, unitLabel: event.target.value })} {...field("receivable", "unitLabel")} /></label>
+              <label>Đơn giá mặc định (VND)<input inputMode="numeric" value={receivable.defaultUnitPrice} onChange={(event) => setReceivable({ ...receivable, defaultUnitPrice: event.target.value })} {...field("receivable", "defaultUnitPrice")} /></label>
+              {scope === "receivable" && Object.entries(errors).map(([name, error]) => <small key={name} id={`receivable-${name}-error`}>{error}</small>)}
+              <button disabled={Boolean(pending)}>Lưu khoản thu</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), resetReceivable)}>Hủy</button>
+            </form>
+          </div>
         </div>
       )}
       {catalogDialog === "group" && (

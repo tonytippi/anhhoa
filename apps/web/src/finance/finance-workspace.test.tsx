@@ -186,6 +186,51 @@ describe("FinanceWorkspace", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thêm khoản thu" })).toBeNull());
     expect(document.activeElement).toBe(trigger);
   });
+  it("shows the receivable form in the managed modal and keeps its focus and dismissal lifecycle", async () => {
+    const groups = [{ id: "group", name: "Học tập", status: "ACTIVE" as const }];
+    const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: { id: "receivable" } }) : response({ groups, receivables: [] })));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    const trigger = await screen.findByRole("button", { name: "Thêm khoản thu" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
+    expect(dialog.classList.contains("dialog")).toBe(true);
+    expect(dialog.parentElement?.classList.contains("dialog-backdrop")).toBe(true);
+    expect(document.activeElement).toBe(within(dialog).getByLabelText("Nhóm"));
+
+    const cancel = within(dialog).getByRole("button", { name: "Hủy" });
+    cancel.focus();
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(within(dialog).getByLabelText("Nhóm"));
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(cancel);
+
+    fireEvent.change(within(dialog).getByLabelText("Tên khoản thu"), { target: { value: "Tạm" } });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Thêm khoản thu" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(fetch.mock.calls.some(([, options]) => (options as RequestInit | undefined)?.method === "POST")).toBe(false);
+
+    fireEvent.click(trigger);
+    expect(screen.getByLabelText("Tên khoản thu")).toHaveProperty("value", "");
+    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    expect(screen.queryByRole("dialog", { name: "Thêm khoản thu" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+  it("keeps receivable server validation accessible inside the modal", async () => {
+    const groups = [{ id: "group", name: "Học tập", status: "ACTIVE" as const }];
+    vi.stubGlobal("fetch", vi.fn((_url: string, options?: RequestInit) => Promise.resolve(
+      options?.method === "POST"
+        ? new Response(JSON.stringify({ error: { message: "Tên khoản thu không hợp lệ.", fieldErrors: { displayName: "Tên khoản thu đã tồn tại." } } }), { status: 400 })
+        : response({ groups, receivables: [] }),
+    )));
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm khoản thu" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu" }));
+    expect(await within(dialog).findByText("Tên khoản thu đã tồn tại.")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Tên khoản thu").getAttribute("aria-describedby")).toBe("invoice-receivable-displayName-error");
+  });
   it("shows the group list in its own dialog and opens creation from its top action", async () => {
     const groups = [{ id: "group", name: "Học tập", status: "ACTIVE" as const }];
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: { id: "new-group" } }) : response({ groups, receivables: [] })));
