@@ -212,9 +212,13 @@ function ParentWorkspace({
   const [phoneErrors, setPhoneErrors] = useState<Record<string, string>>({});
   const [phoneOperation, setPhoneOperation] = useState<string>();
   const [contactOpen, setContactOpen] = useState(false);
+  const [mobileNavigation, setMobileNavigation] = useState(
+    () => window.matchMedia?.("(max-width: 920px)").matches ?? false,
+  );
   const leaveErrorSummary = useRef<HTMLParagraphElement>(null);
   const phoneErrorSummary = useRef<HTMLParagraphElement>(null);
   const cancelTrigger = useRef<HTMLButtonElement>(null);
+  const cancelDialog = useRef<HTMLDivElement>(null);
   const workspaceLoad = useRef<AbortController | undefined>(undefined);
   const attendanceRequest = useRef<AbortController | undefined>(undefined);
   const journalRequest = useRef<AbortController | undefined>(undefined);
@@ -531,10 +535,44 @@ function ParentWorkspace({
   useEffect(() => {
     if (Object.keys(phoneErrors).length) phoneErrorSummary.current?.focus();
   }, [phoneErrors]);
+  useEffect(() => {
+    const query = window.matchMedia?.("(max-width: 920px)");
+    if (!query) return;
+    const update = () => setMobileNavigation(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const closeCancel = () => {
     setConfirmCancel(undefined);
     queueMicrotask(() => cancelTrigger.current?.focus());
   };
+  useEffect(() => {
+    if (!confirmCancel) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !leaveOperation) {
+        event.preventDefault();
+        closeCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...(cancelDialog.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      ) ?? [])];
+      if (!focusable.length) return;
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [confirmCancel, leaveOperation]);
   const submitLeave = async () => {
     if (!selected || !leaveForm || leaveOperation) return;
     const operationId = crypto.randomUUID();
@@ -969,6 +1007,7 @@ function ParentWorkspace({
                 ))}
                 {confirmCancel && (
                   <div
+                    ref={cancelDialog}
                     className="leave-confirm"
                     role="dialog"
                     aria-modal="true"
@@ -1050,6 +1089,12 @@ function ParentWorkspace({
           )}
         </section>
       </main>
+      {mobileNavigation && <nav className="mobile-nav" aria-label="Điều hướng phụ huynh">
+        <button className={view === "today" ? "active" : ""} onClick={() => navigate("today")}>Hôm nay</button>
+        <button className={view === "inbox" ? "active" : ""} onClick={() => navigate("inbox")}>Thông báo{unread > 0 ? ` (${unread})` : ""}</button>
+        <button className={view === "obligations" ? "active" : ""} onClick={() => navigate("obligations")}>Khoản cần thanh toán</button>
+        <button className={contactOpen ? "active" : ""} onClick={() => setContactOpen(true)}>Liên hệ</button>
+      </nav>}
     </div>
   );
 }

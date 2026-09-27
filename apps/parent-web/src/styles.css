@@ -29,6 +29,7 @@ button {
 }
 button:focus-visible,
 a:focus-visible,
+input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: 3px solid color-mix(in oklch, var(--accent) 42%, var(--surface));
@@ -285,7 +286,7 @@ select {
   border-bottom: 1px solid var(--border);
 }
 .text-button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 6px 0;
   border: 0;
   background: transparent;
@@ -702,7 +703,7 @@ textarea {
     left: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     padding: 7px 6px max(7px, env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     background: color-mix(in oklch, var(--surface) 94%, transparent);

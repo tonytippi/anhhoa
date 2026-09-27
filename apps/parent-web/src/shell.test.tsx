@@ -57,6 +57,18 @@ describe('ParentShell', () => {
     expect(fetch.mock.calls.some(([input]) => String(input).includes('/daily-journal-media/'))).toBe(false);
   });
 
+  it('renders the reviewed four-item mobile navigation and opens only the existing contact sheet', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => parentResponse(session, input)));
+    render(<ParentShell />);
+    const navigation = await screen.findByRole('navigation', { name: 'Điều hướng phụ huynh' });
+    expect(navigation.querySelectorAll('button')).toHaveLength(4);
+    expect(screen.getAllByRole('button', { name: 'Hôm nay' }).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Liên hệ' }).at(-1)!);
+    expect(await screen.findByRole('heading', { name: 'Thông tin liên hệ' })).toBeTruthy();
+  });
+
   it('shows the read-only obligation snapshot with distinct issued and outstanding values', async () => {
     const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
     vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => parentResponse(session, input)));

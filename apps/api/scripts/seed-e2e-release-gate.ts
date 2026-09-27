@@ -468,6 +468,66 @@ try {
             membershipId: adminMembershipId,
           },
         });
+        if (index === 0) {
+          const journalDate = new Date(
+            new Intl.DateTimeFormat("en-CA", {
+              timeZone: "Asia/Ho_Chi_Minh",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+            }).format(new Date()) + "T00:00:00.000Z",
+          );
+          const journal = await tx.dailyJournal.create({
+            data: {
+              schoolId: school.id,
+              classId: classroom.id,
+              studentId: student.id,
+              enrollmentIdSnapshot: enrollment.id,
+              journalDate,
+              text: "Nhận xét Release Gate có ảnh bảo vệ.",
+              policyEffectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
+              actorIdentityId: teacher.id,
+              membershipId: teacherMembership.id,
+              staffProfileId: teacherStaff.id,
+            },
+          });
+          const version = await tx.dailyJournalVersion.create({
+            data: {
+              schoolId: school.id,
+              dailyJournalId: journal.id,
+              version: 1,
+              text: journal.text,
+              policyEffectiveFrom: journal.policyEffectiveFrom,
+              actorIdentityId: teacher.id,
+              membershipId: teacherMembership.id,
+              staffProfileId: teacherStaff.id,
+            },
+          });
+          const media = await tx.dailyJournalMedia.create({
+            data: {
+              schoolId: school.id,
+              classId: classroom.id,
+              studentId: student.id,
+              journalDate,
+              contentType: "image/png",
+              blob: Buffer.from(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLk5wAAAABJRU5ErkJggg==",
+                "base64",
+              ),
+              uploadedByMembershipId: teacherMembership.id,
+              uploadedByStaffProfileId: teacherStaff.id,
+              policyEffectiveFrom: journal.policyEffectiveFrom,
+              attachedDailyJournalId: journal.id,
+            },
+          });
+          await tx.dailyJournalVersionMedia.create({
+            data: {
+              schoolId: school.id,
+              dailyJournalVersionId: version.id,
+              mediaId: media.id,
+            },
+          });
+        }
         if (index === 0)
           await tx.notificationSourceEvent.create({
             data: {
