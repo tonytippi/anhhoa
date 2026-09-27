@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { LeaveReviewWorkspace } from "./attendance/leave-review-workspace";
 import { FinanceWorkspace, type FinancePage } from "./finance/finance-workspace";
@@ -39,6 +39,19 @@ const allowedPages = (context: Context): View[] => {
   return result;
 };
 
+type NavigationIconName = "overview" | "roster" | "settings" | "leave-review" | "finance";
+
+function NavigationIcon({ name }: { name: NavigationIconName }) {
+  const paths = {
+    overview: <><path d="M3 11.5 12 4l9 7.5v8.25a.75.75 0 0 1-.75.75H15v-6H9v6H3.75a.75.75 0 0 1-.75-.75Z" /><path d="M9 20.5v-6h6v6" /></>,
+    roster: <><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.7-3.1 2.6-4.75 5.5-4.75s4.8 1.65 5.5 4.75M16 8h4M18 6v4M15.5 16.5c2.7.2 4.3 1.37 5 3.5" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.08 2.08-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.07h-2.94v-.07a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.08-2.08.06-.06A1.7 1.7 0 0 0 7.16 15a1.7 1.7 0 0 0-1.56-1.03h-.07v-2.94h.07A1.7 1.7 0 0 0 7.16 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.08-2.08.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.07h2.94v.07A1.7 1.7 0 0 0 15.78 6.4a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.08 2.08-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.56 1.03h.07v2.94h-.07A1.7 1.7 0 0 0 19.4 15Z" /></>,
+    "leave-review": <><path d="M5 3.5h11l3 3V20a.75.75 0 0 1-.75.75h-13.5A.75.75 0 0 1 4 20V4.5a1 1 0 0 1 1-1Z" /><path d="M8 12.5 10.5 15 16 9.5M8 6.5h7" /></>,
+    finance: <><path d="M4 6.5h16v11H4zM4 10h16M7.5 14h3" /><circle cx="16.5" cy="14" r="1" /></>,
+  } satisfies Record<NavigationIconName, ReactNode>;
+  return <svg className="school-context-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+
 export function SchoolContext({ clear, userIdentityId }: { clear: () => void; userIdentityId: string }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -46,6 +59,8 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
   const [context, setContext] = useState<Context>();
   const [view, setView] = useState<View>("overview");
   const [expanded, setExpanded] = useState<Record<"roster" | "settings" | "finance", boolean>>({ roster: true, settings: false, finance: false });
+  const [railGroup, setRailGroup] = useState<"roster" | "settings" | "finance">();
+  const [isRail, setIsRail] = useState(() => typeof window !== "undefined" && window.matchMedia?.("(min-width: 768px) and (max-width: 1023px)").matches);
   const [rosterStatus, setRosterStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
   const [settingsStatus, setSettingsStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
   const [leaveReviewStatus, setLeaveReviewStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
@@ -62,6 +77,8 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
   const statuses = useRef([rosterStatus, settingsStatus, leaveReviewStatus, financeStatus]);
   const heading = useRef<HTMLHeadingElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  const navigation = useRef<HTMLElement>(null);
+  const railBlurTimer = useRef<number | undefined>(undefined);
   statuses.current = [rosterStatus, settingsStatus, leaveReviewStatus, financeStatus];
 
   const unresolved = () => statuses.current.some((status) => status.dirty || status.pending);
@@ -178,6 +195,18 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     return () => { mounted.current = false; };
   }, [userIdentityId]);
   useEffect(() => {
+    if (!window.matchMedia) return;
+    const query = window.matchMedia("(min-width: 768px) and (max-width: 1023px)");
+    const update = () => { setIsRail(query.matches); if (!query.matches) setRailGroup(undefined); };
+    update();
+    if (query.addEventListener) {
+      query.addEventListener("change", update);
+      return () => query.removeEventListener("change", update);
+    }
+    query.addListener(update);
+    return () => query.removeListener(update);
+  }, []);
+  useEffect(() => {
     const refreshAuthorizedSchools = () => {
       if (!hasPending()) void refreshChooser(false).catch((cause: Error) => setError(cause.message));
     };
@@ -239,18 +268,35 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     if (current) navigate(pathFor(current), { replace: true });
   };
   const reconcile = () => statuses.current.filter((status) => status.pending).forEach((status) => status.reconcile?.());
+  const toggleGroup = (group: "roster" | "settings" | "finance") => {
+    if (isRail) {
+      if (railBlurTimer.current) window.clearTimeout(railBlurTimer.current);
+      setRailGroup(group);
+    }
+    else setExpanded((current) => ({ ...current, [group]: !current[group] }));
+  };
+  const groupExpanded = (group: "roster" | "settings" | "finance") => isRail ? railGroup === group : expanded[group];
+  const closeRailOnBlur = () => {
+    if (railBlurTimer.current) window.clearTimeout(railBlurTimer.current);
+    railBlurTimer.current = window.setTimeout(() => {
+    if (isRail && !navigation.current?.contains(document.activeElement)) setRailGroup(undefined);
+    }, 0);
+  };
+  const selectPage = (page: View) => {
+    if (isRail) setRailGroup(undefined);
+    requestDestination({ schoolSlug: context!.schoolSlug, page });
+  };
 
   if (!schools) return <section className="school-context school-context-loading" aria-live="polite"><p role={error ? "alert" : undefined}>{error || "Đang tải ngữ cảnh trường..."}</p>{error && <button type="button" onClick={retryRoute}>Thử lại</button>}</section>;
   if (!schools.length) return <section className="school-context school-context-empty"><p className="school-context-kicker">NGỮ CẢNH TRƯỜNG</p><h1>Chưa có trường được cấp quyền</h1><p>Không có trường nào đang cấp quyền cho tài khoản này.</p></section>;
   return <section className="school-context">
     {(schools.length > 1 || showChooser) && <div className="school-context-switcher"><label className="school-context-label"><span>Chọn trường</span><select aria-label="Chọn trường" value={context?.schoolId ?? ""} disabled={hasPending()} onChange={(event) => { const school = schools.find((item) => item.schoolId === event.target.value); if (school) requestDestination({ schoolSlug: school.schoolSlug, page: "overview" }); }}><option value="" disabled>Chọn trường</option>{schools.map((school) => <option key={school.schoolId} value={school.schoolId}>{school.schoolName}</option>)}</select></label>{!context && <p className="school-context-hint">Chọn một trường để bắt đầu công việc.</p>}</div>}
     {error && <p className="school-context-error" role="alert">{error} <button type="button" onClick={retryRoute}>Thử lại</button></p>}
-    {context && <><header className="school-context-heading"><p className="school-context-kicker">NGỮ CẢNH ĐANG LÀM VIỆC</p><h1 ref={heading} tabIndex={-1}>PassionEdu - {context.schoolName}</h1></header><nav className="school-context-navigation" aria-label="Điều hướng quản trị và nhân sự">
-      {allowedPages(context).includes("overview") && <button type="button" className="school-context-nav-item school-context-nav-overview" aria-current={view === "overview" ? "page" : undefined} onClick={() => requestDestination({ schoolSlug: context.schoolSlug, page: "overview" })}>Tổng quan</button>}
-      {context.navigation.filter((item) => item.id === "leave-review").filter((item) => allowedPages(context).includes(item.id as View)).map((item) => <button type="button" key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onClick={() => requestDestination({ schoolSlug: context.schoolSlug, page: item.id as View })}>{item.label}</button>)}
-      {allowedPages(context).some((page) => ["students", "parents", "staff", "classes"].includes(page)) && <section className="school-context-nav-group school-context-nav-roster"><button type="button" className="school-context-nav-group-toggle" aria-controls="roster-submenu" aria-expanded={expanded.roster} onClick={() => setExpanded((value) => ({ ...value, roster: !value.roster }))}>Danh bộ</button>{expanded.roster && <div id="roster-submenu" className="school-context-nav-submenu">{([['students', 'Học sinh'], ['parents', 'Phụ huynh'], ['staff', 'Nhân viên'], ['classes', 'Lớp học']] as const).filter(([page]) => allowedPages(context).includes(page)).map(([page, label]) => <button type="button" key={page} aria-current={view === page ? "page" : undefined} onClick={() => requestDestination({ schoolSlug: context.schoolSlug, page })}>{label}</button>)}</div>}</section>}
-      {allowedPages(context).some((page) => ["years", "positions", "settings"].includes(page)) && <section className="school-context-nav-group school-context-nav-settings"><button type="button" className="school-context-nav-group-toggle" aria-controls="settings-submenu" aria-expanded={expanded.settings} onClick={() => setExpanded((value) => ({ ...value, settings: !value.settings }))}>Cấu hình trường</button>{expanded.settings && <div id="settings-submenu">{([['years', 'Năm học'], ['positions', 'Chức danh & capability'], ['settings', 'Chính sách trường']] as const).filter(([page]) => allowedPages(context).includes(page)).map(([page, label]) => <button type="button" key={page} aria-current={view === page ? "page" : undefined} onClick={() => requestDestination({ schoolSlug: context.schoolSlug, page })}>{label}</button>)}</div>}</section>}
-        {allowedPages(context).some((page) => ["receivables", "promotions", "collection-runs", "receipt-queue", "finance-reports"].includes(page)) && <section className="school-context-nav-group school-context-nav-finance"><button type="button" className="school-context-nav-group-toggle" aria-controls="finance-submenu" aria-expanded={expanded.finance} onClick={() => setExpanded((value) => ({ ...value, finance: !value.finance }))}>Tài chính</button>{expanded.finance && <div id="finance-submenu" className="school-context-nav-submenu">{context.navigation.filter((item) => item.id === "receivables" || item.id === "promotions" || item.id === "collection-runs" || item.id === "receipt-queue" || item.id === "finance-reports").filter((item) => allowedPages(context).includes(item.id as View)).map((item) => <button type="button" key={item.id} aria-current={view === item.id ? "page" : undefined} onClick={() => requestDestination({ schoolSlug: context.schoolSlug, page: item.id as View })}>{item.label}</button>)}</div>}</section>}</nav>
+    {context && <><header className="school-context-heading"><p className="school-context-kicker">NGỮ CẢNH ĐANG LÀM VIỆC</p><h1 ref={heading} tabIndex={-1}>PassionEdu - {context.schoolName}</h1></header><nav ref={navigation} className="school-context-navigation" aria-label="Điều hướng quản trị và nhân sự" onKeyDown={(event) => { if (event.key === "Escape" && isRail) { const trigger = event.currentTarget.querySelector<HTMLButtonElement>('[aria-expanded="true"]'); const restoreFocus = Boolean(trigger?.nextElementSibling?.contains(document.activeElement)); setRailGroup(undefined); if (restoreFocus && trigger) trigger.focus(); } }} onBlur={closeRailOnBlur}>
+      {allowedPages(context).includes("overview") && <button type="button" data-tooltip="Tổng quan" className="school-context-nav-item school-context-nav-overview" aria-current={view === "overview" ? "page" : undefined} onFocus={() => { if (isRail) setRailGroup(undefined); }} onClick={() => selectPage("overview")}><NavigationIcon name="overview" /><span className="school-context-nav-label">Tổng quan</span></button>}
+      {context.navigation.filter((item) => item.id === "leave-review").filter((item) => allowedPages(context).includes(item.id as View)).map((item) => <button type="button" data-tooltip={item.label} key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onFocus={() => { if (isRail) setRailGroup(undefined); }} onClick={() => selectPage(item.id as View)}><NavigationIcon name="leave-review" /><span className="school-context-nav-label">{item.label}</span></button>)}
+      {([['roster', 'Danh bộ', 'roster', [['students', 'Học sinh'], ['parents', 'Phụ huynh'], ['staff', 'Nhân viên'], ['classes', 'Lớp học']]], ['settings', 'Cấu hình trường', 'settings', [['years', 'Năm học'], ['positions', 'Chức danh & capability'], ['settings', 'Chính sách trường']]] ] as const).filter(([, , , items]) => items.some(([page]) => allowedPages(context).includes(page))).map(([group, label, icon, items]) => <section key={group} className={`school-context-nav-group school-context-nav-${group}`}><button type="button" data-tooltip={label} className="school-context-nav-group-toggle" aria-controls={groupExpanded(group) ? `${group}-submenu` : undefined} aria-expanded={groupExpanded(group)} onFocus={() => { if (isRail) toggleGroup(group); }} onClick={() => toggleGroup(group)}><NavigationIcon name={icon} /><span className="school-context-nav-label">{label}</span></button>{groupExpanded(group) && <div id={`${group}-submenu`} className="school-context-nav-submenu">{items.filter(([page]) => allowedPages(context).includes(page)).map(([page, childLabel]) => <button type="button" key={page} aria-current={view === page ? "page" : undefined} onClick={() => selectPage(page)}>{childLabel}</button>)}</div>}</section>)}
+        {allowedPages(context).some((page) => ["receivables", "promotions", "collection-runs", "receipt-queue", "finance-reports"].includes(page)) && <section className="school-context-nav-group school-context-nav-finance"><button type="button" data-tooltip="Tài chính" className="school-context-nav-group-toggle" aria-controls={groupExpanded("finance") ? "finance-submenu" : undefined} aria-expanded={groupExpanded("finance")} onFocus={() => { if (isRail) toggleGroup("finance"); }} onClick={() => toggleGroup("finance")}><NavigationIcon name="finance" /><span className="school-context-nav-label">Tài chính</span></button>{groupExpanded("finance") && <div id="finance-submenu" className="school-context-nav-submenu">{context.navigation.filter((item) => item.id === "receivables" || item.id === "promotions" || item.id === "collection-runs" || item.id === "receipt-queue" || item.id === "finance-reports").filter((item) => allowedPages(context).includes(item.id as View)).map((item) => <button type="button" key={item.id} aria-current={view === item.id ? "page" : undefined} onClick={() => selectPage(item.id as View)}>{item.label}</button>)}</div>}</section>}</nav>
         <div className="school-context-workspace">{view === "overview" && allowedPages(context).includes(view) ? <OverviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} selectedDate={new URLSearchParams(location.search).get("date") ?? undefined} setSelectedDate={(date) => navigate({ pathname: location.pathname, search: date ? `?date=${date}` : "" })} denied={handleWorkspaceDenied} /> : (["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) && allowedPages(context).includes(view) ? <RosterWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateRosterStatus} section={view as "students" | "parents" | "staff" | "classes" | "years" | "positions"} /> : view === "settings" && allowedPages(context).includes(view) ? <SettingsWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateSettingsStatus} /> : view === "leave-review" && allowedPages(context).includes(view) ? <LeaveReviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={setLeaveReviewStatus} /> : (["receivables", "promotions", "collection-runs"] as FinancePage[]).includes(view as FinancePage) && allowedPages(context).includes(view) ? <FinanceWorkspace schoolId={context.schoolId} schoolName={context.schoolName} page={view as FinancePage} denied={handleWorkspaceDenied} onStatusChange={setFinanceStatus} /> : view === "receipt-queue" && allowedPages(context).includes(view) ? <ReceiptQueueWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={setFinanceStatus} /> : view === "finance-reports" && allowedPages(context).includes(view) ? <FinanceReportsWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} /> : null}</div></>}
     {switchTo && <div className="school-switch-backdrop"><div className="school-switch-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="school-switch-title"><h2 id="school-switch-title">Đổi trường?</h2><p>Biểu mẫu đang có nội dung chưa gửi hoặc thao tác đang được đối soát.</p><div className="school-switch-actions"><button className="school-switch-stay" onClick={stay}>Ở lại</button>{hasPending() ? <button className="school-switch-reconcile" onClick={reconcile}>Đối soát thao tác</button> : <button className="school-switch-discard" onClick={() => { const target = switchTo; clearProtectedState(); setSwitchTo(undefined); navigate(pathFor(target)); }}>Bỏ nội dung và đổi trường</button>}</div></div></div>}
   </section>;

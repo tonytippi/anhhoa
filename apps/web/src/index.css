@@ -832,32 +832,7 @@ tbody tr:last-child td {
   color: #fff;
   padding: 12px 16px;
 }
-@media (min-width: 1024px) and (max-width: 1279px) {
-  .sidebar {
-    width: 72px;
-    padding-inline: 12px;
-  }
-  .sidebar-compact {
-    width: 72px;
-  }
-  .sidebar .brand {
-    justify-content: center;
-    padding-inline: 0;
-  }
-  .sidebar .brand > span:last-child,
-  .sidebar .nav-label {
-    display: none;
-  }
-  .sidebar a,
-  .account {
-    justify-content: center;
-    padding: 0;
-  }
-  main {
-    margin-left: 72px;
-  }
-}
-@media (max-width: 1023px) {
+@media (max-width: 767px) {
   .app-shell > .sidebar {
     display: none;
   }
@@ -1125,6 +1100,7 @@ tbody tr:last-child td {
 }
 .school-context-navigation button:hover { background: #eef6f1; color: #18332d; }
 .school-context-navigation button[aria-current="page"] { background: #e4f3ea; color: #155d3b; }
+.school-context-nav-icon { display: none; }
 .school-context-workspace { margin-top: 24px; }
 .school-switch-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; background: rgb(24 51 45 / 45%); padding: 16px; }
 .school-switch-dialog { width: min(100%, 500px); border: 1px solid #d7e2dc; border-radius: 18px; background: #fff; padding: 24px; box-shadow: 0 20px 50px rgb(24 51 45 / 25%); }
@@ -1581,36 +1557,87 @@ tbody tr:last-child td {
   .school-context-nav-settings { margin-top: 16px; }
   .school-context-nav-finance { margin-top: 16px; }
 }
-@media (min-width: 1024px) and (max-width: 1279px) { .admin-main { margin-left: 72px; } }
-@media (min-width: 1024px) and (max-width: 1279px) {
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app-shell > .sidebar { display: flex; width: 72px; padding-inline: 12px; }
+  .admin-main { margin-left: 72px; }
   .admin-sidebar-copy,
   .admin-session-label,
   .admin-sidebar .brand > span:last-child,
   .admin-sidebar .account > span:last-child { display: none; }
   .admin-sidebar .brand,
   .admin-sidebar .account { justify-content: center; padding-inline: 0; }
-  .school-context-navigation { left: 10px; width: 52px; }
-  .school-context-navigation button {
-    justify-content: center;
-    overflow: hidden;
-    padding: 0 6px;
-    font-size: 0;
+  .school-context-navigation {
+    position: fixed;
+    top: 106px;
+    bottom: 104px;
+    left: 10px;
+    z-index: 11;
+    display: grid;
+    align-content: start;
+    width: 52px;
+    gap: 4px;
+    border: 0;
+    padding: 0;
   }
-  .school-context-navigation button::before,
-  .school-context-navigation span::before {
-    color: currentColor;
-    font-size: 17px;
-  }
-  .school-context-navigation button[aria-current="page"]::before { content: "●"; }
-  .school-context-navigation button:not([aria-current="page"])::before { content: "○"; }
-  .school-context-navigation .school-context-nav-group-toggle::before { content: none; }
-  .school-context-navigation .school-context-nav-group-toggle::after { font-size: 17px; }
   .school-context-navigation::before { display: none; }
+  .school-context-navigation button {
+    position: relative;
+    display: grid;
+    min-height: 44px;
+    place-items: center;
+    width: 52px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #526861;
+    padding: 0;
+    font: inherit;
+  }
+  .school-context-navigation button:hover,
+  .school-context-navigation button:focus-visible { background: #eef6f1; color: #18332d; }
+  .school-context-navigation button[aria-current="page"] { background: #e4f3ea; color: #155d3b; }
+  .school-context-nav-icon { display: block; width: 22px; height: 22px; }
+  .school-context-nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .school-context-navigation button[data-tooltip]::after {
+    position: absolute;
+    left: calc(100% + 10px);
+    z-index: 2;
+    width: max-content;
+    max-width: 220px;
+    border-radius: 8px;
+    background: #18332d;
+    color: #fff;
+    content: attr(data-tooltip);
+    opacity: 0;
+    padding: 7px 9px;
+    pointer-events: none;
+    transform: translateX(-4px);
+    transition: opacity 120ms ease-out, transform 120ms ease-out;
+  }
+  .school-context-navigation button[data-tooltip]:hover::after,
+  .school-context-navigation button[data-tooltip]:focus-visible::after { opacity: 1; transform: translateX(0); }
+  .school-context-nav-group { position: relative; display: block; }
+  .school-context-nav-submenu {
+    position: absolute;
+    top: 0;
+    left: calc(100% + 10px);
+    z-index: 1;
+    display: grid;
+    min-width: 200px;
+    gap: 2px;
+    border: 1px solid #d7e2dc;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 10px 24px rgb(24 51 45 / 18%);
+    padding: 6px;
+  }
+  .school-context-nav-submenu button { display: flex; justify-content: start; width: 100%; padding: 0 12px; font-size: 13px; text-align: left; }
+  .school-context-nav-group-toggle::after { content: none; }
   .school-context-nav-roster,
   .school-context-nav-settings,
   .school-context-nav-finance { margin-top: 0; }
 }
-@media (max-width: 1023px) {
+@media (max-width: 767px) {
   .admin-main { margin-left: 0; padding: 24px; }
 }
 @media (max-width: 767px) {

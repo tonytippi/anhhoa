@@ -145,6 +145,38 @@ describe('SchoolContext slug routes', () => {
     expect(screen.queryByRole('button', { name: 'Ưu đãi' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Thu tiền' })).toBeTruthy();
   });
+  it('opens a server-filtered Finance rail flyout and closes it with Escape without changing route', async () => {
+    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }, { id: 'receipt-queue', label: 'Thu tiền' }] };
+    const listener = vi.fn();
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true, addEventListener: listener, removeEventListener: listener }));
+    window.history.replaceState({}, '', '/schools/peakland/receivables');
+    vi.stubGlobal('fetch', rosterFetch([schoolA], new Map([[schoolA.schoolId, finance]]))); renderContext();
+    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
+    const trigger = screen.getByRole('button', { name: 'Tài chính' });
+    fireEvent.focus(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Khoản thu' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: 'Thu tiền' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Ưu đãi' })).toBeNull();
+    fireEvent.keyDown(trigger, { key: 'Escape' });
+    await waitFor(() => expect(trigger.getAttribute('aria-expanded')).toBe('false'));
+    expect(window.location.pathname).toBe('/schools/peakland/receivables');
+  });
+  it('keeps a Finance flyout open after mouse focus and click, then closes it after selecting an authorized child', async () => {
+    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }] };
+    const listener = vi.fn();
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true, addEventListener: listener, removeEventListener: listener }));
+    window.history.replaceState({}, '', '/schools/peakland/receivables');
+    vi.stubGlobal('fetch', rosterFetch([schoolA], new Map([[schoolA.schoolId, finance]]))); renderContext();
+    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
+    const trigger = screen.getByRole('button', { name: 'Tài chính' });
+    fireEvent.focus(trigger);
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Khoản thu' }));
+    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
   it.each(['receivables', 'promotions', 'collection-runs', 'receipt-queue', 'finance-reports'] as const)('does not render an ungranted Finance deep link: %s', async (page) => {
     const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }] };
     window.history.replaceState({}, '', `/schools/peakland/${page}`);
