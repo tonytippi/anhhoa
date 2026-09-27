@@ -61,6 +61,24 @@ describe("FinanceWorkspace", () => {
     expect(screen.getByRole("button", { name: "Thêm chính sách" })).toBeTruthy();
     expect(fetch.mock.calls.some(([url]) => String(url).includes("collection-runs"))).toBe(false);
   });
+  it("groups each finance list action in its responsive toolbar and keeps the run filter behavior", async () => {
+    const fetch = vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [run], meta: { nextCursor: null } }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    const receivablesToolbar = await screen.findByRole("form", { name: "Điều khiển danh sách khoản thu" });
+    expect(receivablesToolbar.querySelectorAll("button")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Thêm khoản thu" }).classList.contains("primary-action")).toBe(true);
+    view.rerender(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
+    const promotionsToolbar = await screen.findByRole("form", { name: "Điều khiển danh sách ưu đãi" });
+    expect(promotionsToolbar.querySelectorAll("button")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Thêm chính sách" }).classList.contains("primary-action")).toBe(true);
+    view.rerender(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    const runsToolbar = await screen.findByRole("form", { name: "Điều khiển danh sách đợt thu" });
+    expect(runsToolbar.contains(screen.getByLabelText("Lọc trạng thái"))).toBe(true);
+    expect(runsToolbar.contains(screen.getByRole("button", { name: "Tạo đợt thu" }))).toBe(true);
+    fireEvent.change(screen.getByLabelText("Lọc trạng thái"), { target: { value: "CLOSED" } });
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("collection-runs?limit=25&status=CLOSED"))).toBe(true));
+  });
   it("uses a named run dialog and only exposes Draft navigation from the captured run order", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }, { id: "invoice-b", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = (id: string, name: string, code: string) => ({ id, status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code, name, className: "Lá 1" }, lines: [] });

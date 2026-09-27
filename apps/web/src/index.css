@@ -1357,12 +1357,21 @@ tbody tr:last-child td {
 .roster-action-menu button { border: 0 !important; background: transparent !important; color: #18332d !important; text-align: left; }
 .roster-action-menu button:hover,
 .roster-action-menu button:focus-visible { background: #eef6f1 !important; }
-.roster-list-filters {
+.roster-list-filters,
+.finance-list-toolbar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   align-items: end;
   gap: 12px;
 }
+.finance-list-toolbar { margin-block: 0 16px; }
+.finance-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.finance-list-toolbar .primary-action { justify-self: stretch; }
+.finance-list-actions .primary-action { flex: 1 1 150px; }
 .roster-workspace-staff .roster-list-filters button { min-height: 42px; }
 @media (max-width: 767px) {
   .staff-list-controls { display: grid; }

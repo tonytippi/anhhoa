@@ -28,11 +28,20 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await page.getByRole('button', { name: 'Khoản thu' }).click();
   await expect(page.getByRole('heading', { name: 'Khoản thu', level: 1 })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const receivablesToolbar = page.getByRole('form', { name: 'Điều khiển danh sách khoản thu' });
+  await expect(receivablesToolbar.getByRole('button', { name: 'Quản lý nhóm' })).toBeInViewport();
+  await expect(receivablesToolbar.getByRole('button', { name: 'Thêm khoản thu' })).toBeInViewport();
   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 1');
   await page.getByRole('button', { name: 'Ưu đãi' }).click();
   await expect(page.getByRole('heading', { name: 'Ưu đãi', level: 1 })).toBeVisible();
+  await expect(page.getByRole('form', { name: 'Điều khiển danh sách ưu đãi' }).getByRole('button', { name: 'Thêm chính sách' })).toBeInViewport();
   await page.getByRole('button', { name: 'Đợt thu' }).click();
   await expect(page.getByRole('heading', { name: 'Đợt thu', level: 1 })).toBeVisible();
+  const runsToolbar = page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' });
+  await expect(runsToolbar.getByLabel('Lọc trạng thái')).toBeInViewport();
+  await expect(runsToolbar.getByRole('button', { name: 'Tạo đợt thu' })).toBeInViewport();
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await page.getByRole('button', { name: 'Tạo đợt thu' }).click();
   const runDialog = page.getByRole('dialog', { name: 'Tạo hoặc mở đợt thu' });
