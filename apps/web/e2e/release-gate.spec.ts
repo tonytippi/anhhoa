@@ -47,7 +47,7 @@ test('deterministic Parent callback redirects to the safe portal state', async (
   await context.close();
 });
 
-test('Parent callback issues a session only for the seeded active links and renders the real chooser', async ({ browser }) => {
+test('Parent callback issues a session only for the seeded active links and renders the School chooser', async ({ browser }) => {
   const context = await browser.newContext();
   await login(context, 'parent');
   const session = await context.request.get(`${api}/api/parent/auth/session`);
@@ -55,9 +55,28 @@ test('Parent callback issues a session only for the seeded active links and rend
   expect((await session.json()).data.schools).toHaveLength(2);
   const page = await context.newPage();
   await page.goto('http://localhost:5174');
+  await expect(page.getByRole('heading', { name: 'Chọn trường để xem' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Release Gate A/ })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /Release Gate B/ })).toHaveCount(1);
+  await page.getByRole('button', { name: /Release Gate B/ }).click();
   await expect(page.getByRole('heading', { name: 'Hôm nay của các con' })).toBeVisible();
-  await expect(page.getByRole('option', { name: 'Release Gate A · Bé An' })).toHaveCount(1);
-  await expect(page.getByRole('option', { name: 'Release Gate B · Bé Bình' })).toHaveCount(1);
+  await expect(page.locator('.selected-school strong')).toHaveText('Release Gate B');
+  await expect(page.getByText('Bé An')).toHaveCount(0);
+  await context.close();
+});
+
+test('Parent foreground denial clears the selected School before the signed-out fallback renders', async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, 'parent');
+  const page = await context.newPage();
+  await page.goto('http://localhost:5174');
+  await page.getByRole('button', { name: /Release Gate A/ }).click();
+  await expect(page.getByText('Bé An')).toBeVisible();
+  await page.route('**/api/parent/auth/session', async (route) => route.fulfill({ status: 401 }));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('link', { name: 'Đăng nhập với Google' })).toBeVisible();
+  await expect(page.getByText('Bé An')).toHaveCount(0);
+  await expect(page.getByText('Release Gate A')).toHaveCount(0);
   await context.close();
 });
 

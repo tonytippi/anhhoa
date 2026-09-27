@@ -46,4 +46,23 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('SchoolPosition HT
     expect(body.data).toEqual([expect.objectContaining({ id: leave.id, studentId: student.id, status: 'PENDING', startsOn: null })]);
     expect(Object.keys(body.data[0]!)).toEqual(['id', 'studentId', 'status', 'startsOn', 'operatingDates', 'createdAt']);
   });
+  it('returns only active Parent School contexts and removes a revoked School on the next request', async () => {
+    const email = `parent-context-${uuid()}@example.com`;
+    const first = await prisma.school.create({ data: { name: 'Parent context A', slug: `parent-context-a-${uuid()}`, studentCodePrefix: 'A' } });
+    const second = await prisma.school.create({ data: { name: 'Parent context B', slug: `parent-context-b-${uuid()}`, studentCodePrefix: 'B' } });
+    schools.push(first.id, second.id);
+    const parent = await prisma.parentProfile.create({ data: { emailNormalized: email, fullName: 'Phụ huynh Context', phone: '0900000014' } }); parentProfiles.push(parent.id);
+    const firstStudent = await prisma.student.create({ data: { schoolId: first.id, studentCode: `A-${uuid()}`, fullName: 'Bé A', dateOfBirth: new Date('2022-01-01T00:00:00.000Z') } });
+    const secondStudent = await prisma.student.create({ data: { schoolId: second.id, studentCode: `B-${uuid()}`, fullName: 'Bé B', dateOfBirth: new Date('2022-01-01T00:00:00.000Z') } });
+    const firstLink = await prisma.studentParent.create({ data: { schoolId: first.id, studentId: firstStudent.id, parentProfileId: parent.id } });
+    await prisma.studentParent.create({ data: { schoolId: second.id, studentId: secondStudent.id, parentProfileId: parent.id } });
+    const session = await login(email, 'parent');
+    const before = await fetch(`${baseUrl}/api/parent/auth/session`, { headers: { cookie: session.session } });
+    expect(before.status).toBe(200);
+    expect((await before.json()).data.schools.map((context: { schoolId: string }) => context.schoolId)).toEqual(expect.arrayContaining([first.id, second.id]));
+    await prisma.studentParent.update({ where: { id: firstLink.id }, data: { status: 'REVOKED', revokedAt: new Date() } });
+    const after = await fetch(`${baseUrl}/api/parent/auth/session`, { headers: { cookie: session.session } });
+    expect(after.status).toBe(200);
+    expect((await after.json()).data.schools).toEqual([{ schoolId: second.id, schoolName: second.name, student: { id: secondStudent.id, fullName: 'Bé B' } }]);
+  });
 });
