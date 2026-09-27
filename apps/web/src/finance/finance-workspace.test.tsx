@@ -182,6 +182,9 @@ describe("FinanceWorkspace", () => {
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     expect((await screen.findAllByText("Con cán bộ / Phiên bản 1")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Thêm chính sách" }));
+    expect(screen.getByRole("dialog", { name: "Thêm chính sách ưu đãi" })).toBeTruthy();
+    expect(document.querySelector(".dialog-backdrop")).toBeTruthy();
+    expect(document.querySelector('[role="dialog"][aria-labelledby="finance-policy-title"] form')).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Hỗ trợ" } });
     fireEvent.click(screen.getByLabelText("Học phí")); fireEvent.click(screen.getByLabelText("Tiền ăn"));
     fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });

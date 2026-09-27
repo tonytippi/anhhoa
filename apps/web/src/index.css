@@ -581,6 +581,41 @@ tbody tr:last-child td {
 .dialog > p {
   margin-bottom: 16px;
 }
+[role="dialog"][aria-labelledby="finance-policy-title"] {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+  border: 1px solid #e4e2d8;
+  border-radius: 14px;
+  background: #fff;
+  padding: 24px;
+  box-shadow: 0 20px 50px rgb(36 38 31 / 25%);
+}
+[role="dialog"][aria-labelledby="finance-policy-title"] form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+[role="dialog"][aria-labelledby="finance-policy-title"] > p {
+  margin-bottom: 16px;
+}
+[role="dialog"][aria-labelledby="finance-policy-title"] h3,
+[role="dialog"][aria-labelledby="finance-policy-title"] p,
+[role="dialog"][aria-labelledby="finance-policy-title"] fieldset,
+[role="dialog"][aria-labelledby="finance-policy-title"] small,
+[role="dialog"][aria-labelledby="finance-policy-title"] form > label:nth-of-type(1),
+[role="dialog"][aria-labelledby="finance-policy-title"] form > label:nth-of-type(2),
+[role="dialog"][aria-labelledby="finance-policy-title"] form > label:nth-of-type(9) {
+  grid-column: 1 / -1;
+}
+[role="dialog"][aria-labelledby="finance-policy-title"] form > button {
+  min-height: 40px;
+}
 .dialog [role="alert"] {
   color: #ad3026;
 }
@@ -916,6 +951,17 @@ tbody tr:last-child td {
     max-height: calc(100vh - 24px);
     overflow-y: auto;
     padding: 20px;
+  }
+  [role="dialog"][aria-labelledby="finance-policy-title"] {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 20px;
+  }
+  [role="dialog"][aria-labelledby="finance-policy-title"] form {
+    grid-template-columns: 1fr;
+  }
+  [role="dialog"][aria-labelledby="finance-policy-title"] form > * {
+    grid-column: 1;
   }
   .row-actions { white-space: normal; }
   .pagination { flex-wrap: wrap; justify-content: flex-start; }
