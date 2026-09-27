@@ -14,6 +14,7 @@ import {
   parentGet,
   parentMedia,
   parentLeaveMutation,
+  parentMutation,
   parentPost,
   type ParentContext,
   type Session,
@@ -60,6 +61,7 @@ type LeaveRequest = {
   operatingDates: string[];
   createdAt: string;
 };
+type PhoneOperation = { id: string; status: string; outcome: { phone: string } };
 const today = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -200,7 +202,13 @@ function ParentWorkspace({
   const [leaveErrors, setLeaveErrors] = useState<Record<string, string>>({});
   const [leaveOperation, setLeaveOperation] = useState<string>();
   const [confirmCancel, setConfirmCancel] = useState<string>();
+  const [phone, setPhone] = useState("");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [phoneErrors, setPhoneErrors] = useState<Record<string, string>>({});
+  const [phoneOperation, setPhoneOperation] = useState<string>();
+  const [contactOpen, setContactOpen] = useState(false);
   const leaveErrorSummary = useRef<HTMLParagraphElement>(null);
+  const phoneErrorSummary = useRef<HTMLParagraphElement>(null);
   const cancelTrigger = useRef<HTMLButtonElement>(null);
   const workspaceLoad = useRef<AbortController | undefined>(undefined);
   const attendanceRequest = useRef<AbortController | undefined>(undefined);
@@ -440,6 +448,12 @@ function ParentWorkspace({
       } else if (result.kind === "error") setError(true);
       finish();
     });
+    void parentGet<{ phone: string }>(`/api/parent/schools/${school.schoolId}/profile`, controller.signal).then((result) => {
+      if (controller.signal.aborted || id !== workspaceGeneration.current || result.kind === "aborted") return;
+      if (result.kind === "auth" || result.kind === "denied") { controller.abort(); return fallback(); }
+      if (result.kind === "ok") { setPhone(result.data.phone); setPhoneInput(result.data.phone); }
+      else if (result.kind === "error") setError(true);
+    });
     return () => {
       controller.abort();
       clearDetail();
@@ -495,6 +509,9 @@ function ParentWorkspace({
   useEffect(() => {
     if (Object.keys(leaveErrors).length) leaveErrorSummary.current?.focus();
   }, [leaveErrors]);
+  useEffect(() => {
+    if (Object.keys(phoneErrors).length) phoneErrorSummary.current?.focus();
+  }, [phoneErrors]);
   const closeCancel = () => {
     setConfirmCancel(undefined);
     queueMicrotask(() => cancelTrigger.current?.focus());
@@ -564,6 +581,24 @@ function ParentWorkspace({
     setLeaveOperation(undefined);
     setError(true);
   };
+  const submitPhone = async () => {
+    if (phoneOperation) return;
+    if (!/^[0-9+() .-]{6,30}$/.test(phoneInput.trim())) {
+      setPhoneErrors({ phone: "Số điện thoại không hợp lệ." });
+      return;
+    }
+    const operationId = crypto.randomUUID();
+    setPhoneOperation(operationId);
+    setPhoneErrors({});
+    const result = await parentMutation<PhoneOperation>(
+      `/api/parent/schools/${school.schoolId}/profile/phone`, "PATCH", { phone: phoneInput }, crypto.randomUUID(), operationId,
+    );
+    if (result.kind === "auth" || result.kind === "denied") return fallback("/");
+    if (result.kind === "validation") { setPhoneErrors(result.fieldErrors); return setPhoneOperation(undefined); }
+    if (result.kind === "ok") { setPhone(result.data.outcome.phone); setPhoneInput(result.data.outcome.phone); setPhoneOperation(undefined); return; }
+    if (result.kind === "unknown") return;
+    setPhoneOperation(undefined); setError(true);
+  };
   useEffect(() => {
     if (!leaveOperation) return;
     const timer = window.setInterval(() => {
@@ -585,6 +620,20 @@ function ParentWorkspace({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [leaveOperation, school.schoolId]);
+  useEffect(() => {
+    if (!phoneOperation) return;
+    const timer = window.setInterval(() => {
+      void parentGet<PhoneOperation>(`/api/parent/schools/${school.schoolId}/operations/${phoneOperation}`).then((result) => {
+        if (result.kind === "auth" || result.kind === "denied") return fallback("/");
+        if (result.kind === "ok" && result.data.status === "COMPLETED") {
+          setPhone(result.data.outcome.phone);
+          setPhoneInput(result.data.outcome.phone);
+          setPhoneOperation(undefined);
+        }
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [phoneOperation, school.schoolId]);
   const openMedia = async (mediaId: string) => {
     clearImage();
     const controller = new AbortController();
@@ -638,6 +687,7 @@ function ParentWorkspace({
           Thông báo {unread > 0 && <span className="unread">{unread}</span>}
         </button>
         <div className="sidebar-account">
+          <button className="text-button" onClick={() => setContactOpen(true)}>Thông tin liên hệ</button>
           <button className="text-button" onClick={onLogout}>
             Đăng xuất
           </button>
@@ -648,11 +698,10 @@ function ParentWorkspace({
           <span className="selected-school">
             Trường đang xem <strong>{school.schoolName}</strong>
           </span>
-          {canSwitch && (
-            <button className="text-button" onClick={onSwitch}>
-              Đổi trường
-            </button>
-          )}
+          <div className="workspace-actions">
+            <button className="text-button" onClick={() => setContactOpen(true)}>Liên hệ</button>
+            {canSwitch && <button className="text-button" disabled={Boolean(phoneOperation)} onClick={onSwitch}>Đổi trường</button>}
+          </div>
         </header>
         <section className="screen">
           <div className="screen-heading">
@@ -675,6 +724,18 @@ function ParentWorkspace({
           </div>
           {error && (
             <p role="alert">Không thể tải cập nhật. Vui lòng thử lại sau.</p>
+          )}
+          {contactOpen && (
+            <section className="panel contact-sheet" aria-label="Cập nhật số điện thoại">
+              <div className="section-heading"><h2>Thông tin liên hệ</h2><button className="text-button" disabled={Boolean(phoneOperation)} onClick={() => { setContactOpen(false); setPhoneInput(phone); setPhoneErrors({}); }}>Đóng</button></div>
+              <form onSubmit={(event) => { event.preventDefault(); void submitPhone(); }}>
+                {Object.keys(phoneErrors).length > 0 && <p ref={phoneErrorSummary} role="alert" tabIndex={-1}>{phoneErrors.phone}</p>}
+                <label>Số điện thoại<input type="tel" value={phoneInput} onChange={(event) => setPhoneInput(event.target.value)} aria-invalid={Boolean(phoneErrors.phone)} aria-describedby={phoneErrors.phone ? "phone-error" : undefined} /></label>
+                {phoneErrors.phone && <p id="phone-error">{phoneErrors.phone}</p>}
+                <p className="form-hint">Số hiện tại: {phone || "Chưa có"}</p>
+                <div><button className="primary-button" disabled={Boolean(phoneOperation)}>{phoneOperation ? "Đang đối soát thao tác..." : "Lưu số điện thoại"}</button><button type="button" className="text-button" disabled={Boolean(phoneOperation)} onClick={() => { setPhoneInput(phone); setPhoneErrors({}); }}>Hủy</button></div>
+              </form>
+            </section>
           )}
           {view === "inbox" ? (
             <>

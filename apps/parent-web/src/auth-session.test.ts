@@ -157,4 +157,11 @@ describe("Parent session safe state", () => {
       ),
     ).resolves.toEqual({ kind: "unknown" });
   });
+  it("uses the existing protected mutation transport for the phone-only PATCH command", async () => {
+    document.cookie = "parent_csrf=csrf-token";
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { id: "operation", status: "COMPLETED", outcome: { phone: "090 123 4567" } } })));
+    vi.stubGlobal("fetch", fetch);
+    await expect(parentMutation("/api/parent/schools/school/profile/phone", "PATCH", { phone: "090 123 4567" }, "key", "operation")).resolves.toMatchObject({ kind: "ok" });
+    expect(fetch).toHaveBeenCalledWith("/api/parent/schools/school/profile/phone", expect.objectContaining({ method: "PATCH", credentials: "include", cache: "no-store", headers: expect.objectContaining({ "idempotency-key": "key", "x-operation-id": "operation", "x-csrf-token": "csrf-token" }) }));
+  });
 });

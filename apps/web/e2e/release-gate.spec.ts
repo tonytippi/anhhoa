@@ -282,6 +282,45 @@ test("Parent reconciles a leave timeout before enabling a new mutation", async (
   await context.close();
 });
 
+test("Parent validates, saves, and reconciles a phone update timeout", async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await page.getByRole("button", { name: "Liên hệ", exact: true }).click();
+  const phone = page.locator('input[type="tel"]');
+  await phone.fill("bad");
+  await page.getByRole("button", { name: "Lưu số điện thoại" }).click();
+  const validation = page.getByRole("alert");
+  await expect(validation).toContainText("Số điện thoại không hợp lệ.");
+  await expect(validation).toBeFocused();
+  await expect(phone).toHaveValue("bad");
+  await phone.fill("090 123 4567");
+  let mutations = 0;
+  let operationReads = 0;
+  await page.route("**/api/parent/schools/*/profile/phone", async (route) => {
+    mutations += 1;
+    await route.fetch();
+    await route.fulfill({ status: 504 });
+  });
+  await page.route("**/api/parent/schools/*/operations/*", async (route) => {
+    operationReads += 1;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: { status: "PENDING", outcome: null } }) });
+  });
+  await page.getByRole("button", { name: "Lưu số điện thoại" }).click();
+  await expect(page.getByRole("button", { name: "Đang đối soát thao tác..." })).toBeDisabled();
+  await expect.poll(() => operationReads).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Thông báo" }).click();
+  await expect(page.getByRole("button", { name: "Đang đối soát thao tác..." })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Đổi trường" })).toBeDisabled();
+  await page.getByRole("button", { name: "Hôm nay" }).click();
+  await page.getByRole("button", { name: "Liên hệ", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Đang đối soát thao tác..." })).toBeDisabled();
+  expect(mutations).toBe(1);
+  await context.close();
+});
+
 test("Parent inbox displays an unread event, resolves it before child navigation, and clears on denied open", async ({
   browser,
 }) => {

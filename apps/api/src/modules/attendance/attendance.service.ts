@@ -19,6 +19,7 @@ const parentEditRoute =
   "PATCH /api/parent/schools/:schoolId/leave-requests/:leaveRequestId";
 const parentCancelRoute =
   "POST /api/parent/schools/:schoolId/leave-requests/:leaveRequestId/cancel";
+const parentPhoneRoute = "PATCH /api/parent/schools/:schoolId/profile/phone";
 const approveRoute =
   "POST /api/app/schools/:schoolId/leave-requests/:leaveRequestId/approve";
 const rejectRoute =
@@ -907,7 +908,7 @@ export class AttendanceService {
         schoolId,
         actorType: "PARENT_PROFILE",
         actorReference: parent.id,
-        route: { in: [parentRoute, parentEditRoute, parentCancelRoute] },
+        route: { in: [parentRoute, parentEditRoute, parentCancelRoute, parentPhoneRoute] },
       },
     });
     const outcome = operation?.outcome as { studentId?: string } | null;
@@ -916,6 +917,8 @@ export class AttendanceService {
         code: "OPERATION_NOT_FOUND",
         message: "Không tìm thấy thao tác.",
       });
+    if (operation.route === parentPhoneRoute && !(await this.prisma.studentParent.findFirst({ where: { schoolId, parentProfileId: parent.id, status: "ACTIVE" } })))
+      throw new NotFoundException({ code: "OPERATION_NOT_FOUND", message: "Không tìm thấy thao tác." });
     if (
       outcome?.studentId &&
       !(await this.prisma.studentParent.findFirst({

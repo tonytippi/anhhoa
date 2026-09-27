@@ -449,6 +449,52 @@ export class ParentsService {
       })),
     };
   }
+  private async authorizedParent(identityId: string, schoolId: string, tx: any = this.prisma) {
+    const parent = await tx.parentProfile.findFirst({ where: { userIdentityId: identityId }, select: { id: true, phone: true } });
+    const active = parent && await tx.studentParent.findFirst({ where: { schoolId, parentProfileId: parent.id, status: "ACTIVE", school: { status: "ACTIVE" } }, select: { id: true } });
+    if (!active) throw new ForbiddenException({ code: "PARENT_ACCESS_DENIED", message: "Không có quyền truy cập." });
+    return parent;
+  }
+  async parentPhone(identityId: string, schoolId: string) {
+    const parent = await this.authorizedParent(identityId, schoolId);
+    return { phone: parent.phone };
+  }
+  async updateParentPhone(identityId: string, schoolId: string, key: string, operationId: string, body: unknown) {
+    if (!uuid.test(key) || !uuid.test(operationId)) throw new UnauthorizedException({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Cần Idempotency-Key và X-Operation-Id UUID." });
+    const input = body as Record<string, unknown>;
+    const phone = typeof input?.phone === "string" ? input.phone.trim() : "";
+    if (!input || Array.isArray(input) || Object.keys(input).length !== 1 || !("phone" in input) || !/^[0-9+() .-]{6,30}$/.test(phone))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { phone: "Số điện thoại không hợp lệ." } });
+    const parent = await this.authorizedParent(identityId, schoolId);
+    const route = "PATCH /api/parent/schools/:schoolId/profile/phone";
+    const fingerprint = requestFingerprint({ phone });
+    const replay = async () => {
+      await this.authorizedParent(identityId, schoolId);
+      const existing = await this.prisma.operation.findFirst({ where: { schoolId, actorType: "PARENT_PROFILE", actorReference: parent.id, route, idempotencyKey: key } });
+      if (!existing) return null;
+      if (existing.fingerprint !== fingerprint) throw new ConflictException({ code: "IDEMPOTENCY_CONFLICT", message: "Idempotency-Key đã dùng cho yêu cầu khác." });
+      return { id: existing.id, status: existing.status, outcome: existing.outcome };
+    };
+    const existing = await replay();
+    if (existing) return existing;
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`;
+        // The profile is global, so serialize its old/new audit sequence across Schools.
+        await tx.$queryRaw`SELECT "id" FROM "ParentProfile" WHERE "id" = ${parent.id}::uuid FOR UPDATE`;
+        const current = await this.authorizedParent(identityId, schoolId, tx);
+        const operation = await tx.operation.create({ data: { id: operationId, schoolId, actorIdentityId: identityId, actorType: "PARENT_PROFILE", actorReference: current.id, route, idempotencyKey: key, fingerprint } });
+        await tx.parentProfile.update({ where: { id: current.id }, data: { phone } });
+        const outcome = { phone };
+        await tx.auditRecord.create({ data: auditData(schoolId, { identityId, type: "PARENT_PROFILE", reference: current.id }, "PARENT_PHONE_UPDATED", { operationId: operation.id, oldPhone: current.phone, newPhone: phone }) });
+        const completed = await tx.operation.update({ where: { id: operation.id }, data: { status: "COMPLETED", outcome } });
+        return { id: completed.id, status: completed.status, outcome: completed.outcome };
+      });
+    } catch (error) {
+      if (isOperationIdempotencyCollision(error)) { const value = await replay(); if (value) return value; }
+      throw error;
+    }
+  }
   private async mutate(
     actor: { membershipId: string },
     identityId: string,

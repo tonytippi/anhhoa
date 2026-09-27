@@ -157,6 +157,11 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--border);
   gap: 16px;
 }
+.workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
 .school-switcher {
   display: grid;
   gap: 3px;
@@ -855,6 +860,15 @@ textarea {
 }
 .leave-panel {
   margin-top: 16px;
+}
+.contact-sheet {
+  margin-bottom: 16px;
+}
+.contact-sheet input {
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 .section-heading {
   display: flex;
