@@ -76,6 +76,17 @@ describe("FinanceWorkspace", () => {
     const emptyCell = await screen.findByText("Chưa có khoản thu.");
     expect(emptyCell.getAttribute("colspan")).toBe("7");
   });
+  it("opens a receivable action menu as an overlay without changing the table row layout", async () => {
+    const catalogWithReceivable = { groups: [{ id: "group", name: "Học tập", status: "ACTIVE" as const }], receivables: [{ id: "receivable", groupId: "group", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE" as const, available: true }] };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(catalogWithReceivable))));
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    const action = await screen.findByRole("button", { name: "Tùy chọn cho Học phí" });
+    fireEvent.click(action);
+    const menu = screen.getByRole("menu");
+    expect(menu.classList.contains("finance-row-menu")).toBe(true);
+    expect(menu.parentElement?.classList.contains("finance-row-actions")).toBe(true);
+    expect(within(menu).getByRole("menuitem", { name: "Ngừng áp dụng" })).toBeTruthy();
+  });
   it("loads promotion data without collection runs", async () => {
     const fetch = vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
