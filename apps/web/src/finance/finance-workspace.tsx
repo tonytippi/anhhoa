@@ -1037,6 +1037,7 @@ export function FinanceWorkspace({
   const invoiceQueueIndex = invoice && invoiceQueue ? invoiceQueue.ids.indexOf(invoice.id) : -1;
   const previousInvoiceId = invoiceQueueIndex > 0 ? invoiceQueue!.ids[invoiceQueueIndex - 1] : undefined;
   const nextInvoiceId = invoiceQueueIndex >= 0 && invoiceQueueIndex < invoiceQueue!.ids.length - 1 ? invoiceQueue!.ids[invoiceQueueIndex + 1] : undefined;
+  const receivableGroupNames = new Map((catalog?.groups ?? []).map((group) => [group.id, group.name]));
 
   return (
     <section aria-labelledby="finance-title" onKeyDownCapture={(event) => {
@@ -1072,39 +1073,43 @@ export function FinanceWorkspace({
             <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetReceivable(); openManagedDialog(event.currentTarget, () => setCatalogDialog("receivable")); }}>Thêm khoản thu</button>
           </div>
         </form>
-        <table>
-          <caption>Khoản thu theo trường</caption>
-          <thead>
-            <tr>
-              <th>Mã</th>
-              <th>Tên</th>
-              <th>Đơn vị</th>
-              <th>Đơn giá VND</th>
-              <th>Trạng thái</th>
-              <th>Tùy chọn</th>
-            </tr>
-          </thead>
-          <tbody>
-            {catalog?.receivables?.length ? (
-              catalog.receivables.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.code ?? ""}</td>
-                  <td>{item.displayName}</td>
-                  <td>{item.unitLabel}</td>
-                  <td style={{ textAlign: "right" }}>{vnd(item.defaultUnitPrice)}</td>
-                  <td>{item.available ? "Đang áp dụng" : "Ngừng áp dụng"}</td>
-                   <td><button ref={rowMenu === `receivable-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.displayName}`} aria-haspopup="menu" aria-expanded={rowMenu === `receivable-${item.id}`} onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setRowMenu(`receivable-${item.id}`); } }} onClick={() => setRowMenu(rowMenu === `receivable-${item.id}` ? undefined : `receivable-${item.id}`)}>...</button>{rowMenu === `receivable-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td>
-                </tr>
-              ))
-            ) : (
+        <div className="table-scroll">
+          <table>
+            <caption>Khoản thu theo trường</caption>
+            <thead>
               <tr>
-                <td colSpan={6}>
-                  {catalog ? "Chưa có khoản thu." : "Đang tải khoản thu."}
-                </td>
+                <th aria-label="Số thứ tự">#</th>
+                <th>Tên khoản thu</th>
+                <th>Mã</th>
+                <th className="money">Giá / đơn vị</th>
+                <th>Nhóm khoản thu</th>
+                <th>Trạng thái</th>
+                <th>Tùy chọn</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {catalog?.receivables?.length ? (
+                catalog.receivables.map((item, index) => (
+                  <tr key={item.id}>
+                    <td>{index + 1}</td>
+                    <td>{item.displayName}</td>
+                    <td>{item.code ?? "-"}</td>
+                    <td className="money">{vnd(item.defaultUnitPrice)} VND / {item.unitLabel}</td>
+                    <td>{receivableGroupNames.get(item.groupId) ?? "-"}</td>
+                    <td>{item.available ? "Đang áp dụng" : "Ngừng áp dụng"}</td>
+                    <td><button ref={rowMenu === `receivable-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.displayName}`} aria-haspopup="menu" aria-expanded={rowMenu === `receivable-${item.id}`} onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setRowMenu(`receivable-${item.id}`); } }} onClick={() => setRowMenu(rowMenu === `receivable-${item.id}` ? undefined : `receivable-${item.id}`)}>...</button>{rowMenu === `receivable-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7}>
+                    {catalog ? "Chưa có khoản thu." : "Đang tải khoản thu."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>}
       {page === "collection-runs" && <section>
         <form className="finance-list-toolbar" aria-label="Điều khiển danh sách đợt thu" onSubmit={(event) => event.preventDefault()}>

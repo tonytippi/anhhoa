@@ -53,6 +53,29 @@ describe("FinanceWorkspace", () => {
     expect(screen.getByRole("button", { name: "Thêm khoản thu" })).toBeTruthy();
     expect(fetch.mock.calls.some(([url]) => String(url).includes("promotion") || String(url).includes("collection-runs"))).toBe(false);
   });
+  it("renders receivable columns from the catalog data without adding derived values", async () => {
+    const catalogWithReceivables = {
+      groups: [{ id: "group-a", name: "Học tập", status: "ACTIVE" as const }, { id: "group-b", name: "Hoạt động", status: "INACTIVE" as const }],
+      receivables: [
+        { id: "receivable-a", groupId: "group-a", code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "1500000", status: "ACTIVE" as const, available: true },
+        { id: "receivable-b", groupId: "missing-group", code: null, displayName: "Dã ngoại", unitLabel: "lần", defaultUnitPrice: "350000", status: "INACTIVE" as const, available: false },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(catalogWithReceivables))));
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    const table = await screen.findByRole("table", { name: "Khoản thu theo trường" });
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["#", "Tên khoản thu", "Mã", "Giá / đơn vị", "Nhóm khoản thu", "Trạng thái", "Tùy chọn"]);
+    const rows = within(table).getAllByRole("row");
+    expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["1", "Học phí", "HP", "1.500.000 VND / tháng", "Học tập", "Đang áp dụng", "..."]);
+    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["2", "Dã ngoại", "-", "350.000 VND / lần", "-", "Ngừng áp dụng", "..."]);
+    expect(table.parentElement?.classList.contains("table-scroll")).toBe(true);
+  });
+  it("spans all receivable columns for an empty catalog", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(catalog))));
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    const emptyCell = await screen.findByText("Chưa có khoản thu.");
+    expect(emptyCell.getAttribute("colspan")).toBe("7");
+  });
   it("loads promotion data without collection runs", async () => {
     const fetch = vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
