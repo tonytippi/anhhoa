@@ -8,4 +8,10 @@ describe('Parent session safe state', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     await expect(logout(clear)).resolves.toBeUndefined(); expect(clear).toHaveBeenCalledTimes(2);
   });
+  it('boots Parent context with credentialed no-store session request', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [] } })));
+    vi.stubGlobal('fetch', fetch);
+    await bootstrapSession(vi.fn());
+    expect(fetch).toHaveBeenCalledWith('/api/parent/auth/session', expect.objectContaining({ credentials: 'include', cache: 'no-store' }));
+  });
 });

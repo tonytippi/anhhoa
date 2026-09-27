@@ -77,7 +77,7 @@ The session response can remain link-shaped because it is a minimum authorizatio
 **Commands:**
 - `pnpm --filter @passionedu/parent-web test -- --run` -- expected: Parent shell/session tests pass without rendering stale protected context.
 - `pnpm --filter @passionedu/api test:integration -- --runInBand` -- expected: run with `.env.test`; Parent active-link, multi-School, and revoke assertions pass.
-- `pnpm --filter @passionedu/web test:e2e -- --grep "Parent"` -- expected: seeded browser flow proves chooser/direct-entry and safe revocation fallback.
+- `pnpm --filter @passionedu/admin-web test:e2e -- --grep "Parent"` -- `@passionedu/admin-web` owns the shared Playwright release harness that starts and asserts the Parent portal; expected: seeded browser flow proves chooser/direct-entry and safe revocation fallback.
 - `pnpm lint && pnpm typecheck` -- expected: workspace lint and TypeScript checks pass.
 
 ## Suggested Review Order

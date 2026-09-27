@@ -59,10 +59,29 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('SchoolPosition HT
     const session = await login(email, 'parent');
     const before = await fetch(`${baseUrl}/api/parent/auth/session`, { headers: { cookie: session.session } });
     expect(before.status).toBe(200);
-    expect((await before.json()).data.schools.map((context: { schoolId: string }) => context.schoolId)).toEqual(expect.arrayContaining([first.id, second.id]));
+    expect((await before.json()).data.schools).toEqual([
+      { schoolId: first.id, schoolName: first.name, student: { id: firstStudent.id, fullName: 'Bé A' } },
+      { schoolId: second.id, schoolName: second.name, student: { id: secondStudent.id, fullName: 'Bé B' } },
+    ]);
     await prisma.studentParent.update({ where: { id: firstLink.id }, data: { status: 'REVOKED', revokedAt: new Date() } });
     const after = await fetch(`${baseUrl}/api/parent/auth/session`, { headers: { cookie: session.session } });
     expect(after.status).toBe(200);
     expect((await after.json()).data.schools).toEqual([{ schoolId: second.id, schoolName: second.name, student: { id: secondStudent.id, fullName: 'Bé B' } }]);
+  });
+  it('omits suspended Schools and denies a final-link Parent context on the next session request', async () => {
+    const email = `parent-context-final-${uuid()}@example.com`;
+    const active = await prisma.school.create({ data: { name: 'Parent active', slug: `parent-active-${uuid()}`, studentCodePrefix: 'A' } });
+    const suspended = await prisma.school.create({ data: { name: 'Parent suspended', slug: `parent-suspended-${uuid()}`, studentCodePrefix: 'S', status: 'SUSPENDED' } });
+    schools.push(active.id, suspended.id);
+    const parent = await prisma.parentProfile.create({ data: { emailNormalized: email, fullName: 'Phụ huynh Final', phone: '0900000015' } }); parentProfiles.push(parent.id);
+    const activeStudent = await prisma.student.create({ data: { schoolId: active.id, studentCode: `A-${uuid()}`, fullName: 'Bé Active', dateOfBirth: new Date('2022-01-01T00:00:00.000Z') } });
+    const suspendedStudent = await prisma.student.create({ data: { schoolId: suspended.id, studentCode: `S-${uuid()}`, fullName: 'Bé Suspended', dateOfBirth: new Date('2022-01-01T00:00:00.000Z') } });
+    const activeLink = await prisma.studentParent.create({ data: { schoolId: active.id, studentId: activeStudent.id, parentProfileId: parent.id } });
+    await prisma.studentParent.create({ data: { schoolId: suspended.id, studentId: suspendedStudent.id, parentProfileId: parent.id } });
+    const session = await login(email, 'parent');
+    const before = await fetch(`${baseUrl}/api/parent/auth/session`, { headers: { cookie: session.session } });
+    expect((await before.json()).data.schools).toEqual([{ schoolId: active.id, schoolName: active.name, student: { id: activeStudent.id, fullName: 'Bé Active' } }]);
+    await prisma.studentParent.update({ where: { id: activeLink.id }, data: { status: 'REVOKED', revokedAt: new Date() } });
+    await expect(fetch(`${baseUrl}/api/parent/auth/session`, { headers: { cookie: session.session } })).resolves.toMatchObject({ status: 401 });
   });
 });

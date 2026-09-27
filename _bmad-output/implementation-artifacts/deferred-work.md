@@ -46,3 +46,24 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-promotion-policy-release-hardening.md`
   summary: Triển khai Epic 6 Story 6.1 ghi Actual Receipt dòng Invoice và carry chênh lệch.
   evidence: Được tách khỏi đóng release-hardening Pha 1b vì Story 6.1 là một mục tiêu người dùng độc lập, có persistence, lifecycle và API/UI Finance riêng để review và phát hành.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.2: Parent xem Today, attendance và DailyJournal được ủy quyền.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì đây là deliverable Parent read model độc lập sau Parent context an toàn của Story 7.1.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.3: Parent inbox attendance có re-authorization.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì inbox, notification projection và deep-link authorization là deliverable độc lập.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.4: Parent tạo và quản lý leave request được phép.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì Parent leave mutation có lifecycle, validation và idempotency riêng.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.5: Parent tự cập nhật số điện thoại có audit.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì Parent contact mutation/audit là deliverable độc lập.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.6: Parent xem obligation hiệu lực và Payment instruction snapshot.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì Parent Finance projection và snapshot boundary là deliverable độc lập.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.7: Parent PWA accessibility, retention và cross-school release gate.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì release proof có phạm vi test, cache và retention độc lập sau các Parent surface.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.8: Pilot performance và accessibility release gate.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì pilot gate là deliverable release độc lập sau khi Parent portal surfaces hoàn tất.
