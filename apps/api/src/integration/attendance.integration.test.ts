@@ -53,6 +53,7 @@ afterEach(async () => {
     await tx.handoverPolicy.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.dailyJournalPolicy.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.leavePolicy.deleteMany({ where: { schoolId: { in: ids } } });
+    await tx.schoolCalendarHoliday.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.schoolCalendarVersion.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.studentParent.deleteMany({ where: { schoolId: { in: ids } } });
     await tx.staffClassAssignment.deleteMany({ where: { schoolId: { in: ids } } });
@@ -131,6 +132,39 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('attendance Postgr
     expect(await prisma.notificationSourceEvent.count({ where: { schoolId: current.school.id } })).toBe(1);
     await expect(attendance.record(current.identity.id, current.school.id, key, uuid(), { ...body, state: 'ABSENT' })).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
     await expect(attendance.teacherRoster(current.identity.id, current.school.id, current.classroom.id, '2026-02-09')).resolves.toMatchObject({ students: [{ studentId: current.student.id, state: 'PRESENT' }] });
+  });
+  it('projects only the active Parent child attendance range and removes it after revoke', async () => {
+    const current = await graph(); const foreign = await graph();
+    await prisma.parentProfile.update({ where: { id: current.parent.id }, data: { userIdentityId: current.identity.id, boundAt: new Date() } });
+    const result = await attendance.parentAttendance(current.identity.id, current.school.id, current.student.id, '2026-02-09', '2026-02-09');
+    expect(result).toEqual([{ studentId: current.student.id, studentDisplayName: 'Bé An', date: '2026-02-09', status: 'NOT_RECORDED', updatedAt: null }]);
+    expect(result[0]).not.toHaveProperty('classId'); expect(result[0]).not.toHaveProperty('staffProfileId');
+    await expect(attendance.parentAttendance(current.identity.id, foreign.school.id, foreign.student.id, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'ATTENDANCE_NOT_FOUND' } });
+    await prisma.studentParent.updateMany({ where: { schoolId: current.school.id, studentId: current.student.id, parentProfileId: current.parent.id }, data: { status: 'REVOKED', revokedAt: new Date() } });
+    await expect(attendance.parentAttendance(current.identity.id, current.school.id, current.student.id, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'ATTENDANCE_NOT_FOUND' } });
+  });
+  it('projects parent attendance with actual-over-leave precedence, calendar labels, sibling denial, and retained terminal history', async () => {
+    const current = await graph();
+    await prisma.parentProfile.update({ where: { id: current.parent.id }, data: { userIdentityId: current.identity.id, boundAt: new Date() } });
+    const position = await prisma.schoolPosition.create({ data: { schoolId: current.school.id, code: `TEACHER-${uuid()}`, name: `Giáo viên ${uuid()}` } });
+    await prisma.positionCapabilityGrant.createMany({ data: ['ATTENDANCE_WRITE', 'LEAVE_REQUEST_DECIDE'].map((capability) => ({ schoolId: current.school.id, positionId: position.id, capability })) });
+    const staff = await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: 'Cô Parent', email: `${uuid()}@example.com`, phone: '0900000022', dateOfBirth: date('1990-01-01'), gender: 'Nữ', address: 'Hà Nội' } });
+    await prisma.staffClassAssignment.create({ data: { schoolId: current.school.id, staffProfileId: staff.id, schoolYearId: current.year.id, classId: current.classroom.id, effectiveFrom: date('2026-01-01'), reason: 'Dạy lớp', schoolYearName: current.year.name, schoolYearStartsOn: current.year.startsOn, schoolYearEndsOn: current.year.endsOn, className: current.classroom.name } });
+    const sibling = await prisma.student.create({ data: { schoolId: current.school.id, studentCode: `AT-${uuid()}`, fullName: 'Bé Sibling', dateOfBirth: date('2022-01-01') } });
+    await prisma.schoolCalendarHoliday.create({ data: { schoolId: current.school.id, calendarVersionId: (await prisma.schoolCalendarVersion.findFirstOrThrow({ where: { schoolId: current.school.id } })).id, name: 'Nghỉ lễ', startsOn: date('2026-02-11'), endsOn: date('2026-02-11') } });
+    const leave = await prisma.leaveRequest.create({ data: { schoolId: current.school.id, studentId: current.student.id, parentProfileId: current.parent.id, status: 'APPROVED', policyEffectiveFrom: date('2026-01-01'), policyDeadlineLocalTime: '08:00', decidedAt: new Date(), decidedByMembershipId: current.membership.id } });
+    await prisma.leaveRequestDay.create({ data: { schoolId: current.school.id, leaveRequestId: leave.id, operatingOn: date('2026-02-09'), calendarEffectiveFrom: date('2026-01-01') } });
+    await prisma.leaveDaySource.create({ data: { schoolId: current.school.id, studentId: current.student.id, operatingOn: date('2026-02-09'), leaveRequestId: leave.id, leaveStatus: 'APPROVED' } });
+    const policy = await prisma.attendancePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date('2026-01-01'), photoEvidenceMode: 'OPTIONAL', reason: 'Fixture', actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+    await prisma.attendanceRecord.create({ data: { schoolId: current.school.id, classId: current.classroom.id, studentId: current.student.id, attendanceOn: date('2026-02-09'), state: 'PRESENT', policyEffectiveFrom: policy.effectiveFrom, actorIdentityId: current.identity.id, membershipId: current.membership.id, staffProfileId: staff.id } });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-11', time: '09:00' });
+    const result = await attendance.parentAttendance(current.identity.id, current.school.id, current.student.id, '2026-02-09', '2026-02-11');
+    expect(result).toEqual([{ studentId: current.student.id, studentDisplayName: 'Bé An', date: '2026-02-09', status: 'PRESENT', updatedAt: expect.any(String) }, { studentId: current.student.id, studentDisplayName: 'Bé An', date: '2026-02-10', status: 'NOT_RECORDED', updatedAt: null }, { studentId: current.student.id, studentDisplayName: 'Bé An', date: '2026-02-11', updatedAt: null, calendarLabel: 'Nghỉ lễ' }]);
+    expect(result[0]).not.toHaveProperty('classId'); expect(result[0]).not.toHaveProperty('staffProfileId');
+    await expect(attendance.parentAttendance(current.identity.id, current.school.id, sibling.id, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'ATTENDANCE_NOT_FOUND' } });
+    const enrollment = await prisma.studentEnrollment.findFirstOrThrow({ where: { schoolId: current.school.id, studentId: current.student.id } }); await prisma.studentEnrollment.update({ where: { id: enrollment.id }, data: { lifecycle: 'WITHDRAWN', endedOn: date('2026-02-10') } });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-03-12', time: '09:00' }); await expect(attendance.parentAttendance(current.identity.id, current.school.id, current.student.id, '2026-02-09', '2026-02-09')).resolves.toHaveLength(1);
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-03-13', time: '09:00' }); await expect(attendance.parentAttendance(current.identity.id, current.school.id, current.student.id, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'ATTENDANCE_NOT_FOUND' } }); vi.restoreAllMocks();
   });
   it('denies missing and revoked attendance, handover, and class-leave capabilities without persistence', async () => {
     const current = await graph();

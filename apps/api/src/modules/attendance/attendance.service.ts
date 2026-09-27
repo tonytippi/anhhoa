@@ -282,6 +282,41 @@ export class AttendanceService {
       });
     }, { isolationLevel: "RepeatableRead" });
   }
+  async parentAttendance(identityId: string, schoolId: string, studentId: string, from: string, to: string) {
+    if (!uuid.test(studentId)) throw new NotFoundException({ code: "ATTENDANCE_NOT_FOUND", message: "Không tìm thấy điểm danh." });
+    const startsOn = this.date(from, "from");
+    const endsOn = this.date(to, "to");
+    const dates = this.dates(startsOn, endsOn);
+    if (startsOn > endsOn || dates.length > 31) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(startsOn > endsOn ? { to: "Ngày kết thúc không được trước ngày bắt đầu." } : {}), ...(dates.length > 31 ? { to: "Khoảng xem không quá 31 ngày." } : {}) } });
+    return this.prisma.$transaction(async (tx) => {
+      const parent = await this.parent(identityId, schoolId, tx);
+      const link = await tx.studentParent.findFirst({ where: { schoolId, studentId, parentProfileId: parent.id, status: "ACTIVE" }, select: { id: true, student: { select: { fullName: true } } } });
+      if (!link) throw new NotFoundException({ code: "ATTENDANCE_NOT_FOUND", message: "Không tìm thấy điểm danh." });
+      // A Parent range is all-or-nothing: terminal history is readable only within its persisted interval and retention.
+      if (endsOn > this.now().day) throw new NotFoundException({ code: "ATTENDANCE_NOT_FOUND", message: "Không tìm thấy điểm danh." });
+      const enrollment = await tx.studentEnrollment.findFirst({ where: { schoolId, studentId, effectiveFrom: { lte: this.day(startsOn) }, OR: [{ lifecycle: "ENROLLED", endedOn: null }, { lifecycle: { in: ["WITHDRAWN", "GRADUATED"] }, endedOn: { gt: this.day(endsOn) } }] }, orderBy: { effectiveFrom: "desc" }, select: { endedOn: true } });
+      if (!enrollment || !this.parentJournalRetained(enrollment.endedOn)) throw new NotFoundException({ code: "ATTENDANCE_NOT_FOUND", message: "Không tìm thấy điểm danh." });
+      const [records, leaves, calendars] = await Promise.all([
+        tx.attendanceRecord.findMany({ where: { schoolId, studentId, attendanceOn: { gte: this.day(startsOn), lte: this.day(endsOn) } }, select: { id: true, attendanceOn: true, state: true, updatedAt: true }, orderBy: [{ updatedAt: "desc" }, { id: "desc" }] }),
+        tx.leaveDaySource.findMany({ where: { schoolId, studentId, operatingOn: { gte: this.day(startsOn), lte: this.day(endsOn) }, exclusions: { none: {} } }, select: { operatingOn: true } }),
+        tx.schoolCalendarVersion.findMany({ where: { schoolId, effectiveFrom: { lte: this.day(endsOn) } }, include: { holidays: true }, orderBy: { effectiveFrom: "desc" } }),
+      ]);
+      if (!calendars.length) throw new ConflictException({ code: "SCHOOL_CALENDAR_NOT_CONFIGURED", message: "Trường chưa cấu hình lịch vận hành." });
+      const attendance = new Map<string, typeof records[number]>();
+      for (const record of records) { const key = record.attendanceOn.toISOString().slice(0, 10); if (!attendance.has(key)) attendance.set(key, record); }
+      const onLeave = new Set(leaves.map((leave) => leave.operatingOn.toISOString().slice(0, 10)));
+      return dates.map((date) => {
+        const on = this.day(date);
+        const calendar = calendars.find((item) => item.effectiveFrom <= on);
+        if (!calendar) throw new ConflictException({ code: "SCHOOL_CALENDAR_NOT_CONFIGURED", message: "Trường chưa cấu hình lịch vận hành." });
+        const holiday = calendar.holidays.find((item: { startsOn: Date; endsOn: Date; name: string }) => item.startsOn <= on && item.endsOn >= on);
+        const nonOperating = on.getUTCDay() === 0 || holiday;
+        if (nonOperating) return { studentId, studentDisplayName: link.student.fullName, date, updatedAt: null, calendarLabel: holiday?.name ?? "Ngày không vận hành" };
+        const record = attendance.get(date);
+        return { studentId, studentDisplayName: link.student.fullName, date, status: record?.state ?? (onLeave.has(date) ? "ON_LEAVE" : "NOT_RECORDED"), updatedAt: record?.updatedAt.toISOString() ?? null };
+      });
+    }, { isolationLevel: "RepeatableRead" });
+  }
   async parentDailyJournal(identityId: string, schoolId: string, studentId: string, journalDate?: string) {
     if (!uuid.test(studentId)) throw new NotFoundException({ code: "DAILY_JOURNAL_NOT_FOUND", message: "Không tìm thấy nhận xét." });
     const date = journalDate ? this.date(journalDate, "journalDate") : this.now().day;

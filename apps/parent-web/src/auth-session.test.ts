@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bootstrapSession, logout } from './auth-session';
+import { bootstrapSession, logout, parentGet, parentMedia } from './auth-session';
 
 describe('Parent session safe state', () => {
   it('clears protected state for startup denial and logout even after a server failure', async () => {
@@ -13,5 +13,19 @@ describe('Parent session safe state', () => {
     vi.stubGlobal('fetch', fetch);
     await bootstrapSession(vi.fn());
     expect(fetch).toHaveBeenCalledWith('/api/parent/auth/session', expect.objectContaining({ credentials: 'include', cache: 'no-store' }));
+  });
+  it('uses credentialed no-store transport for protected projections and media', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { value: true } })));
+    vi.stubGlobal('fetch', fetch);
+    await expect(parentGet<{ value: boolean }>('/api/parent/schools/school/students/student/attendance?from=2026-09-01&to=2026-09-01')).resolves.toMatchObject({ kind: 'ok', data: { value: true } });
+    await parentMedia('/api/parent/schools/school/daily-journal-media/media');
+    expect(fetch).toHaveBeenCalledWith('/api/parent/schools/school/students/student/attendance?from=2026-09-01&to=2026-09-01', expect.objectContaining({ credentials: 'include', cache: 'no-store' }));
+    expect(fetch).toHaveBeenCalledWith('/api/parent/schools/school/daily-journal-media/media', expect.objectContaining({ credentials: 'include', cache: 'no-store' }));
+  });
+  it('reports intentional protected-read aborts without converting them into denial', async () => {
+    const controller = new AbortController(); controller.abort();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('Aborted', 'AbortError')));
+    await expect(parentGet('/api/parent/schools/school/students/student/attendance?from=2026-09-01&to=2026-09-01', controller.signal)).resolves.toEqual({ kind: 'aborted' });
+    await expect(parentMedia('/api/parent/schools/school/daily-journal-media/media', controller.signal)).resolves.toEqual({ kind: 'aborted' });
   });
 });

@@ -62,6 +62,10 @@ test('Parent callback issues a session only for the seeded active links and rend
   await expect(page.getByRole('heading', { name: 'Hôm nay của các con' })).toBeVisible();
   await expect(page.locator('.selected-school strong')).toHaveText('Release Gate B');
   await expect(page.getByText('Bé An')).toHaveCount(0);
+  await expect(page.getByText('Trường chưa ghi nhận')).toBeVisible();
+  await page.getByRole('button', { name: /Bé Bình/ }).click();
+  await expect(page.getByRole('heading', { name: 'Bé Bình' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Lịch sử điểm danh' })).toBeVisible();
   await context.close();
 });
 
@@ -77,6 +81,21 @@ test('Parent foreground denial clears the selected School before the signed-out 
   await expect(page.getByRole('link', { name: 'Đăng nhập với Google' })).toBeVisible();
   await expect(page.getByText('Bé An')).toHaveCount(0);
   await expect(page.getByText('Release Gate A')).toHaveCount(0);
+  await context.close();
+});
+
+test('Parent child endpoint denial clears child detail and returns focus to the safe fallback', async ({ browser }) => {
+  const context = await browser.newContext(); await login(context, 'parent');
+  const page = await context.newPage(); await page.goto('http://localhost:5174');
+  await page.getByRole('button', { name: /Release Gate A/ }).click();
+  await page.getByRole('button', { name: /Bé An/ }).click();
+  await expect(page.getByRole('heading', { name: 'Bé An' })).toBeFocused();
+  await page.route('**/api/parent/schools/*/students/*/daily-journal?*', async (route) => route.fulfill({ status: 403 }));
+  await page.getByRole('button', { name: 'Quay lại Hôm nay' }).click();
+  await page.getByRole('button', { name: /Bé An/ }).click();
+  const fallback = page.getByRole('heading', { name: 'Chọn trường để xem' });
+  await expect(fallback).toBeFocused();
+  await expect(page.getByText('Bé An')).toHaveCount(0);
   await context.close();
 });
 

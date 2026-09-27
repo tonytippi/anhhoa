@@ -51,6 +51,34 @@ describe('AttendanceService leave matrix', () => {
     vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-10', time: '09:00' });
     await expect(attendance.parentDailyJournals('parent-identity', school, student, '2026-02-09')).resolves.toEqual([]);
   });
+  it('returns a bounded Parent attendance projection with attendance precedence and no operating-day inference', async () => {
+    const record = { attendanceOn: day('2026-02-09'), state: 'PRESENT', updatedAt: new Date('2026-02-09T01:00:00.000Z') };
+    const { attendance } = service({
+      studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link', student: { fullName: 'Bé An' } }) },
+      studentEnrollment: { findFirst: vi.fn().mockResolvedValue({ endedOn: null, lifecycle: 'ENROLLED' }) },
+      attendanceRecord: { findMany: vi.fn().mockResolvedValue([record]) },
+      leaveDaySource: { findMany: vi.fn().mockResolvedValue([{ operatingOn: day('2026-02-09') }, { operatingOn: day('2026-02-10') }]) },
+      schoolCalendarVersion: { findFirst: vi.fn().mockResolvedValue({ holidays: [] }), findMany: vi.fn().mockResolvedValue([{ effectiveFrom: day('2026-01-01'), holidays: [{ startsOn: day('2026-02-11'), endsOn: day('2026-02-11'), name: 'Nghỉ lễ' }] }]) },
+    });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-11', time: '09:00' });
+    await expect(attendance.parentAttendance('parent-identity', school, student, '2026-02-09', '2026-02-11')).resolves.toEqual([
+      { studentId: student, studentDisplayName: 'Bé An', date: '2026-02-09', status: 'PRESENT', updatedAt: '2026-02-09T01:00:00.000Z' },
+      { studentId: student, studentDisplayName: 'Bé An', date: '2026-02-10', status: 'ON_LEAVE', updatedAt: null },
+      { studentId: student, studentDisplayName: 'Bé An', date: '2026-02-11', updatedAt: null, calendarLabel: 'Nghỉ lễ' },
+    ]);
+    await expect(attendance.parentAttendance('parent-identity', school, student, '2026-02-11', '2026-02-09')).rejects.toMatchObject({ response: { fieldErrors: { to: expect.any(String) } } });
+  });
+  it('permits a retained terminal enrollment interval but rejects it after the Parent retention boundary', async () => {
+    const enrollment = { endedOn: day('2026-02-10'), lifecycle: 'WITHDRAWN' };
+    const { attendance } = service({
+      studentParent: { findFirst: vi.fn().mockResolvedValue({ id: 'link', student: { fullName: 'Bé An' } }) },
+      studentEnrollment: { findFirst: vi.fn().mockResolvedValue(enrollment) }, attendanceRecord: { findMany: vi.fn().mockResolvedValue([]) }, leaveDaySource: { findMany: vi.fn().mockResolvedValue([]) }, schoolCalendarVersion: { findMany: vi.fn().mockResolvedValue([{ effectiveFrom: day('2026-01-01'), holidays: [] }]) },
+    });
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-03-11', time: '09:00' });
+    await expect(attendance.parentAttendance('parent-identity', school, student, '2026-02-09', '2026-02-09')).resolves.toMatchObject([{ date: '2026-02-09', status: 'NOT_RECORDED' }]);
+    vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-03-13', time: '09:00' });
+    await expect(attendance.parentAttendance('parent-identity', school, student, '2026-02-09', '2026-02-09')).rejects.toMatchObject({ response: { code: 'ATTENDANCE_NOT_FOUND' } });
+  });
   it('requires the current operating day, effective policy, and placed enrollment before journal persistence', async () => {
     const { attendance } = service();
     vi.spyOn(attendance as any, 'now').mockReturnValue({ day: '2026-02-09', time: '09:00' });
