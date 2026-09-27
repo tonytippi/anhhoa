@@ -187,7 +187,7 @@ export function FinanceWorkspace({
     defaultUnitPrice: "",
   });
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
-  const [catalogDialog, setCatalogDialog] = useState<"group" | "receivable">();
+  const [catalogDialog, setCatalogDialog] = useState<"group" | "group-form" | "receivable">();
   const [promotionDialog, setPromotionDialog] = useState<"policy" | "assignment">();
   const [promotionTransition, setPromotionTransition] = useState<{
     id: string;
@@ -836,7 +836,7 @@ export function FinanceWorkspace({
       )
     ) {
       setGroup({ name: "" });
-      closeManagedDialog(() => setCatalogDialog(undefined));
+      closeManagedDialog(() => setCatalogDialog("group"));
       await load();
     }
   };
@@ -1500,37 +1500,40 @@ export function FinanceWorkspace({
       )}
       </>}
       {lifecycle && (
-        <div
-          ref={lifecycleDialog}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="finance-lifecycle-title"
-          onKeyDown={trapDialogFocus}
-        >
-          <form onSubmit={saveLifecycle}>
-            <h3 id="finance-lifecycle-title">
-              {lifecycle.next === "ACTIVE" ? "Kích hoạt" : "Ngừng áp dụng"}{" "}
-              {lifecycle.name}
-            </h3>
-            <label>
-              Lý do
-              <input
-                autoFocus
-                value={lifecycle.reason}
-                onChange={(event) =>
-                  setLifecycle({ ...lifecycle, reason: event.target.value })
-                }
-                {...field("lifecycle", "reason")}
-              />
-            </label>
-            {scope === "lifecycle" && errors.reason && (
-              <small id="lifecycle-reason-error">{errors.reason}</small>
-            )}
-            <button disabled={Boolean(pending)}>Xác nhận</button>
-            <button type="button" onClick={() => closeManagedDialog(() => setLifecycle(undefined))}>
-              Hủy
-            </button>
-          </form>
+        <div className="dialog-backdrop">
+          <div
+            ref={lifecycleDialog}
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="finance-lifecycle-title"
+            onKeyDown={trapDialogFocus}
+          >
+            <form onSubmit={saveLifecycle}>
+              <h3 id="finance-lifecycle-title">
+                {lifecycle.next === "ACTIVE" ? "Kích hoạt" : "Ngừng áp dụng"}{" "}
+                {lifecycle.name}
+              </h3>
+              <label>
+                Lý do
+                <input
+                  autoFocus
+                  value={lifecycle.reason}
+                  onChange={(event) =>
+                    setLifecycle({ ...lifecycle, reason: event.target.value })
+                  }
+                  {...field("lifecycle", "reason")}
+                />
+              </label>
+              {scope === "lifecycle" && errors.reason && (
+                <small id="lifecycle-reason-error">{errors.reason}</small>
+              )}
+              <button disabled={Boolean(pending)}>Xác nhận</button>
+              <button type="button" onClick={() => closeManagedDialog(() => setLifecycle(undefined))}>
+                Hủy
+              </button>
+            </form>
+          </div>
         </div>
       )}
       {catalogDialog === "receivable" && (
@@ -1548,9 +1551,20 @@ export function FinanceWorkspace({
         </div>
       )}
       {catalogDialog === "group" && (
-        <div ref={catalogDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-group-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>
-          <form onSubmit={saveGroup}><h3 id="finance-group-title">Quản lý nhóm khoản thu</h3><p>Nhóm đang dùng trong lịch sử không bị xóa.</p><label>Tên nhóm<input value={group.name} onChange={(event) => setGroup({ name: event.target.value })} {...field("group", "name")} /></label>{scope === "group" && errors.name && <small id="group-name-error">{errors.name}</small>}<button disabled={Boolean(pending)}>Thêm nhóm</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>Đóng</button></form>
-          <table><caption>Nhóm khoản thu theo Trường</caption><thead><tr><th>Tên</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead><tbody>{catalog?.groups?.length ? catalog.groups.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.status === "ACTIVE" ? "Đang áp dụng" : "Ngừng áp dụng"}</td><td><button ref={rowMenu === `group-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.name}`} aria-haspopup="menu" aria-expanded={rowMenu === `group-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `group-${item.id}`)} onClick={() => setRowMenu(rowMenu === `group-${item.id}` ? undefined : `group-${item.id}`)}>...</button>{rowMenu === `group-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setCatalogDialog(undefined); setLifecycle({ kind: "receivable-groups", id: item.id, name: item.name, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td></tr>) : <tr><td colSpan={3}>{catalog ? "Chưa có nhóm khoản thu." : "Đang tải nhóm khoản thu."}</td></tr>}</tbody></table>
+        <div className="dialog-backdrop">
+          <div ref={catalogDialogRef} className="dialog finance-group-dialog" role="dialog" aria-modal="true" aria-labelledby="finance-group-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>
+            <h3 id="finance-group-title">Quản lý nhóm khoản thu</h3><p>Nhóm đang dùng trong lịch sử không bị xóa.</p>
+            <button type="button" className="primary-action" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setGroup({ name: "" }); openManagedDialog(event.currentTarget, () => setCatalogDialog("group-form")); }}>Thêm nhóm</button>
+            <table><caption>Nhóm khoản thu theo Trường</caption><thead><tr><th>Tên</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead><tbody>{catalog?.groups?.length ? catalog.groups.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.status === "ACTIVE" ? "Đang áp dụng" : "Ngừng áp dụng"}</td><td><button ref={rowMenu === `group-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.name}`} aria-haspopup="menu" aria-expanded={rowMenu === `group-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `group-${item.id}`)} onClick={() => setRowMenu(rowMenu === `group-${item.id}` ? undefined : `group-${item.id}`)}>...</button>{rowMenu === `group-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setCatalogDialog(undefined); setLifecycle({ kind: "receivable-groups", id: item.id, name: item.name, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td></tr>) : <tr><td colSpan={3}>{catalog ? "Chưa có nhóm khoản thu." : "Đang tải nhóm khoản thu."}</td></tr>}</tbody></table>
+            <button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>Đóng</button>
+          </div>
+        </div>
+      )}
+      {catalogDialog === "group-form" && (
+        <div className="dialog-backdrop">
+          <div ref={catalogDialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="finance-new-group-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog("group"), () => setGroup({ name: "" }))}>
+            <form onSubmit={saveGroup}><h3 id="finance-new-group-title">Thêm nhóm khoản thu</h3><label>Tên nhóm<input value={group.name} onChange={(event) => setGroup({ name: event.target.value })} {...field("group", "name")} /></label>{scope === "group" && errors.name && <small id="group-name-error">{errors.name}</small>}<button disabled={Boolean(pending)}>Lưu nhóm</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog("group"), () => setGroup({ name: "" }))}>Hủy</button></form>
+          </div>
         </div>
       )}
       {promotionDialog === "policy" && (

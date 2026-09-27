@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FinanceWorkspace as FinanceWorkspaceBase } from "./finance-workspace";
@@ -185,6 +185,23 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thêm khoản thu" })).toBeNull());
     expect(document.activeElement).toBe(trigger);
+  });
+  it("shows the group list in its own dialog and opens creation from its top action", async () => {
+    const groups = [{ id: "group", name: "Học tập", status: "ACTIVE" as const }];
+    const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: { id: "new-group" } }) : response({ groups, receivables: [] })));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Quản lý nhóm" }));
+    const groupDialog = screen.getByRole("dialog", { name: "Quản lý nhóm khoản thu" });
+    expect(within(groupDialog).getByRole("button", { name: "Thêm nhóm" })).toBeTruthy();
+    expect(within(groupDialog).getByRole("table", { name: "Nhóm khoản thu theo Trường" }).textContent).toContain("Học tập");
+    expect(screen.queryByLabelText("Tên nhóm")).toBeNull();
+    fireEvent.click(within(groupDialog).getByRole("button", { name: "Thêm nhóm" }));
+    const createDialog = screen.getByRole("dialog", { name: "Thêm nhóm khoản thu" });
+    fireEvent.change(within(createDialog).getByLabelText("Tên nhóm"), { target: { value: "Bữa ăn" } });
+    fireEvent.click(within(createDialog).getByRole("button", { name: "Lưu nhóm" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/receivable-groups") && (options as RequestInit).method === "POST")).toBe(true));
+    expect(screen.getByRole("dialog", { name: "Quản lý nhóm khoản thu" })).toBeTruthy();
   });
   it("autofocuses managed catalog, policy, assignment, and transition dialogs", async () => {
     const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };

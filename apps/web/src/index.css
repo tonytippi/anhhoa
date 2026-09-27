@@ -1372,6 +1372,11 @@ tbody tr:last-child td {
 }
 .finance-list-toolbar .primary-action { justify-self: stretch; }
 .finance-list-actions .primary-action { flex: 1 1 150px; }
+.finance-group-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
 .roster-workspace-staff .roster-list-filters button { min-height: 42px; }
 @media (max-width: 767px) {
   .staff-list-controls { display: grid; }
