@@ -76,7 +76,7 @@ describe('SchoolContext slug routes', () => {
     let resolveA!: (response: Response) => void; const fallback = rosterFetch([schoolA, schoolB]); const fetch = vi.fn((url: string) => url === '/api/app/schools' ? Promise.resolve(new Response(JSON.stringify({ data: [schoolA, schoolB] }))) : url === '/api/app/schools/uuid-a' ? new Promise<Response>((resolve) => { resolveA = resolve; }) : url === '/api/app/schools/uuid-b' ? Promise.resolve(new Response(JSON.stringify({ data: contextB }))) : fallback(url)); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'uuid-b' } }); resolveA(new Response(JSON.stringify({ data: contextA }))); await screen.findByRole('button', { name: 'Học sinh' }); expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường Peakland' })).toBeNull();
   });
   it('guards a dirty chooser School switch', async () => {
-    const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } }); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'uuid-b' } }); expect(await screen.findByRole('dialog', { name: 'Đổi trường?' })).toBeTruthy(); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
+    const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } }); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); await waitFor(() => expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An')); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'uuid-b' } }); expect(await screen.findByRole('dialog', { name: 'Đổi trường?' })).toBeTruthy(); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
   });
   it('guards a dirty history School switch and restores the slug route on stay', async () => {
     window.history.replaceState({}, '', '/schools/peakland/students'); const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); window.history.pushState({}, '', '/schools/sunrise/students'); fireEvent.popState(window); await screen.findByRole('dialog', { name: 'Đổi trường?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); await waitFor(() => expect(window.location.pathname).toBe('/schools/peakland/students')); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
@@ -185,16 +185,6 @@ describe('SchoolContext slug routes', () => {
     await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
     expect(window.location.pathname).toBe('/schools/peakland/receivables');
     expect(fetch.mock.calls.some(([url]) => String(url).includes('/finance/promotion-') || String(url).includes('/finance/collection-runs'))).toBe(false);
-  });
-  it('focuses the Finance route heading after an authorized destination change', async () => {
-    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }, { id: 'promotions', label: 'Ưu đãi' }, { id: 'collection-runs', label: 'Đợt thu' }] };
-    window.history.replaceState({}, '', '/schools/peakland/receivables');
-    vi.stubGlobal('fetch', rosterFetch([schoolA], new Map([[schoolA.schoolId, finance]])));
-    renderContext();
-    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
-    fireEvent.click(screen.getByRole('button', { name: 'Ưu đãi' }));
-    const heading = await screen.findByRole('heading', { name: 'Ưu đãi', level: 1 });
-    expect(document.activeElement).toBe(heading);
   });
   it('keeps one pending Finance reconciliation while navigating between Finance routes without replaying the mutation', async () => {
     const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }, { id: 'promotions', label: 'Ưu đãi' }, { id: 'collection-runs', label: 'Đợt thu' }] };

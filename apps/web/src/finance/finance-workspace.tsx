@@ -205,7 +205,6 @@ export function FinanceWorkspace({
   const activeSchool = useRef(schoolId);
   const activePage = useRef(page);
   activePage.current = page;
-  const routeHeading = useRef<HTMLHeadingElement>(null);
   const summary = useRef<HTMLDivElement>(null);
   const removeDialog = useRef<HTMLDivElement>(null);
   const removeTrigger = useRef<HTMLButtonElement>(null);
@@ -456,7 +455,6 @@ export function FinanceWorkspace({
   useEffect(() => {
     if (!pending) void load().catch((error: Error) => activeSchool.current === schoolId && setMessage(error.message));
   }, [schoolId, page]);
-  useLayoutEffect(() => { routeHeading.current?.focus(); }, [page]);
   const selectionDirty = Boolean(
     run &&
       (selectedStudentIds.length !== run.selectedStudentIds.length ||
@@ -1051,7 +1049,7 @@ export function FinanceWorkspace({
       else if (promotionTransition) closeNewDialog(() => setPromotionTransition(undefined), () => {});
       else if (promotionDialog === "assignment") closeNewDialog(() => setPromotionDialog(undefined), () => setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }));
     }}>
-      <h1 id="finance-title" ref={routeHeading} tabIndex={-1}>{page === "receivables" ? "Khoản thu" : page === "promotions" ? "Ưu đãi" : "Đợt thu"}</h1>
+      <h1 id="finance-title">{page === "receivables" ? "Khoản thu" : page === "promotions" ? "Ưu đãi" : "Đợt thu"}</h1>
       {message && (
         <div ref={summary} tabIndex={-1} role="alert">
           {message}
