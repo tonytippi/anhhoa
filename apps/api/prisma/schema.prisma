@@ -285,6 +285,7 @@ enum LeaveRequestStatus {
   AUTO_APPROVED
   APPROVED
   REJECTED
+  CANCELLED
 }
 
 model LeavePolicy {

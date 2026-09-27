@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-09-27 # Epic 7 Story 7.3 is ready for review.
+last_updated: 2026-09-27 # Epic 7 Story 7.4 is ready for review.
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -86,7 +86,7 @@ development_status:
   7-1-khoi-tao-parent-context-da-truong-an-toan: done
   7-2-parent-xem-today-attendance-va-dailyjournal-duoc-uy-quyen: done
   7-3-parent-inbox-attendance-co-re-authorization: review
-  7-4-parent-tao-va-quan-ly-leave-request-duoc-phep: backlog
+  7-4-parent-tao-va-quan-ly-leave-request-duoc-phep: review
   7-5-parent-tu-cap-nhat-so-dien-thoai-co-audit: backlog
   7-6-parent-xem-obligation-hieu-luc-va-payment-instruction-snapshot: backlog
   7-7-parent-pwa-accessibility-retention-va-cross-school-release-gate: backlog
