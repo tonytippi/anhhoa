@@ -53,6 +53,7 @@ export function SettingsWorkspace({
   denied: () => void;
   onStatusChange?: (status: SettingsStatus) => void;
 }) {
+  void schoolName;
   const [data, setData] = useState<Settings>();
   const [profile, setProfile] = useState({
     effectiveFrom: "",
@@ -314,10 +315,7 @@ export function SettingsWorkspace({
   return (
     <section aria-labelledby="settings-title">
       <h2 id="settings-title">Cấu hình trường</h2>
-      <p>
-        {schoolName} / Dữ liệu được xác nhận từ máy chủ (
-        {data?.timezone ?? "Asia/Ho_Chi_Minh"}).
-      </p>
+      <p>Múi giờ: {data?.timezone ?? "Asia/Ho_Chi_Minh"}</p>
       {message && (
         <div ref={summary} tabIndex={-1} role="alert">
           {message}

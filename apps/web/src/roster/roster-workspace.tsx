@@ -1564,8 +1564,7 @@ export function RosterWorkspace({
     <section className={`roster-workspace roster-workspace-${section}`} aria-labelledby="roster-title">
       <h2 id="roster-title">{({ all: "Danh bộ", students: "Học sinh", parents: "Phụ huynh", staff: "Nhân viên", classes: "Lớp học", years: "Năm học", positions: "Chức danh & capability" } as const)[section]}</h2>
       <p>
-        {schoolName}
-        {selected ? ` / ${selected.name}` : " / Chưa có năm học"}
+        {selected ? `Năm học: ${selected.name}` : "Chưa có năm học"}
       </p>
       {message && (
         <div ref={summary} tabIndex={-1} role="alert">
