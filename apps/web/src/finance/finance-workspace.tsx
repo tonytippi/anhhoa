@@ -1,4 +1,5 @@
 import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 
 type Group = { id: string; name: string; status: "ACTIVE" | "INACTIVE" | null };
 type Receivable = {
@@ -216,7 +217,6 @@ export function FinanceWorkspace({
     name: string;
     action: "activate" | "retire";
   }>();
-  const [rowMenu, setRowMenu] = useState<string>();
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle" | "promotion" | "run">(
@@ -244,8 +244,6 @@ export function FinanceWorkspace({
   const promotionDialogRef = useRef<HTMLDivElement>(null);
   const lifecycleDialog = useRef<HTMLDivElement>(null);
   const rowMenuTrigger = useRef<HTMLButtonElement>(null);
-  const rowMenuElement = useRef<HTMLDivElement>(null);
-  const rowMenuKeyboardOpen = useRef(false);
   const closedHeading = useRef<HTMLHeadingElement>(null);
   const status = useRef(onStatusChange);
   const submitting = useRef(false);
@@ -454,7 +452,6 @@ export function FinanceWorkspace({
     setCatalogDialog(undefined);
     setPromotionDialog(undefined);
     setPromotionTransition(undefined);
-    setRowMenu(undefined);
     setErrors({});
     setMessage("");
     setGenerationProgress(undefined);
@@ -541,11 +538,6 @@ export function FinanceWorkspace({
     void load().catch((error: Error) => activeSchool.current === schoolId && setMessage(error.message));
   }, [runStatus]);
   useEffect(() => {
-    if (rowMenu && rowMenuKeyboardOpen.current)
-      rowMenuElement.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-    rowMenuKeyboardOpen.current = false;
-  }, [rowMenu]);
-  useEffect(() => {
     const dialog = catalogDialog ? catalogDialogRef.current : promotionDialog ? promotionDialogRef.current : undefined;
     dialog?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])")?.focus();
   }, [catalogDialog, promotionDialog]);
@@ -568,7 +560,6 @@ export function FinanceWorkspace({
   const closeManagedDialog = (close: () => void) => {
     close();
     if (dialogTrigger.current?.isConnected) dialogTrigger.current.focus();
-    else rowMenuTrigger.current?.focus();
     dialogTrigger.current = null;
   };
   const openManagedDialog = (
@@ -595,31 +586,6 @@ export function FinanceWorkspace({
       return;
     }
     trapDialogFocus(event);
-  };
-  const handleRowMenuTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>, id: string) => {
-    if (event.key === "Escape" && rowMenu === id) {
-      event.preventDefault();
-      setRowMenu(undefined);
-      return;
-    }
-    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
-      event.preventDefault();
-      if (rowMenu === id)
-        event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-      else {
-        rowMenuKeyboardOpen.current = true;
-        setRowMenu(id);
-      }
-    } else if (["Enter", " "].includes(event.key)) rowMenuKeyboardOpen.current = true;
-  };
-  const handleRowMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter((item) => !item.disabled);
-    const index = items.indexOf(document.activeElement as HTMLButtonElement);
-    if (!items.length) return;
-    if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); return; }
-    if (event.key === "Tab") { setRowMenu(undefined); return; }
-    const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : -1;
-    if (next >= 0) { event.preventDefault(); items[next]?.focus(); }
   };
   const command = async (
     path: string,
@@ -1098,11 +1064,6 @@ export function FinanceWorkspace({
 
   return (
     <section aria-labelledby="finance-title" onKeyDownCapture={(event) => {
-      const target = event.target as HTMLElement;
-      if (target instanceof HTMLButtonElement && target.getAttribute("aria-haspopup") === "menu") {
-        if (event.key === "Escape" && target.getAttribute("aria-expanded") === "true") { event.preventDefault(); event.stopPropagation(); target.click(); return; }
-        if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); if (target.getAttribute("aria-expanded") === "false") target.click(); window.setTimeout(() => target.parentElement?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); return; }
-      }
       if (event.key !== "Escape" || pending) return;
       if (endingAssignment) closeNewDialog(() => setEndingAssignment(undefined), () => {});
       else if (promotionTransition) closeNewDialog(() => setPromotionTransition(undefined), () => {});
@@ -1119,8 +1080,8 @@ export function FinanceWorkspace({
         <form className="finance-list-toolbar" aria-label="Điều khiển danh sách ưu đãi" onSubmit={(event) => event.preventDefault()}>
           <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetPromotion(); openManagedDialog(event.currentTarget, () => setPromotionDialog("policy")); }}>Thêm chính sách</button>
         </form>
-        <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody>{promotionVersions.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td><button ref={rowMenu === `promotion-${version.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${policy.name} phiên bản ${version.version}`} aria-haspopup="menu" aria-expanded={rowMenu === `promotion-${version.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `promotion-${version.id}`)} onClick={() => setRowMenu(rowMenu === `promotion-${version.id}` ? undefined : `promotion-${version.id}`)}>...</button>{rowMenu === `promotion-${version.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}>{version.status === "DRAFT" && <button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; void transitionPromotionVersion(version.id, "activate"); }}>Kích hoạt phiên bản</button>}{version.status === "ACTIVE" && <><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setAssignment({ versionId: version.id, studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); setPromotionDialog("assignment"); }}>Gán học sinh</button><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; void transitionPromotionVersion(version.id, "retire"); }}>Ngừng phiên bản</button></>}</div>}</td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
-        {currentAssignments.length > 0 && <table><caption>Học sinh đang áp dụng ưu đãi</caption><thead><tr><th>Học sinh</th><th>Chính sách</th><th>Áp dụng từ</th><th>Lý do</th><th>Tùy chọn</th></tr></thead><tbody>{currentAssignments.map(({ policy, version, item }) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{policy.name} / Phiên bản {version.version}</td><td>{item.effectiveFrom}</td><td>{item.reason}</td><td><button ref={rowMenu === `assignment-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.studentName}`} aria-haspopup="menu" aria-expanded={rowMenu === `assignment-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `assignment-${item.id}`)} onClick={() => setRowMenu(rowMenu === `assignment-${item.id}` ? undefined : `assignment-${item.id}`)}>...</button>{rowMenu === `assignment-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" }); }}>Kết thúc áp dụng</button></div>}</td></tr>)}</tbody></table>}
+        <table><caption>Chính sách ưu đãi theo Trường</caption><thead><tr><th>Chính sách</th><th>Khoản thu</th><th>Mức giảm</th><th>Hiệu lực</th><th>Trạng thái</th><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody>{promotionVersions.length ? promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => <tr key={version.id}><td>{policy.name} / Phiên bản {version.version}</td><td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td><td>{version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} VND`}</td><td>{version.effectiveFrom} - {version.effectiveTo ?? "không xác định"}</td><td>{version.status}</td><td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td><td><AnchoredActionMenu label={`Tùy chọn cho ${policy.name} phiên bản ${version.version}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}>{version.status === "DRAFT" && <AnchoredActionMenuItem onClick={() => void transitionPromotionVersion(version.id, "activate")}>Kích hoạt phiên bản</AnchoredActionMenuItem>}{version.status === "ACTIVE" && <><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setAssignment({ versionId: version.id, studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" }); setPromotionDialog("assignment"); }}>Gán học sinh</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => void transitionPromotionVersion(version.id, "retire")}>Ngừng phiên bản</AnchoredActionMenuItem></>}</AnchoredActionMenu></td></tr>)) : <tr><td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td></tr>}</tbody></table>
+        {currentAssignments.length > 0 && <table><caption>Học sinh đang áp dụng ưu đãi</caption><thead><tr><th>Học sinh</th><th>Chính sách</th><th>Áp dụng từ</th><th>Lý do</th><th>Tùy chọn</th></tr></thead><tbody>{currentAssignments.map(({ policy, version, item }) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{policy.name} / Phiên bản {version.version}</td><td>{item.effectiveFrom}</td><td>{item.reason}</td><td><AnchoredActionMenu label={`Tùy chọn cho ${item.studentName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" }); }}>Kết thúc áp dụng</AnchoredActionMenuItem></AnchoredActionMenu></td></tr>)}</tbody></table>}
       </section>}
       {page === "collection-runs" && coverageReversalRequests.length > 0 && <section aria-labelledby="coverage-approval-title"><h3 id="coverage-approval-title">Yêu cầu hoàn coverage chờ duyệt</h3><table><caption>Chỉ School Admin khác người yêu cầu được quyết định</caption><thead><tr><th>Học sinh</th><th>Ngày hiệu lực</th><th>Số tiền</th><th>Lý do</th><th>Thao tác</th></tr></thead><tbody>{coverageReversalRequests.map((item) => <tr key={item.id}><td>{item.studentName}</td><td>{item.effectiveOn}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{item.reason}</td><td>{item.canDecide ? <><button ref={coverageDecisionTrigger} type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "APPROVE", reason: "" })}>Duyệt</button><button type="button" disabled={Boolean(pending)} onClick={() => setCoverageDecision({ request: item, decision: "REFUSE", reason: "" })}>Từ chối</button></> : "Không có quyền quyết định"}</td></tr>)}</tbody></table></section>}
       {page === "receivables" && <section>
@@ -1154,7 +1115,7 @@ export function FinanceWorkspace({
                     <td className="money">{vnd(item.defaultUnitPrice)} VND / {item.unitLabel}</td>
                     <td>{receivableGroupNames.get(item.groupId) ?? "-"}</td>
                     <td>{item.available ? "Đang áp dụng" : "Ngừng áp dụng"}</td>
-                    <td className="finance-row-actions"><button ref={rowMenu === `receivable-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.displayName}`} aria-haspopup="menu" aria-expanded={rowMenu === `receivable-${item.id}`} onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setRowMenu(`receivable-${item.id}`); } }} onClick={() => setRowMenu(rowMenu === `receivable-${item.id}` ? undefined : `receivable-${item.id}`)}>...</button>{rowMenu === `receivable-${item.id}` && <div ref={rowMenuElement} className="finance-row-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td>
+                    <td><AnchoredActionMenu label={`Tùy chọn cho ${item.displayName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td>
                   </tr>
                 ))
               ) : (
@@ -1240,7 +1201,7 @@ export function FinanceWorkspace({
                     )?.name ?? item.schoolYearId}
                   </td>
                   <td>{item.status}</td>
-                    <td><button ref={rowMenu === `run-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho đợt thu ${item.billingMonth}`} aria-haspopup="menu" aria-expanded={rowMenu === `run-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `run-${item.id}`)} onClick={() => setRowMenu(rowMenu === `run-${item.id}` ? undefined : `run-${item.id}`)}>...</button>{rowMenu === `run-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); chooseRun(item); }}>Mở chi tiết</button></div>}</td>
+                    <td><AnchoredActionMenu label={`Tùy chọn cho đợt thu ${item.billingMonth}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => chooseRun(item)}>Mở chi tiết</AnchoredActionMenuItem></AnchoredActionMenu></td>
                 </tr>
               ))
             ) : (
@@ -1690,7 +1651,7 @@ export function FinanceWorkspace({
           <div ref={catalogDialogRef} className="dialog finance-group-dialog" role="dialog" aria-modal="true" aria-labelledby="finance-group-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>
             <h3 id="finance-group-title">Quản lý nhóm khoản thu</h3><p>Nhóm đang dùng trong lịch sử không bị xóa.</p>
             <button type="button" className="primary-action" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setGroup({ name: "" }); openManagedDialog(event.currentTarget, () => setCatalogDialog("group-form")); }}>Thêm nhóm</button>
-            <table><caption>Nhóm khoản thu theo Trường</caption><thead><tr><th>Tên</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead><tbody>{catalog?.groups?.length ? catalog.groups.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.status === "ACTIVE" ? "Đang áp dụng" : "Ngừng áp dụng"}</td><td><button ref={rowMenu === `group-${item.id}` ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.name}`} aria-haspopup="menu" aria-expanded={rowMenu === `group-${item.id}`} onKeyDown={(event) => handleRowMenuTriggerKeyDown(event, `group-${item.id}`)} onClick={() => setRowMenu(rowMenu === `group-${item.id}` ? undefined : `group-${item.id}`)}>...</button>{rowMenu === `group-${item.id}` && <div ref={rowMenuElement} role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={handleRowMenuKeyDown}><button type="button" role="menuitem" disabled={Boolean(pending)} onClick={() => { setRowMenu(undefined); dialogTrigger.current = rowMenuTrigger.current; setCatalogDialog(undefined); setLifecycle({ kind: "receivable-groups", id: item.id, name: item.name, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</button></div>}</td></tr>) : <tr><td colSpan={3}>{catalog ? "Chưa có nhóm khoản thu." : "Đang tải nhóm khoản thu."}</td></tr>}</tbody></table>
+            <table><caption>Nhóm khoản thu theo Trường</caption><thead><tr><th>Tên</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead><tbody>{catalog?.groups?.length ? catalog.groups.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.status === "ACTIVE" ? "Đang áp dụng" : "Ngừng áp dụng"}</td><td><AnchoredActionMenu label={`Tùy chọn cho ${item.name}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setCatalogDialog(undefined); setLifecycle({ kind: "receivable-groups", id: item.id, name: item.name, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td></tr>) : <tr><td colSpan={3}>{catalog ? "Chưa có nhóm khoản thu." : "Đang tải nhóm khoản thu."}</td></tr>}</tbody></table>
             <button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>Đóng</button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReceiptQueueWorkspace } from "./receipt-queue-workspace";
 
@@ -7,7 +7,7 @@ const queue = { invoices: [row], filters: { schoolYearId: null, billingMonth: "2
 const detail = { id: "invoice-a", status: "ISSUED", outstanding: "120000", student: { code: "HS001", name: "Bé An" } };
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { cleanup(); document.querySelectorAll("[data-base-ui-portal]").forEach((portal) => portal.remove()); vi.unstubAllGlobals(); });
 
 describe("ReceiptQueueWorkspace", () => {
   it("opens one server-authorized Invoice from an accessible row menu and only offers next after the refreshed queue", async () => {
@@ -20,7 +20,9 @@ describe("ReceiptQueueWorkspace", () => {
     vi.stubGlobal("fetch", fetch); render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await screen.findByText("HS001 / Bé An");
     fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Ghi thực nhận" }));
+    const receiptAction = await screen.findByRole("menuitem", { name: "Ghi thực nhận" });
+    expect(receiptAction.closest('[role="menu"]')?.parentElement?.parentElement?.parentElement).toBe(document.body);
+    fireEvent.click(receiptAction);
     const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });

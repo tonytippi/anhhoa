@@ -20,6 +20,22 @@ async function openRun(page: import('@playwright/test').Page, month: string) {
   await page.getByRole('menuitem', { name: 'Mở chi tiết' }).click();
 }
 
+async function expectMenuDoesNotMoveNextRow(trigger: import('@playwright/test').Locator) {
+  const row = trigger.locator('xpath=ancestor::tr[1]');
+  const nextRow = row.locator('xpath=following-sibling::tr[1]');
+  const before = await nextRow.boundingBox();
+  expect(before).not.toBeNull();
+  await trigger.click();
+  await expect(trigger.page().getByRole('menu')).toBeVisible();
+  const after = await nextRow.boundingBox();
+  expect(after).not.toBeNull();
+  expect(after?.y).toBe(before?.y);
+  expect(after?.height).toBe(before?.height);
+  await trigger.page().keyboard.press('Escape');
+  await expect(trigger.page().getByRole('menu')).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test('Admin Finance uses server-returned promotion values and clears the other School context', async ({ page }) => {
@@ -134,7 +150,8 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await expect(receiptQueue).toContainText('RG1-2 / Bé Bình');
     await page.setViewportSize({ width: 390, height: 844 });
      const queueMenu = receiptQueue.getByRole('button', { name: 'Tùy chọn cho Bé An' });
-    await queueMenu.scrollIntoViewIfNeeded();
+     await expectMenuDoesNotMoveNextRow(queueMenu);
+     await queueMenu.scrollIntoViewIfNeeded();
     await expect(queueMenu).toBeVisible();
     await queueMenu.focus();
     await page.keyboard.press('ArrowDown');

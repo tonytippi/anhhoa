@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FinanceWorkspace as FinanceWorkspaceBase } from "./finance-workspace";
@@ -37,6 +37,8 @@ const openRun = async () => {
   fireEvent.click(await screen.findByRole("menuitem", { name: "Mở chi tiết" }));
 };
 afterEach(() => {
+  cleanup();
+  document.querySelectorAll("[data-base-ui-portal]").forEach((portal) => portal.remove());
   vi.unstubAllGlobals();
   sessionStorage.clear();
 });
@@ -83,8 +85,8 @@ describe("FinanceWorkspace", () => {
     const action = await screen.findByRole("button", { name: "Tùy chọn cho Học phí" });
     fireEvent.click(action);
     const menu = screen.getByRole("menu");
-    expect(menu.classList.contains("finance-row-menu")).toBe(true);
-    expect(menu.parentElement?.classList.contains("finance-row-actions")).toBe(true);
+    expect(menu.classList.contains("finance-anchored-action-menu")).toBe(true);
+    expect(menu.parentElement?.parentElement?.parentElement).toBe(document.body);
     expect(within(menu).getByRole("menuitem", { name: "Ngừng áp dụng" })).toBeTruthy();
   });
   it("loads promotion data without collection runs", async () => {
@@ -214,6 +216,7 @@ describe("FinanceWorkspace", () => {
     const menuTrigger = await screen.findByRole("button", { name: "Tùy chọn cho Hỗ trợ phiên bản 1" });
     fireEvent.keyDown(menuTrigger, { key: "ArrowDown" });
     const action = await screen.findByRole("menuitem", { name: "Kích hoạt phiên bản" });
+    expect(action.closest('[role="menu"]')?.parentElement?.parentElement?.parentElement).toBe(document.body);
     fireEvent.click(action);
     expect(screen.getByRole("dialog", { name: "Kích hoạt phiên bản Hỗ trợ" })).toBeTruthy();
     expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/activate") && (options as RequestInit).method === "POST")).toBe(false);
@@ -344,7 +347,9 @@ describe("FinanceWorkspace", () => {
     expect(document.activeElement).toBe(assign);
     const assignmentMenu = screen.getByRole("button", { name: "Tùy chọn cho Bé An" });
     fireEvent.keyDown(assignmentMenu, { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Kết thúc áp dụng" }));
+    const endAssignment = await screen.findByRole("menuitem", { name: "Kết thúc áp dụng" });
+    expect(endAssignment.closest('[role="menu"]')?.parentElement?.parentElement?.parentElement).toBe(document.body);
+    fireEvent.click(endAssignment);
     expect(document.activeElement).toBe(screen.getByLabelText("Ngày kết thúc (bao gồm)"));
     fireEvent.change(screen.getByLabelText("Ngày kết thúc (bao gồm)"), { target: { value: "2026-10-01" } });
     fireEvent.change(screen.getByLabelText("Lý do"), { target: { value: "Kết thúc" } });
