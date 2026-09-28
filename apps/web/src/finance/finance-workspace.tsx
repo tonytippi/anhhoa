@@ -123,6 +123,28 @@ const skipReason = (reason: string) =>
     INVOICE_EXISTS: "Học sinh đã có hóa đơn trong đợt thu này.",
   })[reason] ?? "Không đủ điều kiện theo roster hiện tại.";
 
+const todayInVietnam = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+const defaultPromotion = () => ({
+  policyId: "",
+  name: "",
+  receivableIds: [] as string[],
+  discountType: "PERCENTAGE",
+  discountValue: "",
+  priority: "1",
+  stackingMode: "STACKABLE",
+  fulfillmentMode: "DISCOUNT" as "DISCOUNT" | "PREPAID_COVERAGE",
+  prepaidTermMonths: "",
+  effectiveFrom: todayInVietnam(),
+  effectiveTo: "",
+});
+
 export function FinanceWorkspace({
   schoolId,
   schoolName,
@@ -139,7 +161,7 @@ export function FinanceWorkspace({
   void schoolName;
   const [catalog, setCatalog] = useState<Catalog>();
   const [promotionData, setPromotionData] = useState({ schoolId, policies: [] as PromotionPolicy[], students: [] as Candidate[] });
-  const [promotion, setPromotion] = useState({ policyId: "", name: "", receivableIds: [] as string[], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", prepaidTermMonths: "", effectiveFrom: "", effectiveTo: "" });
+  const [promotion, setPromotion] = useState(defaultPromotion);
   const [assignment, setAssignment] = useState({ versionId: "", studentIds: [] as string[], effectiveFrom: "", effectiveTo: "", reason: "" });
   const [draftCoverageVersionId, setDraftCoverageVersionId] = useState("");
   const [endingAssignment, setEndingAssignment] = useState<{ id: string; effectiveTo: string; reason: string }>();
@@ -235,7 +257,7 @@ export function FinanceWorkspace({
   const promotionVersions = promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => ({ policy, version })));
   const currentAssignments = promotionVersions.flatMap(({ policy, version }) => (version.assignments ?? []).filter(activeAssignment).map((item) => ({ policy, version, item })));
   const resetReceivable = () => setReceivable({ groupId: "", code: "", displayName: "", unitLabel: "", defaultUnitPrice: "" });
-  const resetPromotion = () => setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", prepaidTermMonths: "", effectiveFrom: "", effectiveTo: "" });
+  const resetPromotion = () => setPromotion(defaultPromotion());
 
   const get = async <T,>(path: string, mutation = false) => {
     const response = await fetch(`${apiUrl}${path}`, {
@@ -382,7 +404,7 @@ export function FinanceWorkspace({
       window.clearTimeout(reconciliationTimer.current);
     setCatalog(undefined);
     setPromotionData({ schoolId, policies: [], students: [] });
-    setPromotion({ policyId: "", name: "", receivableIds: [], discountType: "PERCENTAGE", discountValue: "", priority: "1", stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", prepaidTermMonths: "", effectiveFrom: "", effectiveTo: "" });
+    setPromotion(defaultPromotion());
     setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" });
     setDraftCoverageVersionId("");
     setEndingAssignment(undefined);

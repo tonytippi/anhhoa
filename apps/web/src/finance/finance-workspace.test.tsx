@@ -449,6 +449,12 @@ describe("FinanceWorkspace", () => {
     expect(screen.getByLabelText("Mức giảm")).toHaveProperty("id", "invoice-promotion-discountValue-field");
   });
   it("hides the existing policy select when promotion policies are empty and sends policyId as null", async () => {
+    const todayInVietnam = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
     const catalogWithReceivables = {
       groups: [],
       receivables: [
@@ -477,11 +483,16 @@ describe("FinanceWorkspace", () => {
     expect(dialog).toBeTruthy();
 
     expect(screen.queryByLabelText("Chính sách hiện có (để tạo phiên bản mới)")).toBeNull();
+    const effectiveFromInput = screen.getByLabelText("Hiệu lực từ") as HTMLInputElement;
+    const effectiveToInput = screen.getByLabelText("Hiệu lực đến (bao gồm)") as HTMLInputElement;
+    expect(effectiveFromInput.value).toBe(todayInVietnam);
+    expect(effectiveFromInput.value.length).toBeGreaterThan(0);
+    expect(effectiveToInput.value).toBe("");
+    expect(effectiveToInput.required).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Chính sách đầu tiên" } });
     fireEvent.click(screen.getByLabelText("Học phí"));
     fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });
-    fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
 
@@ -492,9 +503,17 @@ describe("FinanceWorkspace", () => {
       expect(call).toBeTruthy();
       const body = JSON.parse((call![1] as RequestInit).body as string);
       expect(body.policyId).toBeNull();
+      expect(body.effectiveFrom).toBe(todayInVietnam);
+      expect(body.effectiveTo).toBeNull();
     });
   });
   it("retains existing policy select when policies exist and accessibly binds policyId field errors adjacent to the select", async () => {
+    const todayInVietnam = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
     const existingPolicy = {
       id: "policy-1",
       name: "Chính sách cũ",
@@ -556,6 +575,12 @@ describe("FinanceWorkspace", () => {
     expect((policySelect as HTMLSelectElement).value).toBe("");
     expect(policySelect.getAttribute("aria-invalid")).toBeNull();
     expect(screen.queryByText("ID không hợp lệ.")).toBeNull();
+    const effectiveFromInput = screen.getByLabelText("Hiệu lực từ") as HTMLInputElement;
+    const effectiveToInput = screen.getByLabelText("Hiệu lực đến (bao gồm)") as HTMLInputElement;
+    expect(effectiveFromInput.value).toBe(todayInVietnam);
+    expect(effectiveFromInput.value.length).toBeGreaterThan(0);
+    expect(effectiveToInput.value).toBe("");
+    expect(effectiveToInput.required).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Chính sách mới" } });
     fireEvent.click(screen.getByLabelText("Học phí"));
@@ -571,6 +596,8 @@ describe("FinanceWorkspace", () => {
       expect(call).toBeTruthy();
       const body = JSON.parse((call![1] as RequestInit).body as string);
       expect(body.policyId).toBeNull();
+      expect(body.effectiveFrom).toBe("2026-10-01");
+      expect(body.effectiveTo).toBeNull();
     });
 
     const errorElement = await screen.findByText("ID không hợp lệ.", { selector: "#invoice-promotion-policyId-error" });
