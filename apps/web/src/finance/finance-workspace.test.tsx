@@ -185,13 +185,26 @@ describe("FinanceWorkspace", () => {
     expect(screen.getByRole("dialog", { name: "Thêm chính sách ưu đãi" })).toBeTruthy();
     expect(document.querySelector(".dialog-backdrop")).toBeTruthy();
     expect(document.querySelector('[role="dialog"][aria-labelledby="finance-policy-title"] form')).toBeTruthy();
+    expect(screen.getByText("Giảm trên hóa đơn")).toBeTruthy();
+    expect(screen.getByText("Ưu đãi nộp trước")).toBeTruthy();
+    const discountRadio = screen.getByRole("radio", { name: /Giảm trên hóa đơn/ });
+    const prepaidRadio = screen.getByRole("radio", { name: /Ưu đãi nộp trước/ });
+    expect(discountRadio).toBeTruthy();
+    expect(prepaidRadio).toBeTruthy();
+    expect((discountRadio as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByLabelText(/Thời hạn nộp trước \(tháng\)/)).toBeNull();
+
     fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Hỗ trợ" } });
     fireEvent.click(screen.getByLabelText("Học phí")); fireEvent.click(screen.getByLabelText("Tiền ăn"));
     fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });
     fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
-    fireEvent.change(screen.getByLabelText("Cách thực hiện"), { target: { value: "PREPAID_COVERAGE" } });
+    fireEvent.click(prepaidRadio);
+    expect((prepaidRadio as HTMLInputElement).checked).toBe(true);
+    const termInput = screen.getByLabelText(/Thời hạn nộp trước \(tháng\)/);
+    expect(termInput).toBeTruthy();
+    fireEvent.change(termInput, { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/promotion-policies") && (options as RequestInit).method === "POST" && String((options as RequestInit).body).includes('"receivableIds":["r1","r2"]') && String((options as RequestInit).body).includes('"fulfillmentMode":"PREPAID_COVERAGE"'))).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/promotion-policies") && (options as RequestInit).method === "POST" && String((options as RequestInit).body).includes('"policyId":null') && String((options as RequestInit).body).includes('"receivableIds":["r1","r2"]') && String((options as RequestInit).body).includes('"fulfillmentMode":"PREPAID_COVERAGE"') && String((options as RequestInit).body).includes('"prepaidTermMonths":3'))).toBe(true));
   });
   it("confirms a promotion version transition from its row menu before posting and restores the menu action focus", async () => {
     const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "DRAFT", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
@@ -290,6 +303,7 @@ describe("FinanceWorkspace", () => {
     const groups = [{ id: "group", name: "Học tập", status: "ACTIVE" as const }];
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [policy] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response({ groups, receivables: [] }))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
+    expect((await screen.findAllByText("Hỗ trợ / Phiên bản 1")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Thêm chính sách" }));
     expect(document.activeElement).toBe(screen.getByLabelText("Chính sách hiện có (để tạo phiên bản mới)"));
     fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
@@ -433,6 +447,138 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
     await screen.findByText("Mức giảm phải lớn hơn 0.", { selector: "#invoice-promotion-discountValue-error" });
     expect(screen.getByLabelText("Mức giảm")).toHaveProperty("id", "invoice-promotion-discountValue-field");
+  });
+  it("hides the existing policy select when promotion policies are empty and sends policyId as null", async () => {
+    const catalogWithReceivables = {
+      groups: [],
+      receivables: [
+        { id: "r1", groupId: "g", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true },
+      ],
+    };
+    const fetch = vi.fn((url: string, options?: RequestInit) =>
+      Promise.resolve(
+        options?.method === "POST"
+          ? response({ outcome: { id: "created" } })
+          : url.includes("promotion-students")
+            ? response({ students: candidates.students })
+            : url.includes("promotion-policies")
+              ? response({ policies: [] })
+              : url.includes("collection-run-candidates")
+                ? response(candidates)
+                : url.includes("collection-runs")
+                  ? response({ runs: [] })
+                  : response(catalogWithReceivables),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm chính sách" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm chính sách ưu đãi" });
+    expect(dialog).toBeTruthy();
+
+    expect(screen.queryByLabelText("Chính sách hiện có (để tạo phiên bản mới)")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Chính sách đầu tiên" } });
+    fireEvent.click(screen.getByLabelText("Học phí"));
+    fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
+
+    await waitFor(() => {
+      const call = fetch.mock.calls.find(
+        ([url, options]) => String(url).includes("/finance/promotion-policies") && options?.method === "POST",
+      );
+      expect(call).toBeTruthy();
+      const body = JSON.parse((call![1] as RequestInit).body as string);
+      expect(body.policyId).toBeNull();
+    });
+  });
+  it("retains existing policy select when policies exist and accessibly binds policyId field errors adjacent to the select", async () => {
+    const existingPolicy = {
+      id: "policy-1",
+      name: "Chính sách cũ",
+      versions: [
+        {
+          id: "version-1",
+          version: 1,
+          status: "ACTIVE",
+          discountType: "PERCENTAGE",
+          discountValue: "10",
+          priority: 1,
+          stackingMode: "STACKABLE",
+          fulfillmentMode: "DISCOUNT",
+          effectiveFrom: "2026-09-01",
+          effectiveTo: null,
+          targets: [],
+          assignments: [],
+        },
+      ],
+    };
+    const catalogWithReceivables = {
+      groups: [],
+      receivables: [
+        { id: "r1", groupId: "g", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true },
+      ],
+    };
+    const fetch = vi.fn((url: string, options?: RequestInit) =>
+      Promise.resolve(
+        options?.method === "POST"
+          ? new Response(
+              JSON.stringify({
+                error: {
+                  code: "VALIDATION_ERROR",
+                  message: "Dữ liệu không hợp lệ.",
+                  fieldErrors: { policyId: "ID không hợp lệ." },
+                },
+              }),
+              { status: 400 },
+            )
+          : url.includes("promotion-students")
+            ? response({ students: candidates.students })
+            : url.includes("promotion-policies")
+              ? response({ policies: [existingPolicy] })
+              : url.includes("collection-run-candidates")
+                ? response(candidates)
+                : url.includes("collection-runs")
+                  ? response({ runs: [] })
+                  : response(catalogWithReceivables),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm chính sách" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm chính sách ưu đãi" });
+    expect(dialog).toBeTruthy();
+
+    const policySelect = screen.getByLabelText("Chính sách hiện có (để tạo phiên bản mới)");
+    expect(policySelect).toBeTruthy();
+    expect((policySelect as HTMLSelectElement).value).toBe("");
+    expect(policySelect.getAttribute("aria-invalid")).toBeNull();
+    expect(screen.queryByText("ID không hợp lệ.")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Tên chính sách"), { target: { value: "Chính sách mới" } });
+    fireEvent.click(screen.getByLabelText("Học phí"));
+    fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
+
+    await waitFor(() => {
+      const call = fetch.mock.calls.find(
+        ([url, options]) => String(url).includes("/finance/promotion-policies") && options?.method === "POST",
+      );
+      expect(call).toBeTruthy();
+      const body = JSON.parse((call![1] as RequestInit).body as string);
+      expect(body.policyId).toBeNull();
+    });
+
+    const errorElement = await screen.findByText("ID không hợp lệ.", { selector: "#invoice-promotion-policyId-error" });
+    expect(dialog.contains(errorElement)).toBe(true);
+    expect(policySelect).toHaveProperty("id", "invoice-promotion-policyId-field");
+    expect(policySelect.getAttribute("aria-invalid")).toBe("true");
+    expect(policySelect.getAttribute("aria-describedby")).toBe("invoice-promotion-policyId-error");
+    expect(policySelect.parentElement?.nextElementSibling).toBe(errorElement);
   });
   it("renders server preview eligible rows and categorized skips without local classification", async () => {
     const preview = {
@@ -1135,8 +1281,9 @@ describe("FinanceWorkspace", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Thêm chính sách" }));
     fireEvent.change(await screen.findByLabelText("Tên chính sách"), { target: { value: "Đóng trước 3 tháng" } });
-    fireEvent.change(screen.getByLabelText("Cách thực hiện"), { target: { value: "PREPAID_COVERAGE" } });
-    const termInput = await screen.findByLabelText("Số tháng coverage");
+    expect(screen.queryByLabelText("Thời hạn nộp trước (tháng)")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: /Ưu đãi nộp trước/ }));
+    const termInput = await screen.findByLabelText("Thời hạn nộp trước (tháng)");
     fireEvent.change(termInput, { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });
     fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
@@ -1148,6 +1295,7 @@ describe("FinanceWorkspace", () => {
       );
       expect(call).toBeTruthy();
       const body = JSON.parse((call![1] as RequestInit).body as string);
+      expect(body.policyId).toBeNull();
       expect(body.fulfillmentMode).toBe("PREPAID_COVERAGE");
       expect(body.prepaidTermMonths).toBe(3);
     });

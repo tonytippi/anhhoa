@@ -881,6 +881,7 @@ export function FinanceWorkspace({
       "POST",
       {
         ...promotion,
+        policyId: promotion.policyId || null,
         effectiveTo: promotion.effectiveTo || null,
         prepaidTermMonths: promotion.fulfillmentMode === "PREPAID_COVERAGE" ? Number(promotion.prepaidTermMonths) : null,
       },
@@ -1681,7 +1682,132 @@ export function FinanceWorkspace({
       )}
       {promotionDialog === "policy" && <div className="dialog-backdrop" aria-hidden="true" />}
       {promotionDialog === "policy" && (
-        <div ref={promotionDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-policy-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPromotionDialog(undefined), resetPromotion)}><form onSubmit={savePromotion}><h3 id="finance-policy-title">Thêm chính sách ưu đãi</h3><p>Hệ thống kiểm tra khoản thu, hiệu lực và quy tắc kết hợp trong đúng Trường.</p><label>Chính sách hiện có (để tạo phiên bản mới)<select value={promotion.policyId} onChange={(event) => { const policy = promotionPolicies.find((item) => item.id === event.target.value); setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" }); }}><option value="">Chính sách mới</option>{promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Tên chính sách<input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} {...promotionField("name")} /></label>{scope === "promotion" && errors.name && <small id="invoice-promotion-name-error">{errors.name}</small>}<fieldset {...promotionField("receivableIds")}><legend>Khoản thu áp dụng</legend>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <label key={item.id}><input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />{item.displayName}</label>)}</fieldset>{scope === "promotion" && errors.receivableIds && <small id="invoice-promotion-receivableIds-error">{errors.receivableIds}</small>}<label>Loại giảm<select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}><option value="PERCENTAGE">Phần trăm</option><option value="FIXED_VND">Số tiền VND</option></select></label><label>Mức giảm<input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} {...promotionField("discountValue")} /></label>{scope === "promotion" && errors.discountValue && <small id="invoice-promotion-discountValue-error">{errors.discountValue}</small>}<label>Hiệu lực từ<input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} /></label><label>Hiệu lực đến (bao gồm)<input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} /></label><label>Ưu tiên<input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} /></label><label>Quy tắc kết hợp<select value={promotion.stackingMode} onChange={(event) => setPromotion({ ...promotion, stackingMode: event.target.value })}><option value="STACKABLE">Có thể kết hợp</option><option value="EXCLUSIVE">Độc quyền</option></select></label><label>Cách thực hiện<select value={promotion.fulfillmentMode} onChange={(event) => setPromotion({ ...promotion, fulfillmentMode: event.target.value, prepaidTermMonths: event.target.value === "PREPAID_COVERAGE" ? (promotion.prepaidTermMonths || "1") : "" })}><option value="DISCOUNT">Giảm trên hóa đơn</option><option value="PREPAID_COVERAGE">Coverage nộp trước</option></select></label>{promotion.fulfillmentMode === "PREPAID_COVERAGE" && <label>Số tháng coverage<input inputMode="numeric" value={promotion.prepaidTermMonths} onChange={(event) => setPromotion({ ...promotion, prepaidTermMonths: event.target.value })} {...promotionField("prepaidTermMonths")} /></label>}{scope === "promotion" && errors.prepaidTermMonths && <small id="invoice-promotion-prepaidTermMonths-error">{errors.prepaidTermMonths}</small>}<button disabled={Boolean(pending)}>Lưu phiên bản ưu đãi</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setPromotionDialog(undefined), resetPromotion)}>Hủy</button></form></div>
+        <div ref={promotionDialogRef} role="dialog" aria-modal="true" aria-labelledby="finance-policy-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPromotionDialog(undefined), resetPromotion)}>
+          <form onSubmit={savePromotion}>
+            <h3 id="finance-policy-title">Thêm chính sách ưu đãi</h3>
+            <p>Hệ thống kiểm tra khoản thu, hiệu lực và quy tắc kết hợp trong đúng Trường.</p>
+            {promotionPolicies.length > 0 && (
+              <>
+                <label className="finance-policy-full">
+                  Chính sách hiện có (để tạo phiên bản mới)
+                  <select
+                    value={promotion.policyId}
+                    onChange={(event) => {
+                      const policy = promotionPolicies.find((item) => item.id === event.target.value);
+                      setPromotion({ ...promotion, policyId: event.target.value, name: policy?.name ?? "" });
+                    }}
+                    {...promotionField("policyId")}
+                  >
+                    <option value="">Chính sách mới</option>
+                    {promotionPolicies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </label>
+                {scope === "promotion" && errors.policyId && (
+                  <small id="invoice-promotion-policyId-error" className="finance-policy-full">
+                    {errors.policyId}
+                  </small>
+                )}
+              </>
+            )}
+            <label className="finance-policy-full">
+              Tên chính sách
+              <input value={promotion.name} disabled={Boolean(promotion.policyId)} onChange={(event) => setPromotion({ ...promotion, name: event.target.value })} {...promotionField("name")} />
+            </label>
+            {scope === "promotion" && errors.name && <small id="invoice-promotion-name-error" className="finance-policy-full">{errors.name}</small>}
+            <fieldset className="finance-policy-full" {...promotionField("receivableIds")}>
+              <legend>Khoản thu áp dụng</legend>
+              {(catalog?.receivables ?? []).filter((item) => item.available).map((item) => (
+                <label key={item.id}>
+                  <input type="checkbox" checked={promotion.receivableIds.includes(item.id)} onChange={() => setPromotion({ ...promotion, receivableIds: promotion.receivableIds.includes(item.id) ? promotion.receivableIds.filter((id) => id !== item.id) : [...promotion.receivableIds, item.id] })} />
+                  {item.displayName}
+                </label>
+              ))}
+            </fieldset>
+            {scope === "promotion" && errors.receivableIds && <small id="invoice-promotion-receivableIds-error" className="finance-policy-full">{errors.receivableIds}</small>}
+            <label>
+              Loại giảm
+              <select value={promotion.discountType} onChange={(event) => setPromotion({ ...promotion, discountType: event.target.value })}>
+                <option value="PERCENTAGE">Phần trăm</option>
+                <option value="FIXED_VND">Số tiền VND</option>
+              </select>
+            </label>
+            <label>
+              Mức giảm
+              <input inputMode="numeric" value={promotion.discountValue} onChange={(event) => setPromotion({ ...promotion, discountValue: event.target.value })} {...promotionField("discountValue")} />
+            </label>
+            {scope === "promotion" && errors.discountValue && <small id="invoice-promotion-discountValue-error" className="finance-policy-full">{errors.discountValue}</small>}
+            <label>
+              Hiệu lực từ
+              <input type="date" value={promotion.effectiveFrom} onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })} />
+            </label>
+            <label>
+              Hiệu lực đến (bao gồm)
+              <input type="date" value={promotion.effectiveTo} onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })} />
+            </label>
+            <label>
+              Ưu tiên
+              <input inputMode="numeric" value={promotion.priority} onChange={(event) => setPromotion({ ...promotion, priority: event.target.value })} />
+            </label>
+            <label>
+              Quy tắc kết hợp
+              <select value={promotion.stackingMode} onChange={(event) => setPromotion({ ...promotion, stackingMode: event.target.value })}>
+                <option value="STACKABLE">Có thể kết hợp</option>
+                <option value="EXCLUSIVE">Độc quyền</option>
+              </select>
+            </label>
+            <fieldset className="finance-policy-full finance-policy-fulfillment">
+              <legend>Cách thực hiện</legend>
+              <div className="finance-policy-options">
+                <label className={`finance-policy-option-card ${promotion.fulfillmentMode === "DISCOUNT" ? "selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="fulfillmentMode"
+                    value="DISCOUNT"
+                    checked={promotion.fulfillmentMode === "DISCOUNT"}
+                    onChange={(event) => setPromotion({ ...promotion, fulfillmentMode: event.target.value as "DISCOUNT" | "PREPAID_COVERAGE", prepaidTermMonths: "" })}
+                  />
+                  <div className="finance-policy-option-text">
+                    <strong>Giảm trên hóa đơn</strong>
+                    <span>Giảm trừ trực tiếp số tiền phải nộp trên hóa đơn của kỳ thu hiện tại.</span>
+                  </div>
+                </label>
+                <label className={`finance-policy-option-card ${promotion.fulfillmentMode === "PREPAID_COVERAGE" ? "selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="fulfillmentMode"
+                    value="PREPAID_COVERAGE"
+                    checked={promotion.fulfillmentMode === "PREPAID_COVERAGE"}
+                    onChange={(event) => setPromotion({ ...promotion, fulfillmentMode: event.target.value as "DISCOUNT" | "PREPAID_COVERAGE", prepaidTermMonths: promotion.prepaidTermMonths || "1" })}
+                  />
+                  <div className="finance-policy-option-text">
+                    <strong>Ưu đãi nộp trước</strong>
+                    <span>Thu trước các kỳ tương lai liên tiếp tính từ kỳ của hóa đơn; chỉ phát hành quyền ưu đãi sau khi hóa đơn đóng đủ số tiền.</span>
+                  </div>
+                </label>
+              </div>
+            </fieldset>
+            {promotion.fulfillmentMode === "PREPAID_COVERAGE" && (
+              <label className="finance-policy-full">
+                Thời hạn nộp trước (tháng)
+                <input
+                  inputMode="numeric"
+                  value={promotion.prepaidTermMonths}
+                  onChange={(event) => setPromotion({ ...promotion, prepaidTermMonths: event.target.value })}
+                  {...promotionField("prepaidTermMonths")}
+                />
+              </label>
+            )}
+            {scope === "promotion" && errors.prepaidTermMonths && (
+              <small id="invoice-promotion-prepaidTermMonths-error" className="finance-policy-full">
+                {errors.prepaidTermMonths}
+              </small>
+            )}
+            <div className="finance-policy-actions">
+              <button disabled={Boolean(pending)}>Lưu phiên bản ưu đãi</button>
+              <button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setPromotionDialog(undefined), resetPromotion)}>Hủy</button>
+            </div>
+          </form>
+        </div>
       )}
       {promotionTransition && (
         <div role="dialog" aria-modal="true" aria-labelledby="finance-promotion-transition-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPromotionTransition(undefined))}>

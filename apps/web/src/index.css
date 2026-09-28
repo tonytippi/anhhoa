@@ -608,12 +608,58 @@ tbody tr:last-child td {
 [role="dialog"][aria-labelledby="finance-policy-title"] p,
 [role="dialog"][aria-labelledby="finance-policy-title"] fieldset,
 [role="dialog"][aria-labelledby="finance-policy-title"] small,
-[role="dialog"][aria-labelledby="finance-policy-title"] form > label:nth-of-type(1),
-[role="dialog"][aria-labelledby="finance-policy-title"] form > label:nth-of-type(2),
-[role="dialog"][aria-labelledby="finance-policy-title"] form > label:nth-of-type(9) {
+[role="dialog"][aria-labelledby="finance-policy-title"] .finance-policy-full {
   grid-column: 1 / -1;
 }
-[role="dialog"][aria-labelledby="finance-policy-title"] form > button {
+.finance-policy-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+.finance-policy-option-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #c9c8bd;
+  border-radius: 9px;
+  background: #fdfdfc;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.finance-policy-option-card:hover {
+  background: #f6f5ee;
+}
+.finance-policy-option-card.selected {
+  border-color: #24261f;
+  background: #f4f3ec;
+}
+.finance-policy-option-card input[type="radio"] {
+  margin-top: 3px;
+}
+.finance-policy-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.finance-policy-option-text strong {
+  font-size: 0.95rem;
+  color: #24261f;
+}
+.finance-policy-option-text span {
+  font-size: 0.85rem;
+  color: #55574f;
+  line-height: 1.35;
+}
+[role="dialog"][aria-labelledby="finance-policy-title"] .finance-policy-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+[role="dialog"][aria-labelledby="finance-policy-title"] .finance-policy-actions > button {
   min-height: 40px;
 }
 .dialog [role="alert"] {
@@ -962,6 +1008,12 @@ tbody tr:last-child td {
   }
   [role="dialog"][aria-labelledby="finance-policy-title"] form > * {
     grid-column: 1;
+  }
+  .finance-policy-options {
+    grid-template-columns: 1fr;
+  }
+  [role="dialog"][aria-labelledby="finance-policy-title"] .finance-policy-actions {
+    flex-direction: column;
   }
   .row-actions { white-space: normal; }
   .pagination { flex-wrap: wrap; justify-content: flex-start; }
