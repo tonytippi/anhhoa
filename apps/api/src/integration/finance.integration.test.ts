@@ -1044,7 +1044,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(ready).toMatchObject({
         id: operationId,
         status: "COMPLETED",
-        outcome: { id: runId, status: "READY", version: 1 },
+        outcome: { id: runId, status: "READY", version: 2 },
       });
       expect(
         await finance.readyRun(
@@ -1240,7 +1240,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("snapshots daily meal template facts, rejects invalid template input, and uses the snapshot for a late Student", async () => {
       const current = await roster(await graph()); const foreign = await roster(await graph());
-      const first = await enrolled(current); const later = await enrolled(current);
+      const first = await enrolled(current);
       const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
       const groupId = outcomeId(await group(current, "Bữa ăn"));
       const mealId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000" }));
@@ -1255,6 +1255,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
       await expect(finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId: mealId, quantity: "1", expectedVersion: 2 })).rejects.toMatchObject({ status: 409 });
       await generate(current, runId);
+      const later = await enrolled(current);
       const generatedRun = await prisma.collectionRun.findUniqueOrThrow({
         where: { id: runId },
       });
