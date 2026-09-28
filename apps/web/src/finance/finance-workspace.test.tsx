@@ -1092,4 +1092,198 @@ describe("FinanceWorkspace", () => {
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/coverage-reversals") && (options as RequestInit).body === JSON.stringify({ coverageId: "coverage-a", effectiveOn: "2026-10-10", reason: "Rút học", amount: null, confirmation: "" }))).toBe(true));
     expect(await screen.findByText("Yêu cầu hoàn coverage đã được gửi chờ School Admin duyệt.")).toBeTruthy();
   });
+
+  it("creates PREPAID_COVERAGE policy version with positive prepaidTermMonths", async () => {
+    const customCatalog = {
+      groups: [],
+      receivables: [
+        {
+          id: "rec-1",
+          groupId: "group-1",
+          code: "HP",
+          displayName: "Học phí",
+          unitLabel: "tháng",
+          defaultUnitPrice: "100",
+          status: "ACTIVE" as const,
+          available: true,
+        },
+      ],
+    };
+    const fetch = vi.fn((url: string, options?: RequestInit) =>
+      Promise.resolve(
+        options?.method === "POST" && String(url).includes("/finance/promotion-policies")
+          ? response({ outcome: { id: "policy-new" } })
+          : url.includes("promotion-students")
+            ? response({ students: candidates.students })
+            : url.includes("promotion-policies")
+              ? response({ policies: [] })
+              : url.includes("collection-run-candidates")
+                ? response(candidates)
+                : url.includes("collection-runs")
+                  ? response({ runs: [] })
+                  : response(customCatalog),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(
+      <FinanceWorkspace
+        schoolId="school-a"
+        schoolName="Trường A"
+        page="promotions"
+        denied={vi.fn()}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm chính sách" }));
+    fireEvent.change(await screen.findByLabelText("Tên chính sách"), { target: { value: "Đóng trước 3 tháng" } });
+    fireEvent.change(screen.getByLabelText("Cách thực hiện"), { target: { value: "PREPAID_COVERAGE" } });
+    const termInput = await screen.findByLabelText("Số tháng coverage");
+    fireEvent.change(termInput, { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Mức giảm"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
+    fireEvent.click(screen.getByLabelText("Học phí"));
+    fireEvent.click(screen.getByRole("button", { name: "Lưu phiên bản ưu đãi" }));
+    await waitFor(() => {
+      const call = fetch.mock.calls.find(([url, options]) =>
+        String(url).includes("/finance/promotion-policies") && options?.method === "POST"
+      );
+      expect(call).toBeTruthy();
+      const body = JSON.parse((call![1] as RequestInit).body as string);
+      expect(body.fulfillmentMode).toBe("PREPAID_COVERAGE");
+      expect(body.prepaidTermMonths).toBe(3);
+    });
+  });
+
+  it("applies and clears coverage on a DRAFT invoice with derived facts", async () => {
+    const generatedRun = {
+      ...run,
+      status: "GENERATED" as const,
+      invoices: [{ id: "invoice-draft", studentId: run.selectedStudentIds[0], studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "180" }],
+    };
+    const coveragePolicy = {
+      id: "cov-pol",
+      name: "Prepaid 3M",
+      versions: [
+        {
+          id: "cov-ver-1",
+          version: 1,
+          status: "ACTIVE" as const,
+          discountType: "PERCENTAGE" as const,
+          discountValue: "10",
+          priority: 1,
+          stackingMode: "STACKABLE" as const,
+          fulfillmentMode: "PREPAID_COVERAGE" as const,
+          prepaidTermMonths: 3,
+          effectiveFrom: "2026-09-01",
+          effectiveTo: null,
+          targets: [{ id: "target-1", receivableId: "meal", receivableName: "Học phí" }],
+          assignments: [],
+        },
+      ],
+    };
+    const draftInvoice = {
+      id: "invoice-draft",
+      status: "DRAFT",
+      total: "180",
+      billingMonth: "2026-10",
+      revisesInvoiceId: null,
+      revisionReason: null,
+      replacementInvoiceId: null,
+      receipt: null,
+      carries: [],
+      coverageFacts: [
+        {
+          receivableId: "meal",
+          billingMonth: "2026-10",
+          originalPrice: "100",
+          reduction: "10",
+          serviceStart: "2026-10-01",
+          serviceEnd: "2026-11-01",
+          calendarEffectiveFrom: "2026-01-01",
+          timezone: "Asia/Ho_Chi_Minh",
+          issuedAt: null,
+          versionId: "cov-ver-1",
+        },
+      ],
+      student: { code: "HS001", name: "Bé An", className: "Lá 1" },
+      lines: [
+        {
+          id: "line-1",
+          receivableId: "meal",
+          receivableName: "Học phí",
+          unitLabel: "tháng",
+          unitPrice: "90",
+          quantity: "1",
+          amount: "90",
+          grossAmount: "100",
+          discountAmount: "10",
+          netAmount: "90",
+          promotionEvaluation: null,
+          promotionApplicationSnapshot: null,
+          overrideReason: null,
+          source: null,
+          sourceReason: null,
+          sourceRecordedAt: null,
+          sourceProvenance: null,
+          sourceAudit: null,
+        },
+      ],
+      issue: null,
+    };
+
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      const urlStr = String(url);
+      if (options?.method === "PUT" && urlStr.includes("/invoices/invoice-draft/coverage")) {
+        return Promise.resolve(response({ outcome: { id: "invoice-draft" } }));
+      }
+      if (urlStr.includes("/invoices/invoice-draft")) {
+        return Promise.resolve(response(draftInvoice));
+      }
+      if (urlStr.includes("promotion-policies")) {
+        return Promise.resolve(response({ policies: [coveragePolicy] }));
+      }
+      if (urlStr.includes("collection-run-candidates")) {
+        return Promise.resolve(response(candidates));
+      }
+      if (urlStr.includes("collection-runs")) {
+        return Promise.resolve(response({ runs: [generatedRun] }));
+      }
+      return Promise.resolve(response(catalog));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun();
+    fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
+    await screen.findByRole("heading", { name: /Rà soát hóa đơn HS001/ });
+
+    // Verify derived coverage facts table rendering
+    expect(await screen.findByText("Fact coverage cho hóa đơn")).toBeTruthy();
+    expect(screen.getByText("Chờ hóa đơn đóng")).toBeTruthy();
+
+    // Verify Apply coverage
+    fireEvent.change(screen.getByLabelText("Chính sách coverage"), { target: { value: "cov-ver-1" } });
+    const applyBtn = screen.getByRole("button", { name: "Áp dụng coverage" });
+    expect(applyBtn).toHaveProperty("disabled", false);
+    fireEvent.click(applyBtn);
+
+    await waitFor(() => {
+      const call = fetch.mock.calls.find(([u, opts]) =>
+        String(u).includes("/invoices/invoice-draft/coverage") && opts?.method === "PUT"
+      );
+      expect(call).toBeTruthy();
+      expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({ versionId: "cov-ver-1" });
+    });
+
+    // Verify Clear coverage
+    const clearBtn = screen.getByRole("button", { name: "Xóa coverage" });
+    fireEvent.click(clearBtn);
+
+    await waitFor(() => {
+      const call = fetch.mock.calls.find(([u, opts]) =>
+        String(u).includes("/invoices/invoice-draft/coverage") && opts?.method === "PUT" &&
+        JSON.parse((opts as RequestInit).body as string).versionId === null
+      );
+      expect(call).toBeTruthy();
+    });
+  });
 });

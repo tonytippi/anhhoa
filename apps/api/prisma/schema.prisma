@@ -1153,7 +1153,7 @@ model InvoicePromotionCoverageFact {
   policyId              String                      @db.Uuid
   versionId             String                      @db.Uuid
   targetId              String                      @db.Uuid
-  assignmentId          String                      @db.Uuid
+  assignmentId          String?                     @db.Uuid
   originalPrice         BigInt                      @db.BigInt
   reduction             BigInt                      @db.BigInt
   serviceStart          DateTime                    @db.Date
@@ -1508,6 +1508,7 @@ model PromotionPolicyVersion {
   priority           Int
   stackingMode       PromotionStackingMode
   fulfillmentMode    PromotionFulfillmentMode         @default(DISCOUNT)
+  prepaidTermMonths  Int?
   effectiveFrom      DateTime                         @db.Date
   effectiveTo        DateTime?                        @db.Date
   createdAt          DateTime                         @default(now())
