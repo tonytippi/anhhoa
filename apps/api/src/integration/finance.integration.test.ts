@@ -445,11 +445,27 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.transitionGroup(current.identity.id, current.school.id, inactiveGroupId, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng nhóm" });
       await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { ...policyInput, receivableIds: [activeOne, inactiveReceivableId] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
       await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { ...policyInput, receivableIds: [activeOne, foreignReceivableId] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
-      const key = uuid(); const operationId = uuid(); const created = await finance.createPromotionPolicy(current.identity.id, current.school.id, key, operationId, policyInput);
-      const versionId = ((created.outcome as any).versions[0]).id;
-      await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, key, uuid(), policyInput)).resolves.toEqual(created);
-      await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, key, uuid(), { ...policyInput, discountValue: "11" })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
-      expect(await prisma.promotionPolicyTarget.count({ where: { schoolId: current.school.id, versionId } })).toBe(2);
+       const key = uuid(); const operationId = uuid(); const created = await finance.createPromotionPolicy(current.identity.id, current.school.id, key, operationId, policyInput);
+       const versionId = ((created.outcome as any).versions[0]).id;
+       await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, key, uuid(), policyInput)).resolves.toEqual(created);
+       await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, key, uuid(), { ...policyInput, discountValue: "11" })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
+       const prepaidInput = { name: "Ưu đãi nộp trước 3 tháng", receivableIds: [activeOne], discountType: "FIXED_VND", discountValue: "10", priority: "1", stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 3, effectiveFrom: "2026-09-01" };
+       const prepaid = await finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), prepaidInput);
+       expect(prepaid).toMatchObject({ status: "COMPLETED", outcome: { name: prepaidInput.name, versions: [{ status: "DRAFT", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 3 }] } });
+       const [policiesBeforeDuplicate, versionsBeforeDuplicate, targetsBeforeDuplicate, auditsBeforeDuplicate] = await Promise.all([
+         prisma.promotionPolicy.count({ where: { schoolId: current.school.id } }),
+         prisma.promotionPolicyVersion.count({ where: { schoolId: current.school.id } }),
+         prisma.promotionPolicyTarget.count({ where: { schoolId: current.school.id } }),
+         prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "PROMOTION_POLICY_VERSION_CREATED" } }),
+       ]);
+       await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), prepaidInput)).rejects.toMatchObject({ status: 409, response: { code: "PROMOTION_POLICY_NAME_EXISTS", message: expect.any(String) } });
+       await expect(Promise.all([
+         prisma.promotionPolicy.count({ where: { schoolId: current.school.id } }),
+         prisma.promotionPolicyVersion.count({ where: { schoolId: current.school.id } }),
+         prisma.promotionPolicyTarget.count({ where: { schoolId: current.school.id } }),
+         prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "PROMOTION_POLICY_VERSION_CREATED" } }),
+       ])).resolves.toEqual([policiesBeforeDuplicate, versionsBeforeDuplicate, targetsBeforeDuplicate, auditsBeforeDuplicate]);
+       expect(await prisma.promotionPolicyTarget.count({ where: { schoolId: current.school.id, versionId } })).toBe(2);
       expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "PROMOTION_POLICY_VERSION_CREATED" } })).toMatchObject({ provenance: { operationId } });
       await finance.activatePromotionVersion(current.identity.id, current.school.id, versionId, uuid(), uuid());
       const first = await enrolled(current); const second = await enrolled(current); const foreignStudent = await enrolled(foreign);

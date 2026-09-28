@@ -62,6 +62,23 @@ const validation = (field: string, message: string) =>
     fieldErrors: { [field]: message },
   });
 
+const promotionPolicyNameConstraints = new Set(["PromotionPolicy_schoolId_name_key"]);
+const promotionPolicyNameColumns = "schoolId,name";
+
+function promotionPolicyNameCollision(error: unknown): boolean {
+  if (!error || typeof error !== "object" || (error as { code?: unknown }).code !== "P2002") return false;
+  const matches = (value: unknown): boolean => {
+    if (!value || typeof value !== "object") return false;
+    const record = value as Record<string, unknown>;
+    for (const candidate of [record.target, record.name, record.fields]) {
+      if (typeof candidate === "string" && promotionPolicyNameConstraints.has(candidate.replace(/^.*\./, "").replace(/"/g, ""))) return true;
+      if (Array.isArray(candidate) && candidate.every((column) => typeof column === "string") && candidate.map((column) => column.replace(/^.*\./, "").replace(/"/g, "")).join(",") === promotionPolicyNameColumns) return true;
+    }
+    return Object.values(record).some(matches);
+  };
+  return matches((error as { meta?: unknown }).meta);
+}
+
 @Injectable()
 export class FinanceService {
   constructor(
@@ -2878,6 +2895,11 @@ export class FinanceService {
             operationId,
           });
       }
+      if (route === routes.promotionPolicy && promotionPolicyNameCollision(error))
+        throw new ConflictException({
+          code: "PROMOTION_POLICY_NAME_EXISTS",
+          message: "Tên chính sách ưu đãi đã được dùng trong Trường này.",
+        });
       throw error;
     }
   }
