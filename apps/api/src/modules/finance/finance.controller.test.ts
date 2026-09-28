@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { read: vi.fn(), runs: vi.fn(), operation: vi.fn(), invoice: vi.fn(), receiptQueue: vi.fn(), receiptQueueDetail: vi.fn(), receiptQueueClasses: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageRefundEligibility: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
+  const finance = { read: vi.fn(), runs: vi.fn(), operation: vi.fn(), invoice: vi.fn(), receiptQueue: vi.fn(), receiptQueueDetail: vi.fn(), receiptQueueClasses: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageRefundEligibility: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), addableStudents: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
   it('forwards report filters and streams only server-authorized CSV bytes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     finance.report.mockResolvedValue({ workspace: 'overview' }); finance.requestReportExport.mockResolvedValue({ exportId: 'export' }); finance.downloadReportExport.mockResolvedValue({ csv: Buffer.from('a'), workspace: 'overview' });
@@ -119,6 +119,14 @@ describe('FinanceController mutation boundary', () => {
     const controller = new FinanceController(auth as never, finance as never); (finance as any).runs = vi.fn().mockResolvedValue({ runs: [] });
     await expect(controller.runs(request({}), 'school', 'year', 'GENERATED', '25', 'cursor')).resolves.toEqual({ data: { runs: [] } });
     expect(finance.runs).toHaveBeenCalledWith('actor-id', 'school', { schoolYearId: 'year', status: 'GENERATED', limit: '25', cursor: 'cursor' });
+  });
+  it('exposes only the Finance-authorized generated-run candidate read', async () => {
+    const controller = new FinanceController(auth as never, finance as never);
+    finance.addableStudents.mockResolvedValue({ students: [], meta: { nextCursor: null } });
+    await expect(controller.addableStudents(request({}), 'school', 'run', '100', 'cursor')).resolves.toEqual({ data: { students: [], meta: { nextCursor: null } } });
+    expect(finance.addableStudents).toHaveBeenCalledWith('actor-id', 'school', 'run', { limit: '100', cursor: 'cursor' });
+    expect((controller as any).selection).toBeUndefined();
+    expect((controller as any).candidates).toBeUndefined();
   });
   it('projects active bank accounts and passes only the protected issue command through', async () => {
     const controller = new FinanceController(auth as never, finance as never);

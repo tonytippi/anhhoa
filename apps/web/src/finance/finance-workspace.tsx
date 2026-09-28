@@ -12,7 +12,7 @@ type Receivable = {
   status: "ACTIVE" | "INACTIVE" | null;
   available: boolean;
 };
-type Catalog = { groups: Group[]; receivables: Receivable[] };
+type Catalog = { groups: Group[]; receivables: Receivable[]; schoolYears?: Year[] };
 type PromotionPolicy = { id: string; name: string; versions: Array<{ id: string; version: number; status: "DRAFT" | "ACTIVE" | "RETIRED"; discountType: "FIXED_VND" | "PERCENTAGE"; discountValue: string; priority: number; stackingMode: "STACKABLE" | "EXCLUSIVE"; fulfillmentMode: "DISCOUNT" | "PREPAID_COVERAGE"; prepaidTermMonths?: number | null; effectiveFrom: string; effectiveTo: string | null; targets: Array<{ id: string; receivableId: string; receivableName: string }>; assignments: Array<{ id: string; studentId: string; studentCode: string; studentName: string; effectiveFrom: string; effectiveTo: string | null; isCurrent: boolean; reason: string; endReason: string | null }> }> };
 type Year = {
   id: string;
@@ -30,7 +30,6 @@ type Run = {
   type: "MONTHLY";
   status: "DRAFT" | "READY" | "GENERATED" | "CLOSED";
   version: number;
-  selectedStudentIds: string[];
   templateLines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; defaultUnitPrice: string; quantity: string; amount: string }>;
   coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
   invoices?: Array<{ id: string; studentId: string; studentCode: string; studentName: string; className: string; status: string; total: string }>;
@@ -199,7 +198,6 @@ export function FinanceWorkspace({
   const [open, setOpen] = useState({ schoolYearId: "", billingMonth: "" });
   const [runDialog, setRunDialog] = useState(false);
   const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[] }>();
-  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [template, setTemplate] = useState({ receivableId: "", quantity: "" });
   const [group, setGroup] = useState({ name: "" });
   const [receivable, setReceivable] = useState({
@@ -225,6 +223,7 @@ export function FinanceWorkspace({
   const [pending, setPending] = useState<Pending>();
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress>();
   const activeSchool = useRef(schoolId);
+  const activeRunId = useRef<string | undefined>(undefined);
   const activePage = useRef(page);
   activePage.current = page;
   const summary = useRef<HTMLDivElement>(null);
@@ -287,16 +286,14 @@ export function FinanceWorkspace({
         setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: nextPromotionStudents.students ?? [] });
       return;
     }
-    const [nextRuns, nextCandidates, nextPolicies, nextReversalRequests] = await Promise.all([
+    const [nextRuns, nextPolicies, nextReversalRequests] = await Promise.all([
       get<{ runs: Run[]; meta: { nextCursor: string | null } }>(runsPath()),
-      get<Candidates>(`/api/app/schools/${schoolId}/finance/collection-run-candidates${(run?.schoolYearId ?? open.schoolYearId) ? `?schoolYearId=${run?.schoolYearId ?? open.schoolYearId}` : ""}`),
       get<{ policies: PromotionPolicy[] }>(`/api/app/schools/${schoolId}/finance/promotion-policies`),
       get<{ requests: CoverageReversalRequest[] }>(`/api/app/schools/${schoolId}/finance/coverage-reversal-requests`),
     ]);
     if (activeSchool.current !== schoolId || token !== request.current) return;
     setRuns(nextRuns.runs);
     setRunsCursor(nextRuns.meta?.nextCursor ?? null);
-    setCandidates(nextCandidates);
     setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: [] });
     setCoverageReversalRequests(nextReversalRequests.requests ?? []);
   };
@@ -305,13 +302,15 @@ export function FinanceWorkspace({
     if (activeSchool.current === schoolId) setBankAccounts(next.accounts);
     return next.accounts;
   };
-  const loadCandidates = async (yearId: string) => {
-    const token = ++request.current;
-    const next = await get<Candidates>(
-      `/api/app/schools/${schoolId}/finance/collection-run-candidates${yearId ? `?schoolYearId=${yearId}` : ""}`,
-    );
-    if (activeSchool.current === schoolId && token === request.current)
-      setCandidates(next);
+  const loadGeneratedStudents = async (runId: string) => {
+    const loaded: Candidate[] = [];
+    let cursor: string | null = null;
+    do {
+      const next: { students: Candidate[]; meta: { nextCursor: string | null } } = await get(`/api/app/schools/${schoolId}/finance/collection-runs/${runId}/addable-students?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      loaded.push(...next.students);
+      cursor = next.meta.nextCursor;
+    } while (cursor);
+    if (activeSchool.current === schoolId && activeRunId.current === runId) setCandidates((current) => ({ schoolYears: current?.schoolYears ?? [], students: loaded }));
   };
   const loadMoreRuns = async () => {
     if (!runsCursor) return;
@@ -411,6 +410,7 @@ export function FinanceWorkspace({
     setRunsCursor(null);
     setRunStatus("");
     setRun(undefined);
+    activeRunId.current = undefined;
     setPreview(undefined);
     setGenerateConfirmation(false);
     setGenerateConfirmationMonth("");
@@ -438,7 +438,6 @@ export function FinanceWorkspace({
     setOpen({ schoolYearId: "", billingMonth: "" });
     setRunDialog(false);
     setInvoiceQueue(undefined);
-    setSelectedStudentIds([]);
     setTemplate({ receivableId: "", quantity: "" });
     setGroup({ name: "" });
     setReceivable({
@@ -474,15 +473,9 @@ export function FinanceWorkspace({
   useEffect(() => {
     if (!pending) void load().catch((error: Error) => activeSchool.current === schoolId && setMessage(error.message));
   }, [schoolId, page]);
-  const selectionDirty = Boolean(
-    run &&
-      (selectedStudentIds.length !== run.selectedStudentIds.length ||
-        selectedStudentIds.some((id) => !run.selectedStudentIds.includes(id))),
-  );
   const dirty = Boolean(
     open.schoolYearId ||
     open.billingMonth ||
-    selectionDirty ||
     group.name ||
     receivable.groupId ||
     receivable.code ||
@@ -674,13 +667,12 @@ export function FinanceWorkspace({
   };
   const chooseRun = (next: Run) => {
     setInvoiceQueue(undefined);
-    const normalized = { ...next, selectedStudentIds: next.selectedStudentIds ?? [], templateLines: next.templateLines ?? [], invoices: next.invoices ?? [] };
+    const normalized = { ...next, templateLines: next.templateLines ?? [], invoices: next.invoices ?? [] };
+    activeRunId.current = normalized.id;
     setRun(normalized);
-    setSelectedStudentIds(normalized.selectedStudentIds);
     setPreview(undefined);
-    void loadCandidates(normalized.schoolYearId).catch(() =>
-      setMessage("Không thể tải danh sách học sinh."),
-    );
+    if (normalized.status === "GENERATED")
+      void loadGeneratedStudents(normalized.id).catch(() => setMessage("Không thể tải học sinh để thêm vào đợt đã tạo."));
   };
   const openRun = async (event: FormEvent) => {
     event.preventDefault();
@@ -697,19 +689,6 @@ export function FinanceWorkspace({
       await load();
     }
   };
-  const saveSelection = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!run) return;
-    const outcome = await command(
-      `/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/selection`,
-      "PUT",
-      { studentIds: selectedStudentIds },
-    );
-    if (outcome) {
-      chooseRun(outcome as Run);
-      await load();
-    }
-  };
   const saveTemplate = async (event: FormEvent) => {
     event.preventDefault(); if (!run) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/template-lines`, "PUT", { ...template, expectedVersion: run.version });
@@ -719,14 +698,6 @@ export function FinanceWorkspace({
     if (!run) return;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/template-lines/${lineId}`, "DELETE", { expectedVersion: run.version });
     if (outcome) { chooseRun(outcome as Run); await load(); }
-  };
-  const toggleStudent = (studentId: string) => {
-    setSelectedStudentIds((current) =>
-      current.includes(studentId)
-        ? current.filter((id) => id !== studentId)
-        : [...current, studentId],
-    );
-    setPreview(undefined);
   };
   const loadPreview = async () => {
     if (!run) return;
@@ -1145,14 +1116,11 @@ export function FinanceWorkspace({
                 const schoolYearId = event.target.value;
                 setOpen({ ...open, schoolYearId });
                 setPreview(undefined);
-                void loadCandidates(schoolYearId).catch(() =>
-                  setMessage("Không thể tải danh sách học sinh."),
-                );
               }}
               {...field("run", "schoolYearId")}
             >
               <option value="">Chọn năm học</option>
-              {candidates?.schoolYears?.map((year) => (
+              {(catalog?.schoolYears ?? []).map((year) => (
                 <option
                   key={year.id}
                   value={year.id}
@@ -1196,7 +1164,7 @@ export function FinanceWorkspace({
                 <tr key={item.id}>
                   <td>{item.billingMonth}</td>
                   <td>
-                    {candidates?.schoolYears?.find(
+                     {(catalog?.schoolYears ?? []).find(
                       (year) => year.id === item.schoolYearId,
                     )?.name ?? item.schoolYearId}
                   </td>
@@ -1222,10 +1190,10 @@ export function FinanceWorkspace({
           </h3>
           <p>
             Năm học:{" "}
-            {candidates?.schoolYears?.find(
+             {(catalog?.schoolYears ?? []).find(
               (year) => year.id === run.schoolYearId,
             )?.name ?? run.schoolYearId}
-            . Đã chọn {selectedStudentIds.length} học sinh.
+             . Máy chủ tự xác định toàn bộ học sinh đang theo học tại đầu tháng thu.
           </p>
            {run.status === "DRAFT" && (
             <>
@@ -1235,47 +1203,7 @@ export function FinanceWorkspace({
                 <table><caption>Khoản thu mẫu chung</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá VND</th><th>Số tiền VND</th><th>Thao tác</th></tr></thead><tbody>{(run.templateLines ?? []).map((item) => <tr key={item.id}><td>{item.receivableName}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.defaultUnitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td><button type="button" disabled={Boolean(pending)} onClick={() => void removeTemplate(item.id)}>Bỏ</button></td></tr>)}</tbody></table>
                 <form onSubmit={saveTemplate}><label>Khoản thu<select value={template.receivableId} onChange={(event) => setTemplate({ ...template, receivableId: event.target.value })}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label><label>Số lượng<input inputMode="numeric" value={template.quantity} onChange={(event) => setTemplate({ ...template, quantity: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu khoản thu mẫu</button></form>
               </section>
-              <form onSubmit={saveSelection}>
-                <table>
-                  <caption>
-                    Chọn học sinh thuộc năm học từ dữ liệu máy chủ
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Chọn</th>
-                      <th scope="col">Mã học sinh</th>
-                      <th scope="col">Họ tên</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidates?.students?.length ? (
-                      candidates.students.map((student) => (
-                        <tr key={student.id}>
-                          <td>
-                            <input
-                              type="checkbox"
-                              aria-label={`Chọn ${student.studentCode} ${student.fullName}`}
-                              checked={selectedStudentIds.includes(student.id)}
-                              onChange={() => toggleStudent(student.id)}
-                            />
-                          </td>
-                          <td>{student.studentCode}</td>
-                          <td>{student.fullName}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3}>
-                          Không có học sinh trong năm học này.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-                <button disabled={Boolean(pending)}>
-                  Lưu danh sách đã chọn
-                </button>
-              </form>
+              <p>Preview do máy chủ xác định từ roster hiệu lực, gồm học sinh ENROLLED và lớp ACTIVE tại ngày đầu tháng thu.</p>
               <button
                 type="button"
                 disabled={Boolean(pending)}
@@ -1375,7 +1303,7 @@ export function FinanceWorkspace({
           <table>
             <caption>Học sinh có thể yêu cầu thêm</caption>
             <tbody>
-              {(candidates?.students ?? []).map((student) => (
+              {(Array.isArray(candidates?.students) ? candidates.students : []).map((student) => (
                 <tr key={student.id}>
                   <td>{student.studentCode} / {student.fullName}</td>
                   <td><button type="button" disabled={Boolean(pending)} onClick={() => { setAdditionConfirmation(student); setAdditionConfirmationName(""); }}>Yêu cầu thêm</button></td>

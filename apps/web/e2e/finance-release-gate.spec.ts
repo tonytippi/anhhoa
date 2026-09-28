@@ -71,15 +71,11 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await template.getByLabel('Số lượng').fill('1');
    await page.getByRole('button', { name: 'Lưu khoản thu mẫu' }).click();
    await expect(page.getByRole('table', { name: 'Khoản thu mẫu chung' })).toContainText('150.000');
-   await page.getByLabel('Chọn RG1-1 Bé An').check();
-   await page.getByLabel('Chọn RG1-2 Bé Bình').check();
-  const selectionResponse = page.waitForResponse((response) =>
-    response.url().includes('/finance/collection-runs/') &&
-    response.url().endsWith('/selection') &&
-    response.request().method() === 'PUT',
-  );
-  await page.getByRole('button', { name: 'Lưu danh sách đã chọn' }).click();
-  expect((await selectionResponse).status()).toBe(200);
+  await expect(page.getByRole('checkbox', { name: /Chọn RG1-/ })).toHaveCount(0);
+  let selectionRequests = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/selection')) selectionRequests += 1;
+  });
   const previewResponse = page.waitForResponse((response) =>
     response.url().includes('/finance/collection-runs/') &&
     response.url().endsWith('/preview') &&
@@ -98,6 +94,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await page.getByRole('button', { name: 'Xác nhận tạo hóa đơn nháp' }).click();
    await expect(page.getByRole('region', { name: 'Tiến độ tạo hóa đơn từ máy chủ' })).toContainText(/(QUEUED|RUNNING|COMPLETED): đã xử lý \d+\/2/);
   await expect(page.getByRole('heading', { name: 'Kết quả tạo hóa đơn từ máy chủ' })).toBeVisible({ timeout: 10000 });
+  expect(selectionRequests).toBe(0);
    const generatedResult = page.getByRole('region', { name: 'Kết quả tạo hóa đơn từ máy chủ' });
    await generatedResult.locator('tr').filter({ hasText: 'RG1-1 / Bé An' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
    await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
