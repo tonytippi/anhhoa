@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import {
@@ -62,6 +62,7 @@ export function AudienceShell({
 export function AdminShell() {
   const [session, setSession] = useState<Session | undefined>();
   const [ready, setReady] = useState(false);
+  const navigateHome = useRef<(() => void) | undefined>(undefined);
   const clear = () => setSession(undefined);
   useEffect(() => {
     const controller = new AbortController();
@@ -103,10 +104,10 @@ export function AdminShell() {
   return (
     <div className="app-shell admin-app-shell">
       <aside className="sidebar admin-sidebar" aria-label="Khung quản trị">
-        <div className="brand" aria-label="PassionEdu">
+        <button className="brand" type="button" onClick={() => navigateHome.current?.()} aria-label="Về trang chủ PassionEdu">
           <span className="brand-mark" aria-hidden="true">✦</span>
           <span>PassionEdu</span>
-        </div>
+        </button>
         <p className="admin-sidebar-copy">Quản trị vận hành trường</p>
         <div className="admin-sidebar-footer">
           <span className="admin-session-label">Tài khoản đang đăng nhập</span>
@@ -120,7 +121,7 @@ export function AdminShell() {
         <a className="admin-skip-link" href="#school-content">Bỏ qua điều hướng</a>
         <div id="school-content">
           <BrowserRouter>
-            <SchoolContext clear={clear} userIdentityId={session.userIdentityId} />
+            <SchoolContext clear={clear} userIdentityId={session.userIdentityId} registerHomeNavigation={(navigate) => { navigateHome.current = navigate; }} />
           </BrowserRouter>
         </div>
       </main>

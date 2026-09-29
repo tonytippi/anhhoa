@@ -63,11 +63,16 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
+  border: 0;
+  background: transparent;
+  color: #24261f;
+  cursor: pointer;
   padding: 0 8px 28px;
   font-family: "Be Vietnam Pro", Inter, sans-serif;
   font-size: 20px;
   font-weight: 600;
 }
+.brand:focus-visible { outline: 2px solid #277e48; outline-offset: 3px; border-radius: 8px; }
 .brand-mark {
   color: #f1c928;
   font-size: 30px;

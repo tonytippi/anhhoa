@@ -20,8 +20,8 @@ describe('SchoolContext Home-only chooser', () => {
   });
   it('guards a dirty workspace when returning Home and discards only explicitly', async () => {
     window.history.replaceState({}, '', '/schools/peakland/students'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Về trang chủ' })); await screen.findByRole('dialog', { name: 'Rời không gian làm việc?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
-    fireEvent.click(screen.getByRole('button', { name: 'Về trang chủ' })); fireEvent.click(await screen.findByRole('button', { name: 'Bỏ thay đổi' })); await waitFor(() => expect(screen.getByRole('table', { name: 'Danh sách trường được cấp quyền' })).toBeTruthy());
+    window.history.pushState({}, '', '/'); fireEvent.popState(window); await screen.findByRole('dialog', { name: 'Rời không gian làm việc?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
+    window.history.pushState({}, '', '/'); fireEvent.popState(window); fireEvent.click(await screen.findByRole('button', { name: 'Bỏ thay đổi' })); await waitFor(() => expect(screen.getByRole('table', { name: 'Danh sách trường được cấp quyền' })).toBeTruthy());
   });
   it('lets the staff intake modal request the shell leave guard without losing its draft', async () => {
     window.history.replaceState({}, '', '/schools/peakland/staff'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm nhân viên' }));

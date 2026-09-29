@@ -228,7 +228,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    expect((await download).suggestedFilename()).toBe('finance-overview.csv');
 
    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.getByRole('button', { name: 'Về trang chủ' }).click();
+     await page.getByRole('button', { name: 'Về trang chủ PassionEdu' }).click();
      await openSchool(page, 'Release Gate B');
    await expect(page.getByRole('heading', { name: 'Tổng quan vận hành', level: 1 })).toBeFocused();
   const otherSchoolReport = page.waitForResponse((response) =>

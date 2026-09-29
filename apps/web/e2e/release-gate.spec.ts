@@ -111,12 +111,12 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   });
   await page.getByRole('button', { name: 'Lưu hồ sơ nhân sự' }).click();
   await expect(page.getByRole('button', { name: 'Lưu hồ sơ nhân sự' })).toBeDisabled();
-  await expect(page.locator('header').getByRole('button', { name: 'Về trang chủ' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Về trang chủ PassionEdu' })).toBeVisible();
   await page.unroute('**/api/app/schools/*/operations/*');
   await page.route('**/api/app/schools/*/operations/*', async (route) => { actualOperationGet = true; await route.continue(); });
   await expect.poll(() => actualOperationGet).toBe(true);
   await expect(page.getByRole('rowheader', { name: 'Nhân sự đối soát timeout' })).toBeVisible({ timeout: 5000 });
-  await expect(page.locator('header').getByRole('button', { name: 'Về trang chủ' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Về trang chủ PassionEdu' })).toBeVisible();
 
   const ops = await page.context().newPage();
   await login(page.context(), 'ops'); await ops.goto('http://localhost:5176');
