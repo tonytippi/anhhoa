@@ -388,6 +388,8 @@ export function RosterWorkspace({
     clearStaffIntake();
     staffIntakeTrigger.current?.focus();
   };
+  // The intake form pre-selects the first active class on load; that default alone is not user input.
+  const defaultStudentClassId = classes.find((item) => item.status === "ACTIVE")?.id ?? "";
   const dirty = Boolean(
     year.name ||
       year.startsOn ||
@@ -400,7 +402,7 @@ export function RosterWorkspace({
       student.gender ||
       student.address ||
       student.personalIdentifier ||
-      student.classId ||
+      (student.classId && student.classId !== defaultStudentClassId) ||
       student.effectiveFrom ||
       student.photo ||
        student.parentFullName ||

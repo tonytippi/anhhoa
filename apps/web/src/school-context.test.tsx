@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
 import { SchoolContext } from './school-context';
@@ -33,6 +33,18 @@ describe('SchoolContext Home-only chooser', () => {
     window.history.replaceState({}, '', '/schools/peakland/students'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
     window.history.pushState({}, '', '/'); fireEvent.popState(window); await screen.findByRole('dialog', { name: 'Rời không gian làm việc?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
     window.history.pushState({}, '', '/'); fireEvent.popState(window); fireEvent.click(await screen.findByRole('button', { name: 'Bỏ thay đổi' })); await waitFor(() => expect(screen.getByRole('table', { name: 'Danh sách trường được cấp quyền' })).toBeTruthy());
+  });
+  it('does not guard navigation when the intake form only holds its default class', async () => {
+    window.history.replaceState({}, '', '/schools/peakland/students');
+    const base = fetchFor();
+    vi.stubGlobal('fetch', vi.fn((url: string) => url.endsWith('/school-years/year-a/classes')
+      ? Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'class-a', schoolYearId: 'year-a', name: 'Newton', status: 'ACTIVE', activeStudentCount: 0 }] })))
+      : url.includes('/parents?') ? Promise.resolve(new Response(JSON.stringify({ data: [], meta: { page: 1, pageSize: 25, totalItems: 0, totalPages: 1 } })))
+      : base(url)));
+    renderContext(); await screen.findByText('Bé An'); await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); }); // let the default class prefill settle
+    fireEvent.click(screen.getByRole('button', { name: 'Phụ huynh' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/schools/peakland/parents'));
+    expect(screen.queryByRole('dialog', { name: 'Rời không gian làm việc?' })).toBeNull();
   });
   it('lets the staff intake modal request the shell leave guard without losing its draft', async () => {
     window.history.replaceState({}, '', '/schools/peakland/staff'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm nhân viên' }));
