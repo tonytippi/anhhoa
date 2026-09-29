@@ -122,7 +122,7 @@ describe("FinanceWorkspace", () => {
     const fetch = vi.fn((url: string) => Promise.resolve(url.endsWith(`/collection-runs/${run.id}`) ? response(detailedRun) : url.includes("collection-runs") ? response({ runs: [detailedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
     const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} onOpenRun={onOpenRun} onBackToRuns={onBackToRuns} denied={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Đợt thu 2026-09 · Nháp" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Đợt thu tháng 09/2026 · Nháp" })).toBeTruthy();
     expect(screen.queryByRole("form", { name: "Điều khiển danh sách đợt thu" })).toBeNull();
     expect(screen.queryByRole("table", { name: "Đợt thu theo trường" })).toBeNull();
     expect(screen.queryByText("DRAFT")).toBeNull();
@@ -932,7 +932,8 @@ describe("FinanceWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Nhập chính xác tháng thu 2026-09 để xác nhận"), { target: { value: "2026-09" } });
     fireEvent.click(screen.getByRole("button", { name: "Xác nhận tạo hóa đơn nháp" }));
     expect(await screen.findByText("HS001 / Bé An")).toBeTruthy();
-    expect(screen.getByText("HS002 / Bé Bình: Học sinh không ở trạng thái đang theo học.")).toBeTruthy();
+    const skipped = screen.getByRole("table", { name: "Học sinh bị bỏ qua khi tạo" });
+    expect(within(skipped).getByRole("row", { name: "HS002 / Bé Bình Học sinh không ở trạng thái đang theo học." })).toBeTruthy();
   });
   it("renders only server-returned generate progress while reconciliation remains pending", async () => {
     const readyRun = { ...run, status: "READY" as const };
@@ -1098,7 +1099,7 @@ describe("FinanceWorkspace", () => {
     expect(document.activeElement).toBe(screen.getByLabelText("Số lượng"));
     readonly = true;
     fireEvent.click(screen.getByRole("button", { name: "Rà soát hóa đơn" }));
-    await screen.findByText(/ISSUED chỉ đọc/);
+    await screen.findByText(/Hóa đơn đã phát hành chỉ đọc/);
     expect(screen.queryByRole("button", { name: "Thêm dòng" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Sửa" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Xóa" })).toBeNull();

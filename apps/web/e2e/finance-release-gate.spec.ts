@@ -73,9 +73,9 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await runDialog.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
   await runDialog.getByLabel('Tháng thu').fill('2026-09');
   await runDialog.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
-   await openRun(page, '2026-09');
+   await expect(page.getByRole('dialog', { name: 'Rời không gian làm việc?' })).toHaveCount(0);
    await expect(page).toHaveURL(/\/schools\/[^/]+\/collection-runs\/[^/]+/);
-   await expect(page.getByRole('heading', { name: 'Đợt thu 2026-09 · Nháp' })).toBeVisible();
+   await expect(page.getByRole('heading', { name: 'Đợt thu tháng 09/2026 · Nháp' })).toBeVisible();
    await expect(page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' })).toHaveCount(0);
    await page.getByRole('button', { name: 'Quay lại danh sách đợt thu' }).click();
    await expect(page).toHaveURL(/\/schools\/[^/]+\/collection-runs$/);

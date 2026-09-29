@@ -45,7 +45,7 @@ describe('SchoolContext Home-only chooser', () => {
   });
   it('canonicalizes a legacy School UUID detail route without dropping its run ID or status query', async () => {
     window.history.replaceState({}, '', '/schools/uuid-a/collection-runs/run-a?status=DRAFT'); vi.stubGlobal('fetch', financeFetch()); renderContext();
-    await screen.findByRole('heading', { name: 'Đợt thu 2026-09 · Nháp' });
+    await screen.findByRole('heading', { name: 'Đợt thu tháng 09/2026 · Nháp' });
     expect(window.location.pathname).toBe('/schools/peakland/collection-runs/run-a'); expect(window.location.search).toBe('?status=DRAFT');
   });
   it('returns a direct unavailable run to its filtered list with an error', async () => {
