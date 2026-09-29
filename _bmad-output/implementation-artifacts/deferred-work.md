@@ -49,3 +49,24 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-7-home-only-school-chooser-va-leave-guard.md`
   summary: Resolve Prisma `P2039` in seeded E2E Finance Invoice Issue before closing Home-only chooser release evidence.
   evidence: `pnpm test:e2e -- finance-release-gate.spec.ts` migrates and seeds `.env.test`, then `POST /finance/invoices/:invoiceId/issue` fails because `@prisma/adapter-pg` invokes concurrent `pg.Client.query()` operations in one interactive transaction.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.2: Parent xem Today, attendance và DailyJournal được ủy quyền.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì đây là deliverable Parent read model độc lập sau Parent context an toàn của Story 7.1.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.3: Parent inbox attendance có re-authorization.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì inbox, notification projection và deep-link authorization là deliverable độc lập.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.4: Parent tạo và quản lý leave request được phép.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì Parent leave mutation có lifecycle, validation và idempotency riêng.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.5: Parent tự cập nhật số điện thoại có audit.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì Parent contact mutation/audit là deliverable độc lập.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.6: Parent xem obligation hiệu lực và Payment instruction snapshot.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì Parent Finance projection và snapshot boundary là deliverable độc lập.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.7: Parent PWA accessibility, retention và cross-school release gate.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì release proof có phạm vi test, cache và retention độc lập sau các Parent surface.
+- source_spec: none
+  summary: Triển khai Epic 7 Story 7.8: Pilot performance và accessibility release gate.
+  evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì pilot gate là deliverable release độc lập sau khi Parent portal surfaces hoàn tất.

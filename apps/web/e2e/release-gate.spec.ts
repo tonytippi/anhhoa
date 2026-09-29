@@ -48,17 +48,267 @@ test('deterministic Parent callback redirects to the safe portal state', async (
   await context.close();
 });
 
-test('Parent callback issues a session only for the seeded active links and renders the real chooser', async ({ browser }) => {
+test("Parent callback issues a session only for the seeded active links and renders the School chooser", async ({
+  browser,
+}) => {
   const context = await browser.newContext();
-  await login(context, 'parent');
+  await login(context, "parent");
   const session = await context.request.get(`${api}/api/parent/auth/session`);
   expect(session.status()).toBe(200);
   expect((await session.json()).data.schools).toHaveLength(2);
   const page = await context.newPage();
-  await page.goto('http://localhost:5174');
-  await expect(page.getByRole('heading', { name: 'Hôm nay của các con' })).toBeVisible();
-  await expect(page.getByRole('option', { name: 'Release Gate A · Bé An' })).toHaveCount(1);
-  await expect(page.getByRole('option', { name: 'Release Gate B · Bé Bình' })).toHaveCount(1);
+  await page.goto("http://localhost:5174");
+  await expect(
+    page.getByRole("heading", { name: "Chọn trường để xem" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Release Gate A/ }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: /Release Gate B/ }),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: /Release Gate B/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Hôm nay của các con" }),
+  ).toBeVisible();
+  await expect(page.locator(".selected-school strong")).toHaveText(
+    "Release Gate B",
+  );
+  await expect(page.getByText("Bé An")).toHaveCount(0);
+  await expect(page.getByText("Trường chưa ghi nhận")).toBeVisible();
+  await page.getByRole("button", { name: /Bé Bình/ }).click();
+  await expect(page.getByRole("heading", { name: "Bé Bình" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Lịch sử điểm danh" }),
+  ).toBeVisible();
+  await context.close();
+});
+
+test("Parent foreground denial clears the selected School before the signed-out fallback renders", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await expect(page.getByText("Bé An")).toBeVisible();
+  await page.route("**/api/parent/auth/session", async (route) =>
+    route.fulfill({ status: 401 }),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(
+    page.getByRole("link", { name: "Đăng nhập với Google" }),
+  ).toBeVisible();
+  await expect(page.getByText("Bé An")).toHaveCount(0);
+  await expect(page.getByText("Release Gate A")).toHaveCount(0);
+  await context.close();
+});
+
+test("Parent renders only the issued obligation snapshot and clears it after revoke", async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await page.getByRole("button", { name: "Khoản cần thanh toán" }).click();
+  await expect(page.getByText("OBL-202609-000001")).toBeVisible();
+  await page.getByRole("button", { name: /OBL-202609-000001/ }).click();
+  await expect(page.getByText("Tổng tiền khi phát hành")).toBeVisible();
+  await expect(page.getByText("Còn phải thanh toán", { exact: true })).toBeVisible();
+  await expect(page.getByText("Ngân hàng Release 1")).toBeVisible();
+  await expect(page.getByText(/Tôi đã thanh toán|VietQR|Sao chép|Hoàn tiền/)).toHaveCount(0);
+  await page.route("**/api/parent/schools/*/obligations/*", async (route) => route.fulfill({ status: 403 }));
+  await page.getByRole("button", { name: "Quay lại danh sách" }).click();
+  await page.getByRole("button", { name: /OBL-202609-000001/ }).click();
+  await expect(page.getByRole("heading", { name: "Chọn trường để xem" })).toBeFocused();
+  await expect(page.getByText("OBL-202609-000001")).toHaveCount(0);
+  await context.close();
+});
+
+test("Parent loads and refreshes the authorized obligation list from its direct route", async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174/obligations");
+  await expect(page.getByRole("heading", { name: "Khoản cần thanh toán" })).toBeVisible();
+  await expect(page.getByText("OBL-202609-000001")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Khoản cần thanh toán" })).toBeVisible();
+  await expect(page.getByText("OBL-202609-000001")).toBeVisible();
+  await context.close();
+});
+
+test("Parent child endpoint denial clears child detail and returns focus to the safe fallback", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await page.getByRole("button", { name: /Bé An/ }).click();
+  await expect(page.getByRole("heading", { name: "Bé An" })).toBeFocused();
+  await page.route(
+    "**/api/parent/schools/*/students/*/daily-journal?*",
+    async (route) => route.fulfill({ status: 403 }),
+  );
+  await page.getByRole("button", { name: "Quay lại Hôm nay" }).click();
+  await page.getByRole("button", { name: /Bé An/ }).click();
+  const fallback = page.getByRole("heading", { name: "Chọn trường để xem" });
+  await expect(fallback).toBeFocused();
+  await expect(page.getByText("Bé An")).toHaveCount(0);
+  await context.close();
+});
+
+test("Parent creates, receives a server validation error, cancels a pending leave, and clears on denial", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await page.getByRole("button", { name: /Bé An/ }).click();
+  await page.getByRole("button", { name: "Tạo đơn" }).click();
+  await page.getByLabel("Ngày bắt đầu").fill("2026-09-28");
+  await page.getByLabel("Ngày kết thúc").fill("2026-09-27");
+  await page.getByRole("button", { name: "Gửi đơn" }).click();
+  const validationSummary = page.getByRole("alert").first();
+  await expect(validationSummary).toContainText(
+    "Ngày kết thúc không được trước ngày bắt đầu.",
+  );
+  await expect(validationSummary).toBeFocused();
+  await expect(page.getByLabel("Ngày bắt đầu")).toHaveValue("2026-09-28");
+  await page.getByLabel("Ngày kết thúc").fill("2026-09-29");
+  await page.getByRole("button", { name: "Gửi đơn" }).click();
+  await expect(page.getByText("Đang chờ duyệt")).toHaveCount(2);
+  await page.getByRole("button", { name: "Hủy đơn" }).last().click();
+  const dialog = page.getByRole("dialog", { name: "Xác nhận hủy đơn" });
+  await expect(dialog).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Xác nhận hủy đơn" }),
+  ).toBeFocused();
+  await page.getByRole("button", { name: "Quay lại", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Hủy đơn" }).last(),
+  ).toBeFocused();
+  await page.getByRole("button", { name: "Hủy đơn" }).last().click();
+  await page.getByRole("button", { name: "Xác nhận hủy đơn" }).click();
+  await expect(page.getByText("Đã hủy")).toBeVisible();
+  await page.route(
+    "**/api/parent/schools/*/leave-requests?studentId=*",
+    async (route) => route.fulfill({ status: 403 }),
+  );
+  await page.getByRole("button", { name: "Quay lại Hôm nay" }).click();
+  await page.getByRole("button", { name: /Bé An/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Chọn trường để xem" }),
+  ).toBeFocused();
+  await expect(page.getByText("Đã hủy")).toHaveCount(0);
+  await context.close();
+});
+
+test("Parent reconciles a leave timeout before enabling a new mutation", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await page.getByRole("button", { name: /Bé An/ }).click();
+  await page.getByRole("button", { name: "Tạo đơn" }).click();
+  await page.getByLabel("Ngày bắt đầu").fill("2026-09-28");
+  await page.getByLabel("Ngày kết thúc").fill("2026-09-29");
+  let mutations = 0;
+  let operationReads = 0;
+  await page.route("**/api/parent/schools/*/leave-requests", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    mutations += 1;
+    await route.fetch();
+    await route.fulfill({ status: 504 });
+  });
+  await page.route("**/api/parent/schools/*/operations/*", async (route) => {
+    operationReads += 1;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Gửi đơn" }).click();
+  await expect(
+    page.getByRole("button", { name: "Đang đối soát thao tác..." }),
+  ).toBeDisabled();
+  await expect.poll(() => operationReads).toBeGreaterThan(0);
+  await expect(page.getByText("Đang chờ duyệt")).toHaveCount(2);
+  expect(mutations).toBe(1);
+  await context.close();
+});
+
+test("Parent validates, saves, and reconciles a phone update timeout", async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await page.getByRole("button", { name: "Liên hệ", exact: true }).click();
+  const phone = page.locator('input[type="tel"]');
+  await phone.fill("bad");
+  await page.getByRole("button", { name: "Lưu số điện thoại" }).click();
+  const validation = page.getByRole("alert");
+  await expect(validation).toContainText("Số điện thoại không hợp lệ.");
+  await expect(validation).toBeFocused();
+  await expect(phone).toHaveValue("bad");
+  await phone.fill("090 123 4567");
+  let mutations = 0;
+  let operationReads = 0;
+  await page.route("**/api/parent/schools/*/profile/phone", async (route) => {
+    mutations += 1;
+    await route.fetch();
+    await route.fulfill({ status: 504 });
+  });
+  await page.route("**/api/parent/schools/*/operations/*", async (route) => {
+    operationReads += 1;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: { status: "PENDING", outcome: null } }) });
+  });
+  await page.getByRole("button", { name: "Lưu số điện thoại" }).click();
+  await expect(page.getByRole("button", { name: "Đang đối soát thao tác..." })).toBeDisabled();
+  await expect.poll(() => operationReads).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Thông báo" }).click();
+  await expect(page.getByRole("button", { name: "Đang đối soát thao tác..." })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Đổi trường" })).toBeDisabled();
+  await page.getByRole("button", { name: "Hôm nay" }).click();
+  await page.getByRole("button", { name: "Liên hệ", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Đang đối soát thao tác..." })).toBeDisabled();
+  expect(mutations).toBe(1);
+  await context.close();
+});
+
+test("Parent inbox displays an unread event, resolves it before child navigation, and clears on denied open", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  await login(context, "parent");
+  const page = await context.newPage();
+  await page.goto("http://localhost:5174");
+  await page.getByRole("button", { name: /Release Gate A/ }).click();
+  await page.getByRole("button", { name: /Thông báo/ }).click();
+  await expect(page.getByRole("heading", { name: "Thông báo" })).toBeVisible();
+  await expect(page.getByText("Bé An lúc phát sự kiện")).toBeVisible();
+  await expect(page.getByText("Đã ghi nhận có mặt")).toBeVisible();
+  await page.getByRole("button", { name: /Bé An lúc phát sự kiện/ }).click();
+  await expect(page).toHaveURL(/\/children\/.*\/days\//);
+  await expect(page.getByRole("heading", { name: "Bé An" })).toBeVisible();
+  const destination = page.url();
+  await page.goto(destination);
+  await expect(page.getByRole("heading", { name: "Bé An" })).toBeVisible();
+  await page.getByRole("button", { name: "Thông báo" }).click();
+  await page.route("**/api/parent/schools/*/inbox/*/open", async (route) =>
+    route.fulfill({ status: 404 }),
+  );
+  await page.getByRole("button", { name: /Bé An lúc phát sự kiện/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Chọn trường để xem" }),
+  ).toBeFocused();
+  await expect(page.getByText("Bé An lúc phát sự kiện")).toHaveCount(0);
   await context.close();
 });
 

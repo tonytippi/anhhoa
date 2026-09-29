@@ -409,6 +409,65 @@ export class FinanceService {
   private transferContent(studentName: string, className: string) {
     return `${studentName} ${className}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/\s+/g, " ").trim();
   }
+  private async obligationCode(tx: any, schoolId: string, issuedAt: Date) {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).formatToParts(issuedAt);
+    const value = (type: string) => parts.find((part) => part.type === type)!.value;
+    const prefix = `OBL-${value("year")}${value("month")}-`;
+    await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${schoolId}::uuid FOR UPDATE`;
+    const count = await tx.invoice.count({ where: { schoolId, obligationCodeSnapshot: { startsWith: prefix } } });
+    return `${prefix}${String(count + 1).padStart(6, "0")}`;
+  }
+  private parentObligationDto(invoice: any, outstanding: bigint, effectiveAt: Date) {
+    return { id: invoice.id, studentId: invoice.studentId, obligationCode: invoice.obligationCodeSnapshot, period: invoice.billingMonth, issuedTotal: BigInt(invoice.obligationTotalSnapshot).toString(), actualReceipt: invoice.receipt ? BigInt(invoice.receipt.actualAmount).toString() : invoice.settlementTransferTo ? BigInt(invoice.settlementTransferTo.amount).toString() : "0", outcome: invoice.receipt?.outcome ?? (invoice.settlementTransferTo ? "EXACT" : null), outstanding: outstanding.toString(), state: invoice.status, effectiveAt: effectiveAt.toISOString(), paymentInstruction: { receivingBank: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot, transferContent: invoice.transferContentSnapshot } };
+  }
+  async parentObligations(schoolId: string, studentIds: string[], invoiceId?: string) {
+    schoolId = this.school(schoolId);
+    if (!studentIds.length) return invoiceId ? null : [];
+    const invoices = await this.prisma.invoice.findMany({
+      where: { schoolId, studentId: { in: studentIds }, status: { in: ["ISSUED", "CLOSED", "CANCELLED"] } },
+      include: {
+        receipt: true,
+        settlementTransferTo: true,
+        debtTransfersFrom: { select: { amount: true, createdAt: true } },
+        settlementDifference: { select: { signedAmount: true, carries: { select: { amount: true } } } },
+        coverageFacts: { select: { issuedCoverage: { select: { reversalRequests: { where: { status: { in: ["PENDING", "APPROVED"] } }, select: { id: true } } } } } },
+      },
+      orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+    });
+    const byId = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+    const issuedSuccessors = new Set(invoices.filter((invoice) => ["ISSUED", "CLOSED"].includes(invoice.status) && invoice.revisesInvoiceId).map((invoice) => invoice.revisesInvoiceId!));
+    const result: ReturnType<FinanceService["parentObligationDto"]>[] = [];
+    for (const invoice of invoices) {
+      // A revision DRAFT is not effective; its issued source remains the Parent record until replacement issue.
+      if (invoice.status === "CANCELLED" || issuedSuccessors.has(invoice.id) || (invoiceId && invoice.id !== invoiceId)) continue;
+      const transferred = invoice.debtTransfersFrom.reduce((sum: bigint, item: any) => sum + BigInt(item.amount), 0n);
+      const outstanding = invoice.status === "ISSUED" ? BigInt(invoice.obligationTotalSnapshot ?? 0n) - transferred : 0n;
+       const effectiveAt = [invoice.issuedAt, invoice.receipt?.postedAt, invoice.settlementTransferTo?.createdAt, ...invoice.debtTransfersFrom.map((item: any) => item.createdAt)]
+         .filter((item): item is Date => item instanceof Date)
+         .reduce((latest, item) => item > latest ? item : latest);
+      let lineage: any = invoice;
+      let unresolvedCoverage = false;
+      let unresolvedNormalSettlement = false;
+      while (lineage) {
+        unresolvedCoverage ||= lineage.coverageFacts.some((fact: any) => fact.issuedCoverage?.reversalRequests.length);
+        const difference = lineage.settlementDifference;
+        if (difference) {
+          const carried = difference.carries.reduce((total: bigint, carry: any) => total + BigInt(carry.amount), 0n);
+          unresolvedNormalSettlement ||= (BigInt(difference.signedAmount) < 0n ? -BigInt(difference.signedAmount) : BigInt(difference.signedAmount)) > carried;
+        }
+        lineage = lineage.revisesInvoiceId ? byId.get(lineage.revisesInvoiceId) : undefined;
+      }
+      let visible = invoice.status === "ISSUED" && outstanding > 0n;
+      if (invoice.status === "CLOSED") {
+        const policy = await this.prisma.parentAccessPolicyVersion.findFirst({ where: { schoolId, effectiveFrom: { lte: effectiveAt } }, orderBy: { effectiveFrom: "desc" } });
+        const expiresAt = new Date(effectiveAt);
+        expiresAt.setUTCMonth(expiresAt.getUTCMonth() + (policy?.closedRetentionMonths ?? 12));
+        visible = unresolvedCoverage || unresolvedNormalSettlement || new Date() < expiresAt;
+      }
+      if (visible) result.push(this.parentObligationDto(invoice, outstanding > 0n ? outstanding : 0n, effectiveAt));
+    }
+    return invoiceId ? result[0] ?? null : result;
+  }
   async bankAccounts(identityId: string, schoolId: string) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
     const accounts = await this.prisma.bankAccount.findMany({ where: { schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } }, orderBy: { createdAt: "asc" } });
@@ -680,7 +739,7 @@ export class FinanceService {
       }
       const applications = await this.recheckPromotion(tx, schoolId, invoice, run.billingMonth);
       const obligationLines = invoice.lines.map((line: any) => this.lineDto(line));
-      await tx.invoice.update({ where: { id: invoice.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(invoice.studentNameSnapshot, invoice.classNameSnapshot), obligationLinesSnapshot: obligationLines, obligationTotalSnapshot: invoice.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
+      await tx.invoice.update({ where: { id: invoice.id }, data: { status: "ISSUED", issuedAt: now, obligationCodeSnapshot: await this.obligationCode(tx, schoolId, now), bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(invoice.studentNameSnapshot, invoice.classNameSnapshot), obligationLinesSnapshot: obligationLines, obligationTotalSnapshot: invoice.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
       await this.createIssuedPromotionApplications(tx, schoolId, invoice.id, applications);
        const issued = await tx.invoice.findFirstOrThrow({ where: { id: invoice.id, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } } } });
        await this.ledger(tx, issued, "INVOICE_ISSUED", 0n, { issuedAt: now.toISOString() });
@@ -749,7 +808,7 @@ export class FinanceService {
       if (!policy) throw new ConflictException({ code: "FINANCE_POLICY_NOT_CONFIGURED", message: "Chưa có chính sách Finance hiệu lực để phát hành." });
       const dueOn = new Date(issueDate); dueOn.setUTCDate(dueOn.getUTCDate() + policy.dueDaysAfterIssue);
       const applications = await this.recheckPromotion(tx, schoolId, replacement, run.billingMonth);
-      await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
+      await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, obligationCodeSnapshot: await this.obligationCode(tx, schoolId, now), bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
        await this.createIssuedPromotionApplications(tx, schoolId, replacement.id, applications);
         if (source.status === "CLOSED") {
            const transfer = await tx.settlementTransfer.create({ data: { schoolId, studentId: source.studentId, schoolYearId: source.schoolYearId, sourceInvoiceId: source.id, sourceReceiptId: sourceReceipt!.id, replacementInvoiceId: replacement.id, amount: sourceReceipt!.actualAmount } });

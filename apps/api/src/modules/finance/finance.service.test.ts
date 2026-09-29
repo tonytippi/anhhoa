@@ -65,6 +65,58 @@ describe('FinanceService validation', () => {
     const result = await new FinanceService(prisma as never, authorization as never).invoice('identity', crypto.randomUUID(), '11111111-1111-4111-8111-111111111111');
     expect(result.coverageFacts).toEqual([expect.objectContaining({ billingMonth: '2026-10', originalPrice: '100', reduction: '10', timezone: 'Asia/Ho_Chi_Minh', issuedAt: issuedAt.toISOString() })]);
   });
+  it('exports only current-effective Parent obligations with issued snapshots and Finance-derived state', async () => {
+    const school = crypto.randomUUID();
+    const student = crypto.randomUUID();
+    const issuedAt = new Date('2026-09-01T00:00:00.000Z');
+    const receiptAt = new Date('2026-09-03T00:00:00.000Z');
+    const current = {
+      id: crypto.randomUUID(), studentId: student, status: 'ISSUED', issuedAt,
+      obligationCodeSnapshot: 'OBL-202609-000001', billingMonth: '2026-09', obligationTotalSnapshot: 2100000n,
+      receivingBankSnapshot: 'Ngân hàng phát hành', accountNumberSnapshot: '123456', accountHolderNameSnapshot: 'Trường', transferContentSnapshot: 'BE AN',
+      receipt: null, settlementTransferTo: null, debtTransfersFrom: [{ amount: 100000n, createdAt: new Date('2026-09-04T00:00:00.000Z') }], coverageFacts: [],
+    };
+    const closed = { ...current, id: crypto.randomUUID(), studentId: crypto.randomUUID(), status: 'CLOSED', obligationCodeSnapshot: 'OBL-202609-000003', receipt: { actualAmount: 2100000n, outcome: 'EXACT', postedAt: receiptAt }, debtTransfersFrom: [], coverageFacts: [] };
+    const prisma = { invoice: { findMany: vi.fn().mockResolvedValue([current, closed]) }, parentAccessPolicyVersion: { findFirst: vi.fn().mockResolvedValue({ closedRetentionMonths: 12 }) } };
+    const result = await new FinanceService(prisma as never, authorization as never).parentObligations(school, [student, closed.studentId]);
+    if (!Array.isArray(result)) throw new Error('Expected an obligation list.');
+    const obligations = result;
+    expect(obligations).toHaveLength(2);
+    const issued = obligations.find((item) => item.id === current.id)!;
+    expect(issued.obligationCode).toBe('OBL-202609-000001');
+    expect(issued.issuedTotal).toBe('2100000');
+    expect(issued.outstanding).toBe('2000000');
+    expect(issued.actualReceipt).toBe('0');
+    expect(issued.state).toBe('ISSUED');
+    expect(issued.effectiveAt).toBe('2026-09-04T00:00:00.000Z');
+    expect(issued.paymentInstruction).toEqual({ receivingBank: 'Ngân hàng phát hành', accountNumber: '123456', accountHolderName: 'Trường', transferContent: 'BE AN' });
+    expect(issued).not.toHaveProperty('debtTransfers');
+    const retained = obligations.find((item) => item.id === closed.id)!;
+    expect(retained).toMatchObject({ outstanding: '0', actualReceipt: '2100000', outcome: 'EXACT', state: 'CLOSED', effectiveAt: receiptAt.toISOString() });
+    expect(Object.keys(obligations[0]!)).toEqual(['id', 'studentId', 'obligationCode', 'period', 'issuedTotal', 'actualReceipt', 'outcome', 'outstanding', 'state', 'effectiveAt', 'paymentInstruction']);
+    expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, studentId: { in: [student, closed.studentId] }, status: { in: ['ISSUED', 'CLOSED', 'CANCELLED'] } }) }));
+  });
+  it('keeps an issued source effective until its revision is issued and retains a closed replacement for unresolved source coverage', async () => {
+    const school = crypto.randomUUID(); const student = crypto.randomUUID(); const issuedAt = new Date('2025-01-01T00:00:00.000Z');
+    const source = { id: crypto.randomUUID(), studentId: student, status: 'ISSUED', issuedAt, obligationCodeSnapshot: 'OBL-202501-000001', billingMonth: '2025-01', obligationTotalSnapshot: 100n, receivingBankSnapshot: 'A', accountNumberSnapshot: '1', accountHolderNameSnapshot: 'H', transferContentSnapshot: 'C', receipt: null, settlementTransferTo: null, debtTransfersFrom: [], coverageFacts: [], revisesInvoiceId: null };
+    const draft = { ...source, id: crypto.randomUUID(), status: 'DRAFT', revisesInvoiceId: source.id };
+    const prisma = { invoice: { findMany: vi.fn().mockResolvedValue([source, draft]) }, parentAccessPolicyVersion: { findFirst: vi.fn() } };
+    const service = new FinanceService(prisma as never, authorization as never);
+    await expect(service.parentObligations(school, [student], source.id)).resolves.toEqual(expect.objectContaining({ id: source.id }));
+    const replacement = { ...source, id: crypto.randomUUID(), status: 'CLOSED', obligationCodeSnapshot: 'OBL-202501-000002', receipt: { actualAmount: 100n, outcome: 'EXACT', postedAt: issuedAt }, coverageFacts: [], revisesInvoiceId: source.id };
+    const cancelled = { ...source, status: 'CANCELLED', coverageFacts: [{ issuedCoverage: { reversalRequests: [{ id: crypto.randomUUID() }] } }], revisesInvoiceId: null };
+    prisma.invoice.findMany.mockResolvedValue([cancelled, replacement]);
+    await expect(service.parentObligations(school, [student])).resolves.toEqual([expect.objectContaining({ id: replacement.id, state: 'CLOSED', outstanding: '0' })]);
+  });
+  it('retains closed shortfall or overpayment only while the internal settlement difference has unapplied carry', async () => {
+    const school = crypto.randomUUID(); const student = crypto.randomUUID(); const expired = new Date('2024-01-01T00:00:00.000Z');
+    const closed = { id: crypto.randomUUID(), studentId: student, status: 'CLOSED', issuedAt: expired, obligationCodeSnapshot: 'OBL-202401-000001', billingMonth: '2024-01', obligationTotalSnapshot: 100n, receivingBankSnapshot: 'A', accountNumberSnapshot: '1', accountHolderNameSnapshot: 'H', transferContentSnapshot: 'C', receipt: { actualAmount: 90n, outcome: 'SHORTFALL', postedAt: expired }, settlementTransferTo: null, debtTransfersFrom: [], coverageFacts: [], revisesInvoiceId: null, settlementDifference: { signedAmount: 10n, carries: [] } };
+    const prisma = { invoice: { findMany: vi.fn().mockResolvedValue([closed]) }, parentAccessPolicyVersion: { findFirst: vi.fn().mockResolvedValue({ closedRetentionMonths: 12 }) } };
+    const service = new FinanceService(prisma as never, authorization as never);
+    await expect(service.parentObligations(school, [student])).resolves.toEqual([expect.objectContaining({ id: closed.id, state: 'CLOSED', outstanding: '0' })]);
+    prisma.invoice.findMany.mockResolvedValue([{ ...closed, settlementDifference: { signedAmount: 10n, carries: [{ amount: 10n }] } }]);
+    await expect(service.parentObligations(school, [student])).resolves.toEqual([]);
+  });
   it('orders every projected Invoice line by amount descending then ID ascending', async () => {
     const prisma = { invoice: { findFirst: vi.fn().mockResolvedValue({ id: 'invoice', schoolId: crypto.randomUUID(), status: 'DRAFT', total: 12n, billingMonth: '2026-09', studentCodeSnapshot: 'HS001', studentNameSnapshot: 'Bé Đỗ', classNameSnapshot: 'Lá 1', lines: [{ id: 'b', receivableId: 'b', receivableNameSnapshot: 'B', unitLabelSnapshot: 'lần', defaultUnitPriceSnapshot: 5n, unitPrice: 5n, quantity: 1, amount: 5n }, { id: 'a', receivableId: 'a', receivableNameSnapshot: 'A', unitLabelSnapshot: 'lần', defaultUnitPriceSnapshot: 5n, unitPrice: 5n, quantity: 1, amount: 5n }, { id: 'c', receivableId: 'c', receivableNameSnapshot: 'C', unitLabelSnapshot: 'lần', defaultUnitPriceSnapshot: 7n, unitPrice: 7n, quantity: 1, amount: 7n }] }) } };
     const result = await new FinanceService(prisma as never, authorization as never).invoice('identity', crypto.randomUUID(), '11111111-1111-4111-8111-111111111111');

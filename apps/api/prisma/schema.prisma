@@ -33,6 +33,7 @@ model School {
   profileVersions                   SchoolProfileVersion[]
   calendarVersions                  SchoolCalendarVersion[]
   financePolicies                   FinancePolicy[]
+  parentAccessPolicies              ParentAccessPolicyVersion[]
   attendancePolicies                AttendancePolicy[]
   handoverPolicies                  HandoverPolicy[]
   dailyJournalPolicies              DailyJournalPolicy[]
@@ -44,6 +45,7 @@ model School {
   handoverRecords                   HandoverRecord[]
   evidenceReferences                EvidenceReference[]
   notificationSourceEvents          NotificationSourceEvent[]
+  parentInboxEventReads             ParentInboxEventRead[]
   dailyJournals                     DailyJournal[]
   dailyJournalVersions              DailyJournalVersion[]
   dailyJournalMedia                 DailyJournalMedia[]
@@ -284,6 +286,7 @@ enum LeaveRequestStatus {
   AUTO_APPROVED
   APPROVED
   REJECTED
+  CANCELLED
 }
 
 model LeavePolicy {
@@ -592,6 +595,7 @@ model ParentProfile {
   userIdentity    UserIdentity?   @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   studentParents  StudentParent[]
   leaveRequests   LeaveRequest[]
+  inboxEventReads ParentInboxEventRead[]
 }
 
 model StudentParent {
@@ -607,6 +611,7 @@ model StudentParent {
   student           Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   parentProfile     ParentProfile       @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
   leaveRequests     LeaveRequest[]
+  inboxEventReads   ParentInboxEventRead[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, studentId, parentProfileId])
@@ -649,6 +654,7 @@ model SchoolMembership {
   audits                              AuditRecord[]                        @relation("AuditMembership")
   operations                          Operation[]                          @relation("OperationMembership")
   financePolicies                     FinancePolicy[]
+  parentAccessPolicies                ParentAccessPolicyVersion[]
   attendancePolicies                  AttendancePolicy[]
   attendanceRecords                   AttendanceRecord[]
   handoverPolicies                    HandoverPolicy[]
@@ -916,6 +922,7 @@ model Invoice {
   status                               InvoiceStatus                  @default(DRAFT)
   total                                BigInt                         @default(0) @db.BigInt
   issuedAt                             DateTime?
+  obligationCodeSnapshot               String?
   bankAccountIdSnapshot                String?                        @db.Uuid
   receivingBankSnapshot                String?
   accountNumberSnapshot                String?
@@ -953,6 +960,7 @@ model Invoice {
   @@unique([schoolId, id])
   @@index([schoolId, collectionRunId])
   @@index([schoolId, status])
+  @@unique([schoolId, obligationCodeSnapshot])
   @@index([schoolId, status, schoolYearId, billingMonth, classIdSnapshot, issuedAt, id])
 }
 
@@ -1629,6 +1637,22 @@ model FinancePolicy {
   @@index([schoolId, effectiveFrom])
 }
 
+model ParentAccessPolicyVersion {
+  id                    String           @id @default(uuid()) @db.Uuid
+  schoolId              String           @db.Uuid
+  effectiveFrom         DateTime         @db.Date
+  closedRetentionMonths Int              @default(12)
+  actorIdentityId       String           @db.Uuid
+  membershipId          String           @db.Uuid
+  createdAt             DateTime         @default(now())
+  school                School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership            SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, effectiveFrom])
+  @@unique([schoolId, id])
+  @@index([schoolId, effectiveFrom])
+}
+
 model AttendancePolicy {
   id                String             @id @default(uuid()) @db.Uuid
   schoolId          String             @db.Uuid
@@ -1691,14 +1715,33 @@ model NotificationSourceEvent {
   attendanceOn   DateTime               @db.Date
   state          AttendanceState?
   pickedUpAt     DateTime?
+  studentDisplayNameSnapshot String?
   payload        Json
   createdAt      DateTime               @default(now())
   school         School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student        Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  inboxReads     ParentInboxEventRead[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, sourceType, sourceRecordId])
   @@index([schoolId, studentId, attendanceOn])
+}
+
+model ParentInboxEventRead {
+  id                        String                  @id @default(uuid()) @db.Uuid
+  schoolId                  String                  @db.Uuid
+  parentProfileId           String                  @db.Uuid
+  notificationSourceEventId String                  @db.Uuid
+  readAt                    DateTime                @default(now())
+  school                    School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  parentProfile             ParentProfile           @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
+  sourceEvent               NotificationSourceEvent @relation(fields: [schoolId, notificationSourceEventId], references: [schoolId, id], onDelete: Restrict)
+  studentParent             StudentParent           @relation(fields: [schoolId, studentId, parentProfileId], references: [schoolId, studentId, parentProfileId], onDelete: Restrict)
+  studentId                 String                  @db.Uuid
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, parentProfileId, notificationSourceEventId])
+  @@index([schoolId, parentProfileId, readAt])
 }
 
 enum NotificationSourceType {

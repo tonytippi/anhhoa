@@ -1,48 +1,707 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query, Req, Res } from '@nestjs/common';
-import { audienceConfig } from '../auth/auth.config.js';
-import { AuthService } from '../auth/auth.service.js';
-import { assertCookieMutation } from '../common/mutation-protection.js';
-import { AttendanceService } from './attendance.service.js';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+} from "@nestjs/common";
+import { audienceConfig } from "../auth/auth.config.js";
+import { AuthService } from "../auth/auth.service.js";
+import { assertCookieMutation } from "../common/mutation-protection.js";
+import { AttendanceService } from "./attendance.service.js";
 
 type RequestLike = { headers: Record<string, string | undefined> };
-type ResponseLike = { setHeader(name: string, value: string): void; send(value: Uint8Array): void };
-const cookie = (request: RequestLike, name: string) => request.headers.cookie?.split(';').map((item) => item.trim().split('=')).find(([key]) => key === name)?.[1];
+type ResponseLike = {
+  setHeader(name: string, value: string): void;
+  send(value: Uint8Array): void;
+};
+const cookie = (request: RequestLike, name: string) =>
+  request.headers.cookie
+    ?.split(";")
+    .map((item) => item.trim().split("="))
+    .find(([key]) => key === name)?.[1];
 
-@Controller('api')
+@Controller("api")
 export class AttendanceController {
-  constructor(private readonly auth: AuthService, private readonly attendance: AttendanceService) {}
-  private identity(request: RequestLike, audience: 'app' | 'teacher' | 'parent') { return this.auth.session(audience, cookie(request, audienceConfig(audience).cookieName)).userIdentityId; }
-  private mutation(request: RequestLike, audience: 'app' | 'teacher' | 'parent', key?: string) { const config = audienceConfig(audience); return assertCookieMutation(request, config.origin, config.csrfCookieName, key); }
-  @Post('parent/schools/:schoolId/leave-requests') async create(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Body() body: unknown) { return { data: await this.attendance.create(this.identity(request, 'parent'), schoolId, this.mutation(request, 'parent', key), operationId ?? '', body) }; }
-  @Get('parent/schools/:schoolId/leave-requests') async parentList(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('studentId') studentId?: string) { return { data: await this.attendance.parentList(this.identity(request, 'parent'), schoolId, studentId), meta: {} }; }
-  @Get('parent/schools/:schoolId/leave-requests/:leaveRequestId') async parentRead(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('leaveRequestId') leaveRequestId: string) { return { data: await this.attendance.parentRead(this.identity(request, 'parent'), schoolId, leaveRequestId) }; }
-  @Get('parent/schools/:schoolId/operations/:operationId') async parentOperation(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('operationId') operationId: string) { return { data: await this.attendance.parentOperation(this.identity(request, 'parent'), schoolId, operationId) }; }
-  @Get('parent/schools/:schoolId/daily-journals') async parentDailyJournals(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('studentId') studentId?: string, @Query('journalDate') journalDate?: string, @Res({ passthrough: true }) response?: ResponseLike) { response?.setHeader('Cache-Control', 'private, no-store'); return { data: await this.attendance.parentDailyJournals(this.identity(request, 'parent'), schoolId, studentId, journalDate), meta: {} }; }
-  @Get('parent/schools/:schoolId/students/:studentId/daily-journal') async parentDailyJournal(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('studentId') studentId: string, @Query('journalDate') journalDate?: string, @Res({ passthrough: true }) response?: ResponseLike) { response?.setHeader('Cache-Control', 'private, no-store'); return { data: await this.attendance.parentDailyJournal(this.identity(request, 'parent'), schoolId, studentId, journalDate) }; }
-  @Get('parent/schools/:schoolId/daily-journal-media/:mediaId') async parentDailyJournalMedia(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('mediaId') mediaId: string, @Res() response: ResponseLike) { const media = await this.attendance.readParentDailyJournalMedia(this.identity(request, 'parent'), schoolId, mediaId); response.setHeader('Content-Type', media.contentType); response.setHeader('Cache-Control', 'private, no-store'); response.setHeader('X-Content-Type-Options', 'nosniff'); response.send(media.blob); }
-  @Get('teacher/schools/:schoolId/leave-requests') async teacherList(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('classId') classId?: string) { return { data: await this.attendance.teacherList(this.identity(request, 'teacher'), schoolId, classId), meta: {} }; }
-  @Get('teacher/schools/:schoolId/attendance-roster') async teacherRoster(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('classId') classId: string, @Query('attendanceOn') attendanceOn: string) { return { data: await this.attendance.teacherRoster(this.identity(request, 'teacher'), schoolId, classId, attendanceOn) }; }
-  @Get('teacher/schools/:schoolId/daily-journal-roster') async dailyJournalRoster(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('classId') classId: string, @Query('journalDate') journalDate: string) { return { data: await this.attendance.dailyJournalRoster(this.identity(request, 'teacher'), schoolId, classId, journalDate) }; }
-  @Post('teacher/schools/:schoolId/daily-journal-media') async dailyJournalMedia(@Req() request: RequestLike & { body: unknown }, @Param('schoolId') schoolId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Query('classId') classId: string, @Query('studentId') studentId: string, @Query('journalDate') journalDate: string) { return { data: await this.attendance.uploadDailyJournalMedia(this.identity(request, 'teacher'), schoolId, this.mutation(request, 'teacher', key), operationId ?? '', classId, studentId, journalDate, request.headers['content-type']?.split(';')[0], request.body) }; }
-  @Post('teacher/schools/:schoolId/daily-journals') async saveDailyJournal(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Body() body: unknown) { return { data: await this.attendance.saveDailyJournal(this.identity(request, 'teacher'), schoolId, this.mutation(request, 'teacher', key), operationId ?? '', body) }; }
-  @Get('teacher/schools/:schoolId/daily-journal-media/:mediaId') async readDailyJournalMedia(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('mediaId') mediaId: string, @Res() response: ResponseLike) { const media = await this.attendance.readDailyJournalMedia(this.identity(request, 'teacher'), schoolId, mediaId); response.setHeader('Content-Type', media.contentType); response.setHeader('Cache-Control', 'private, no-store'); response.setHeader('X-Content-Type-Options', 'nosniff'); response.send(media.blob); }
-  @Get('teacher/schools/:schoolId/operational-queue') async teacherOperationalQueue(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('date') date?: string, @Query('classId') classId?: string) { return { data: await this.attendance.operationalQueue(this.identity(request, 'teacher'), schoolId, date, classId) }; }
-  @Get('teacher/schools/:schoolId/operational-queue/items') async teacherOperationalQueueItems(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('date') date?: string, @Query('classId') classId?: string, @Query('status') status?: string) { return { data: await this.attendance.operationalQueueItems(this.identity(request, 'teacher'), schoolId, date, classId, status) }; }
-  @Post('teacher/schools/:schoolId/attendance') async record(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Body() body: unknown) { return { data: await this.attendance.record(this.identity(request, 'teacher'), schoolId, this.mutation(request, 'teacher', key), operationId ?? '', body) }; }
-  @Post('teacher/schools/:schoolId/attendance-evidence') async uploadEvidence(@Req() request: RequestLike & { body: unknown }, @Param('schoolId') schoolId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Query('classId') classId: string, @Query('attendanceOn') attendanceOn: string) { return { data: await this.attendance.uploadEvidence(this.identity(request, 'teacher'), schoolId, this.mutation(request, 'teacher', key), operationId ?? '', classId, attendanceOn, request.headers['content-type']?.split(';')[0], request.body) }; }
-  @Get('teacher/schools/:schoolId/handover-roster') async handoverRoster(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('handoverOn') handoverOn: string) { return { data: await this.attendance.handoverRoster(this.identity(request, 'teacher'), schoolId, handoverOn) }; }
-  @Post('teacher/schools/:schoolId/handovers') async handover(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Body() body: unknown) { return { data: await this.attendance.recordHandover(this.identity(request, 'teacher'), schoolId, this.mutation(request, 'teacher', key), operationId ?? '', body) }; }
-  @Post('teacher/schools/:schoolId/handover-evidence') async uploadHandoverEvidence(@Req() request: RequestLike & { body: unknown }, @Param('schoolId') schoolId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Query('handoverOn') handoverOn: string) { return { data: await this.attendance.uploadHandoverEvidence(this.identity(request, 'teacher'), schoolId, this.mutation(request, 'teacher', key), operationId ?? '', handoverOn, request.headers['content-type']?.split(';')[0], request.body) }; }
-  @Get('teacher/schools/:schoolId/handover-evidence/:evidenceId') async handoverEvidence(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('evidenceId') evidenceId: string, @Res() response: ResponseLike) { const media = await this.attendance.readHandoverEvidence(this.identity(request, 'teacher'), schoolId, evidenceId, 'teacher'); response.setHeader('Content-Type', media.contentType); response.setHeader('Cache-Control', 'private, no-store'); response.setHeader('X-Content-Type-Options', 'nosniff'); response.send(media.blob); }
-  @Get('teacher/schools/:schoolId/attendance-evidence/:evidenceId') async teacherEvidence(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('evidenceId') evidenceId: string, @Res() response: ResponseLike) { const media = await this.attendance.readAttendanceEvidence(this.identity(request, 'teacher'), schoolId, evidenceId); response.setHeader('Content-Type', media.contentType); response.setHeader('Cache-Control', 'private, no-store'); response.setHeader('X-Content-Type-Options', 'nosniff'); response.send(media.blob); }
-  @Get('app/schools/:schoolId/handover-evidence/:evidenceId') async appHandoverEvidence(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('evidenceId') evidenceId: string, @Res() response: ResponseLike) { const media = await this.attendance.readHandoverEvidence(this.identity(request, 'app'), schoolId, evidenceId, 'app'); response.setHeader('Content-Type', media.contentType); response.setHeader('Cache-Control', 'private, no-store'); response.setHeader('X-Content-Type-Options', 'nosniff'); response.send(media.blob); }
-  @Get('teacher/schools/:schoolId/operations/:operationId') async teacherOperation(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('operationId') operationId: string) { return { data: await this.attendance.teacherOperation(this.identity(request, 'teacher'), schoolId, operationId) }; }
-  @Get('app/schools/:schoolId/leave-requests') async appList(@Req() request: RequestLike, @Param('schoolId') schoolId: string) { return { data: await this.attendance.appList(this.identity(request, 'app'), schoolId), meta: {} }; }
-  @Get('app/schools/:schoolId/operational-queue') async operationalQueue(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('date') date?: string, @Query('classId') classId?: string) { return { data: await this.attendance.operationalQueue(this.identity(request, 'app'), schoolId, date, classId) }; }
-  @Get('app/schools/:schoolId/operational-queue/items') async operationalQueueItems(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('date') date?: string, @Query('classId') classId?: string, @Query('status') status?: string) { return { data: await this.attendance.operationalQueueItems(this.identity(request, 'app'), schoolId, date, classId, status) }; }
-  @Get('app/schools/:schoolId/overview') async overview(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('date') date?: string) { return { data: await this.attendance.overview(this.identity(request, 'app'), schoolId, date) }; }
-  @Get('app/schools/:schoolId/leave-operations/:operationId') async appOperation(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('operationId') operationId: string) { return { data: await this.attendance.appOperation(this.identity(request, 'app'), schoolId, operationId) }; }
-  @Get('app/schools/:schoolId/leave-day-sources') async leaveDaySources(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Query('limit') rawLimit?: string, @Query('cursor') cursor?: string) { const limit = rawLimit === undefined ? 100 : Number(rawLimit); if (!Number.isInteger(limit) || limit < 1 || limit > 200 || (cursor !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cursor))) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu không hợp lệ.', fieldErrors: { ...(!Number.isInteger(limit) || limit < 1 || limit > 200 ? { limit: 'Giới hạn không hợp lệ.' } : {}), ...(cursor !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cursor) ? { cursor: 'Con trỏ không hợp lệ.' } : {}) } }); const page = await this.attendance.leaveDaySources(this.identity(request, 'app'), schoolId, limit, cursor); return { data: page.data, meta: { limit, nextCursor: page.nextCursor } }; }
-  @Post('app/schools/:schoolId/leave-requests/:leaveRequestId/approve') async approve(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('leaveRequestId') leaveRequestId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string) { return { data: await this.attendance.decide(this.identity(request, 'app'), schoolId, leaveRequestId, 'APPROVED', this.mutation(request, 'app', key), operationId ?? '', {}) }; }
-  @Post('app/schools/:schoolId/leave-requests/:leaveRequestId/reject') async reject(@Req() request: RequestLike, @Param('schoolId') schoolId: string, @Param('leaveRequestId') leaveRequestId: string, @Headers('idempotency-key') key: string, @Headers('x-operation-id') operationId: string, @Body() body: unknown) { return { data: await this.attendance.decide(this.identity(request, 'app'), schoolId, leaveRequestId, 'REJECTED', this.mutation(request, 'app', key), operationId ?? '', body) }; }
+  constructor(
+    private readonly auth: AuthService,
+    private readonly attendance: AttendanceService,
+  ) {}
+  private identity(
+    request: RequestLike,
+    audience: "app" | "teacher" | "parent",
+  ) {
+    return this.auth.session(
+      audience,
+      cookie(request, audienceConfig(audience).cookieName),
+    ).userIdentityId;
+  }
+  private mutation(
+    request: RequestLike,
+    audience: "app" | "teacher" | "parent",
+    key?: string,
+  ) {
+    const config = audienceConfig(audience);
+    return assertCookieMutation(
+      request,
+      config.origin,
+      config.csrfCookieName,
+      key,
+    );
+  }
+  @Post("parent/schools/:schoolId/leave-requests") async create(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return {
+      data: await this.attendance.create(
+        this.identity(request, "parent"),
+        schoolId,
+        this.mutation(request, "parent", key),
+        operationId ?? "",
+        body,
+      ),
+    };
+  }
+  @Patch("parent/schools/:schoolId/leave-requests/:leaveRequestId")
+  async parentEdit(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("leaveRequestId") leaveRequestId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return {
+      data: await this.attendance.parentEdit(
+        this.identity(request, "parent"),
+        schoolId,
+        leaveRequestId,
+        this.mutation(request, "parent", key),
+        operationId ?? "",
+        body,
+      ),
+    };
+  }
+  @Post("parent/schools/:schoolId/leave-requests/:leaveRequestId/cancel")
+  async parentCancel(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("leaveRequestId") leaveRequestId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+  ) {
+    return {
+      data: await this.attendance.parentCancel(
+        this.identity(request, "parent"),
+        schoolId,
+        leaveRequestId,
+        this.mutation(request, "parent", key),
+        operationId ?? "",
+      ),
+    };
+  }
+  @Get("parent/schools/:schoolId/leave-requests") async parentList(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("studentId") studentId?: string,
+    @Res({ passthrough: true }) response?: ResponseLike,
+  ) {
+    response?.setHeader("Cache-Control", "private, no-store");
+    return {
+      data: await this.attendance.parentList(
+        this.identity(request, "parent"),
+        schoolId,
+        studentId,
+      ),
+      meta: {},
+    };
+  }
+  @Get("parent/schools/:schoolId/inbox") async parentInbox(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Res({ passthrough: true }) response?: ResponseLike,
+  ) {
+    response?.setHeader("Cache-Control", "private, no-store");
+    const result = await this.attendance.parentInbox(
+      this.identity(request, "parent"),
+      schoolId,
+    );
+    return { data: result.data, meta: { unreadCount: result.unreadCount } };
+  }
+  @Post("parent/schools/:schoolId/inbox/:eventId/open") async openParentInbox(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("eventId") eventId: string,
+    @Res({ passthrough: true }) response?: ResponseLike,
+  ) {
+    response?.setHeader("Cache-Control", "private, no-store");
+    this.mutation(request, "parent");
+    return {
+      data: await this.attendance.openParentInbox(
+        this.identity(request, "parent"),
+        schoolId,
+        eventId,
+      ),
+    };
+  }
+  @Get("parent/schools/:schoolId/leave-requests/:leaveRequestId")
+  async parentRead(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("leaveRequestId") leaveRequestId: string,
+    @Res({ passthrough: true }) response?: ResponseLike,
+  ) {
+    response?.setHeader("Cache-Control", "private, no-store");
+    return {
+      data: await this.attendance.parentRead(
+        this.identity(request, "parent"),
+        schoolId,
+        leaveRequestId,
+      ),
+    };
+  }
+  @Get("parent/schools/:schoolId/operations/:operationId")
+  async parentOperation(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("operationId") operationId: string,
+    @Res({ passthrough: true }) response?: ResponseLike,
+  ) {
+    response?.setHeader("Cache-Control", "private, no-store");
+    return {
+      data: await this.attendance.parentOperation(
+        this.identity(request, "parent"),
+        schoolId,
+        operationId,
+      ),
+    };
+  }
+  @Get("parent/schools/:schoolId/daily-journals") async parentDailyJournals(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("studentId") studentId?: string,
+    @Query("journalDate") journalDate?: string,
+    @Res({ passthrough: true }) response?: ResponseLike,
+  ) {
+    response?.setHeader("Cache-Control", "private, no-store");
+    return {
+      data: await this.attendance.parentDailyJournals(
+        this.identity(request, "parent"),
+        schoolId,
+        studentId,
+        journalDate,
+      ),
+      meta: {},
+    };
+  }
+  @Get("parent/schools/:schoolId/students/:studentId/attendance")
+  async parentAttendance(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("studentId") studentId: string,
+    @Query("from") from: string,
+    @Query("to") to: string,
+    @Res({ passthrough: true }) response?: ResponseLike,
+  ) {
+    response?.setHeader("Cache-Control", "private, no-store");
+    return {
+      data: await this.attendance.parentAttendance(
+        this.identity(request, "parent"),
+        schoolId,
+        studentId,
+        from,
+        to,
+      ),
+      meta: {},
+    };
+  }
+  @Get("parent/schools/:schoolId/students/:studentId/daily-journal")
+  async parentDailyJournal(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("studentId") studentId: string,
+    @Query("journalDate") journalDate?: string,
+    @Res({ passthrough: true }) response?: ResponseLike,
+  ) {
+    response?.setHeader("Cache-Control", "private, no-store");
+    return {
+      data: await this.attendance.parentDailyJournal(
+        this.identity(request, "parent"),
+        schoolId,
+        studentId,
+        journalDate,
+      ),
+    };
+  }
+  @Get("parent/schools/:schoolId/daily-journal-media/:mediaId")
+  async parentDailyJournalMedia(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("mediaId") mediaId: string,
+    @Res() response: ResponseLike,
+  ) {
+    const media = await this.attendance.readParentDailyJournalMedia(
+      this.identity(request, "parent"),
+      schoolId,
+      mediaId,
+    );
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.send(media.blob);
+  }
+  @Get("teacher/schools/:schoolId/leave-requests") async teacherList(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("classId") classId?: string,
+  ) {
+    return {
+      data: await this.attendance.teacherList(
+        this.identity(request, "teacher"),
+        schoolId,
+        classId,
+      ),
+      meta: {},
+    };
+  }
+  @Get("teacher/schools/:schoolId/attendance-roster") async teacherRoster(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("classId") classId: string,
+    @Query("attendanceOn") attendanceOn: string,
+  ) {
+    return {
+      data: await this.attendance.teacherRoster(
+        this.identity(request, "teacher"),
+        schoolId,
+        classId,
+        attendanceOn,
+      ),
+    };
+  }
+  @Get("teacher/schools/:schoolId/daily-journal-roster")
+  async dailyJournalRoster(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("classId") classId: string,
+    @Query("journalDate") journalDate: string,
+  ) {
+    return {
+      data: await this.attendance.dailyJournalRoster(
+        this.identity(request, "teacher"),
+        schoolId,
+        classId,
+        journalDate,
+      ),
+    };
+  }
+  @Post("teacher/schools/:schoolId/daily-journal-media")
+  async dailyJournalMedia(
+    @Req() request: RequestLike & { body: unknown },
+    @Param("schoolId") schoolId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Query("classId") classId: string,
+    @Query("studentId") studentId: string,
+    @Query("journalDate") journalDate: string,
+  ) {
+    return {
+      data: await this.attendance.uploadDailyJournalMedia(
+        this.identity(request, "teacher"),
+        schoolId,
+        this.mutation(request, "teacher", key),
+        operationId ?? "",
+        classId,
+        studentId,
+        journalDate,
+        request.headers["content-type"]?.split(";")[0],
+        request.body,
+      ),
+    };
+  }
+  @Post("teacher/schools/:schoolId/daily-journals") async saveDailyJournal(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return {
+      data: await this.attendance.saveDailyJournal(
+        this.identity(request, "teacher"),
+        schoolId,
+        this.mutation(request, "teacher", key),
+        operationId ?? "",
+        body,
+      ),
+    };
+  }
+  @Get("teacher/schools/:schoolId/daily-journal-media/:mediaId")
+  async readDailyJournalMedia(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("mediaId") mediaId: string,
+    @Res() response: ResponseLike,
+  ) {
+    const media = await this.attendance.readDailyJournalMedia(
+      this.identity(request, "teacher"),
+      schoolId,
+      mediaId,
+    );
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.send(media.blob);
+  }
+  @Get("teacher/schools/:schoolId/operational-queue")
+  async teacherOperationalQueue(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("date") date?: string,
+    @Query("classId") classId?: string,
+  ) {
+    return {
+      data: await this.attendance.operationalQueue(
+        this.identity(request, "teacher"),
+        schoolId,
+        date,
+        classId,
+      ),
+    };
+  }
+  @Get("teacher/schools/:schoolId/operational-queue/items")
+  async teacherOperationalQueueItems(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("date") date?: string,
+    @Query("classId") classId?: string,
+    @Query("status") status?: string,
+  ) {
+    return {
+      data: await this.attendance.operationalQueueItems(
+        this.identity(request, "teacher"),
+        schoolId,
+        date,
+        classId,
+        status,
+      ),
+    };
+  }
+  @Post("teacher/schools/:schoolId/attendance") async record(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return {
+      data: await this.attendance.record(
+        this.identity(request, "teacher"),
+        schoolId,
+        this.mutation(request, "teacher", key),
+        operationId ?? "",
+        body,
+      ),
+    };
+  }
+  @Post("teacher/schools/:schoolId/attendance-evidence") async uploadEvidence(
+    @Req() request: RequestLike & { body: unknown },
+    @Param("schoolId") schoolId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Query("classId") classId: string,
+    @Query("attendanceOn") attendanceOn: string,
+  ) {
+    return {
+      data: await this.attendance.uploadEvidence(
+        this.identity(request, "teacher"),
+        schoolId,
+        this.mutation(request, "teacher", key),
+        operationId ?? "",
+        classId,
+        attendanceOn,
+        request.headers["content-type"]?.split(";")[0],
+        request.body,
+      ),
+    };
+  }
+  @Get("teacher/schools/:schoolId/handover-roster") async handoverRoster(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("handoverOn") handoverOn: string,
+  ) {
+    return {
+      data: await this.attendance.handoverRoster(
+        this.identity(request, "teacher"),
+        schoolId,
+        handoverOn,
+      ),
+    };
+  }
+  @Post("teacher/schools/:schoolId/handovers") async handover(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return {
+      data: await this.attendance.recordHandover(
+        this.identity(request, "teacher"),
+        schoolId,
+        this.mutation(request, "teacher", key),
+        operationId ?? "",
+        body,
+      ),
+    };
+  }
+  @Post("teacher/schools/:schoolId/handover-evidence")
+  async uploadHandoverEvidence(
+    @Req() request: RequestLike & { body: unknown },
+    @Param("schoolId") schoolId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Query("handoverOn") handoverOn: string,
+  ) {
+    return {
+      data: await this.attendance.uploadHandoverEvidence(
+        this.identity(request, "teacher"),
+        schoolId,
+        this.mutation(request, "teacher", key),
+        operationId ?? "",
+        handoverOn,
+        request.headers["content-type"]?.split(";")[0],
+        request.body,
+      ),
+    };
+  }
+  @Get("teacher/schools/:schoolId/handover-evidence/:evidenceId")
+  async handoverEvidence(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("evidenceId") evidenceId: string,
+    @Res() response: ResponseLike,
+  ) {
+    const media = await this.attendance.readHandoverEvidence(
+      this.identity(request, "teacher"),
+      schoolId,
+      evidenceId,
+      "teacher",
+    );
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.send(media.blob);
+  }
+  @Get("teacher/schools/:schoolId/attendance-evidence/:evidenceId")
+  async teacherEvidence(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("evidenceId") evidenceId: string,
+    @Res() response: ResponseLike,
+  ) {
+    const media = await this.attendance.readAttendanceEvidence(
+      this.identity(request, "teacher"),
+      schoolId,
+      evidenceId,
+    );
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.send(media.blob);
+  }
+  @Get("app/schools/:schoolId/handover-evidence/:evidenceId")
+  async appHandoverEvidence(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("evidenceId") evidenceId: string,
+    @Res() response: ResponseLike,
+  ) {
+    const media = await this.attendance.readHandoverEvidence(
+      this.identity(request, "app"),
+      schoolId,
+      evidenceId,
+      "app",
+    );
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.send(media.blob);
+  }
+  @Get("teacher/schools/:schoolId/operations/:operationId")
+  async teacherOperation(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("operationId") operationId: string,
+  ) {
+    return {
+      data: await this.attendance.teacherOperation(
+        this.identity(request, "teacher"),
+        schoolId,
+        operationId,
+      ),
+    };
+  }
+  @Get("app/schools/:schoolId/leave-requests") async appList(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+  ) {
+    return {
+      data: await this.attendance.appList(
+        this.identity(request, "app"),
+        schoolId,
+      ),
+      meta: {},
+    };
+  }
+  @Get("app/schools/:schoolId/operational-queue") async operationalQueue(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("date") date?: string,
+    @Query("classId") classId?: string,
+  ) {
+    return {
+      data: await this.attendance.operationalQueue(
+        this.identity(request, "app"),
+        schoolId,
+        date,
+        classId,
+      ),
+    };
+  }
+  @Get("app/schools/:schoolId/operational-queue/items")
+  async operationalQueueItems(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("date") date?: string,
+    @Query("classId") classId?: string,
+    @Query("status") status?: string,
+  ) {
+    return {
+      data: await this.attendance.operationalQueueItems(
+        this.identity(request, "app"),
+        schoolId,
+        date,
+        classId,
+        status,
+      ),
+    };
+  }
+  @Get("app/schools/:schoolId/overview") async overview(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("date") date?: string,
+  ) {
+    return {
+      data: await this.attendance.overview(
+        this.identity(request, "app"),
+        schoolId,
+        date,
+      ),
+    };
+  }
+  @Get("app/schools/:schoolId/leave-operations/:operationId")
+  async appOperation(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("operationId") operationId: string,
+  ) {
+    return {
+      data: await this.attendance.appOperation(
+        this.identity(request, "app"),
+        schoolId,
+        operationId,
+      ),
+    };
+  }
+  @Get("app/schools/:schoolId/leave-day-sources") async leaveDaySources(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Query("limit") rawLimit?: string,
+    @Query("cursor") cursor?: string,
+  ) {
+    const limit = rawLimit === undefined ? 100 : Number(rawLimit);
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 200 ||
+      (cursor !== undefined &&
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          cursor,
+        ))
+    )
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: {
+          ...(!Number.isInteger(limit) || limit < 1 || limit > 200
+            ? { limit: "Giới hạn không hợp lệ." }
+            : {}),
+          ...(cursor !== undefined &&
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            cursor,
+          )
+            ? { cursor: "Con trỏ không hợp lệ." }
+            : {}),
+        },
+      });
+    const page = await this.attendance.leaveDaySources(
+      this.identity(request, "app"),
+      schoolId,
+      limit,
+      cursor,
+    );
+    return { data: page.data, meta: { limit, nextCursor: page.nextCursor } };
+  }
+  @Post("app/schools/:schoolId/leave-requests/:leaveRequestId/approve")
+  async approve(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("leaveRequestId") leaveRequestId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+  ) {
+    return {
+      data: await this.attendance.decide(
+        this.identity(request, "app"),
+        schoolId,
+        leaveRequestId,
+        "APPROVED",
+        this.mutation(request, "app", key),
+        operationId ?? "",
+        {},
+      ),
+    };
+  }
+  @Post("app/schools/:schoolId/leave-requests/:leaveRequestId/reject")
+  async reject(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("leaveRequestId") leaveRequestId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return {
+      data: await this.attendance.decide(
+        this.identity(request, "app"),
+        schoolId,
+        leaveRequestId,
+        "REJECTED",
+        this.mutation(request, "app", key),
+        operationId ?? "",
+        body,
+      ),
+    };
+  }
 }

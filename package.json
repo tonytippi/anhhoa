@@ -13,6 +13,7 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "test:e2e": "set -a && . ./.env.test && set +a && test -n \"$E2E_DATABASE_URL\" && NODE_ENV=test DATABASE_URL=$E2E_DATABASE_URL pnpm --filter @passionedu/admin-web test:e2e",
+    "test:parent-release-gate": "test -f ./.env.test && set -a && . ./.env.test && set +a && test -n \"$TARGET_INTEGRATION_DATABASE_URL\" && test -n \"$E2E_DATABASE_URL\" && timeout --foreground 20m pnpm --filter @passionedu/api test:integration && timeout --foreground 10m pnpm --filter @passionedu/parent-web test && timeout --foreground 20m pnpm --filter @passionedu/parent-web test:e2e:release-gate",
     "test:release-gate": "test -f ./.env.test && set -a && . ./.env.test && set +a && test -n \"$TARGET_INTEGRATION_DATABASE_URL\" && test -n \"$E2E_DATABASE_URL\" && pnpm --filter @passionedu/api test:integration && pnpm --filter @passionedu/admin-web test && pnpm --filter @passionedu/teacher-web test && pnpm --filter @passionedu/parent-web test && pnpm --filter @passionedu/ops-web test && pnpm test:e2e",
     "test:mockups": "node _bmad-output/implementation-artifacts/test-rendered-mockup-contracts.mjs && node _bmad-output/implementation-artifacts/test-finance-report-ux.mjs"
   },
