@@ -24,6 +24,8 @@ async function openRun(page: import('@playwright/test').Page, month: string) {
 }
 
 async function expectMenuDoesNotMoveNextRow(trigger: import('@playwright/test').Locator) {
+  // Measure after the trigger is in view: click() would otherwise scroll and look like a layout shift.
+  await trigger.scrollIntoViewIfNeeded();
   const row = trigger.locator('xpath=ancestor::tr[1]');
   const nextRow = row.locator('xpath=following-sibling::tr[1]');
   const before = await nextRow.boundingBox();
@@ -130,12 +132,12 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé An' });
    await firstIssue.getByLabel('Nhập chính xác tên học sinh Bé An để xác nhận').fill('Bé An');
    const issuedRunRefresh = page.waitForResponse((response) =>
-     new URL(response.url()).pathname.endsWith('/finance/collection-runs') &&
+     /\/finance\/collection-runs\/[^/]+$/.test(new URL(response.url()).pathname) &&
      response.request().method() === 'GET',
    );
    await firstIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
    expect((await issuedRunRefresh).status()).toBe(200);
-    await expect(invoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 135.000 VND');
+    await expect(invoiceReview.getByRole('region', { name: 'Thông tin thanh toán đã phát hành' })).toContainText('Tổng nghĩa vụ: 135.000 VND');
     await expect(invoiceReview.getByRole('button', { name: 'Học sinh tiếp theo' })).toBeVisible();
     await invoiceReview.getByRole('button', { name: 'Học sinh tiếp theo' }).click();
     await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' })).toBeVisible();
@@ -154,7 +156,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé Bình' });
   await secondIssue.getByLabel('Nhập chính xác tên học sinh Bé Bình để xác nhận').fill('Bé Bình');
    await secondIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
-   await expect(secondInvoiceReview.getByRole('region', { name: 'Snapshot phát hành' })).toContainText('Tổng nghĩa vụ: 150.000 VND');
+   await expect(secondInvoiceReview.getByRole('region', { name: 'Thông tin thanh toán đã phát hành' })).toContainText('Tổng nghĩa vụ: 150.000 VND');
     await page.getByRole('button', { name: 'Thu tiền' }).click();
     await expect(page.getByRole('heading', { name: 'Thu tiền' })).toBeVisible();
     const receiptQueue = page.getByRole('table', { name: 'Hóa đơn chờ thu' });
