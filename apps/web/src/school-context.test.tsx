@@ -12,6 +12,7 @@ const financeRun = { id: 'run-a', schoolYearId: 'year-a', billingMonth: '2026-09
 const financeFetch = (detailStatus = 200) => vi.fn((url: string) => Promise.resolve(
   url === '/api/app/schools' ? new Response(JSON.stringify({ data: [schoolA] })) :
   url.endsWith('/uuid-a') ? new Response(JSON.stringify({ data: financeContext })) :
+  url.endsWith('/finance/invoices/invoice-a') ? new Response(JSON.stringify({ data: { id: 'invoice-a', status: 'DRAFT', total: '100', billingMonth: '2026-09', revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: 'HS001', name: 'Bé An', className: 'Lá 1' }, lines: [] } })) :
   url.includes('/finance/collection-runs/run-a') ? new Response(detailStatus === 200 ? JSON.stringify({ data: financeRun }) : null, { status: detailStatus }) :
   url.includes('/finance/collection-runs') ? new Response(JSON.stringify({ data: { runs: [financeRun], meta: { nextCursor: null } } })) :
   url.includes('/finance/promotion-policies') ? new Response(JSON.stringify({ data: { policies: [] } })) :
@@ -45,6 +46,14 @@ describe('SchoolContext Home-only chooser', () => {
   });
   it('canonicalizes a legacy School UUID detail route without dropping its run ID or status query', async () => {
     window.history.replaceState({}, '', '/schools/uuid-a/collection-runs/run-a?status=DRAFT'); vi.stubGlobal('fetch', financeFetch()); renderContext();
+    await screen.findByRole('heading', { name: 'Đợt thu tháng 09/2026 · Nháp' });
+    expect(window.location.pathname).toBe('/schools/peakland/collection-runs/run-a'); expect(window.location.search).toBe('?status=DRAFT');
+  });
+  it('canonicalizes and opens a direct Invoice route, then returns Back to its run with the list query', async () => {
+    window.history.replaceState({}, '', '/schools/uuid-a/collection-runs/run-a/invoices/invoice-a?status=DRAFT'); vi.stubGlobal('fetch', financeFetch()); renderContext();
+    const review = await screen.findByRole('region', { name: 'Rà soát hóa đơn HS001 / Bé An' });
+    expect(window.location.pathname).toBe('/schools/peakland/collection-runs/run-a/invoices/invoice-a');
+    fireEvent.click(within(review).getByRole('button', { name: 'Quay lại đợt thu' }));
     await screen.findByRole('heading', { name: 'Đợt thu tháng 09/2026 · Nháp' });
     expect(window.location.pathname).toBe('/schools/peakland/collection-runs/run-a'); expect(window.location.search).toBe('?status=DRAFT');
   });

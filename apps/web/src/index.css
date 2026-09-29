@@ -1493,7 +1493,7 @@ tbody tr:last-child td {
   justify-content: space-between;
   gap: 20px;
 }
-.finance-run-header > div { display: grid; gap: 4px; min-width: 0; }
+.finance-run-header > div:first-child { display: grid; gap: 4px; min-width: 0; }
 .finance-run-header h1 { font-size: 26px; }
 .finance-run-header p { margin: 0; color: #5f746e; font-size: 14px; line-height: 1.5; }
 .finance-run-header > button { flex: 0 0 auto; }
@@ -1606,6 +1606,40 @@ tbody tr:last-child td {
 .finance-notice p { margin: 0; color: #35524a; font-size: 14px; }
 .finance-notice summary { cursor: pointer; color: #185d3d; font-size: 13px; font-weight: 700; }
 .finance-notice details .table-scroll { margin-top: 10px; }
+/* Invoice review destination: page header, lines beside the issue panel, secondary facts below. */
+.school-context-workspace .finance-workspace > section.finance-invoice-review {
+  gap: 16px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.finance-invoice-split {
+  display: grid;
+  grid-template-areas: "issue" "lines";
+  align-items: start;
+  gap: 16px;
+}
+.finance-invoice-split > section { grid-area: lines; min-width: 0; }
+.finance-invoice-split > aside { grid-area: issue; }
+/* Side-by-side only when the eight-column line table still fits beside the issue panel. */
+@media (min-width: 1440px) {
+  .finance-invoice-split { grid-template-areas: "lines issue"; grid-template-columns: minmax(0, 1fr) 320px; }
+}
+/* Route focus lands on non-interactive headings; they need no focus ring. */
+.finance-workspace :is(h1, h2)[tabindex="-1"]:focus { outline: none; }
+.finance-run-header > .finance-actions { flex: 0 0 auto; }
+.finance-workspace .finance-invoice-split > section,
+.finance-workspace .finance-invoice-split > aside,
+.finance-workspace .finance-invoice-review > section {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d7e2dc;
+  border-radius: 12px;
+  background: #fff;
+  padding: 18px 20px;
+}
+.finance-invoice-split > aside .finance-actions { justify-content: flex-start; }
+.finance-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .finance-list-dialog {
   display: grid;
   gap: 12px;
