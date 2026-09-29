@@ -11,6 +11,8 @@ import { auditData } from "../common/audit.js";
 import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
 import { PrismaService } from "../identity/prisma.service.js";
+import { renderPaymentImage } from "./payment-image.js";
+import { transferContent, vietQrPayload } from "./vietqr.js";
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -391,13 +393,45 @@ export class FinanceService {
       coverageFacts: (invoice.coverageFacts ?? []).map((fact: any) => ({ coverageId: fact.issuedCoverage?.id ?? null, receivableId: fact.receivableId, billingMonth: fact.billingMonth, policyId: fact.policyId, versionId: fact.versionId, originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), serviceStart: fact.serviceStart.toISOString().slice(0, 10), serviceEnd: fact.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: fact.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: fact.timezone, issuedAt: fact.issuedCoverage?.issuedAt?.toISOString() ?? null })),
     };
     if (["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status)) result.issue = {
-      issuedAt: invoice.issuedAt.toISOString(), obligationTotal: invoice.obligationTotalSnapshot.toString(),
+      issuedAt: invoice.issuedAt.toISOString(), obligationCode: invoice.obligationCodeSnapshot ?? null, obligationTotal: invoice.obligationTotalSnapshot.toString(),
       obligationLines: invoice.obligationLinesSnapshot, dueOn: invoice.dueOn.toISOString().slice(0, 10),
-      bankAccount: { id: invoice.bankAccountIdSnapshot, receivingBank: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot },
+      bankAccount: { id: invoice.bankAccountIdSnapshot, receivingBank: invoice.receivingBankSnapshot, bankBin: invoice.receivingBankBinSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot },
       transferContent: invoice.transferContentSnapshot,
       policy: { effectiveFrom: invoice.financePolicyEffectiveFrom.toISOString().slice(0, 10), dueDaysAfterIssue: invoice.dueDaysAfterIssueSnapshot, taxTreatment: invoice.taxTreatmentSnapshot, debtScope: invoice.debtScopeSnapshot, reversalMode: invoice.reversalModeSnapshot },
     };
+    result.paymentImageAvailable = this.paymentImageAvailable(invoice);
     return result;
+  }
+  // Finance may hand the Parent a payment image only while the full issued obligation is still owed.
+  private paymentImageAvailable(invoice: any) {
+    return invoice.status === "ISSUED" && !invoice.receipt && !invoice.settlementTransferTo && !(invoice.debtTransfersFrom?.length)
+      && Boolean(invoice.receivingBankBinSnapshot) && BigInt(invoice.obligationTotalSnapshot ?? 0) > 0n;
+  }
+  async paymentImage(identityId: string, schoolId: string, invoiceId: string) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const invoice: any = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { ...this.invoiceInclude, school: { select: { name: true } } } });
+    if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+    if (!this.paymentImageAvailable(invoice)) throw new ConflictException({ code: "PAYMENT_IMAGE_UNAVAILABLE", message: "Chỉ tải ảnh cho hóa đơn đã phát hành và chưa thu tiền." });
+    const issuedDay = invoice.issuedAt.toISOString().slice(0, 10);
+    const profile = await this.prisma.schoolProfileVersion.findFirst({ where: { schoolId, effectiveFrom: { lte: new Date(`${issuedDay}T00:00:00.000Z`) } }, orderBy: { effectiveFrom: "desc" } });
+    const total = BigInt(invoice.obligationTotalSnapshot);
+    const rows: { label: string; amount: bigint }[] = [];
+    for (const line of (invoice.obligationLinesSnapshot ?? []) as any[]) {
+      const quantity = line.quantity && line.quantity !== "1" ? ` · ${line.quantity} ${line.unitLabel ?? ""}`.trimEnd() : "";
+      rows.push({ label: `${line.receivableName}${quantity}`, amount: BigInt(line.grossAmount ?? line.amount) });
+      if (BigInt(line.discountAmount ?? "0") > 0n) rows.push({ label: `Giảm trừ ưu đãi · ${line.receivableName}`, amount: -BigInt(line.discountAmount) });
+    }
+    for (const carry of invoice.settlementCarries ?? []) rows.push(carry.type === "SHORTFALL_CARRY" ? { label: "Khoản thu thiếu kỳ trước", amount: BigInt(carry.amount) } : { label: "Khoản thu thừa kỳ trước được khấu trừ", amount: -BigInt(carry.amount) });
+    const png = await renderPaymentImage({
+      schoolName: profile?.schoolName ?? invoice.school.name, billingMonth: invoice.billingMonth,
+      studentCode: invoice.studentCodeSnapshot, studentName: invoice.studentNameSnapshot, className: invoice.classNameSnapshot,
+      obligationCode: invoice.obligationCodeSnapshot, dueOn: invoice.dueOn.toISOString().slice(0, 10), rows, total,
+      bankName: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot,
+      transferContent: invoice.transferContentSnapshot,
+      qrPayload: vietQrPayload({ bin: invoice.receivingBankBinSnapshot, accountNumber: invoice.accountNumberSnapshot, amount: total, content: invoice.transferContentSnapshot }),
+    });
+    await this.prisma.auditRecord.create({ data: auditData(schoolId, { identityId, type: "SCHOOL_MEMBERSHIP", reference: actor.membershipId, membershipId: actor.membershipId }, "INVOICE_PAYMENT_IMAGE_DOWNLOADED", { invoiceId: invoice.id, obligationCode: invoice.obligationCodeSnapshot, amount: total.toString() }) });
+    return { png, fileName: `${invoice.obligationCodeSnapshot}-${invoice.studentCodeSnapshot}.png`.replace(/[^A-Za-z0-9._-]/g, "_") };
   }
   private amountDescending = (a: { amount: string; id: string }, b: { amount: string; id: string }) =>
     BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : a.id.localeCompare(b.id);
@@ -407,7 +441,7 @@ export class FinanceService {
     return new Date(Date.UTC(Number(value("year")), Number(value("month")) - 1, Number(value("day"))));
   }
   private transferContent(studentName: string, className: string) {
-    return `${studentName} ${className}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/\s+/g, " ").trim();
+    return transferContent(studentName, className);
   }
   private async obligationCode(tx: any, schoolId: string, issuedAt: Date) {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).formatToParts(issuedAt);
@@ -739,7 +773,7 @@ export class FinanceService {
       }
       const applications = await this.recheckPromotion(tx, schoolId, invoice, run.billingMonth);
       const obligationLines = invoice.lines.map((line: any) => this.lineDto(line));
-      await tx.invoice.update({ where: { id: invoice.id }, data: { status: "ISSUED", issuedAt: now, obligationCodeSnapshot: await this.obligationCode(tx, schoolId, now), bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(invoice.studentNameSnapshot, invoice.classNameSnapshot), obligationLinesSnapshot: obligationLines, obligationTotalSnapshot: invoice.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
+      await tx.invoice.update({ where: { id: invoice.id }, data: { status: "ISSUED", issuedAt: now, obligationCodeSnapshot: await this.obligationCode(tx, schoolId, now), bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, receivingBankBinSnapshot: bank.bankBin, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(invoice.studentNameSnapshot, invoice.classNameSnapshot), obligationLinesSnapshot: obligationLines, obligationTotalSnapshot: invoice.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
       await this.createIssuedPromotionApplications(tx, schoolId, invoice.id, applications);
        const issued = await tx.invoice.findFirstOrThrow({ where: { id: invoice.id, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } } } });
        await this.ledger(tx, issued, "INVOICE_ISSUED", 0n, { issuedAt: now.toISOString() });
@@ -808,7 +842,7 @@ export class FinanceService {
       if (!policy) throw new ConflictException({ code: "FINANCE_POLICY_NOT_CONFIGURED", message: "Chưa có chính sách Finance hiệu lực để phát hành." });
       const dueOn = new Date(issueDate); dueOn.setUTCDate(dueOn.getUTCDate() + policy.dueDaysAfterIssue);
       const applications = await this.recheckPromotion(tx, schoolId, replacement, run.billingMonth);
-      await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, obligationCodeSnapshot: await this.obligationCode(tx, schoolId, now), bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
+      await tx.invoice.update({ where: { id: replacement.id }, data: { status: "ISSUED", issuedAt: now, obligationCodeSnapshot: await this.obligationCode(tx, schoolId, now), bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, receivingBankBinSnapshot: bank.bankBin, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName, transferContentSnapshot: this.transferContent(replacement.studentNameSnapshot, replacement.classNameSnapshot), obligationLinesSnapshot: replacement.lines.map((line: any) => this.lineDto(line)), obligationTotalSnapshot: replacement.total, financePolicyEffectiveFrom: policy.effectiveFrom, dueDaysAfterIssueSnapshot: policy.dueDaysAfterIssue, taxTreatmentSnapshot: policy.taxTreatment, debtScopeSnapshot: policy.debtScope, reversalModeSnapshot: policy.reversalMode, dueOn } });
        await this.createIssuedPromotionApplications(tx, schoolId, replacement.id, applications);
         if (source.status === "CLOSED") {
            const transfer = await tx.settlementTransfer.create({ data: { schoolId, studentId: source.studentId, schoolYearId: source.schoolYearId, sourceInvoiceId: source.id, sourceReceiptId: sourceReceipt!.id, replacementInvoiceId: replacement.id, amount: sourceReceipt!.actualAmount } });

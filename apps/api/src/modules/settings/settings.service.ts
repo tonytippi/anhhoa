@@ -10,6 +10,7 @@ import { auditData } from "../common/audit.js";
 import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
 import { PrismaService } from "../identity/prisma.service.js";
+import { vietQrBank, vietQrBanks } from "../finance/vietqr.js";
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -189,6 +190,7 @@ export class SettingsService {
     return {
       id: value.id,
       receivingBank: value.receivingBank,
+      bankBin: value.bankBin,
       accountNumber: value.accountNumber,
       accountHolderName: value.accountHolderName,
       transferTemplate: value.transferTemplate,
@@ -302,6 +304,7 @@ export class SettingsService {
       bankAccounts: bankAccounts
         .map((account: any) => this.bankAccountDto(account))
         .filter((account: any) => account.status),
+      vietQrBanks,
     };
   }
   async createProfile(
@@ -831,8 +834,16 @@ export class SettingsService {
     body: any,
   ) {
     const actor = await this.actor(identityId, schoolId);
+    const bank = vietQrBank(body?.bankBin);
+    if (!bank)
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: { bankBin: "Chọn ngân hàng trong danh sách VietQR." },
+      });
     const input = {
-      receivingBank: this.text(body?.receivingBank, "receivingBank")!,
+      receivingBank: bank.shortName,
+      bankBin: bank.bin,
       accountNumber: this.text(
         body?.accountNumber,
         "accountNumber",

@@ -925,6 +925,7 @@ model Invoice {
   obligationCodeSnapshot               String?
   bankAccountIdSnapshot                String?                        @db.Uuid
   receivingBankSnapshot                String?
+  receivingBankBinSnapshot             String?
   accountNumberSnapshot                String?
   accountHolderNameSnapshot            String?
   transferContentSnapshot              String?
@@ -1937,6 +1938,7 @@ model BankAccount {
   id                   String                           @id @default(uuid()) @db.Uuid
   schoolId             String                           @db.Uuid
   receivingBank        String
+  bankBin              String
   accountNumber        String
   accountHolderName    String
   transferTemplate     String

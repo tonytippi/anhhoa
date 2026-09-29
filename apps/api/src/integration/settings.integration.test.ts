@@ -44,7 +44,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('settings PostgreS
     const a = await graph(); const b = await graph();
     const policy = await settings.createFinancePolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: '2026-01-01', dueDaysAfterIssue: 30, taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT' });
     await settings.createFinancePolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: '2026-06-01', dueDaysAfterIssue: 14, taxTreatment: 'TAX_INCLUDED', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'SCHOOL_ADMIN_APPROVAL' });
-    const account = await settings.createBankAccount(a.identity.id, a.school.id, uuid(), uuid(), { receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}' });
+    const account = await settings.createBankAccount(a.identity.id, a.school.id, uuid(), uuid(), { bankBin: '970436', accountNumber: '123', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}' });
     const accountId = (account.outcome as { id: string }).id;
     await settings.transitionBankAccount(a.identity.id, a.school.id, accountId, uuid(), uuid(), { status: 'INACTIVE', reason: 'Đổi tài khoản' });
     await expect(settings.read(a.identity.id, a.school.id)).resolves.toMatchObject({ bankAccounts: [{ id: accountId, status: 'INACTIVE', lifecycleTransitions: [{ previousStatus: 'ACTIVE', status: 'INACTIVE', reason: 'Đổi tài khoản' }, { previousStatus: null, status: 'ACTIVE' }] }] });
@@ -86,7 +86,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('settings PostgreS
     await settings.createAttendancePolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: '2026-06-01', photoEvidenceMode: 'REQUIRED', reason: 'A mới' });
     await settings.createHandoverPolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: '2026-01-01', photoEvidenceMode: 'REQUIRED', reason: 'A' });
     await settings.createDailyJournalPolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: '2026-01-01', reason: 'A' });
-    const account = await settings.createBankAccount(a.identity.id, a.school.id, uuid(), uuid(), { receivingBank: 'Ngân hàng A', accountNumber: '111', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}' });
+    const account = await settings.createBankAccount(a.identity.id, a.school.id, uuid(), uuid(), { bankBin: '970436', accountNumber: '111', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}' });
     await settings.createProfile(b.identity.id, b.school.id, uuid(), uuid(), { effectiveFrom: '2026-01-01', schoolName: 'B riêng' });
     await settings.createCalendar(b.identity.id, b.school.id, uuid(), uuid(), { effectiveFrom: '2026-01-01', holidays: [] });
     await settings.createFinancePolicy(b.identity.id, b.school.id, uuid(), uuid(), { effectiveFrom: '2026-01-01', dueDaysAfterIssue: 7, taxTreatment: 'TAX_EXCLUDED', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT' });
@@ -94,7 +94,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('settings PostgreS
     await settings.createHandoverPolicy(b.identity.id, b.school.id, uuid(), uuid(), { effectiveFrom: '2026-01-01', photoEvidenceMode: 'OPTIONAL', reason: 'B' });
     await settings.createDailyJournalPolicy(b.identity.id, b.school.id, uuid(), uuid(), { effectiveFrom: '2026-01-01', reason: 'B' });
     await expect(settings.read(b.identity.id, b.school.id, '2026-05-31')).resolves.toMatchObject({ profile: { schoolName: 'B riêng' }, calendar: { effectiveFrom: '2026-01-01' }, financePolicy: { dueDaysAfterIssue: 7 }, attendancePolicy: { photoEvidenceMode: 'REQUIRED' }, handoverPolicy: { photoEvidenceMode: 'OPTIONAL' }, dailyJournalPolicy: { parentRetentionDaysAfterEnrollmentEnded: 30, acceptedImageMimeTypes: ['JPEG', 'PNG', 'WEBP'] }, bankAccounts: [] });
-    const bAccount = await settings.createBankAccount(b.identity.id, b.school.id, uuid(), uuid(), { receivingBank: 'Ngân hàng B', accountNumber: '222', accountHolderName: 'Trường B', transferTemplate: '{{studentName}} {{className}}' });
+    const bAccount = await settings.createBankAccount(b.identity.id, b.school.id, uuid(), uuid(), { bankBin: '970418', accountNumber: '222', accountHolderName: 'Trường B', transferTemplate: '{{studentName}} {{className}}' });
 
     await expect(settings.read(a.identity.id, a.school.id, '2026-05-31')).resolves.toMatchObject({ profile: { schoolName: 'A cũ' }, financePolicy: { dueDaysAfterIssue: 30 }, attendancePolicy: { photoEvidenceMode: 'OPTIONAL' }, handoverPolicy: { photoEvidenceMode: 'REQUIRED' }, dailyJournalPolicy: { parentRetentionDaysAfterEnrollmentEnded: 30 }, bankAccounts: [] });
     await expect(settings.read(a.identity.id, a.school.id, '2026-06-01')).resolves.toMatchObject({ profile: { schoolName: 'A mới' }, financePolicy: { dueDaysAfterIssue: 14 }, attendancePolicy: { photoEvidenceMode: 'REQUIRED' }, handoverPolicy: { photoEvidenceMode: 'REQUIRED' }, dailyJournalPolicy: { parentRetentionDaysAfterEnrollmentEnded: 30 } });

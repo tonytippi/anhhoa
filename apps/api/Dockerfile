@@ -32,5 +32,6 @@ COPY --from=build /app/apps/api/node_modules apps/api/node_modules
 COPY --from=build /app/apps/api/prisma.config.ts apps/api/prisma.config.ts
 COPY --from=build /app/apps/api/prisma apps/api/prisma
 COPY --from=build /app/apps/api/dist apps/api/dist
+COPY --from=build /app/apps/api/assets apps/api/assets
 
 CMD ["node", "apps/api/dist/main.js"]

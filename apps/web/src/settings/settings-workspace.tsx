@@ -19,7 +19,8 @@ type Settings = {
   handoverPolicyVersions: { id: string; effectiveFrom: string; photoEvidenceMode: "REQUIRED" | "OPTIONAL"; reason: string }[];
   dailyJournalPolicy: { effectiveFrom: string; reason: string; parentRetentionDaysAfterEnrollmentEnded: number; acceptedImageMimeTypes: string[]; maxImageSizeBytes: number; imageCountLimit: null } | null;
   dailyJournalPolicyVersions: { id: string; effectiveFrom: string; reason: string; parentRetentionDaysAfterEnrollmentEnded: number; acceptedImageMimeTypes: string[]; maxImageSizeBytes: number; imageCountLimit: null }[];
-  bankAccounts: { id: string; receivingBank: string; accountNumber: string; accountHolderName: string; transferTemplate: string; status: "ACTIVE" | "INACTIVE"; lifecycleTransitions: { previousStatus: "ACTIVE" | "INACTIVE" | null; status: "ACTIVE" | "INACTIVE"; reason: string | null; changedAt: string }[] }[];
+  vietQrBanks?: { bin: string; shortName: string; name: string }[];
+  bankAccounts: { id: string; receivingBank: string; bankBin?: string; accountNumber: string; accountHolderName: string; transferTemplate: string; status: "ACTIVE" | "INACTIVE"; lifecycleTransitions: { previousStatus: "ACTIVE" | "INACTIVE" | null; status: "ACTIVE" | "INACTIVE"; reason: string | null; changedAt: string }[] }[];
 };
 type Pending = { id: string; schoolId: string };
 export type SettingsStatus = {
@@ -69,7 +70,7 @@ export function SettingsWorkspace({
   const [attendancePolicy, setAttendancePolicy] = useState({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
   const [handoverPolicy, setHandoverPolicy] = useState({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
   const [dailyJournalPolicy, setDailyJournalPolicy] = useState({ effectiveFrom: "", reason: "" });
-  const [bankAccount, setBankAccount] = useState({ receivingBank: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
+  const [bankAccount, setBankAccount] = useState({ bankBin: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
   const [accountQuery, setAccountQuery] = useState("");
   const [accountStatus, setAccountStatus] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const [accountSort, setAccountSort] = useState<"newest" | "bank">("newest");
@@ -147,7 +148,7 @@ export function SettingsWorkspace({
         setAttendancePolicy({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
         setHandoverPolicy({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
         setDailyJournalPolicy({ effectiveFrom: "", reason: "" });
-        setBankAccount({ receivingBank: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
+        setBankAccount({ bankBin: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
       } else setMessage("Thao tác không thành công.");
     } catch {
       if (current(operation)) {
@@ -175,7 +176,7 @@ export function SettingsWorkspace({
     setAttendancePolicy({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
     setHandoverPolicy({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" });
     setDailyJournalPolicy({ effectiveFrom: "", reason: "" });
-    setBankAccount({ receivingBank: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
+    setBankAccount({ bankBin: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
     setAccountQuery(""); setAccountStatus("ALL"); setAccountSort("newest");
     setLifecycle(undefined);
     setErrors({});
@@ -208,7 +209,7 @@ export function SettingsWorkspace({
       calendar.holidays.length ||
         financePolicy.effectiveFrom || financePolicy.dueDaysAfterIssue || financePolicy.reason ||
         attendancePolicy.effectiveFrom || attendancePolicy.photoEvidenceMode !== "REQUIRED" || attendancePolicy.reason || handoverPolicy.effectiveFrom || handoverPolicy.photoEvidenceMode !== "REQUIRED" || handoverPolicy.reason || dailyJournalPolicy.effectiveFrom || dailyJournalPolicy.reason ||
-       bankAccount.receivingBank || bankAccount.accountNumber || bankAccount.accountHolderName ||
+       bankAccount.bankBin || bankAccount.accountNumber || bankAccount.accountHolderName ||
        lifecycle?.reason,
   );
   useEffect(() => {
@@ -305,7 +306,7 @@ export function SettingsWorkspace({
   const saveFinancePolicy = async (event: FormEvent) => { event.preventDefault(); if (!financePolicy.dueDaysAfterIssue.trim()) { setErrorScope("financePolicy"); setErrors({ dueDaysAfterIssue: "Cần nhập số ngày hạn thanh toán." }); setMessage("Dữ liệu không hợp lệ."); return; } if (await post(`/api/app/schools/${schoolId}/settings/finance-policy-versions`, { ...financePolicy, dueDaysAfterIssue: Number(financePolicy.dueDaysAfterIssue) }, "financePolicy")) setFinancePolicy({ effectiveFrom: "", dueDaysAfterIssue: "", taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", reason: "" }); };
   const saveEvidencePolicy = (kind: "attendance" | "handover", event: FormEvent) => { event.preventDefault(); const policy = kind === "attendance" ? attendancePolicy : handoverPolicy; const scope = kind === "attendance" ? "attendancePolicy" : "handoverPolicy"; return post(`/api/app/schools/${schoolId}/settings/${kind}-policy-versions`, policy, scope).then((saved) => { if (saved) (kind === "attendance" ? setAttendancePolicy : setHandoverPolicy)({ effectiveFrom: "", photoEvidenceMode: "REQUIRED", reason: "" }); }); };
   const saveDailyJournalPolicy = (event: FormEvent) => { event.preventDefault(); return post(`/api/app/schools/${schoolId}/settings/daily-journal-policy-versions`, dailyJournalPolicy, "dailyJournalPolicy").then((saved) => { if (saved) setDailyJournalPolicy({ effectiveFrom: "", reason: "" }); }); };
-  const saveBankAccount = async (event: FormEvent) => { event.preventDefault(); if (await post(`/api/app/schools/${schoolId}/settings/bank-accounts`, bankAccount, "bankAccount")) setBankAccount({ receivingBank: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" }); };
+  const saveBankAccount = async (event: FormEvent) => { event.preventDefault(); if (await post(`/api/app/schools/${schoolId}/settings/bank-accounts`, bankAccount, "bankAccount")) setBankAccount({ bankBin: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" }); };
   const transitionBankAccount = async (event: FormEvent) => { event.preventDefault(); if (!lifecycle) return; if (await post(`/api/app/schools/${schoolId}/settings/bank-accounts/${lifecycle.account.id}/lifecycle`, { status: lifecycle.status, reason: lifecycle.reason }, "bankAccount")) setLifecycle(undefined); };
   const visibleAccounts = (data?.bankAccounts ?? []).filter((account) => (accountStatus === "ALL" || account.status === accountStatus) && `${account.receivingBank} ${account.accountNumber} ${account.accountHolderName}`.toLocaleLowerCase("vi").includes(accountQuery.trim().toLocaleLowerCase("vi"))).sort((a, b) => accountSort === "bank" ? a.receivingBank.localeCompare(b.receivingBank, "vi") : 0);
   const field = (scope: "profile" | "calendar" | "financePolicy" | "attendancePolicy" | "handoverPolicy" | "dailyJournalPolicy" | "bankAccount", name: string) =>
@@ -405,10 +406,10 @@ export function SettingsWorkspace({
         <table><caption>Lịch sử tài khoản nhận tiền</caption><thead><tr><th>Ngân hàng</th><th>Số tài khoản</th><th>Chủ tài khoản</th><th>Trạng thái</th><th>Lịch sử</th><th>Thao tác</th></tr></thead><tbody>{visibleAccounts.length ? visibleAccounts.map((account) => <tr key={account.id}><td>{account.receivingBank}</td><td>{account.accountNumber}</td><td>{account.accountHolderName}</td><td>{account.status === "ACTIVE" ? "Đang hoạt động" : "Ngừng hoạt động"}</td><td>{(account.lifecycleTransitions ?? []).map((transition) => <div key={transition.changedAt}>{transition.changedAt}: {transition.previousStatus ?? "Tạo mới"} -&gt; {transition.status}{transition.reason ? ` (${transition.reason})` : ""}</div>)}</td><td><button type="button" onClick={() => setLifecycle({ account, status: account.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" })}>{account.status === "ACTIVE" ? "Ngừng sử dụng" : "Kích hoạt"}</button></td></tr>) : <tr><td colSpan={6} role="status">Không có tài khoản phù hợp.</td></tr>}</tbody></table>
         {lifecycle && <form aria-label="Thay đổi trạng thái tài khoản" onSubmit={transitionBankAccount}><h5>Thay đổi {lifecycle.account.receivingBank} thành {lifecycle.status === "ACTIVE" ? "Đang hoạt động" : "Ngừng hoạt động"}</h5><label>Lý do thay đổi<input autoFocus value={lifecycle.reason} onChange={(event) => setLifecycle({ ...lifecycle, reason: event.target.value })} {...field("bankAccount", "reason")} /></label>{errorScope === "bankAccount" && errors.reason && <small id="bankAccount-reason-error">{errors.reason}</small>}<button disabled={Boolean(pending)}>Xác nhận thay đổi</button><button type="button" onClick={() => setLifecycle(undefined)}>Hủy</button></form>}
         <form onSubmit={saveBankAccount}>
-           <label>Ngân hàng nhận<input value={bankAccount.receivingBank} onChange={(event) => setBankAccount({ ...bankAccount, receivingBank: event.target.value })} {...field("bankAccount", "receivingBank")} /></label>{errorScope === "bankAccount" && errors.receivingBank && <small id="bankAccount-receivingBank-error">{errors.receivingBank}</small>}
+           <label>Ngân hàng nhận<select required value={bankAccount.bankBin} onChange={(event) => setBankAccount({ ...bankAccount, bankBin: event.target.value })} {...field("bankAccount", "bankBin")}><option value="">Chọn ngân hàng</option>{(data?.vietQrBanks ?? []).map((bank) => <option key={bank.bin} value={bank.bin}>{bank.shortName} - {bank.name}</option>)}</select></label>{errorScope === "bankAccount" && errors.bankBin && <small id="bankAccount-bankBin-error">{errors.bankBin}</small>}
            <label>Số tài khoản<input value={bankAccount.accountNumber} onChange={(event) => setBankAccount({ ...bankAccount, accountNumber: event.target.value })} {...field("bankAccount", "accountNumber")} /></label>{errorScope === "bankAccount" && errors.accountNumber && <small id="bankAccount-accountNumber-error">{errors.accountNumber}</small>}
            <label>Chủ tài khoản<input value={bankAccount.accountHolderName} onChange={(event) => setBankAccount({ ...bankAccount, accountHolderName: event.target.value })} {...field("bankAccount", "accountHolderName")} /></label>{errorScope === "bankAccount" && errors.accountHolderName && <small id="bankAccount-accountHolderName-error">{errors.accountHolderName}</small>}
-          <label>Mẫu chuyển khoản<input readOnly value={bankAccount.transferTemplate} /></label>
+          <p>Danh sách ngân hàng và mã VietQR do hệ thống cung cấp. Nội dung chuyển khoản trên hóa đơn là tên học sinh và tên lớp, bỏ dấu, tối đa 50 ký tự.</p>
           <button disabled={Boolean(pending)}>Thêm tài khoản nhận tiền</button>
         </form>
       </section>

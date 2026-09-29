@@ -201,7 +201,7 @@ async function issueFixture(price = "9007199254740991") {
   const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
   const operationId = uuid();
   await prisma.operation.create({ data: { id: operationId, schoolId: current.school.id, membershipId: current.membership.id, actorIdentityId: current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: current.membership.id, route: "fixture", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
-  const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng Ánh Hoa", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+  const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng Ánh Hoa", bankBin: "970436", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: bank.id, status: "ACTIVE", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId, sequence: 1 } });
   await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   return { current, student, receivableId, invoice, bank, operationId };
@@ -258,7 +258,7 @@ async function coverageFixture(reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL" 
   invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: student.student.id } });
   const operationId = uuid();
   await prisma.operation.create({ data: { id: operationId, schoolId: current.school.id, membershipId: current.membership.id, actorIdentityId: current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: current.membership.id, route: "fixture", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
-  const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng Ánh Hoa", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+  const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng Ánh Hoa", bankBin: "970436", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: bank.id, status: "ACTIVE", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId, sequence: 1 } });
   await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode, actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   const eligibilityOperationId = uuid();
@@ -1966,7 +1966,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(issued).toMatchObject({ id: operationId, status: "COMPLETED", outcome: { id: invoice.id, status: "ISSUED", total: "9007199254740991", student: { name: student.student.fullName, className: "Mầm Active" }, issue: { obligationTotal: "9007199254740991", bankAccount: { id: bank.id, receivingBank: "Ngân hàng Ánh Hoa", accountNumber: "123456789" }, transferContent: "Hoc sinh Finance Mam Active", policy: { dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE" } } } });
       expect((issued.outcome as any).issue.dueOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, uuid(), { bankAccountId: bank.id })).resolves.toEqual(issued);
-      const otherBank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng B", accountNumber: "987", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+      const otherBank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng B", bankBin: "970436", accountNumber: "987", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
       await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: otherBank.id, status: "ACTIVE", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId: fixtureOperationId, sequence: 1 } });
       await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, key, uuid(), { bankAccountId: otherBank.id })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
       expect(await finance.operation(current.identity.id, current.school.id, operationId)).toEqual({ id: operationId, status: "COMPLETED", outcome: issued.outcome, progress: null });
@@ -2050,7 +2050,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint }); await generate(current, runId);
       const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
       const operationId = uuid(); await prisma.operation.create({ data: { id: operationId, schoolId: current.school.id, membershipId: current.membership.id, actorIdentityId: current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: current.membership.id, route: "fixture", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
-      const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "A", accountNumber: "1", accountHolderName: "A", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+      const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "A", bankBin: "970436", accountNumber: "1", accountHolderName: "A", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
        await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: bank.id, status: "ACTIVE", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId, sequence: 1 } });
        await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
        const draftLine = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: current.school.id, invoiceId: invoice.id } });
@@ -2193,9 +2193,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: closedRun.invoice.id } });
       await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-        await tx.invoice.update({ where: { id: issued.id }, data: { status: "DRAFT", issuedAt: null, bankAccountIdSnapshot: null, receivingBankSnapshot: null, accountNumberSnapshot: null, accountHolderNameSnapshot: null, transferContentSnapshot: null, obligationLinesSnapshot: Prisma.DbNull, obligationTotalSnapshot: null, financePolicyEffectiveFrom: null, dueDaysAfterIssueSnapshot: null, taxTreatmentSnapshot: null, debtScopeSnapshot: null, reversalModeSnapshot: null, dueOn: null } });
+        await tx.invoice.update({ where: { id: issued.id }, data: { status: "DRAFT", issuedAt: null, bankAccountIdSnapshot: null, receivingBankSnapshot: null, receivingBankBinSnapshot: null, accountNumberSnapshot: null, accountHolderNameSnapshot: null, transferContentSnapshot: null, obligationLinesSnapshot: Prisma.DbNull, obligationTotalSnapshot: null, financePolicyEffectiveFrom: null, dueDaysAfterIssueSnapshot: null, taxTreatmentSnapshot: null, debtScopeSnapshot: null, reversalModeSnapshot: null, dueOn: null } });
       });
-      await expect(prisma.invoice.update({ where: { id: issued.id }, data: { status: "ISSUED", issuedAt: issued.issuedAt!, bankAccountIdSnapshot: issued.bankAccountIdSnapshot!, receivingBankSnapshot: issued.receivingBankSnapshot!, accountNumberSnapshot: issued.accountNumberSnapshot!, accountHolderNameSnapshot: issued.accountHolderNameSnapshot!, transferContentSnapshot: issued.transferContentSnapshot!, obligationLinesSnapshot: issued.obligationLinesSnapshot as Prisma.InputJsonValue, obligationTotalSnapshot: issued.obligationTotalSnapshot!, financePolicyEffectiveFrom: issued.financePolicyEffectiveFrom!, dueDaysAfterIssueSnapshot: issued.dueDaysAfterIssueSnapshot!, taxTreatmentSnapshot: issued.taxTreatmentSnapshot!, debtScopeSnapshot: issued.debtScopeSnapshot!, reversalModeSnapshot: issued.reversalModeSnapshot!, dueOn: issued.dueOn! } })).rejects.toThrow(/CLOSED CollectionRun/);
+      await expect(prisma.invoice.update({ where: { id: issued.id }, data: { status: "ISSUED", issuedAt: issued.issuedAt!, bankAccountIdSnapshot: issued.bankAccountIdSnapshot!, receivingBankSnapshot: issued.receivingBankSnapshot!, receivingBankBinSnapshot: issued.receivingBankBinSnapshot!, accountNumberSnapshot: issued.accountNumberSnapshot!, accountHolderNameSnapshot: issued.accountHolderNameSnapshot!, transferContentSnapshot: issued.transferContentSnapshot!, obligationLinesSnapshot: issued.obligationLinesSnapshot as Prisma.InputJsonValue, obligationTotalSnapshot: issued.obligationTotalSnapshot!, financePolicyEffectiveFrom: issued.financePolicyEffectiveFrom!, dueDaysAfterIssueSnapshot: issued.dueDaysAfterIssueSnapshot!, taxTreatmentSnapshot: issued.taxTreatmentSnapshot!, debtScopeSnapshot: issued.debtScopeSnapshot!, reversalModeSnapshot: issued.reversalModeSnapshot!, dueOn: issued.dueOn! } })).rejects.toThrow(/CLOSED CollectionRun/);
     });
 
     it("rejects SchoolYear close while a generated CollectionRun has DRAFT invoices", async () => {
@@ -2237,6 +2237,27 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const line = await prisma.invoiceLine.findFirstOrThrow({ where: { invoiceId: invoice.id } });
       await expect(prisma.invoiceLine.update({ where: { id: line.id }, data: { unitPrice: 1n } })).rejects.toThrow(/DRAFT/);
        await expect(prisma.$queryRaw<Array<{ labels: string[] }>>`SELECT ARRAY(SELECT enumlabel::text FROM pg_enum WHERE enumtypid = '"InvoiceStatus"'::regtype ORDER BY enumsortorder)::text[] AS labels`).resolves.toEqual([{ labels: ["DRAFT", "ISSUED", "CANCELLED", "CLOSED"] }]);
+    });
+
+    it("renders the VietQR payment image only for an unsettled issued Invoice, audited and School-scoped", async () => {
+      const { current, invoice, bank } = await issueFixture("1350000");
+      await expect(finance.paymentImage(current.identity.id, current.school.id, invoice.id)).rejects.toMatchObject({ status: 409, response: { code: "PAYMENT_IMAGE_UNAVAILABLE" } });
+      await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { bankAccountId: bank.id });
+      const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      expect(issued).toMatchObject({ receivingBankBinSnapshot: "970436", transferContentSnapshot: expect.stringMatching(/^[A-Za-z0-9 ]{1,50}$/) });
+      await expect(finance.invoice(current.identity.id, current.school.id, invoice.id)).resolves.toMatchObject({ paymentImageAvailable: true, issue: { bankAccount: { bankBin: "970436" } } });
+      const image = await finance.paymentImage(current.identity.id, current.school.id, invoice.id);
+      expect(image.png.subarray(1, 4).toString()).toBe("PNG");
+      expect(image.fileName).toBe(`${issued.obligationCodeSnapshot}-${issued.studentCodeSnapshot}.png`);
+      await expect(prisma.auditRecord.findFirst({ where: { schoolId: current.school.id, action: "INVOICE_PAYMENT_IMAGE_DOWNLOADED" } })).resolves.toMatchObject({ membershipId: current.membership.id, provenance: { invoiceId: invoice.id, amount: "1350000" } });
+      await expect(prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).resolves.toMatchObject({ status: "ISSUED" });
+      const foreign = await roster(await graph());
+      await expect(finance.paymentImage(foreign.identity.id, foreign.school.id, invoice.id)).rejects.toMatchObject({ status: 404 });
+      await expect(finance.paymentImage(foreign.identity.id, current.school.id, invoice.id)).rejects.toMatchObject({ status: 404 });
+      await expect(prisma.invoice.update({ where: { id: invoice.id }, data: { receivingBankBinSnapshot: "970418" } })).rejects.toThrow(/immutable/);
+      await finance.closeInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { actualAmount: "1350000" });
+      await expect(finance.invoice(current.identity.id, current.school.id, invoice.id)).resolves.toMatchObject({ paymentImageAvailable: false });
+      await expect(finance.paymentImage(current.identity.id, current.school.id, invoice.id)).rejects.toMatchObject({ status: 409, response: { code: "PAYMENT_IMAGE_UNAVAILABLE" } });
     });
 
     it("rejects direct DRAFT snapshot injection and incomplete or incoherent DRAFT-to-ISSUED mutation", async () => {

@@ -592,6 +592,7 @@ try {
           data: {
             schoolId: school.id,
             receivingBank: `Ngân hàng Release ${index + 1}`,
+            bankBin: "970436",
             accountNumber: `10000000${index + 1}`,
             accountHolderName: `Release Gate ${index + 1}`,
             transferTemplate: "{{studentName}} {{className}}",
@@ -719,6 +720,7 @@ try {
               obligationCodeSnapshot: "OBL-202609-000001",
               bankAccountIdSnapshot: bankAccount.id,
               receivingBankSnapshot: bankAccount.receivingBank,
+              receivingBankBinSnapshot: bankAccount.bankBin,
               accountNumberSnapshot: bankAccount.accountNumber,
               accountHolderNameSnapshot: bankAccount.accountHolderName,
               transferContentSnapshot: "Be An Mam Release 1",

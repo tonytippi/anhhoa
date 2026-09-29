@@ -138,6 +138,37 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(within(review).getByRole("button", { name: "Quay lại đợt thu" }));
     expect(onBackToRun).toHaveBeenCalledWith(run.id);
   });
+  it("offers the server payment image only for an unsettled issued Invoice and saves the returned PNG", async () => {
+    const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "1350000" }] };
+    const issued = { id: "invoice-a", status: "ISSUED", total: "1350000", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], paymentImageAvailable: true, student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [], issue: { obligationCode: "OBL-202610-000123", obligationTotal: "1350000", dueOn: "2026-10-10", bankAccount: { id: "bank", receivingBank: "Vietcombank", bankBin: "970436", accountNumber: "1020888999", accountHolderName: "TRUONG A" }, transferContent: "Be An La 1", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
+    let current: Record<string, unknown> = issued;
+    let imageStatus = 500;
+    const fetch = vi.fn((url: string) => Promise.resolve(url.endsWith("/payment-image") ? new Response(imageStatus === 200 ? new Blob(["png"], { type: "image/png" }) : "{}", { status: imageStatus, headers: { "content-disposition": 'attachment; filename="OBL-202610-000123-HS001.png"' } }) : url.endsWith("/invoices/invoice-a") ? response(current) : url.endsWith(`/collection-runs/${run.id}`) ? response(routedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [routedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    const createObjectURL = vi.fn(() => "blob:payment-image");
+    vi.stubGlobal("URL", class extends URL { static override createObjectURL = createObjectURL; static override revokeObjectURL = vi.fn(); });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-a" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} />);
+    const payment = await screen.findByRole("complementary", { name: "Thanh toán" });
+    expect(within(payment).getByText("Mã hóa đơn OBL-202610-000123 · Hạn thanh toán 10/10/2026")).toBeTruthy();
+    expect(within(payment).getByText("1.350.000 VND")).toBeTruthy();
+    for (const fact of ["Vietcombank", "1020888999", "TRUONG A", "Be An La 1"]) expect(within(payment).getByText(fact)).toBeTruthy();
+    expect(await within(payment).findByText("Không tạo được ảnh. Thông tin chuyển khoản bên trên vẫn dùng được; thử tải lại.")).toBeTruthy();
+    imageStatus = 200;
+    fireEvent.click(within(payment).getByRole("button", { name: "Tải ảnh hóa đơn" }));
+    expect(await within(payment).findByText("Đã tải OBL-202610-000123-HS001.png.")).toBeTruthy();
+    expect(within(payment).getByRole("img", { name: "Xem trước ảnh hóa đơn" }).getAttribute("src")).toBe("blob:payment-image");
+    const anchor = click.mock.instances[0] as unknown as HTMLAnchorElement;
+    expect(anchor.download).toBe("OBL-202610-000123-HS001.png");
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/finance/invoices/invoice-a/payment-image"))).toHaveLength(2);
+    click.mockRestore();
+    view.unmount();
+    current = { ...issued, status: "CLOSED", paymentImageAvailable: false, receipt: { actualAmount: "1350000", outcome: "EXACT", postedAt: "2026-10-05T00:00:00.000Z", difference: null } };
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-a" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} />);
+    await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ });
+    expect(screen.queryByRole("button", { name: "Tải ảnh hóa đơn" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Thanh toán" })).toBeNull();
+  });
   it("returns to the run when the server denies a routed Invoice", async () => {
     const routedRun = { ...run, status: "GENERATED" as const, invoices: [] };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.endsWith("/invoices/foreign") ? response({}, 404) : url.endsWith(`/collection-runs/${run.id}`) ? response(routedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [routedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog))));

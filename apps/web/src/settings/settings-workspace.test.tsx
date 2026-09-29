@@ -75,7 +75,7 @@ describe('SettingsWorkspace', () => {
     expect(denied).not.toHaveBeenCalled();
   });
   it('submits fixed Finance settings input and retains server-confirmed account status', async () => {
-    const finance = { ...settings, bankAccounts: [{ id: 'account-a', receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}', status: 'ACTIVE' as const, lifecycleReason: null }] };
+    const finance = { ...settings, vietQrBanks: [{ bin: '970436', shortName: 'Vietcombank', name: 'Ngân hàng TMCP Ngoại Thương Việt Nam' }, { bin: '970418', shortName: 'BIDV', name: 'Ngân hàng TMCP Đầu tư và Phát triển Việt Nam' }], bankAccounts: [{ id: 'account-a', receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}', status: 'ACTIVE' as const, lifecycleReason: null }] };
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? response({}) : response(finance)));
     vi.stubGlobal('fetch', fetch); render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     fireEvent.change((await screen.findAllByLabelText('Ngày hiệu lực'))[1]!, { target: { value: '2026-01-01' } });
@@ -83,7 +83,16 @@ describe('SettingsWorkspace', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Tạo phiên bản chính sách' }).closest('form')!);
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/finance-policy-versions', expect.objectContaining({ method: 'POST', body: expect.stringContaining('CURRENT_SCHOOL_YEAR_ONLY') })));
     expect(screen.getAllByText('Đang hoạt động')).toHaveLength(2);
-    expect((screen.getByLabelText('Mẫu chuyển khoản') as HTMLInputElement).readOnly).toBe(true);
+    const bank = screen.getByLabelText('Ngân hàng nhận') as HTMLSelectElement;
+    expect(bank.required).toBe(true);
+    expect(Array.from(bank.options).map((option) => [option.value, option.textContent])).toEqual([['', 'Chọn ngân hàng'], ['970436', 'Vietcombank - Ngân hàng TMCP Ngoại Thương Việt Nam'], ['970418', 'BIDV - Ngân hàng TMCP Đầu tư và Phát triển Việt Nam']]);
+    fireEvent.change(bank, { target: { value: '970418' } });
+    fireEvent.change(screen.getByLabelText('Số tài khoản'), { target: { value: '0123456789' } });
+    fireEvent.change(screen.getByLabelText('Chủ tài khoản'), { target: { value: 'TRUONG A' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Thêm tài khoản nhận tiền' }).closest('form')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/bank-accounts', expect.objectContaining({ method: 'POST' })));
+    const body = JSON.parse(fetch.mock.calls.find(([url]) => url === '/api/app/schools/school-a/settings/bank-accounts')![1]!.body as string);
+    expect(body).toEqual({ bankBin: '970418', accountNumber: '0123456789', accountHolderName: 'TRUONG A', transferTemplate: '{{studentName}} {{className}}' });
     fireEvent.change(screen.getByLabelText('Trạng thái tài khoản'), { target: { value: 'INACTIVE' } });
     expect(screen.queryByText('Ngân hàng A')).toBeNull();
   });

@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 
 const api = `http://localhost:${process.env.E2E_API_PORT ?? '3000'}`;
@@ -146,7 +147,17 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    );
    await firstIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
    expect((await issuedRunRefresh).status()).toBe(200);
-    await expect(invoiceReview.getByRole('region', { name: 'Thông tin thanh toán đã phát hành' })).toContainText('Tổng nghĩa vụ: 135.000 VND');
+    const payment = invoiceReview.getByRole('complementary', { name: 'Thanh toán' });
+    await expect(payment).toContainText('Tổng cần nộp135.000 VND');
+    await expect(invoiceReview.getByRole('region', { name: 'Thông tin thanh toán đã phát hành' })).toHaveCount(0);
+    await expect(payment.getByRole('img', { name: 'Xem trước ảnh hóa đơn' })).toBeVisible();
+    const paymentImage = page.waitForEvent('download');
+    await payment.getByRole('button', { name: 'Tải ảnh hóa đơn' }).click();
+    const imageDownload = await paymentImage;
+    expect(imageDownload.suggestedFilename()).toMatch(/^OBL-\d{6}-\d{6}-RG1-1\.png$/);
+    const png = await readFile(await imageDownload.path());
+    expect(png.subarray(1, 4).toString()).toBe('PNG');
+    await expect(payment).toContainText(`Đã tải ${imageDownload.suggestedFilename()}.`);
     await expect(invoiceReview.getByRole('button', { name: 'Học sinh tiếp theo' })).toBeVisible();
     await invoiceReview.getByRole('button', { name: 'Học sinh tiếp theo' }).click();
     await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' })).toBeVisible();
@@ -167,7 +178,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé Bình' });
   await secondIssue.getByLabel('Nhập chính xác tên học sinh Bé Bình để xác nhận').fill('Bé Bình');
    await secondIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
-   await expect(secondInvoiceReview.getByRole('region', { name: 'Thông tin thanh toán đã phát hành' })).toContainText('Tổng nghĩa vụ: 150.000 VND');
+   await expect(secondInvoiceReview.getByRole('complementary', { name: 'Thanh toán' })).toContainText('Tổng cần nộp150.000 VND');
     await page.getByRole('button', { name: 'Thu tiền' }).click();
     await expect(page.getByRole('heading', { name: 'Thu tiền' })).toBeVisible();
     // The seed already holds an issued 2026-09 Invoice; the queue defaults to the current month.

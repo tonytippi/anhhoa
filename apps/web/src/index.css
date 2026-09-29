@@ -1640,6 +1640,16 @@ tbody tr:last-child td {
 }
 .finance-invoice-split > aside .finance-actions { justify-content: flex-start; }
 .finance-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.finance-payment-total { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; }
+.finance-payment-total b { font-size: 1.5rem; }
+.finance-payment-facts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 0; }
+.finance-payment-facts dt { color: var(--muted, #5b6b63); font-size: .8125rem; }
+.finance-payment-facts dd { margin: 0 0 8px; font-weight: 700; overflow-wrap: anywhere; }
+.finance-payment-image { display: grid; gap: 12px; }
+.finance-payment-image p { margin: 0; color: #5b6b63; font-size: .875rem; }
+.finance-payment-total, .finance-payment-facts, .finance-payment-image { max-width: 480px; }
+.finance-payment-thumb { display: block; justify-self: start; width: min(100%, 300px); border: 1px solid var(--border, #d5ddd8); border-radius: 12px; overflow: hidden; }
+.finance-payment-thumb img { display: block; width: 100%; height: auto; }
 .finance-list-dialog {
   display: grid;
   gap: 12px;
