@@ -184,6 +184,7 @@ flowchart TD
 - **Rule:** `finance` owns read-only reporting queries and the four Finance workspaces: overview, CollectionRun reconciliation, outstanding/debt, and cash/adjustment ledger. Each query authorizes the active same-School StaffProfile with its dedicated Position capability before aggregate lookup and derives the School solely from the active binding, never from a trusted filter. A report response declares `asOf`, `generatedAt`, `Asia/Ho_Chi_Minh`, the normalized applied filter and `reportDefinitionVersion`; it reads only append-only ledger records posted at or before `asOf` plus immutable obligation snapshots. Billed measures group by Invoice `billingMonth`; cash measures group by Receipt, reversal and refund posting timestamp. Reversal/refund remains at its posting time with source provenance. Revision/cancellation remains visible to audit drill-down but obligation totals include only the server-resolved current-effective Invoice; live catalog, roster, policy and BankAccount values never rewrite historical results.
 
 - **Export:** CSV is the sole MVP export. The API generates it from the same authorized report query and embeds result metadata; it records an audit event for request and download, re-authorizes the actor and School scope before download, and uses an expiring opaque file reference. No browser aggregation, direct object URL, Parent data, Payroll data, PDF/XLSX, scheduled/custom report, or accounting period close/reopen belongs to this boundary.
+- **Payment image (2026-09-29 decision):** the only non-CSV file is the Finance payment image of one issued, unsettled Invoice. The API renders the PNG per request from the immutable issue snapshot (lines, `obligationTotalSnapshot`, BankAccount name/number/holder/BIN, transfer content) with an EMVCo VietQR payload; it re-authorizes Finance capability and School scope, audits the download, returns `Cache-Control: no-store` and persists no file or object URL. The browser never builds the QR, amount or bank fields. BankAccount requires a BIN from the server VietQR bank list.
 
 ### AD-20 - SchoolPosition capability boundary [ADOPTED]
 
@@ -288,7 +289,7 @@ flowchart LR
 
 ## Deferred
 
-- VietQR, copy fields and bank deep links: separate Parent enhancement only after snapshot fallback, device/browser matrix and configuration governance are approved.
+- VietQR (for Parent), copy fields and bank deep links: separate Parent enhancement only after snapshot fallback, device/browser matrix and configuration governance are approved.
 - Support JIT/impersonation, Organization hierarchy, per-School domains, shared live catalogs, transport, medical, communications and generic import/onboarding: outside this initiative; require their own product/architecture decision.
 - Direct timeclock vendor integration, multiple schedules/partial-day work, headcount bonus, tax/BHXH filing integration and certified legal-compliance claims: deferred Payroll extensions requiring a separate approved rule/compliance contract.
 - Container registry, reverse-proxy implementation, offsite backup, monitoring, cloud provider and production recovery posture: deferred until a production rollout is planned; they are not pilot prerequisites.

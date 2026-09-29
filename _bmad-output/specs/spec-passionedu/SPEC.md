@@ -85,7 +85,8 @@ PassionEdu replaces the single-school invoice product with a clean-break platfor
 
 ## Assumptions
 
-- Parent finance MVP presents read-only snapshot Payment instructions. VietQR, payment-field copy and bank deep links are separately gated enhancements.
+- Parent finance MVP presents read-only snapshot Payment instructions. VietQR, payment-field copy and bank deep links for Parent are separately gated enhancements.
+- Finance may download an issued, unsettled Invoice as a server-rendered PNG with a VietQR for the obligation total snapshot, to send to the Parent outside the system (decision 2026-09-29, issued-invoice-payment-image). Every BankAccount carries a VietQR bank BIN chosen from a server list; the BIN and transfer content `<Student name> <Class name>` (no diacritics, max 50 characters) are part of the issue snapshot.
 
 ## Open Questions
 

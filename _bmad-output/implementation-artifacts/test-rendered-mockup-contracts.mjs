@@ -9,6 +9,7 @@ const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation,
    read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'),
     read('admin/receivable-configuration.html'), read('admin/promotion-configuration.html'), read('admin/school-settings.html'), read('admin/finance-report.html')
 ]);
+const paymentImage = await read('admin/invoice-payment-image.html');
 
 // Admin mobile: viewport containment, scroll-owned tables, accessible sheet and focus return.
 assert.match(css, /html,body\{max-width:100%\}/);
@@ -75,6 +76,19 @@ assert.match(invoice, /Yêu cầu kiểm tra lại ưu đãi/);
 assert.match(invoice, /snapshot bất biến/);
 for (const unavailable of ['Receipt', 'coverage', 'nộp trước', 'carry', 'hoàn tiền']) assert.doesNotMatch(invoice, new RegExp(unavailable, 'i'));
 assert.doesNotMatch(invoice, /parseAmount|toLocaleString|var difference/);
+// Issued Invoice: Finance downloads a server-rendered payment image; the browser never builds QR or amounts.
+assert.match(invoice, /id="payment-panel" aria-labelledby="payment-title" hidden/);
+assert.match(invoice, /id="download-image">Tải ảnh hóa đơn</);
+assert.match(invoice, /Tổng cần nộp/);
+assert.match(invoice, /Nguyen Minh Anh Mam 4A/);
+assert.match(invoice, /window\.location\.hash==='#issued'/);
+assert.doesNotMatch(invoice, /Gửi email|createObjectURL|Blob\(|canvas/i);
+assert.match(paymentImage, /Thông báo học phí tháng 10\/2026/);
+assert.match(paymentImage, /aria-label="Mã VietQR minh họa"/);
+assert.match(paymentImage, /<dd class="content">Nguyen Minh Anh Mam 4A<\/dd>/);
+assert.match(paymentImage, /Tổng cần nộp<\/td><td class="money">2\.120\.000 đ/);
+assert.match(paymentImage, /OBL-202610-000123-HS001\.png/);
+assert.doesNotMatch(paymentImage, /reduce\(|parseInt|toLocaleString|Tôi đã chuyển/);
 // Finance reports are a server-result-only Finance workspace with CSV as its sole export.
 assert.match(report, /data-admin-route="report"/);
 for (const workspace of ['overview', 'runs', 'debt', 'ledger']) assert.match(report, new RegExp(`data-workspace="${workspace}"`));
@@ -139,5 +153,9 @@ assert.match(settings, /id="school-profile-form"/);
 assert.match(settings, /name="timezone" value="Asia\/Ho_Chi_Minh \(Việt Nam\)" readonly/);
 assert.match(settings, /accept="image\/jpeg,image\/png,image\/webp"/);
 assert.doesNotMatch(settings, /#parent-access|id="parent-access"|Truy cập phụ huynh/);
+// BankAccount create requires a bank BIN from the server VietQR list; no free-text bank.
+assert.match(settings, /<select name="bankBin" required><option value="">Chọn ngân hàng<\/option>/);
+assert.match(settings, /<option value="970436">Vietcombank - Ngân hàng TMCP Ngoại thương Việt Nam<\/option>/);
+assert.doesNotMatch(settings, /name="receivingBank"/);
 
 console.log('Rendered mockup contract checks passed (collection-run landing included).');

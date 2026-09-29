@@ -97,7 +97,7 @@ FR-15: Finance Manager persona Ke toan prepare/materially edit/reconcile/submit 
 
 FR-16: Parent dung portal multi-School de xem dung Student duoc active link uy quyen, attendance history DTO toi thieu, DailyJournal/media duoc cap quyen va in-app notification 30 ngay; revoke/session expiry xoa protected state va Parent khong mutate operational data.
 
-FR-17: Parent xem read-only Invoice hieu luc `ISSUED` con outstanding hoac `CLOSED` moi nhat va Payment instruction snapshot khi du dieu kien; Parent khong post Receipt, xac nhan payment, chon uu dai/refund hay sua finance, va khong co VietQR/copy/deep link trong release nay.
+FR-17: Parent xem read-only Invoice hieu luc `ISSUED` con outstanding hoac `CLOSED` moi nhat va Payment instruction snapshot khi du dieu kien; Parent khong post Receipt, xac nhan payment, chon uu dai/refund hay sua finance, va khong co VietQR/copy/deep link trong release nay. Rieng Finance duoc tai anh hoa don `ISSUED` co VietQR do API tao de gui cho Parent (Story 5.21, sprint-change-proposal-2026-09-29-issued-invoice-payment-image); Parent QR/deep link van deferred.
 
 ### NonFunctional Requirements
 
@@ -200,6 +200,40 @@ FR-17: Epic 7 - Read-only Parent obligation va Payment instruction snapshot.
 Platform Operator provision, suspend/reactivate School; Admin/Staff dang nhap, chon School va chi thuc hien capability hien hanh trong tenant do. E1 cung chung minh tenant isolation truoc khi bat ky nghiep vu School nao duoc phat hanh.
 
 **FRs covered:** FR-1, FR-2, FR-3.
+
+### Story 5.21: Tải ảnh hóa đơn đã phát hành có mã VietQR
+
+As a Finance Manager,
+I want to download an issued tuition Invoice as an image with a VietQR code,
+So that I can send it to the Parent, who pays the exact amount from a banking app.
+
+**Acceptance Criteria:**
+
+**Given** a BankAccount is created
+**When** Finance picks a bank from the select box
+**Then** the server accepts only a BIN from its VietQR bank list, stores the BIN and derives the bank name
+**And** a missing or unknown BIN is refused.
+
+**Given** an Invoice is issued
+**When** the issue snapshot is written
+**Then** it includes the BIN of the chosen account and transfer content `<Student name> <Class name>` without diacritics, limited to `A-Z a-z 0-9` and spaces, at most 50 characters with the Class name kept whole
+**And** neither changes when the BankAccount later changes.
+
+**Given** an `ISSUED` unsettled Invoice in the actor's School
+**When** Finance requests the payment image
+**Then** the API returns a PNG rendered from the issue snapshot with a VietQR whose amount equals `obligationTotalSnapshot`, `Cache-Control: no-store` and file name `<obligationCode>-<studentCode>.png`
+**And** the download is audited and does not change Invoice state.
+
+**Given** a `DRAFT`, settled, `CLOSED` or `CANCELLED` Invoice, another School's Invoice or an actor without Finance capability
+**When** the image is requested
+**Then** the API refuses without leaking data.
+
+**Given** the issued Invoice page
+**When** the Invoice is `ISSUED` and unsettled
+**Then** the `Thanh toán` panel shows payment details, the image preview and `Tải ảnh hóa đơn` per `invoice-detail-review.html`
+**And** other states hide the action; a failed download keeps the text payment details and offers retry.
+
+**And** unit tests cover transfer content truncation and decode the VietQR payload (BIN, account, amount, content, CRC); E2E downloads the image for an issued Invoice.
 
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
