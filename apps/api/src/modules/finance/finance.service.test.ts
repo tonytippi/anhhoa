@@ -29,6 +29,15 @@ describe('FinanceService validation', () => {
     expect(prisma.receivableGroup.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
     expect(prisma.receivable.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
   });
+  it('summarizes generated run Invoices from server BIGINT totals, excluding cancelled replacements', async () => {
+    const invoice = (id: string, status: string, total: bigint) => ({ id, studentId: id, studentCodeSnapshot: id, studentNameSnapshot: id, classNameSnapshot: 'Lá 1', status, total });
+    const run = { id: crypto.randomUUID(), schoolYearId: 'year', billingMonth: '2026-10', type: 'MONTHLY', status: 'GENERATED', version: 3, templateLines: [], coverageSelections: [], lifecycleTransitions: [], createdAt: new Date(), updatedAt: new Date(), invoices: [invoice('a', 'DRAFT', 9007199254740993n), invoice('b', 'ISSUED', 150000n), invoice('c', 'CLOSED', 135000n), invoice('d', 'CANCELLED', 150000n)] };
+    const prisma = { collectionRun: { findFirst: vi.fn().mockResolvedValue(run) } };
+    const school = crypto.randomUUID();
+    const result = await new FinanceService(prisma as never, authorization as never).run('identity', school, run.id);
+    expect(result).toMatchObject({ status: 'GENERATED', summary: { invoiceCount: 3, issuedCount: 2, invoiceTotal: '9007199255025993' } });
+    expect(prisma.collectionRun.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: run.id, schoolId: school } }));
+  });
   it('marks an active Receivable unavailable when its Group is inactive', async () => {
     const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'item', groupId: 'group', code: null, displayName: 'Tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { lifecycleTransitions: [{ status: 'INACTIVE' }] } }]) } };
     await expect(new FinanceService(prisma as never, authorization as never).read('identity', crypto.randomUUID())).resolves.toMatchObject({ receivables: [{ status: 'ACTIVE', available: false }] });

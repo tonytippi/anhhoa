@@ -1223,8 +1223,28 @@ export class FinanceService {
         studentName: invoice.studentNameSnapshot, className: invoice.classNameSnapshot,
         status: invoice.status, total: invoice.total.toString(),
       })),
+      ...(Array.isArray(run.invoices) && ["GENERATED", "CLOSED"].includes(status) ? { summary: this.invoiceSummary(run.invoices) } : {}),
       createdAt: run.createdAt.toISOString(),
       updatedAt: run.updatedAt.toISOString(),
+    };
+  }
+  // Overview totals are summed here from BIGINT columns so Finance clients never add money themselves.
+  private invoiceSummary(invoices: any[]) {
+    const effective = invoices.filter((invoice) => invoice.status !== "CANCELLED");
+    return {
+      invoiceCount: effective.length,
+      issuedCount: effective.filter((invoice) => ["ISSUED", "CLOSED"].includes(invoice.status)).length,
+      invoiceTotal: effective.reduce((total: bigint, invoice) => total + BigInt(invoice.total), 0n).toString(),
+    };
+  }
+  private previewSummary(preview: { eligible: any[]; skips: any[] }) {
+    return {
+      eligibleCount: preview.eligible.length,
+      skippedCount: preview.skips.length,
+      expectedTotal: preview.eligible
+        .flatMap((row) => row.lines ?? [])
+        .reduce((total: bigint, line: any) => total + BigInt(line.netAmount), 0n)
+        .toString(),
     };
   }
   private templateLineDto(line: any) {
@@ -1330,14 +1350,19 @@ export class FinanceService {
     this.identifier(runId, "runId");
     const run = await this.prisma.collectionRun.findFirst({
       where: { id: runId, schoolId },
-      include: this.runInclude,
+      include: { ...this.runInclude, schoolYear: true },
     });
     if (!run)
       throw new NotFoundException({
         code: "COLLECTION_RUN_NOT_FOUND",
         message: "Không tìm thấy đợt thu.",
       });
-    return this.runDto(run);
+    const dto = this.runDto(run);
+    if (dto.status !== "READY") return dto;
+    // READY keeps no stored preview; re-derive it read-only exactly as generation will re-evaluate the roster.
+    const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, false, true);
+    const preview = await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines);
+    return { ...dto, summary: this.previewSummary(preview) };
   }
   async addableStudents(identityId: string, schoolId: string, runId: string, query: { limit?: string; cursor?: string } = {}) {
     schoolId = this.school(schoolId);
@@ -2158,7 +2183,8 @@ export class FinanceService {
         message: "Chỉ có thể xem trước đợt thu nháp.",
       });
     const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, true, true);
-    return this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines);
+    const preview = await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines);
+    return { ...preview, summary: this.previewSummary(preview) };
   }
   async readyRun(
     identityId: string,

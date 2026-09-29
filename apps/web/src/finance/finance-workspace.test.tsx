@@ -32,9 +32,14 @@ const candidates = {
 const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify({ data }), { status });
 const openRun = async () => {
-  const trigger = await screen.findByRole("button", { name: "Tùy chọn cho đợt thu 2026-09" });
-  fireEvent.keyDown(trigger, { key: "ArrowDown" });
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Mở chi tiết" }));
+  await screen.findByRole("button", { name: "Tùy chọn cho đợt thu 2026-09" });
+  // A list reload can re-render the row trigger mid-keypress; re-query and reopen until the menu is present.
+  await waitFor(() => {
+    if (!screen.queryByRole("menuitem", { name: "Mở chi tiết" }))
+      fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho đợt thu 2026-09" }), { key: "ArrowDown" });
+    expect(screen.getByRole("menuitem", { name: "Mở chi tiết" })).toBeTruthy();
+  });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Mở chi tiết" }));
 };
 afterEach(() => {
   cleanup();
@@ -898,7 +903,7 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(
       confirm,
     );
-    expect((await screen.findAllByText("HS001 / Bé An")).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Đã tạo 1 hóa đơn nháp; bỏ qua 1\s+học sinh\./)).toBeTruthy();
     expect(
       screen.getByText("Học sinh không ở trạng thái đang theo học."),
     ).toBeTruthy();
@@ -931,7 +936,7 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tạo hóa đơn nháp" }));
     fireEvent.change(screen.getByLabelText("Nhập chính xác tháng thu 2026-09 để xác nhận"), { target: { value: "2026-09" } });
     fireEvent.click(screen.getByRole("button", { name: "Xác nhận tạo hóa đơn nháp" }));
-    expect(await screen.findByText("HS001 / Bé An")).toBeTruthy();
+    expect(await screen.findByText(/Đã tạo 1 hóa đơn nháp; bỏ qua 1\s+học sinh\./)).toBeTruthy();
     const skipped = screen.getByRole("table", { name: "Học sinh bị bỏ qua khi tạo" });
     expect(within(skipped).getByRole("row", { name: "HS002 / Bé Bình Học sinh không ở trạng thái đang theo học." })).toBeTruthy();
   });
@@ -966,6 +971,7 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", fetch);
     const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm học sinh" }));
     fireEvent.click(await screen.findByRole("button", { name: "Yêu cầu thêm" }));
     const confirm = screen.getByRole("button", { name: "Xác nhận thêm học sinh" });
     expect(confirm).toHaveProperty("disabled", true);
@@ -976,13 +982,43 @@ describe("FinanceWorkspace", () => {
     resolveAddition?.(response({ outcome }));
     await waitFor(() => expect(screen.queryByText("Kết quả tạo hóa đơn từ máy chủ")).toBeNull());
   });
+  it("marks the server lifecycle step and shows only the server summary for a generated run", async () => {
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }], summary: { invoiceCount: 7, issuedCount: 5, invoiceTotal: "9007199254740993" } };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun();
+    const steps = await screen.findByRole("list", { name: "Tiến trình đợt thu" });
+    expect(within(steps).getAllByRole("listitem").map((item) => item.getAttribute("aria-current"))).toEqual([null, null, "step", null]);
+    expect(within(steps).queryByRole("button")).toBeNull();
+    const overview = screen.getByLabelText("Tổng quan do máy chủ tính");
+    expect(within(overview).getByText("7")).toBeTruthy();
+    expect(within(overview).getByText("5")).toBeTruthy();
+    expect(within(overview).getByText("9.007.199.254.740.993 VND")).toBeTruthy();
+  });
+  it("shows the READY server summary and locked template, and waits for a DRAFT preview before showing figures", async () => {
+    const readyRun = { ...run, status: "READY" as const, templateLines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí tháng", unitLabel: "tháng", defaultUnitPrice: "1500000", quantity: "1", amount: "1500000" }], summary: { eligibleCount: 124, skippedCount: 1, expectedTotal: "262600000" } };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-runs") ? response({ runs: [readyRun] }) : response(catalog))));
+    const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun();
+    const overview = await screen.findByLabelText("Tổng quan do máy chủ tính");
+    expect(within(overview).getByText("124")).toBeTruthy();
+    expect(within(overview).getByText("262.600.000 VND")).toBeTruthy();
+    expect(within(screen.getByRole("table", { name: "Khoản thu đã chốt cho đợt" })).getByText("Học phí tháng")).toBeTruthy();
+    view.unmount();
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-runs") ? response({ runs: [run] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun();
+    expect(within(await screen.findByLabelText("Tổng quan do máy chủ tính")).getAllByText("Chưa xem trước")).toHaveLength(3);
+  });
   it("keeps the selected run SchoolYear candidates available after a generated-run load", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const };
     const fetch = vi.fn((url: string) => Promise.resolve(url.includes("/addable-students") ? response({ students: candidates.students, meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
-    expect(await screen.findByRole("button", { name: "Yêu cầu thêm" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm học sinh" }));
+    const dialog = await screen.findByRole("dialog", { name: "Thêm học sinh vào đợt đã tạo" });
+    expect(within(dialog).getByRole("button", { name: "Yêu cầu thêm" })).toBeTruthy();
     expect(fetch.mock.calls.some(([url]) => String(url).includes(`/collection-runs/${run.id}/addable-students`))).toBe(true);
   });
   it("requires a close reason, sends the close command, and renders the returned read-only CLOSED run", async () => {

@@ -1567,6 +1567,54 @@ tbody tr:last-child td {
 .finance-badge-info { background: #e2f0f8; color: #145a86; }
 .finance-badge-success { background: #e4f3ea; color: #155d3b; }
 .finance-badge-warning { background: #fff1d5; color: #80580f; }
+.finance-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: finance-step;
+}
+.finance-steps li {
+  border-radius: 999px;
+  background: #eef6f1;
+  color: #35524a;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  counter-increment: finance-step;
+}
+.finance-steps li::before { content: counter(finance-step) ". "; }
+.finance-steps li[aria-current="step"] { background: #247a51; color: #fff; }
+.finance-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+.finance-metrics > div { border-radius: 14px; background: #eef6f1; padding: 16px 18px; }
+.finance-metrics dt { color: #5f746e; font-size: 13px; font-weight: 700; }
+.finance-metrics dd { margin: 4px 0 0; color: #18332d; font-family: "Be Vietnam Pro", Inter, sans-serif; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.school-context-workspace .finance-workspace > section.finance-notice {
+  gap: 6px;
+  border-color: #c9e4d3;
+  background: #f1f9f4;
+  padding: 14px 18px;
+}
+.finance-notice h2 { font-size: 15px; }
+.finance-notice p { margin: 0; color: #35524a; font-size: 14px; }
+.finance-notice summary { cursor: pointer; color: #185d3d; font-size: 13px; font-weight: 700; }
+.finance-notice details .table-scroll { margin-top: 10px; }
+.finance-list-dialog {
+  display: grid;
+  gap: 12px;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+.finance-list-dialog > h3, .finance-list-dialog > p { margin: 0; }
+.finance-list-dialog > button { justify-self: end; }
 .finance-confirm-dialog {
   display: flex;
   flex-wrap: wrap;
@@ -1584,6 +1632,7 @@ tbody tr:last-child td {
   color: #fff;
 }
 @media (max-width: 767px) {
+  .finance-metrics { grid-template-columns: 1fr; }
   .finance-run-header { flex-direction: column; align-items: stretch; }
   .finance-inline-form { grid-template-columns: 1fr; }
 }

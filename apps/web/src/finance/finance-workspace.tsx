@@ -33,7 +33,10 @@ type Run = {
   templateLines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; defaultUnitPrice: string; quantity: string; amount: string }>;
   coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
   invoices?: Array<{ id: string; studentId: string; studentCode: string; studentName: string; className: string; status: string; total: string }>;
+  summary?: PreviewSummary | InvoiceSummary;
 };
+type PreviewSummary = { eligibleCount: number; skippedCount: number; expectedTotal: string };
+type InvoiceSummary = { invoiceCount: number; issuedCount: number; invoiceTotal: string };
 type Preview = {
   run: Run;
   eligible: Array<{
@@ -50,6 +53,7 @@ type Preview = {
     reason: string;
   }>;
   fingerprint: string;
+  summary?: PreviewSummary;
   coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
   futureCoverageFacts?: Array<{ studentId: string; billingMonth: string; policyId: string; versionId: string; receivableId: string; receivableName: string; originalPrice: string; reduction: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string }>;
 };
@@ -128,6 +132,25 @@ const runStatusLabel = (status: Run["status"]) => ({
   GENERATED: "Đã tạo hóa đơn",
   CLOSED: "Đã đóng",
 })[status];
+const runSteps = ["DRAFT", "READY", "GENERATED", "CLOSED"] as const;
+// Overview values render only the server `summary`; the browser never adds VND amounts.
+const runMetrics = (run: Run, preview?: Preview): Array<[string, string]> => {
+  if (run.status === "DRAFT" || run.status === "READY") {
+    const summary = (run.status === "DRAFT" ? preview?.summary : run.summary) as PreviewSummary | undefined;
+    const missing = run.status === "DRAFT" ? "Chưa xem trước" : "Chưa có số liệu";
+    return [
+      ["Học sinh đủ điều kiện", summary ? String(summary.eligibleCount) : missing],
+      ["Học sinh bị bỏ qua", summary ? String(summary.skippedCount) : missing],
+      ["Cần thu dự kiến", summary ? `${vnd(summary.expectedTotal)} VND` : missing],
+    ];
+  }
+  const summary = run.summary as InvoiceSummary | undefined;
+  return [
+    ["Hóa đơn", summary ? String(summary.invoiceCount) : "Chưa có số liệu"],
+    ["Đã phát hành", summary ? String(summary.issuedCount) : "Chưa có số liệu"],
+    ["Tổng phải thu", summary ? `${vnd(summary.invoiceTotal)} VND` : "Chưa có số liệu"],
+  ];
+};
 const billingMonthLabel = (month: string) => {
   const [year, value] = (month ?? "").split("-");
   return year && value ? `${value}/${year}` : month;
@@ -209,6 +232,7 @@ export function FinanceWorkspace({
   const [closeConfirmationMonth, setCloseConfirmationMonth] = useState("");
   const [generatedOutcome, setGeneratedOutcome] = useState<GenerateOutcome>();
   const [invoice, setInvoice] = useState<Invoice>();
+  const [addStudentsOpen, setAddStudentsOpen] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [issueConfirmation, setIssueConfirmation] = useState(false);
   const [issueConfirmationName, setIssueConfirmationName] = useState("");
@@ -275,6 +299,8 @@ export function FinanceWorkspace({
   const rowMenuTrigger = useRef<HTMLButtonElement>(null);
   const closedHeading = useRef<HTMLHeadingElement>(null);
   const invoiceReview = useRef<HTMLElement>(null);
+  const addStudentsTrigger = useRef<HTMLButtonElement>(null);
+  const addStudentsDialog = useRef<HTMLDivElement>(null);
   const status = useRef(onStatusChange);
   const submitting = useRef(false);
   const request = useRef(0);
@@ -456,6 +482,7 @@ export function FinanceWorkspace({
     setPreview(undefined);
     setGenerateConfirmation(false);
     setGenerateConfirmationMonth("");
+    setAddStudentsOpen(false);
     setAdditionConfirmation(undefined);
     setAdditionConfirmationName("");
     setCloseConfirmation(false);
@@ -584,6 +611,9 @@ export function FinanceWorkspace({
     else coverageDecisionTrigger.current?.focus();
   }, [coverageDecision]);
   useEffect(() => {
+    if (addStudentsOpen) addStudentsDialog.current?.querySelector<HTMLElement>("button:not([disabled])")?.focus();
+  }, [addStudentsOpen]);
+  useEffect(() => {
     if (invoice?.id) invoiceReview.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
   }, [invoice?.id]);
   useLayoutEffect(() => {
@@ -604,6 +634,7 @@ export function FinanceWorkspace({
     if (promotionTransition)
       document.querySelector<HTMLElement>("#finance-promotion-transition-confirm")?.focus();
   }, [promotionTransition]);
+  const closeAddStudents = () => { setAddStudentsOpen(false); addStudentsTrigger.current?.focus(); };
   const trapDialogFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Tab") return;
     const items = [...event.currentTarget.querySelectorAll<HTMLElement>("input, select, textarea, button")]
@@ -797,7 +828,7 @@ export function FinanceWorkspace({
       { previewFingerprint: preview.fingerprint },
     );
     if (outcome) {
-      chooseRun(outcome as Run);
+      try { await refreshRun((outcome as Run).id); } catch { chooseRun(outcome as Run); setMessage("Đợt thu đã sẵn sàng; chưa thể tải lại tổng quan mới nhất."); }
       await load();
     }
   };
@@ -1264,6 +1295,12 @@ export function FinanceWorkspace({
           </div>
           {onBackToRuns && <button type="button" onClick={onBackToRuns}>Quay lại danh sách đợt thu</button>}
         </header>
+        <ol className="finance-steps" aria-label="Tiến trình đợt thu">
+          {runSteps.map((step) => <li key={step} aria-current={run.status === step ? "step" : undefined}>{runStatusLabel(step)}</li>)}
+        </ol>
+        <dl className="finance-metrics" aria-label="Tổng quan do máy chủ tính">
+          {runMetrics(run, preview).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+        </dl>
         {run.status === "DRAFT" && (
           <section aria-labelledby="run-template-title">
             <div className="finance-card-heading">
@@ -1353,6 +1390,7 @@ export function FinanceWorkspace({
             <h2 id="run-generate-title">Tạo hóa đơn nháp</h2>
             <p>Bản xem trước đã được xác nhận. Máy chủ sẽ đánh giá lại danh sách học sinh khi tạo và dùng bản chốt khoản thu của đợt.</p>
           </div>
+          <div className="table-scroll"><table><caption>Khoản thu đã chốt cho đợt</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th className="finance-money">Đơn giá VND</th><th className="finance-money">Số tiền VND</th></tr></thead><tbody>{(run.templateLines ?? []).map((item) => <tr key={item.id}><td>{item.receivableName}</td><td>{item.quantity} {item.unitLabel}</td><td className="finance-money">{vnd(item.defaultUnitPrice)}</td><td className="finance-money">{vnd(item.amount)}</td></tr>)}</tbody></table></div>
           <div className="finance-actions">
             <button
               className="primary-action"
@@ -1379,54 +1417,41 @@ export function FinanceWorkspace({
         </section>
       )}
       {generatedOutcome && (
-        <section aria-labelledby="generated-outcome-title">
-          <div className="finance-card-heading">
-            <h2 id="generated-outcome-title">Kết quả tạo hóa đơn từ máy chủ</h2>
-            <p>
-              Đã tạo {generatedOutcome.created.length} hóa đơn nháp; bỏ qua{" "}
-              {generatedOutcome.skipped.length} học sinh.
-            </p>
-          </div>
-          <div className="table-scroll">
-            <table>
-              <caption>Hóa đơn nháp đã tạo</caption>
-              <thead><tr><th>Học sinh</th><th>Lớp</th><th>Thao tác</th></tr></thead>
-              <tbody>
-                {generatedOutcome.created.length ? generatedOutcome.created.map((item) => (
-                  <tr key={item.studentId}>
-                    <td>
-                      {item.studentCode} / {item.fullName}
-                    </td>
-                    <td>{item.className}</td>
-                    <td>{item.invoiceId && <button type="button" onClick={() => void openInvoice(item.invoiceId!, run)}>Rà soát hóa đơn</button>}</td>
-                  </tr>
-                )) : <tr><td colSpan={3}>Không có hóa đơn nháp mới.</td></tr>}
-              </tbody>
-            </table>
-          </div>
+        <section className="finance-notice" role="status" aria-labelledby="generated-outcome-title">
+          <h2 id="generated-outcome-title">Kết quả tạo hóa đơn từ máy chủ</h2>
+          <p>
+            Đã tạo {generatedOutcome.created.length} hóa đơn nháp; bỏ qua{" "}
+            {generatedOutcome.skipped.length} học sinh.
+          </p>
           {generatedOutcome.skipped.length > 0 && (
-            <div className="table-scroll">
-              <table>
-                <caption>Học sinh bị bỏ qua khi tạo</caption>
-                <thead><tr><th>Học sinh</th><th>Lý do</th></tr></thead>
-                <tbody>
-                  {generatedOutcome.skipped.map((item) => (
-                    <tr key={item.studentId}>
-                      <td>{item.studentCode && item.fullName ? `${item.studentCode} / ${item.fullName}` : "Không xác định"}</td>
-                      <td>{skipReason(item.reason)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <details>
+              <summary>Xem học sinh bị bỏ qua</summary>
+              <div className="table-scroll">
+                <table>
+                  <caption>Học sinh bị bỏ qua khi tạo</caption>
+                  <thead><tr><th>Học sinh</th><th>Lý do</th></tr></thead>
+                  <tbody>
+                    {generatedOutcome.skipped.map((item) => (
+                      <tr key={item.studentId}>
+                        <td>{item.studentCode && item.fullName ? `${item.studentCode} / ${item.fullName}` : "Không xác định"}</td>
+                        <td>{skipReason(item.reason)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
           )}
         </section>
       )}
       {run?.status === "GENERATED" && (
         <section aria-labelledby="run-invoices-title">
-          <div className="finance-card-heading">
-            <h2 id="run-invoices-title">Hóa đơn trong đợt</h2>
-            <p>{(run.invoices ?? []).filter((item) => ["ISSUED", "CLOSED", "CANCELLED"].includes(item.status)).length}/{(run.invoices ?? []).length} hóa đơn đã phát hành hoặc hoàn tất.</p>
+          <div className="finance-actions finance-actions-split">
+            <div className="finance-card-heading">
+              <h2 id="run-invoices-title">Hóa đơn trong đợt</h2>
+              <p>Mở từng hóa đơn để rà soát và phát hành theo thứ tự máy chủ trả về.</p>
+            </div>
+            <button ref={addStudentsTrigger} type="button" disabled={Boolean(pending)} onClick={() => setAddStudentsOpen(true)}>Thêm học sinh</button>
           </div>
           <div className="table-scroll">
             <table>
@@ -1438,28 +1463,6 @@ export function FinanceWorkspace({
           <div className="finance-actions finance-actions-split">
             {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? <p>Chưa thể đóng: còn hóa đơn nháp cần phát hành.</p> : <p>Mọi hóa đơn đã phát hành; có thể đóng đợt thu.</p>}
             <button ref={closeTrigger} type="button" disabled={Boolean(pending) || Boolean(run.invoices?.some((invoice) => !["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === "0")))} onClick={() => { setCloseReason(""); setCloseConfirmationMonth(""); setCloseConfirmation(true); }}>Đóng đợt thu</button>
-          </div>
-        </section>
-      )}
-      {run?.status === "GENERATED" && (
-        <section aria-labelledby="generated-student-addition-title">
-          <div className="finance-card-heading">
-            <h2 id="generated-student-addition-title">Thêm học sinh vào đợt đã tạo</h2>
-            <p>Máy chủ sẽ tự xác nhận điều kiện học sinh và dùng bản chốt khoản thu của đợt.</p>
-          </div>
-          <div className="table-scroll">
-            <table>
-              <caption>Học sinh có thể yêu cầu thêm</caption>
-              <thead><tr><th>Học sinh</th><th>Thao tác</th></tr></thead>
-              <tbody>
-                {Array.isArray(candidates?.students) && candidates.students.length ? candidates.students.map((student) => (
-                  <tr key={student.id}>
-                    <td>{student.studentCode} / {student.fullName}</td>
-                    <td><button type="button" disabled={Boolean(pending)} onClick={() => { setAdditionConfirmation(student); setAdditionConfirmationName(""); }}>Yêu cầu thêm</button></td>
-                  </tr>
-                )) : <tr><td colSpan={2}>{candidates ? "Không có học sinh nào có thể thêm." : "Đang tải học sinh có thể thêm."}</td></tr>}
-              </tbody>
-            </table>
           </div>
         </section>
       )}
@@ -1623,6 +1626,28 @@ export function FinanceWorkspace({
           >
             Hủy
           </button>
+        </div>
+      </>)}
+      {addStudentsOpen && run?.status === "GENERATED" && (<>
+        <div className="dialog-backdrop" aria-hidden="true" />
+        <div ref={addStudentsDialog} className="dialog finance-list-dialog" role="dialog" aria-modal="true" aria-labelledby="generated-student-addition-title" onKeyDown={(event) => { if (event.key === "Escape") closeAddStudents(); else trapDialogFocus(event); }}>
+          <h3 id="generated-student-addition-title">Thêm học sinh vào đợt đã tạo</h3>
+          <p>Máy chủ sẽ tự xác nhận điều kiện học sinh và dùng bản chốt khoản thu của đợt.</p>
+          <div className="table-scroll">
+            <table>
+              <caption>Học sinh có thể yêu cầu thêm</caption>
+              <thead><tr><th>Học sinh</th><th>Thao tác</th></tr></thead>
+              <tbody>
+                {Array.isArray(candidates?.students) && candidates.students.length ? candidates.students.map((student) => (
+                  <tr key={student.id}>
+                    <td>{student.studentCode} / {student.fullName}</td>
+                    <td><button type="button" disabled={Boolean(pending)} onClick={() => { setAddStudentsOpen(false); setAdditionConfirmation(student); setAdditionConfirmationName(""); }}>Yêu cầu thêm</button></td>
+                  </tr>
+                )) : <tr><td colSpan={2}>{candidates ? "Không có học sinh nào có thể thêm." : "Đang tải học sinh có thể thêm."}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" onClick={closeAddStudents}>Đóng</button>
         </div>
       </>)}
       {additionConfirmation && run && (<>

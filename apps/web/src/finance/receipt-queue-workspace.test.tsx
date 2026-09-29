@@ -7,6 +7,16 @@ const queue = { invoices: [row], filters: { schoolYearId: null, billingMonth: "2
 const detail = { id: "invoice-a", status: "ISSUED", outstanding: "120000", student: { code: "HS001", name: "Bé An" } };
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
 
+const openReceiptMenu = async () => {
+  await screen.findByRole("button", { name: "Tùy chọn cho Bé An" });
+  // A queue reload can re-render the row trigger mid-keypress; re-query and reopen until the menu is present.
+  await waitFor(() => {
+    if (!screen.queryByRole("menuitem", { name: "Ghi thực nhận" }))
+      fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
+    expect(screen.getByRole("menuitem", { name: "Ghi thực nhận" })).toBeTruthy();
+  });
+};
+
 afterEach(() => { cleanup(); document.querySelectorAll("[data-base-ui-portal]").forEach((portal) => portal.remove()); vi.unstubAllGlobals(); });
 
 describe("ReceiptQueueWorkspace", () => {
@@ -19,9 +29,8 @@ describe("ReceiptQueueWorkspace", () => {
     });
     vi.stubGlobal("fetch", fetch); render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await screen.findByText("HS001 / Bé An");
-    const receiptMenuTrigger = screen.getByRole("button", { name: "Tùy chọn cho Bé An" });
-    fireEvent.keyDown(receiptMenuTrigger, { key: "ArrowDown" });
-    const receiptAction = await screen.findByRole("menuitem", { name: "Ghi thực nhận" });
+    await openReceiptMenu();
+    const receiptAction = screen.getByRole("menuitem", { name: "Ghi thực nhận" });
     expect(receiptAction.closest('[role="menu"]')?.parentElement?.parentElement?.parentElement).toBe(document.body);
     fireEvent.click(receiptAction);
     const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An" });
@@ -39,8 +48,8 @@ describe("ReceiptQueueWorkspace", () => {
     const denied = vi.fn();
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/classes") ? response({ classes: [] }) : url.includes("/receipt-queue/invoice-a") ? response({}, 403) : response(queue))));
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={denied} />);
-    fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Ghi thực nhận" }));
+    await openReceiptMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
     await waitFor(() => expect(denied).toHaveBeenCalled());
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -48,8 +57,8 @@ describe("ReceiptQueueWorkspace", () => {
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? new Response(JSON.stringify({ error: { message: "Số thực nhận không hợp lệ.", fieldErrors: { actualAmount: "Chỉ dùng số nguyên VND." } } }), { status: 400 }) : url.includes("/classes") ? response({ classes: [] }) : url.includes("/receipt-queue/invoice-a") ? response(detail) : response(queue)));
     vi.stubGlobal("fetch", fetch);
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Ghi thực nhận" }));
+    await openReceiptMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
     const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByText("Số thực nhận không hợp lệ.");
