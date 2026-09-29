@@ -33,7 +33,7 @@ const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify({ data }), { status });
 const openRun = async () => {
   const trigger = await screen.findByRole("button", { name: "Tùy chọn cho đợt thu 2026-09" });
-  fireEvent.click(trigger);
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
   fireEvent.click(await screen.findByRole("menuitem", { name: "Mở chi tiết" }));
 };
 afterEach(() => {
@@ -115,6 +115,22 @@ describe("FinanceWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Lọc trạng thái"), { target: { value: "CLOSED" } });
     await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("collection-runs?limit=25&status=CLOSED"))).toBe(true));
   });
+  it("renders only the authorized run detail, returns to the list context, and maps visible run copy", async () => {
+    const onOpenRun = vi.fn();
+    const onBackToRuns = vi.fn();
+    const detailedRun = { ...run, templateLines: [] };
+    const fetch = vi.fn((url: string) => Promise.resolve(url.endsWith(`/collection-runs/${run.id}`) ? response(detailedRun) : url.includes("collection-runs") ? response({ runs: [detailedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} onOpenRun={onOpenRun} onBackToRuns={onBackToRuns} denied={vi.fn()} />);
+    expect(await screen.findByRole("heading", { name: "Đợt thu 2026-09 · Nháp" })).toBeTruthy();
+    expect(screen.queryByRole("form", { name: "Điều khiển danh sách đợt thu" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "Đợt thu theo trường" })).toBeNull();
+    expect(screen.queryByText("DRAFT")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Quay lại danh sách đợt thu" }));
+    expect(onBackToRuns).toHaveBeenCalledOnce();
+    view.rerender(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    expect(await screen.findByRole("form", { name: "Điều khiển danh sách đợt thu" })).toBeTruthy();
+  });
   it("uses a named run dialog and only exposes Draft navigation from the captured run order", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }, { id: "invoice-b", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = (id: string, name: string, code: string) => ({ id, status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code, name, className: "Lá 1" }, lines: [] });
@@ -132,7 +148,7 @@ describe("FinanceWorkspace", () => {
     expect(await screen.findByRole("button", { name: "Học sinh trước" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Học sinh tiếp theo" })).toBeNull();
   });
-  it("keeps run validation beside dialog fields and clears a stale Draft queue on filter, School switch, or denied adjacent Invoice", async () => {
+  it("keeps run validation beside dialog fields and clears a stale Draft queue on School switch or denied adjacent Invoice", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }, { id: "invoice-b", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [] };
     const denied = vi.fn();
@@ -145,8 +161,6 @@ describe("FinanceWorkspace", () => {
     await openRun();
     fireEvent.click((await screen.findAllByRole("button", { name: "Rà soát hóa đơn" }))[0]!);
     expect(await screen.findByRole("button", { name: "Học sinh tiếp theo" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Lọc trạng thái"), { target: { value: "CLOSED" } });
-    expect(screen.queryByRole("button", { name: "Học sinh tiếp theo" })).toBeNull();
     view.rerender(<FinanceWorkspace schoolId="school-b" schoolName="Trường B" denied={denied} />);
     expect(screen.queryByText("Rà soát hóa đơn HS001 / Bé An")).toBeNull();
   });
@@ -394,7 +408,7 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/preview") ? response(preview) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [coverageRun] }) : url.includes("promotion-students") ? response({ students: candidates.students }) : url.includes("promotion-policies") ? response({ policies: [] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
-    expect(await screen.findByText("Fact coverage tương lai từ máy chủ")).toBeTruthy(); expect(screen.getByText("2026-10")).toBeTruthy();
+    expect(await screen.findByText("Ưu đãi trả trước do máy chủ xác nhận")).toBeTruthy(); expect(screen.getByText("2026-10")).toBeTruthy();
   });
   it("renders source remaining only on the outgoing debt source and inbound provenance only on its target", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "source", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }] };
@@ -402,7 +416,7 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/invoices/") ? response(invoice) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
-    expect(await screen.findByText("Công nợ nguồn còn lại do máy chủ xác nhận: 60 VND.")).toBeTruthy(); expect(screen.getByText(/Đã chuyển sang Invoice target/)).toBeTruthy(); expect(screen.queryByText("Công nợ kỳ trước")).toBeNull(); expect(screen.queryByRole("button", { name: "Ghi thực nhận và đóng hóa đơn" })).toBeNull();
+    expect(await screen.findByText("Công nợ nguồn còn lại do máy chủ xác nhận: 60 VND.")).toBeTruthy(); expect(screen.getByText(/Đã chuyển sang hóa đơn kỳ sau/)).toBeTruthy(); expect(screen.queryByText("Công nợ kỳ trước")).toBeNull(); expect(screen.queryByRole("button", { name: "Ghi thực nhận và đóng hóa đơn" })).toBeNull();
   });
   it("renders inbound prior-debt provenance read-only without showing source outstanding on a target", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "target", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "140" }] };
@@ -410,7 +424,7 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/invoices/") ? response(invoice) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
-    expect(await screen.findByText(/Invoice nguồn source: 40 VND/)).toBeTruthy(); expect(screen.queryByText(/Công nợ nguồn còn lại do máy chủ xác nhận/)).toBeNull(); expect(screen.getAllByText("Công nợ kỳ trước")[1]?.closest("tr")?.querySelectorAll("button")).toHaveLength(0);
+    expect(await screen.findByText(/Hóa đơn nguồn: 40 VND/)).toBeTruthy(); expect(screen.queryByText(/Công nợ nguồn còn lại do máy chủ xác nhận/)).toBeNull(); expect(screen.getAllByText("Công nợ kỳ trước")[1]?.closest("tr")?.querySelectorAll("button")).toHaveLength(0);
   });
   it("keeps raw source identifiers and serialized provenance out of the default line row while providing a source disclosure", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
@@ -712,16 +726,16 @@ describe("FinanceWorkspace", () => {
       screen.getByRole("button", { name: "Xem trước từ máy chủ" }),
     );
     await screen.findByRole("button", {
-      name: "Xác nhận preview và chuyển READY",
+      name: "Xác nhận xem trước và chuyển sẵn sàng",
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Xác nhận preview và chuyển READY" }),
+      screen.getByRole("button", { name: "Xác nhận xem trước và chuyển sẵn sàng" }),
     );
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Bản xem trước đã cũ.",
     );
     expect(screen.queryByRole("checkbox", { name: /Chọn HS001 Bé An/ })).toBeNull();
-    expect(screen.getByText(/Máy chủ tự xác định toàn bộ học sinh/)).toBeTruthy();
+    expect(screen.getByText("Bản xem trước do máy chủ xác định từ danh sách học sinh hợp lệ tại đầu tháng thu.")).toBeTruthy();
   });
   it("never invokes a deleted browser selection endpoint", async () => {
     const fetch = vi.fn((url: string) => {
@@ -732,7 +746,7 @@ describe("FinanceWorkspace", () => {
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
     fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
-    await screen.findByRole("button", { name: "Xác nhận preview và chuyển READY" });
+    await screen.findByRole("button", { name: "Xác nhận xem trước và chuyển sẵn sàng" });
     expect(fetch.mock.calls.some(([url]) => String(url).includes("/selection"))).toBe(false);
   });
   it("reconciles an uncertain command instead of retrying it", async () => {
@@ -938,7 +952,7 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tạo hóa đơn nháp" }));
     fireEvent.change(screen.getByLabelText("Nhập chính xác tháng thu 2026-09 để xác nhận"), { target: { value: "2026-09" } });
     fireEvent.click(screen.getByRole("button", { name: "Xác nhận tạo hóa đơn nháp" }));
-    expect(await screen.findByText("RUNNING: đã xử lý 50/1000; đủ điều kiện 50; bỏ qua 0.")).toBeTruthy();
+    expect(await screen.findByText("Đang xử lý 50/1000; đủ điều kiện 50; bỏ qua 0.")).toBeTruthy();
   });
   it("requires the Student name, calls the generated-student command, and ignores a stale School response", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const };
@@ -992,7 +1006,7 @@ describe("FinanceWorkspace", () => {
     const issuedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "CLOSED", total: "100" }] };
     const closed = { ...issuedRun, status: "CLOSED" as const };
     let failRefresh = false;
-    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/close") ? (failRefresh = true, new Response(null, { status: 503 })) : url.includes("/operations/") ? response({ status: "COMPLETED", outcome: closed }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? failRefresh ? new Response(null, { status: 503 }) : response({ runs: [issuedRun] }) : response(catalog)));
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/close") ? (failRefresh = true, new Response(null, { status: 503 })) : url.includes("/operations/") ? response({ status: "COMPLETED", outcome: closed }) : url.includes(`/collection-runs/${run.id}`) ? failRefresh ? new Response(null, { status: 503 }) : response(issuedRun) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? failRefresh ? new Response(null, { status: 503 }) : response({ runs: [issuedRun] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
@@ -1189,7 +1203,7 @@ describe("FinanceWorkspace", () => {
     const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
     const issued = { ...draft, status: "ISSUED", issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An La 1", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
     let afterIssue = false;
-    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue") ? (afterIssue = true, response({ outcome: issued })) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(draft) : url.includes("collection-run-candidates") ? response(candidates) : afterIssue && url.includes("collection-runs") ? new Response(null, { status: 503 }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
+    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue") ? (afterIssue = true, response({ outcome: issued })) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(draft) : url.includes(`/collection-runs/${run.id}`) ? afterIssue ? new Response(null, { status: 503 }) : response(generatedRun) : url.includes("collection-run-candidates") ? response(candidates) : afterIssue && url.includes("collection-runs") ? new Response(null, { status: 503 }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" })); await screen.findByRole("dialog"); fireEvent.change(screen.getByLabelText("Nhập chính xác tên học sinh Bé An để xác nhận"), { target: { value: "Bé An" } }); fireEvent.click(screen.getByRole("button", { name: "Xác nhận phát hành" }));
     expect(await screen.findByText("Nội dung chuyển khoản: Be An La 1")).toBeTruthy();
@@ -1208,7 +1222,7 @@ describe("FinanceWorkspace", () => {
     const confirm = screen.getByRole("button", { name: "Xác nhận chuẩn bị bản điều chỉnh" }); expect(confirm).toHaveProperty("disabled", true);
     fireEvent.keyDown(screen.getByLabelText("Nhập chính xác tên học sinh Bé An để xác nhận"), { key: "Tab" }); expect(document.activeElement).toBe(dialog.querySelector("textarea"));
     fireEvent.change(screen.getByLabelText("Lý do điều chỉnh"), { target: { value: "Sai khoản thu" } }); fireEvent.change(screen.getByLabelText("Nhập chính xác tên học sinh Bé An để xác nhận"), { target: { value: "Bé An" } }); fireEvent.click(confirm);
-    expect(await screen.findByText(/trạng thái DRAFT/)).toBeTruthy();
+    expect(await screen.findByText(/trạng thái Nháp/)).toBeTruthy();
     expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/revisions") && (options as RequestInit).body === JSON.stringify({ reason: "Sai khoản thu" }))).toBe(true);
   });
   it("traps revision-dialog focus, restores its trigger, issues the replacement route, and renders a cancelled source readonly", async () => {
@@ -1221,26 +1235,17 @@ describe("FinanceWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Nhập chính xác tên học sinh Bé An để xác nhận"), { target: { value: "Bé An" } }); fireEvent.click(screen.getByRole("button", { name: "Xác nhận phát hành" }));
     expect(await screen.findByText("Nội dung chuyển khoản: Be An La 1")).toBeTruthy(); expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/issue-revision"))).toBe(true);
   });
-  it("renders pending coverage reversal decisions and reconciles an uncertain School Admin approval", async () => {
+  it("does not load unrelated coverage approvals in the run detail workspace", async () => {
     const pendingRequest = { id: "request-a", coverageId: "coverage-a", studentName: "Bé An", amount: "62", effectiveOn: "2026-10-10", reason: "Rút học", canDecide: true };
-    let decided = false;
-    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(
-      String(url).includes("/operations/") ? response({ status: "COMPLETED", outcome: { status: "POSTED", id: "reversal-a" } }) :
-      options?.method === "POST" && String(url).includes("coverage-reversal-requests/request-a/decision") ? (decided = true, new Response(null, { status: 503 })) :
-      String(url).includes("coverage-reversal-requests") ? response({ requests: decided ? [] : [pendingRequest] }) :
+    const fetch = vi.fn((url: string) => Promise.resolve(
+      String(url).includes("coverage-reversal-requests") ? response({ requests: [pendingRequest] }) :
       String(url).includes("promotion-students") ? response({ students: [] }) : String(url).includes("promotion-policies") ? response({ policies: [] }) : String(url).includes("collection-run-candidates") ? response(candidates) : String(url).includes("collection-runs") ? response({ runs: [] }) : response(catalog),
     ));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    expect(await screen.findByText("Yêu cầu hoàn coverage chờ duyệt")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Duyệt" }));
-    const dialog = await screen.findByRole("dialog", { name: "Duyệt hoàn coverage cho Bé An" });
-    expect(dialog.textContent).toContain("62 VND");
-    fireEvent.change(screen.getByLabelText("Lý do quyết định"), { target: { value: "Đủ điều kiện" } });
-    fireEvent.click(screen.getByRole("button", { name: "Xác nhận duyệt" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("coverage-reversal-requests/request-a/decision"))).toBe(true));
-    await waitFor(() => expect(screen.queryByText("Yêu cầu hoàn coverage chờ duyệt")).toBeNull());
-    expect(fetch.mock.calls.some(([url]) => String(url).includes("/operations/"))).toBe(true);
+    await screen.findByRole("form", { name: "Điều khiển danh sách đợt thu" });
+    expect(screen.queryByText("Yêu cầu hoàn ưu đãi trả trước chờ duyệt")).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("coverage-reversal-requests"))).toBe(false);
   });
   it("uses the server direct preview student name for named confirmation before posting a reversal", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "CLOSED", total: "90" }] };
@@ -1250,16 +1255,19 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); await screen.findByRole("heading", { name: /Rà soát hóa đơn HS001/ });
-    fireEvent.change(screen.getByLabelText("Coverage fact"), { target: { value: "coverage-a" } }); fireEvent.change(screen.getByLabelText("Ngày hiệu lực"), { target: { value: "2026-10-10" } }); fireEvent.click(screen.getByRole("button", { name: "Xem preview hoàn từ máy chủ" }));
-    const confirm = await screen.findByRole("button", { name: "Xác nhận hoàn/reverse coverage" }); expect(confirm).toHaveProperty("disabled", true);
-    expect(screen.getByText("Direct cần xác nhận tên học sinh.")).toBeTruthy(); fireEvent.change(screen.getAllByLabelText("Lý do").at(-1)!, { target: { value: "Rút học" } }); fireEvent.change(screen.getByLabelText("Nhập tên học sinh Bé An để xác nhận direct"), { target: { value: "Bé An" } }); expect(confirm).toHaveProperty("disabled", false); fireEvent.click(confirm);
+    expect(screen.getByRole("option", { name: "2026-10" }).textContent).toBe("2026-10");
+    expect(screen.queryByRole("option", { name: /meal/ })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Ưu đãi đã phát hành"), { target: { value: "coverage-a" } }); fireEvent.change(screen.getByLabelText("Ngày hiệu lực"), { target: { value: "2026-10-10" } }); fireEvent.click(screen.getByRole("button", { name: "Xem trước khoản hoàn từ máy chủ" }));
+    const confirm = await screen.findByRole("button", { name: "Xác nhận hoàn ưu đãi nộp trước" }); expect(confirm).toHaveProperty("disabled", true);
+    expect(screen.getByText("Cần xác nhận tên học sinh.")).toBeTruthy(); fireEvent.change(screen.getAllByLabelText("Lý do").at(-1)!, { target: { value: "Rút học" } }); fireEvent.change(screen.getByLabelText("Nhập tên học sinh Bé An để xác nhận"), { target: { value: "Bé An" } }); expect(confirm).toHaveProperty("disabled", false); fireEvent.click(confirm);
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/coverage-reversals") && (options as RequestInit).body === JSON.stringify({ coverageId: "coverage-a", effectiveOn: "2026-10-10", reason: "Rút học", amount: null, confirmation: "Bé An" }))).toBe(true));
   });
-  it("does not expose pending approval controls to the requesting actor", async () => {
+  it("does not expose coverage approval controls in the run workspace", async () => {
     const request = { id: "request-a", coverageId: "coverage-a", studentName: "Bé An", amount: "62", effectiveOn: "2026-10-10", reason: "Rút học", canDecide: false };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("coverage-reversal-requests") ? response({ requests: [request] }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    expect(await screen.findByText("Không có quyền quyết định")).toBeTruthy(); expect(screen.queryByRole("button", { name: "Duyệt" })).toBeNull(); expect(screen.queryByRole("button", { name: "Từ chối" })).toBeNull();
+    await screen.findByRole("form", { name: "Điều khiển danh sách đợt thu" });
+    expect(screen.queryByText("Không có quyền quyết định")).toBeNull(); expect(screen.queryByRole("button", { name: "Duyệt" })).toBeNull(); expect(screen.queryByRole("button", { name: "Từ chối" })).toBeNull();
   });
   it("renders a closed replacement as settled through immutable transferred source receipt", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "replacement", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "CLOSED", total: "100" }] };
@@ -1267,7 +1275,7 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/invoices/") ? response(replacement) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
-    expect(await screen.findByText(/Đã settled qua Receipt nguồn chuyển tiếp: 100 VND/)).toBeTruthy(); expect(screen.getByText(/Invoice nguồn source, Receipt nguồn receipt-source/)).toBeTruthy(); expect(screen.queryByText("Chưa có trạng thái thanh toán trong phạm vi này.")).toBeNull();
+    expect(await screen.findByText(/Đã tất toán theo khoản thu đã ghi nhận trước đó: 100 VND/)).toBeTruthy(); expect(screen.getByText(/ghi nhận 2026-09-20T00:00:00.000Z/)).toBeTruthy(); expect(screen.queryByText("Chưa có trạng thái thanh toán trong phạm vi này.")).toBeNull();
   });
   it("submits School Admin approval request without direct named confirmation", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "CLOSED", total: "90" }] };
@@ -1276,10 +1284,10 @@ describe("FinanceWorkspace", () => {
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/coverage-reversals/preview") ? response(preview) : options?.method === "POST" && String(url).endsWith("/coverage-reversals") ? response({ outcome: { status: "PENDING", id: "request-a", amount: "62" } }) : url.includes("/invoices/") ? response(invoice) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); await screen.findByRole("heading", { name: /Rà soát hóa đơn HS001/ }); fireEvent.change(screen.getByLabelText("Coverage fact"), { target: { value: "coverage-a" } }); fireEvent.change(screen.getByLabelText("Ngày hiệu lực"), { target: { value: "2026-10-10" } }); fireEvent.click(screen.getByRole("button", { name: "Xem preview hoàn từ máy chủ" }));
-    const submit = await screen.findByRole("button", { name: "Gửi yêu cầu duyệt hoàn coverage" }); expect(screen.getByText("Workflow này sẽ gửi yêu cầu chờ School Admin khác duyệt.")).toBeTruthy(); expect(screen.queryByLabelText("Nhập tên học sinh Bé An để xác nhận direct")).toBeNull(); fireEvent.change(screen.getAllByLabelText("Lý do").at(-1)!, { target: { value: "Rút học" } }); expect(submit).toHaveProperty("disabled", false); fireEvent.click(submit);
+    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); await screen.findByRole("heading", { name: /Rà soát hóa đơn HS001/ }); fireEvent.change(screen.getByLabelText("Ưu đãi đã phát hành"), { target: { value: "coverage-a" } }); fireEvent.change(screen.getByLabelText("Ngày hiệu lực"), { target: { value: "2026-10-10" } }); fireEvent.click(screen.getByRole("button", { name: "Xem trước khoản hoàn từ máy chủ" }));
+    const submit = await screen.findByRole("button", { name: "Gửi yêu cầu duyệt hoàn ưu đãi nộp trước" }); expect(screen.getByText("Yêu cầu sẽ được gửi để một quản trị viên khác của trường duyệt.")).toBeTruthy(); expect(screen.queryByLabelText("Nhập tên học sinh Bé An để xác nhận")).toBeNull(); fireEvent.change(screen.getAllByLabelText("Lý do").at(-1)!, { target: { value: "Rút học" } }); expect(submit).toHaveProperty("disabled", false); fireEvent.click(submit);
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/coverage-reversals") && (options as RequestInit).body === JSON.stringify({ coverageId: "coverage-a", effectiveOn: "2026-10-10", reason: "Rút học", amount: null, confirmation: "" }))).toBe(true));
-    expect(await screen.findByText("Yêu cầu hoàn coverage đã được gửi chờ School Admin duyệt.")).toBeTruthy();
+    expect(await screen.findByText("Yêu cầu hoàn ưu đãi nộp trước đã được gửi chờ duyệt.")).toBeTruthy();
   });
 
   it("creates PREPAID_COVERAGE policy version with positive prepaidTermMonths", async () => {
@@ -1448,12 +1456,12 @@ describe("FinanceWorkspace", () => {
     await screen.findByRole("heading", { name: /Rà soát hóa đơn HS001/ });
 
     // Verify derived coverage facts table rendering
-    expect(await screen.findByText("Fact coverage cho hóa đơn")).toBeTruthy();
+    expect(await screen.findByText("Thông tin ưu đãi nộp trước cho hóa đơn")).toBeTruthy();
     expect(screen.getByText("Chờ hóa đơn đóng")).toBeTruthy();
 
     // Verify Apply coverage
-    fireEvent.change(screen.getByLabelText("Chính sách coverage"), { target: { value: "cov-ver-1" } });
-    const applyBtn = screen.getByRole("button", { name: "Áp dụng coverage" });
+    fireEvent.change(screen.getByLabelText("Chính sách ưu đãi nộp trước"), { target: { value: "cov-ver-1" } });
+    const applyBtn = screen.getByRole("button", { name: "Áp dụng ưu đãi nộp trước" });
     expect(applyBtn).toHaveProperty("disabled", false);
     fireEvent.click(applyBtn);
 
@@ -1466,7 +1474,7 @@ describe("FinanceWorkspace", () => {
     });
 
     // Verify Clear coverage
-    const clearBtn = screen.getByRole("button", { name: "Xóa coverage" });
+    const clearBtn = screen.getByRole("button", { name: "Xóa ưu đãi nộp trước" });
     fireEvent.click(clearBtn);
 
     await waitFor(() => {

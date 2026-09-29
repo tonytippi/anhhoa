@@ -52,7 +52,7 @@ development_status:
   4-10-teacher-portal-queue-va-release-gate-van-hanh-lop: done
   epic-4-retrospective: optional
 
-  epic-5: done
+  epic-5: in-progress
   5-1-quan-ly-receivable-catalog-theo-school: done
   5-2-tao-collectionrun-chon-student-va-server-authoritative-preview: done
   5-3-generate-invoice-draft-rong-idempotent-theo-snapshot-roster: done
@@ -70,6 +70,7 @@ development_status:
   5-15-release-gate-uu-dai-theo-khoan-thu-pha-1b: done
   5-16-finance-table-first-catalog-va-giam-tru: done
   5-17-dot-thu-table-first-va-ra-soat-draft-tuan-tu: done
+  5-18-detail-dot-thu-va-viet-hoa-copy-finance: ready-for-dev
   epic-5-retrospective: optional
 
   epic-6: done

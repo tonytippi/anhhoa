@@ -19,7 +19,9 @@ describe("ReceiptQueueWorkspace", () => {
     });
     vi.stubGlobal("fetch", fetch); render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await screen.findByText("HS001 / Bé An");
-    fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
+    const receiptMenuTrigger = screen.getByRole("button", { name: "Tùy chọn cho Bé An" });
+    fireEvent.pointerDown(receiptMenuTrigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(receiptMenuTrigger);
     const receiptAction = await screen.findByRole("menuitem", { name: "Ghi thực nhận" });
     expect(receiptAction.closest('[role="menu"]')?.parentElement?.parentElement?.parentElement).toBe(document.body);
     fireEvent.click(receiptAction);

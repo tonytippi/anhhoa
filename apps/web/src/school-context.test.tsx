@@ -7,6 +7,16 @@ const schoolA = { schoolId: 'uuid-a', schoolSlug: 'peakland', schoolName: 'Trư�
 const schoolB = { schoolId: 'uuid-b', schoolSlug: 'sunrise', schoolName: 'Trường Sunrise' };
 const context = (school = schoolA) => ({ ...school, membershipId: `member-${school.schoolId}`, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'], navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'roster', label: 'Danh bộ' }] });
 const fetchFor = () => vi.fn((url: string) => Promise.resolve(new Response(JSON.stringify(url === '/api/app/schools' ? { data: [schoolA, schoolB] } : url.endsWith('/uuid-a') ? { data: context(schoolA) } : url.endsWith('/uuid-b') ? { data: context(schoolB) } : url.includes('/overview') ? { data: { date: '2026-02-09', isToday: true, metrics: { students: 0, staff: 0, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: 'Chưa đến lớp', count: 0 }, notRecorded: 0 }, classes: [] } } : url.includes('/students?') ? { data: [{ id: 'student-a', studentCode: 'S1', fullName: 'Bé An', hasPhoto: false, enrollment: { id: 'enrollment-a', lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', classroom: null }, relatives: { mother: null, father: null, otherRelativeCount: 0 } }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } } : url.includes('/school-years') ? { data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] } : { data: [], meta: { page: 1, pageSize: 25, totalItems: 0, totalPages: 1 } }))));
+const financeContext = { ...context(schoolA), capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'collection-runs', label: 'Đợt thu' }] };
+const financeRun = { id: 'run-a', schoolYearId: 'year-a', billingMonth: '2026-09', type: 'MONTHLY', status: 'DRAFT', version: 1, templateLines: [] };
+const financeFetch = (detailStatus = 200) => vi.fn((url: string) => Promise.resolve(
+  url === '/api/app/schools' ? new Response(JSON.stringify({ data: [schoolA] })) :
+  url.endsWith('/uuid-a') ? new Response(JSON.stringify({ data: financeContext })) :
+  url.includes('/finance/collection-runs/run-a') ? new Response(detailStatus === 200 ? JSON.stringify({ data: financeRun }) : null, { status: detailStatus }) :
+  url.includes('/finance/collection-runs') ? new Response(JSON.stringify({ data: { runs: [financeRun], meta: { nextCursor: null } } })) :
+  url.includes('/finance/promotion-policies') ? new Response(JSON.stringify({ data: { policies: [] } })) :
+  new Response(JSON.stringify({ data: { groups: [], receivables: [], schoolYears: [] } })),
+));
 const renderContext = () => render(<BrowserRouter><SchoolContext clear={vi.fn()} userIdentityId="identity-a" /></BrowserRouter>);
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); window.history.replaceState({}, '', '/'); });
 describe('SchoolContext Home-only chooser', () => {
@@ -32,5 +42,21 @@ describe('SchoolContext Home-only chooser', () => {
     window.history.replaceState({}, '', '/'); window.history.pushState({}, '', '/schools/peakland/students'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
     window.history.back(); fireEvent.popState(window); await screen.findByRole('dialog', { name: 'Rời không gian làm việc?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' }));
     expect(window.location.pathname).toBe('/schools/peakland/students'); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
+  });
+  it('canonicalizes a legacy School UUID detail route without dropping its run ID or status query', async () => {
+    window.history.replaceState({}, '', '/schools/uuid-a/collection-runs/run-a?status=DRAFT'); vi.stubGlobal('fetch', financeFetch()); renderContext();
+    await screen.findByRole('heading', { name: 'Đợt thu 2026-09 · Nháp' });
+    expect(window.location.pathname).toBe('/schools/peakland/collection-runs/run-a'); expect(window.location.search).toBe('?status=DRAFT');
+  });
+  it('returns a direct unavailable run to its filtered list with an error', async () => {
+    window.history.replaceState({}, '', '/schools/peakland/collection-runs/run-a?status=DRAFT'); vi.stubGlobal('fetch', financeFetch(404)); renderContext();
+    await screen.findByRole('form', { name: 'Điều khiển danh sách đợt thu' });
+    expect(screen.getByRole('alert').textContent).toContain('Không thể mở đợt thu này.'); expect(window.location.pathname).toBe('/schools/peakland/collection-runs'); expect(window.location.search).toBe('?status=DRAFT');
+  });
+  it('returns Back from a direct run to the list while preserving the status query', async () => {
+    window.history.replaceState({}, '', '/schools/peakland/collection-runs/run-a?status=DRAFT'); vi.stubGlobal('fetch', financeFetch()); renderContext();
+    fireEvent.click(await screen.findByRole('button', { name: 'Quay lại danh sách đợt thu' }));
+    await screen.findByRole('form', { name: 'Điều khiển danh sách đợt thu' });
+    expect(window.location.pathname).toBe('/schools/peakland/collection-runs'); expect(window.location.search).toBe('?status=DRAFT');
   });
 });

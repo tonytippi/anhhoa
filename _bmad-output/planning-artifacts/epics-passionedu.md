@@ -484,6 +484,29 @@ So that tenant work stays deliberate and unsaved or uncertain work cannot be los
 **Then** the authorized route loads without Home selection, while denied/revoked/suspended context clears protected state to Home/chooser or signed-out safe state
 **And** Parent chooser behavior and all API School authorization remain unchanged.
 
+### Story 5.18: Detail Đợt thu và Việt hóa copy Finance
+
+As a Finance Manager,
+I want to open a CollectionRun on its own detail route with Vietnamese operating copy,
+So that I can work through its growing information without scanning an inactive list or interpreting implementation terms.
+
+**Acceptance Criteria:**
+
+**Given** Finance opens `Đợt thu` without a selected run
+**When** the route loads
+**Then** only the table-first list, filter and create/open dialog are visible at `/collection-runs`
+**And** each row action opens the authorized detail route `/collection-runs/:runId`.
+
+**Given** Finance loads an authorized CollectionRun detail route
+**When** detail renders or the browser reloads/bookmarks it
+**Then** template, preview, generation, Invoice and close workspaces render without the list above them
+**And** `Quay lại danh sách đợt thu` restores the URL-backed list context.
+
+**Given** CollectionRun, preview, Invoice and generation information is displayed
+**When** Finance reads the normal operating surface
+**Then** labels are Vietnamese and do not expose raw lifecycle, eligibility, accounting or implementation terms by default
+**And** changing labels does not change API-authoritative lifecycle, VND, preview fingerprint, snapshot or Operation behavior.
+
 ## Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.
