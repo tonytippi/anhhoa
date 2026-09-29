@@ -172,6 +172,12 @@ export class FinanceService {
       );
     return result || null;
   }
+  // A unit is a word such as "tháng" or "buổi"; a number there is almost always a quantity typed into the wrong field.
+  private unitLabel(value: unknown) {
+    const result = this.text(value, "unitLabel", true, 50)!;
+    if (!/\p{L}/u.test(result)) throw validation("unitLabel", "Đơn vị tính phải là chữ, ví dụ: tháng, ngày, buổi.");
+    return result;
+  }
   private identifier(value: unknown, field: string) {
     if (typeof value !== "string" || !uuid.test(value))
       throw validation(field, "ID không hợp lệ.");
@@ -1010,7 +1016,7 @@ export class FinanceService {
       groupId: this.identifier(body?.groupId, "groupId"),
       code: this.text(body?.code, "code", false, 50),
       displayName: this.text(body?.displayName, "displayName")!,
-      unitLabel: this.text(body?.unitLabel, "unitLabel", true, 50)!,
+      unitLabel: this.unitLabel(body?.unitLabel),
       defaultUnitPrice: this.price(body?.defaultUnitPrice),
     };
     return this.mutate(

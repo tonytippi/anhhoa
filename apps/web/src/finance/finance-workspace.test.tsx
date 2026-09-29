@@ -309,7 +309,7 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(trigger);
     fireEvent.change(screen.getByLabelText("Nhóm"), { target: { value: "group" } });
     fireEvent.change(screen.getByLabelText("Tên khoản thu"), { target: { value: "Học phí" } });
-    fireEvent.change(screen.getByLabelText("Đơn vị"), { target: { value: "tháng" } });
+    fireEvent.change(screen.getByLabelText("Đơn vị tính"), { target: { value: "tháng" } });
     fireEvent.change(screen.getByLabelText("Đơn giá mặc định (VND)"), { target: { value: "100" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thêm khoản thu" })).toBeNull());

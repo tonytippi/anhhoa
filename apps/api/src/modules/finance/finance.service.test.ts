@@ -11,6 +11,7 @@ describe('FinanceService validation', () => {
     const school = crypto.randomUUID();
     await expect(service.createReceivable('identity', school, crypto.randomUUID(), crypto.randomUUID(), { groupId: 'not-uuid', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { groupId: expect.any(String) } } });
     await expect(service.createReceivable('identity', school, crypto.randomUUID(), crypto.randomUUID(), { groupId: crypto.randomUUID(), displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1.5' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { defaultUnitPrice: expect.any(String) } } });
+    for (const unitLabel of ['1', '12', ' 3 ', '-']) await expect(service.createReceivable('identity', school, crypto.randomUUID(), crypto.randomUUID(), { groupId: crypto.randomUUID(), displayName: 'Học phí', unitLabel, defaultUnitPrice: '100' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { unitLabel: 'Đơn vị tính phải là chữ, ví dụ: tháng, ngày, buổi.' } } });
     await expect(service.createGroup('identity', school, 'not-uuid', crypto.randomUUID(), { name: 'Học phí' })).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
