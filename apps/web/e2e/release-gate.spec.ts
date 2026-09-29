@@ -183,7 +183,7 @@ test("Parent creates, receives a server validation error, cancels a pending leav
   await page.getByLabel("Ngày kết thúc").fill("2026-09-29");
   await page.getByRole("button", { name: "Gửi đơn" }).click();
   await expect(page.getByText("Đang chờ duyệt")).toHaveCount(2);
-  await page.getByRole("button", { name: "Hủy đơn" }).last().click();
+  await page.getByRole("button", { name: "Hủy đơn" }).first().click();
   const dialog = page.getByRole("dialog", { name: "Xác nhận hủy đơn" });
   await expect(dialog).toBeVisible();
   await expect(
@@ -191,9 +191,9 @@ test("Parent creates, receives a server validation error, cancels a pending leav
   ).toBeFocused();
   await page.getByRole("button", { name: "Quay lại", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Hủy đơn" }).last(),
+    page.getByRole("button", { name: "Hủy đơn" }).first(),
   ).toBeFocused();
-  await page.getByRole("button", { name: "Hủy đơn" }).last().click();
+  await page.getByRole("button", { name: "Hủy đơn" }).first().click();
   await page.getByRole("button", { name: "Xác nhận hủy đơn" }).click();
   await expect(page.getByText("Đã hủy")).toBeVisible();
   await page.route(

@@ -47,8 +47,8 @@
   summary: Triển khai Epic 6 Story 6.1 ghi Actual Receipt dòng Invoice và carry chênh lệch.
   evidence: Được tách khỏi đóng release-hardening Pha 1b vì Story 6.1 là một mục tiêu người dùng độc lập, có persistence, lifecycle và API/UI Finance riêng để review và phát hành.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-7-home-only-school-chooser-va-leave-guard.md`
-  summary: Resolve Prisma `P2039` in seeded E2E Finance Invoice Issue before closing Home-only chooser release evidence.
-  evidence: `pnpm test:e2e -- finance-release-gate.spec.ts` migrates and seeds `.env.test`, then `POST /finance/invoices/:invoiceId/issue` fails because `@prisma/adapter-pg` invokes concurrent `pg.Client.query()` operations in one interactive transaction.
+  summary: Teacher attendance guard vẫn báo thao tác đang chờ sau khi Operation điểm danh đã đối soát, nên hộp thoại rời trang chỉ có `Đối soát thao tác` thay vì `Bỏ thay đổi`.
+  evidence: `pnpm test:e2e` trên database E2E dựng lại ngày 2026-09-29 dừng ở `release-gate.spec.ts` bước `Bỏ thay đổi` sau khi attendance timeout đã hiển thị `PRESENT`; lỗi có từ trước khi merge `develop`.
 - source_spec: none
   summary: Triển khai Epic 7 Story 7.2: Parent xem Today, attendance và DailyJournal được ủy quyền.
   evidence: Được tách từ yêu cầu triển khai toàn bộ Epic 7 vì đây là deliverable Parent read model độc lập sau Parent context an toàn của Story 7.1.
