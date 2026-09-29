@@ -10,18 +10,18 @@ const fetchFor = () => vi.fn((url: string) => Promise.resolve(new Response(JSON.
 const renderContext = () => render(<BrowserRouter><SchoolContext clear={vi.fn()} userIdentityId="identity-a" /></BrowserRouter>);
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); window.history.replaceState({}, '', '/'); });
 describe('SchoolContext Home-only chooser', () => {
-  it('renders the mutable chooser only at Home and focuses the authorized overview', async () => {
-    vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } });
-    const heading = await screen.findByRole('heading', { name: 'Tổng quan vận hành' }); await waitFor(() => expect(document.activeElement).toBe(heading)); expect(screen.queryByLabelText('Chọn trường')).toBeNull(); expect(screen.getByText('Trường Peakland')).toBeTruthy();
+  it('renders the School list only at Home and opens the authorized overview from its row action', async () => {
+    vi.stubGlobal('fetch', fetchFor()); renderContext(); const chooser = await screen.findByRole('table', { name: 'Danh sách trường được cấp quyền' }); expect(within(chooser).getByRole('row', { name: /Trường Peakland Mở trường/ })).toBeTruthy(); fireEvent.click(within(chooser).getAllByRole('button', { name: 'Mở trường' })[0]!);
+    const heading = await screen.findByRole('heading', { name: 'Tổng quan vận hành' }); await waitFor(() => expect(document.activeElement).toBe(heading)); expect(screen.queryByRole('table', { name: 'Danh sách trường được cấp quyền' })).toBeNull(); expect(screen.getByText('Trường Peakland')).toBeTruthy();
   });
   it('accepts an authorized direct slug and clears an unknown selector to Home', async () => {
     window.history.replaceState({}, '', '/schools/peakland/overview'); vi.stubGlobal('fetch', fetchFor()); renderContext(); await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
-    window.history.pushState({}, '', '/schools/unknown/overview'); fireEvent.popState(window); await screen.findByLabelText('Chọn trường'); expect(window.location.pathname).toBe('/');
+    window.history.pushState({}, '', '/schools/unknown/overview'); fireEvent.popState(window); await screen.findByRole('table', { name: 'Danh sách trường được cấp quyền' }); expect(window.location.pathname).toBe('/');
   });
   it('guards a dirty workspace when returning Home and discards only explicitly', async () => {
     window.history.replaceState({}, '', '/schools/peakland/students'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
     fireEvent.click(screen.getByRole('button', { name: 'Về trang chủ' })); await screen.findByRole('dialog', { name: 'Rời không gian làm việc?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
-    fireEvent.click(screen.getByRole('button', { name: 'Về trang chủ' })); fireEvent.click(await screen.findByRole('button', { name: 'Bỏ thay đổi' })); await waitFor(() => expect(screen.getByLabelText('Chọn trường')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Về trang chủ' })); fireEvent.click(await screen.findByRole('button', { name: 'Bỏ thay đổi' })); await waitFor(() => expect(screen.getByRole('table', { name: 'Danh sách trường được cấp quyền' })).toBeTruthy());
   });
   it('lets the staff intake modal request the shell leave guard without losing its draft', async () => {
     window.history.replaceState({}, '', '/schools/peakland/staff'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm nhân viên' }));

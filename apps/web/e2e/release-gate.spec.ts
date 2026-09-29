@@ -64,9 +64,13 @@ test('Parent callback issues a session only for the seeded active links and rend
 
 test.describe.configure({ mode: 'serial' });
 
+async function openAdminSchool(page: import('@playwright/test').Page, schoolName: string) {
+  await page.getByRole('table', { name: 'Danh sách trường được cấp quyền' }).getByRole('row', { name: new RegExp(`${schoolName} Mở trường`) }).getByRole('button', { name: 'Mở trường' }).click();
+}
+
 test('Admin uses an authenticated two-School context for clean, dirty, timeout, and suspended deep-link states', async ({ page, browser }) => {
   await login(page.context(), 'app'); await page.goto(app);
-  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
+  await openAdminSchool(page, 'Release Gate A');
   const schoolAHeading = page.getByRole('heading', { name: 'Tổng quan vận hành', level: 1 });
   await expect(schoolAHeading).toBeVisible();
   await expect(schoolAHeading).toBeFocused();
@@ -81,7 +85,7 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   await page.getByRole('dialog', { name: 'Tạo hồ sơ nhân viên' }).getByRole('button', { name: 'Về trang chủ' }).click();
   await expect(page.getByRole('dialog', { name: 'Rời không gian làm việc?' })).toContainText('Biểu mẫu đang có nội dung chưa gửi');
   await page.getByRole('button', { name: 'Bỏ thay đổi' }).click();
-  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+  await openAdminSchool(page, 'Release Gate B');
   await expect(page.getByRole('heading', { name: 'Tổng quan vận hành', level: 1 })).toBeVisible();
 
   await page.getByRole('button', { name: 'Danh bộ' }).click();

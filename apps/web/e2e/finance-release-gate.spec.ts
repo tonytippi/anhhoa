@@ -14,6 +14,9 @@ async function login(context: import('@playwright/test').BrowserContext) {
   const callback = await context.request.get(`${api}/api/app/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { maxRedirects: 0 });
   expect(callback.status()).toBe(302);
 }
+async function openSchool(page: import('@playwright/test').Page, schoolName: string) {
+  await page.getByRole('table', { name: 'Danh sách trường được cấp quyền' }).getByRole('row', { name: new RegExp(`${schoolName} Mở trường`) }).getByRole('button', { name: 'Mở trường' }).click();
+}
 async function openRun(page: import('@playwright/test').Page, month: string) {
   const trigger = page.getByRole('button', { name: `Tùy chọn cho đợt thu ${month}` });
   await trigger.click();
@@ -41,7 +44,7 @@ test.describe.configure({ mode: 'serial' });
 test('Admin Finance uses server-returned promotion values and clears the other School context', async ({ page }) => {
   await login(page.context());
   await page.goto(app);
-  await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
+  await openSchool(page, 'Release Gate A');
   await expect(page.getByRole('heading', { name: 'Tổng quan vận hành', level: 1 })).toBeFocused();
   await page.getByRole('button', { name: 'Tài chính' }).click();
   const receivablesNavigation = page.getByRole('button', { name: 'Khoản thu' });
@@ -226,7 +229,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
 
    await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole('button', { name: 'Về trang chủ' }).click();
-    await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+     await openSchool(page, 'Release Gate B');
    await expect(page.getByRole('heading', { name: 'Tổng quan vận hành', level: 1 })).toBeFocused();
   const otherSchoolReport = page.waitForResponse((response) =>
     response.url().includes('/finance/reports/overview') &&
