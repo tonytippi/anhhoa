@@ -1,23 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@font-face {
-  font-family: "Inter";
-  src: url("/fonts/inter-vietnamese.woff2") format("woff2");
-  font-display: swap;
-  font-style: normal;
-  font-weight: 100 900;
-}
-@font-face {
-  font-family: "Be Vietnam Pro";
-  src: url("/fonts/be-vietnam-pro-vietnamese.woff2") format("woff2");
-  font-display: swap;
-  font-style: normal;
-  font-weight: 600;
-}
-
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   color: #24261f;
   background: #fffdf7;
   font-synthesis: none;
@@ -68,7 +53,7 @@ textarea:focus-visible {
   color: #24261f;
   cursor: pointer;
   padding: 0 8px 28px;
-  font-family: "Be Vietnam Pro", Inter, sans-serif;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 20px;
   font-weight: 600;
 }
@@ -145,7 +130,7 @@ main {
 }
 h1,
 h2 {
-  font-family: "Be Vietnam Pro", Inter, sans-serif;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 h1 {
   margin: 0 0 24px;
@@ -946,7 +931,7 @@ tbody tr:last-child td {
     background: #ffffff;
     padding: 12px 16px;
     white-space: normal;
-    font-family: "Be Vietnam Pro", Inter, sans-serif;
+    font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
     font-weight: 600;
   }
   .sheet-backdrop {
@@ -1239,7 +1224,7 @@ tbody tr:last-child td {
 .school-context-workspace h3,
 .school-context-workspace h4 {
   color: #18332d;
-  font-family: "Be Vietnam Pro", Inter, sans-serif;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 .school-context-workspace h1,
 .school-context-workspace h2 {
@@ -1595,7 +1580,7 @@ tbody tr:last-child td {
 }
 .finance-metrics > div { border-radius: 14px; background: #eef6f1; padding: 16px 18px; }
 .finance-metrics dt { color: #5f746e; font-size: 13px; font-weight: 700; }
-.finance-metrics dd { margin: 4px 0 0; color: #18332d; font-family: "Be Vietnam Pro", Inter, sans-serif; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.finance-metrics dd { margin: 4px 0 0; color: #18332d; font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .school-context-workspace .finance-workspace > section.finance-notice {
   gap: 6px;
   border-color: #c9e4d3;

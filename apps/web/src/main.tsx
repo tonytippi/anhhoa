@@ -8,6 +8,7 @@ import {
   type Audience,
   type Session,
 } from "./auth-session";
+import "@fontsource-variable/inter";
 import "./index.css";
 import { SchoolContext } from "./school-context";
 export function AudienceShell({

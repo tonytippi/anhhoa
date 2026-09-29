@@ -127,6 +127,9 @@ importers:
 
   apps/parent-web:
     dependencies:
+      '@fontsource-variable/inter':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@tanstack/react-query':
         specifier: ^5.90.0
         version: 5.101.4(react@19.2.8)
@@ -226,9 +229,6 @@ importers:
         specifier: ^1.2.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@fontsource-variable/inter':
-        specifier: ^5.2.8
-        version: 5.3.0
-      '@fontsource/be-vietnam-pro':
         specifier: ^5.2.8
         version: 5.3.0
       '@tanstack/react-query':
@@ -1159,9 +1159,6 @@ packages:
 
   '@fontsource-variable/inter@5.3.0':
     resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
-
-  '@fontsource/be-vietnam-pro@5.3.0':
-    resolution: {integrity: sha512-xhAQBGHDxP5BF8IJxedy5MoWUmc1DlPCcZbMLhvnPkf8TaYCbbUVs3LjpuJ4BYdTrdiCLaewNaY8z+owq/FqFw==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -5590,8 +5587,6 @@ snapshots:
   '@floating-ui/utils@0.2.12': {}
 
   '@fontsource-variable/inter@5.3.0': {}
-
-  '@fontsource/be-vietnam-pro@5.3.0': {}
 
   '@humanfs/core@0.19.2':
     dependencies:

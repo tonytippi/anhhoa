@@ -19,6 +19,7 @@ import {
   type ParentContext,
   type Session,
 } from "./auth-session";
+import "@fontsource-variable/inter";
 import "./styles.css";
 import "./journal.css";
 
