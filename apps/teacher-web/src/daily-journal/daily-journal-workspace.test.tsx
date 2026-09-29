@@ -12,7 +12,7 @@ describe('DailyJournalWorkspace', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(roster)))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'Cần nhập nhận xét.', fieldErrors: { text: 'Cần nhập nhận xét.' } } }), { status: 400 }));
     vi.stubGlobal('fetch', fetch);
-    render(<DailyJournalWorkspace schoolId="school" onDirty={vi.fn()} />);
+    render(<DailyJournalWorkspace schoolId="school" onStatusChange={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Mã lớp nhận xét'), { target: { value: 'class' } });
     fireEvent.click(screen.getByRole('button', { name: 'Tải danh sách' }));
     await screen.findByText('Bé An');
@@ -26,7 +26,7 @@ describe('DailyJournalWorkspace', () => {
   it('rejects invalid local image types before upload and retains the draft', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(roster)));
     vi.stubGlobal('fetch', fetch);
-    render(<DailyJournalWorkspace schoolId="school" onDirty={vi.fn()} />);
+    render(<DailyJournalWorkspace schoolId="school" onStatusChange={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Mã lớp nhận xét'), { target: { value: 'class' } });
     fireEvent.click(screen.getByRole('button', { name: 'Tải danh sách' }));
     await screen.findByText('Bé An');
@@ -40,7 +40,7 @@ describe('DailyJournalWorkspace', () => {
     const current = { data: { ...roster.data, students: [{ ...roster.data.students[0], status: 'CURRENT', version: 2, text: 'Bản đã lưu', media: [{ id: 'media', contentType: 'image/png' }] }] } };
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(current)));
     vi.stubGlobal('fetch', fetch);
-    render(<DailyJournalWorkspace schoolId="school" onDirty={vi.fn()} />);
+    render(<DailyJournalWorkspace schoolId="school" onStatusChange={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Mã lớp nhận xét'), { target: { value: 'class' } });
     fireEvent.click(screen.getByRole('button', { name: 'Tải danh sách' }));
     await screen.findByText('Trường: school · Lớp: class · Ngày: 2026-09-24');
@@ -53,7 +53,7 @@ describe('DailyJournalWorkspace', () => {
   it('shows the reviewed empty state after filters remove all students', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(roster)));
     vi.stubGlobal('fetch', fetch);
-    render(<DailyJournalWorkspace schoolId="school" onDirty={vi.fn()} />);
+    render(<DailyJournalWorkspace schoolId="school" onStatusChange={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Mã lớp nhận xét'), { target: { value: 'class' } });
     fireEvent.click(screen.getByRole('button', { name: 'Tải danh sách' }));
     await screen.findByText('Bé An');

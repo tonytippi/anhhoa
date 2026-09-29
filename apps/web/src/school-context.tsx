@@ -65,7 +65,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
   const [settingsStatus, setSettingsStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
   const [leaveReviewStatus, setLeaveReviewStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
   const [financeStatus, setFinanceStatus] = useState<WorkspaceStatus>({ dirty: false, pending: false });
-  const [switchTo, setSwitchTo] = useState<Destination>();
+  const [switchTo, setSwitchTo] = useState<{ path: string; destination?: Destination }>();
   const [showChooser, setShowChooser] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -83,8 +83,6 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
   const unresolved = () => statuses.current.some((status) => status.dirty || status.pending);
   const hasPending = () => statuses.current.some((status) => status.pending);
   const forgetSchoolId = () => { try { window.localStorage.removeItem(selectionKey(userIdentityId)); } catch { /* UX hint only. */ } };
-  const saveSchoolId = (schoolId: string) => { try { window.localStorage.setItem(selectionKey(userIdentityId), schoolId); } catch { /* UX hint only. */ } };
-  const savedSchoolId = () => { try { return window.localStorage.getItem(selectionKey(userIdentityId)) ?? undefined; } catch { return undefined; } };
   const clearProtectedState = () => {
     version.current += 1;
     selected.current = undefined;
@@ -99,7 +97,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     setView(page);
     setExpanded({ roster: ["students", "parents", "staff", "classes"].includes(page), settings: ["years", "positions", "settings"].includes(page), finance: ["receivables", "promotions", "collection-runs", "receipt-queue", "finance-reports"].includes(page) });
   };
-  const refreshChooser = async (restoreSelection: boolean) => {
+  const refreshChooser = async () => {
     const response = await fetch(`${apiUrl}/api/app/schools`, { credentials: "include" });
     if (response.status === 401) { clearProtectedState(); clear(); return; }
     if (!response.ok) throw new Error("Không thể tải danh sách trường.");
@@ -115,14 +113,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
       navigate('/', { replace: true });
       return;
     }
-    const saved = savedSchoolId();
-    const schoolId = next.length === 1 ? next[0]?.schoolId : saved && next.some((school) => school.schoolId === saved) ? saved : undefined;
-    const school = schoolId ? next.find((item) => item.schoolId === schoolId) : undefined;
-    if (restoreSelection && school) navigate(pathFor({ schoolSlug: school.schoolSlug, page: "overview" }), { replace: true });
-    else {
-      if (saved && !next.some((school) => school.schoolId === saved)) forgetSchoolId();
-      setShowChooser(true);
-    }
+    setShowChooser(true);
   };
   const applyDestination = (next: Context, destination: Destination) => {
     const page = allowedPages(next).includes(destination.page) ? destination.page : allowedPages(next)[0];
@@ -136,7 +127,6 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     setPage(page);
     committed.current = { schoolSlug: next.schoolSlug, page };
     setShowChooser(false);
-    saveSchoolId(next.schoolId);
     if (page !== destination.page) navigate(pathFor({ schoolSlug: next.schoolSlug, page }), { replace: true });
   };
   const load = async (destination: Destination, school: School) => {
@@ -150,7 +140,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
       clearProtectedState();
       setShowChooser(true);
       navigate("/", { replace: true });
-      void refreshChooser(false).catch((cause: Error) => setError(cause.message));
+      void refreshChooser().catch((cause: Error) => setError(cause.message));
       return;
     }
     if (!response.ok) throw new Error("Không thể tải ngữ cảnh trường.");
@@ -173,14 +163,17 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     }
     applyDestination(next, destination);
   };
+  const requestPath = (path: string, destination?: Destination) => {
+    if (context && unresolved()) { setSwitchTo({ path, destination }); return; }
+    navigate(path);
+  };
   const requestDestination = (destination: Destination) => {
-    if (context && destination.schoolSlug !== context.schoolSlug && unresolved()) { setSwitchTo(destination); return; }
-    navigate(pathFor(destination));
+    requestPath(pathFor(destination), destination);
   };
   const retryRoute = () => {
     setError("");
     loadedPath.current = undefined;
-    if (!schools) void refreshChooser(!destinationFromPath(location.pathname)).catch((cause: Error) => setError(cause.message));
+    if (!schools) void refreshChooser().catch((cause: Error) => setError(cause.message));
     else setRetry((value) => value + 1);
   };
 
@@ -190,7 +183,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     setSchools(undefined);
     setShowChooser(false);
     setError("");
-    void refreshChooser(!destinationFromPath(location.pathname)).catch((cause: Error) => setError(cause.message));
+    void refreshChooser().catch((cause: Error) => setError(cause.message));
     return () => { mounted.current = false; };
   }, [userIdentityId]);
   useEffect(() => {
@@ -207,7 +200,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
   }, []);
   useEffect(() => {
     const refreshAuthorizedSchools = () => {
-      if (!hasPending()) void refreshChooser(false).catch((cause: Error) => setError(cause.message));
+        if (!hasPending()) void refreshChooser().catch((cause: Error) => setError(cause.message));
     };
     const onVisibilityChange = () => { if (document.visibilityState === "visible") refreshAuthorizedSchools(); };
     window.addEventListener("focus", refreshAuthorizedSchools);
@@ -218,6 +211,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     if (!schools) return;
     const destination = destinationFromPath(location.pathname);
     if (!destination || !schools.length) {
+      if (context && unresolved()) { setSwitchTo({ path: location.pathname }); return; }
       clearProtectedState();
       setShowChooser(true);
       if (location.pathname !== "/") navigate("/", { replace: true });
@@ -243,7 +237,7 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     }
     if (context && unresolved()) {
       // History has already moved. Keep its entry intact until the user chooses an action.
-      setSwitchTo(destination);
+      setSwitchTo({ path: location.pathname, destination });
       return;
     }
     const key = `${location.pathname}:${retry}`;
@@ -255,11 +249,14 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
     });
   }, [location.pathname, schools, context, retry]);
   useEffect(() => { if (switchTo) dialog.current?.querySelector<HTMLElement>("input, button, textarea")?.focus(); }, [switchTo]);
+  useEffect(() => {
+    if (context) window.requestAnimationFrame(() => document.querySelector<HTMLElement>(".school-context-workspace h1, .school-context-workspace h2")?.focus());
+  }, [context?.schoolId, view]);
 
   const sameStatus = (current: WorkspaceStatus, next: WorkspaceStatus) => current.dirty === next.dirty && current.pending === next.pending && current.dialogOpen === next.dialogOpen && current.reconcile === next.reconcile;
   const updateRosterStatus = useCallback((status: WorkspaceStatus) => setRosterStatus((current) => sameStatus(current, status) ? current : status), []);
   const updateSettingsStatus = useCallback((status: SettingsStatus) => setSettingsStatus((current) => sameStatus(current, status) ? current : status), []);
-  const handleWorkspaceDenied = () => { forgetSchoolId(); clearProtectedState(); setShowChooser(true); navigate("/", { replace: true }); void refreshChooser(false).catch((cause: Error) => setError(cause.message)); };
+  const handleWorkspaceDenied = () => { forgetSchoolId(); clearProtectedState(); setShowChooser(true); navigate("/", { replace: true }); void refreshChooser().catch((cause: Error) => setError(cause.message)); };
   const stay = () => {
     const current = committed.current;
     setSwitchTo(undefined);
@@ -290,12 +287,12 @@ export function SchoolContext({ clear, userIdentityId }: { clear: () => void; us
   return <section className="school-context">
     {!context && showChooser && <div className="school-context-switcher"><label className="school-context-label"><span>Chọn trường</span><select aria-label="Chọn trường" value="" disabled={hasPending()} onChange={(event) => { const school = schools.find((item) => item.schoolId === event.target.value); if (school) requestDestination({ schoolSlug: school.schoolSlug, page: "overview" }); }}><option value="" disabled>Chọn trường</option>{schools.map((school) => <option key={school.schoolId} value={school.schoolId}>{school.schoolName}</option>)}</select></label><p className="school-context-hint">Chọn một trường để bắt đầu công việc.</p></div>}
     {error && <p className="school-context-error" role="alert">{error} <button type="button" onClick={retryRoute}>Thử lại</button></p>}
-    {context && <><header className="school-context-header">{schools.length > 1 ? <label className="school-context-current-school"><span>Trường đang làm việc</span><select aria-label="Chọn trường" value={context.schoolId} disabled={hasPending()} onChange={(event) => { const school = schools.find((item) => item.schoolId === event.target.value); if (school) requestDestination({ schoolSlug: school.schoolSlug, page: "overview" }); }}>{schools.map((school) => <option key={school.schoolId} value={school.schoolId}>{school.schoolName}</option>)}</select></label> : <p>{context.schoolName}</p>}</header><nav ref={navigation} className="school-context-navigation" aria-label="Điều hướng quản trị và nhân sự" onKeyDown={(event) => { if (event.key === "Escape" && isRail) { const trigger = event.currentTarget.querySelector<HTMLButtonElement>('[aria-expanded="true"]'); const restoreFocus = Boolean(trigger?.nextElementSibling?.contains(document.activeElement)); setRailGroup(undefined); if (restoreFocus && trigger) trigger.focus(); } }} onBlur={closeRailOnBlur}>
+    {context && <><header className="school-context-header"><p className="school-context-current-school"><span>Trường đang làm việc</span><strong>{context.schoolName}</strong></p><button type="button" onClick={() => requestPath("/")}>Về trang chủ</button></header><nav ref={navigation} className="school-context-navigation" aria-label="Điều hướng quản trị và nhân sự" onKeyDown={(event) => { if (event.key === "Escape" && isRail) { const trigger = event.currentTarget.querySelector<HTMLButtonElement>('[aria-expanded="true"]'); const restoreFocus = Boolean(trigger?.nextElementSibling?.contains(document.activeElement)); setRailGroup(undefined); if (restoreFocus && trigger) trigger.focus(); } }} onBlur={closeRailOnBlur}>
       {allowedPages(context).includes("overview") && <button type="button" data-tooltip="Tổng quan" className="school-context-nav-item school-context-nav-overview" aria-current={view === "overview" ? "page" : undefined} onFocus={() => { if (isRail) setRailGroup(undefined); }} onClick={() => selectPage("overview")}><NavigationIcon name="overview" /><span className="school-context-nav-label">Tổng quan</span></button>}
       {context.navigation.filter((item) => item.id === "leave-review").filter((item) => allowedPages(context).includes(item.id as View)).map((item) => <button type="button" data-tooltip={item.label} key={item.id} className={`school-context-nav-item school-context-nav-${item.id}`} aria-current={view === item.id ? "page" : undefined} onFocus={() => { if (isRail) setRailGroup(undefined); }} onClick={() => selectPage(item.id as View)}><NavigationIcon name="leave-review" /><span className="school-context-nav-label">{item.label}</span></button>)}
       {([['roster', 'Danh bộ', 'roster', [['students', 'Học sinh'], ['parents', 'Phụ huynh'], ['staff', 'Nhân viên'], ['classes', 'Lớp học']]], ['settings', 'Cấu hình trường', 'settings', [['years', 'Năm học'], ['positions', 'Chức danh & capability'], ['settings', 'Chính sách trường']]] ] as const).filter(([, , , items]) => items.some(([page]) => allowedPages(context).includes(page))).map(([group, label, icon, items]) => <section key={group} className={`school-context-nav-group school-context-nav-${group}`}><button type="button" data-tooltip={label} className="school-context-nav-group-toggle" aria-controls={groupExpanded(group) ? `${group}-submenu` : undefined} aria-expanded={groupExpanded(group)} onFocus={() => { if (isRail) toggleGroup(group); }} onClick={() => toggleGroup(group)}><NavigationIcon name={icon} /><span className="school-context-nav-label">{label}</span></button>{groupExpanded(group) && <div id={`${group}-submenu`} className="school-context-nav-submenu">{items.filter(([page]) => allowedPages(context).includes(page)).map(([page, childLabel]) => <button type="button" key={page} aria-current={view === page ? "page" : undefined} onClick={() => selectPage(page)}>{childLabel}</button>)}</div>}</section>)}
         {allowedPages(context).some((page) => ["receivables", "promotions", "collection-runs", "receipt-queue", "finance-reports"].includes(page)) && <section className="school-context-nav-group school-context-nav-finance"><button type="button" data-tooltip="Tài chính" className="school-context-nav-group-toggle" aria-controls={groupExpanded("finance") ? "finance-submenu" : undefined} aria-expanded={groupExpanded("finance")} onFocus={() => { if (isRail) toggleGroup("finance"); }} onClick={() => toggleGroup("finance")}><NavigationIcon name="finance" /><span className="school-context-nav-label">Tài chính</span></button>{groupExpanded("finance") && <div id="finance-submenu" className="school-context-nav-submenu">{context.navigation.filter((item) => item.id === "receivables" || item.id === "promotions" || item.id === "collection-runs" || item.id === "receipt-queue" || item.id === "finance-reports").filter((item) => allowedPages(context).includes(item.id as View)).map((item) => <button type="button" key={item.id} aria-current={view === item.id ? "page" : undefined} onClick={() => selectPage(item.id as View)}>{item.label}</button>)}</div>}</section>}</nav>
-        <div className="school-context-workspace">{view === "overview" && allowedPages(context).includes(view) ? <OverviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} selectedDate={new URLSearchParams(location.search).get("date") ?? undefined} setSelectedDate={(date) => navigate({ pathname: location.pathname, search: date ? `?date=${date}` : "" })} denied={handleWorkspaceDenied} /> : (["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) && allowedPages(context).includes(view) ? <RosterWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateRosterStatus} section={view as "students" | "parents" | "staff" | "classes" | "years" | "positions"} /> : view === "settings" && allowedPages(context).includes(view) ? <SettingsWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateSettingsStatus} /> : view === "leave-review" && allowedPages(context).includes(view) ? <LeaveReviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={setLeaveReviewStatus} /> : (["receivables", "promotions", "collection-runs"] as FinancePage[]).includes(view as FinancePage) && allowedPages(context).includes(view) ? <FinanceWorkspace schoolId={context.schoolId} schoolName={context.schoolName} page={view as FinancePage} denied={handleWorkspaceDenied} onStatusChange={setFinanceStatus} /> : view === "receipt-queue" && allowedPages(context).includes(view) ? <ReceiptQueueWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={setFinanceStatus} /> : view === "finance-reports" && allowedPages(context).includes(view) ? <FinanceReportsWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} /> : null}</div></>}
-    {switchTo && <div className="school-switch-backdrop"><div className="school-switch-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="school-switch-title"><h2 id="school-switch-title">Đổi trường?</h2><p>Biểu mẫu đang có nội dung chưa gửi hoặc thao tác đang được đối soát.</p><div className="school-switch-actions"><button className="school-switch-stay" onClick={stay}>Ở lại</button>{hasPending() ? <button className="school-switch-reconcile" onClick={reconcile}>Đối soát thao tác</button> : <button className="school-switch-discard" onClick={() => { const target = switchTo; clearProtectedState(); setSwitchTo(undefined); navigate(pathFor(target)); }}>Bỏ nội dung và đổi trường</button>}</div></div></div>}
+        <div className="school-context-workspace">{view === "overview" && allowedPages(context).includes(view) ? <OverviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} selectedDate={new URLSearchParams(location.search).get("date") ?? undefined} setSelectedDate={(date) => navigate({ pathname: location.pathname, search: date ? `?date=${date}` : "" })} denied={handleWorkspaceDenied} /> : (["students", "parents", "staff", "classes", "years", "positions"] as View[]).includes(view) && allowedPages(context).includes(view) ? <RosterWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateRosterStatus} requestHome={() => requestPath("/")} section={view as "students" | "parents" | "staff" | "classes" | "years" | "positions"} /> : view === "settings" && allowedPages(context).includes(view) ? <SettingsWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={updateSettingsStatus} /> : view === "leave-review" && allowedPages(context).includes(view) ? <LeaveReviewWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={setLeaveReviewStatus} /> : (["receivables", "promotions", "collection-runs"] as FinancePage[]).includes(view as FinancePage) && allowedPages(context).includes(view) ? <FinanceWorkspace schoolId={context.schoolId} schoolName={context.schoolName} page={view as FinancePage} denied={handleWorkspaceDenied} onStatusChange={setFinanceStatus} /> : view === "receipt-queue" && allowedPages(context).includes(view) ? <ReceiptQueueWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} onStatusChange={setFinanceStatus} /> : view === "finance-reports" && allowedPages(context).includes(view) ? <FinanceReportsWorkspace schoolId={context.schoolId} schoolName={context.schoolName} denied={handleWorkspaceDenied} /> : null}</div></>}
+    {switchTo && <div className="school-switch-backdrop"><div className="school-switch-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="school-switch-title"><h2 id="school-switch-title">Rời không gian làm việc?</h2><p>Biểu mẫu đang có nội dung chưa gửi hoặc thao tác đang được đối soát.</p><div className="school-switch-actions"><button className="school-switch-stay" onClick={stay}>Ở lại</button>{hasPending() ? <button className="school-switch-reconcile" onClick={reconcile}>Đối soát thao tác</button> : <button className="school-switch-discard" onClick={() => { const target = switchTo; clearProtectedState(); setSwitchTo(undefined); navigate(target.path); }}>Bỏ thay đổi</button>}</div></div></div>}
   </section>;
 }

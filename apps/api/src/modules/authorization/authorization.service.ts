@@ -23,7 +23,7 @@ export class AuthorizationService {
     return values;
   }
 
-  private navigation(capabilities: Capability[]) {
+  private navigation(capabilities: Capability[], audience: SchoolAudience) {
     const navigation: Array<{ id: string; label: string }> = [];
     if (capabilities.includes('ATTENDANCE_WRITE')) navigation.push({ id: 'attendance', label: 'Điểm danh' });
     if (capabilities.includes('DAILY_JOURNAL_WRITE')) navigation.push({ id: 'daily-journal', label: 'Nhận xét trong ngày' });
@@ -32,7 +32,8 @@ export class AuthorizationService {
     if (capabilities.includes('ACCESS_MANAGE')) navigation.push({ id: 'access', label: 'Quản lý truy cập' });
     if (capabilities.includes('ROSTER_MANAGE')) navigation.push({ id: 'roster', label: 'Danh bộ' });
     if (capabilities.includes('SETTINGS_MANAGE')) navigation.push({ id: 'settings', label: 'Cấu hình trường' });
-    if (capabilities.includes('OPERATIONAL_QUEUE_READ')) navigation.push({ id: 'overview', label: 'Tổng quan vận hành' });
+    if (audience === 'app' && capabilities.includes('SCHOOL_CONTEXT_READ')) navigation.push({ id: 'overview', label: 'Tổng quan vận hành' });
+    if (audience === 'teacher' && capabilities.includes('OPERATIONAL_QUEUE_READ')) navigation.push({ id: 'overview', label: 'Tổng quan' });
     if (capabilities.includes('FINANCE_MANAGE')) navigation.push(
       { id: 'receivables', label: 'Khoản thu' },
       { id: 'promotions', label: 'Ưu đãi' },
@@ -62,6 +63,6 @@ export class AuthorizationService {
     if (!membership?.boundStaffProfile) throw new NotFoundException({ code: 'SCHOOL_CONTEXT_DENIED', message: 'Không thể truy cập ngữ cảnh trường này.' });
     const capabilities = this.capabilities(membership.boundStaffProfile.primaryPosition.grants, audience);
     if (!capabilities.includes(required)) throw new ForbiddenException({ code: 'CAPABILITY_DENIED', message: 'Bạn không có quyền thực hiện thao tác này.' });
-    return { schoolId, schoolSlug: membership.school.slug, schoolName: membership.school.name, membershipId: membership.id, staffProfileId: membership.boundStaffProfile.id, capabilities, navigation: this.navigation(capabilities) };
+    return { schoolId, schoolSlug: membership.school.slug, schoolName: membership.school.name, membershipId: membership.id, staffProfileId: membership.boundStaffProfile.id, capabilities, navigation: this.navigation(capabilities, audience) };
   }
 }

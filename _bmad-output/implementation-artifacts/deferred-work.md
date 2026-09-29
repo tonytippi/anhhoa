@@ -46,3 +46,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-promotion-policy-release-hardening.md`
   summary: Triển khai Epic 6 Story 6.1 ghi Actual Receipt dòng Invoice và carry chênh lệch.
   evidence: Được tách khỏi đóng release-hardening Pha 1b vì Story 6.1 là một mục tiêu người dùng độc lập, có persistence, lifecycle và API/UI Finance riêng để review và phát hành.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-7-home-only-school-chooser-va-leave-guard.md`
+  summary: Resolve Prisma `P2039` in seeded E2E Finance Invoice Issue before closing Home-only chooser release evidence.
+  evidence: `pnpm test:e2e -- finance-release-gate.spec.ts` migrates and seeds `.env.test`, then `POST /finance/invoices/:invoiceId/issue` fails because `@prisma/adapter-pg` invokes concurrent `pg.Client.query()` operations in one interactive transaction.

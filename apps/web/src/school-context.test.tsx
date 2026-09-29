@@ -1,223 +1,36 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
 import { SchoolContext } from './school-context';
 
-const identityId = 'identity-a';
 const schoolA = { schoolId: 'uuid-a', schoolSlug: 'peakland', schoolName: 'Trường Peakland' };
 const schoolB = { schoolId: 'uuid-b', schoolSlug: 'sunrise', schoolName: 'Trường Sunrise' };
-const contextA = { ...schoolA, membershipId: 'member-a', capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'], navigation: [{ id: 'roster', label: 'Danh bộ' }] };
-const contextB = { ...contextA, ...schoolB, membershipId: 'member-b' };
-const storageKey = (identity = identityId) => `passionedu:app:selected-school:${identity}`;
-const renderContext = (clear = vi.fn(), identity = identityId) => render(<BrowserRouter><SchoolContext clear={clear} userIdentityId={identity} /></BrowserRouter>);
-const rosterFetch = (schools = [schoolA], contexts = new Map([[schoolA.schoolId, contextA], [schoolB.schoolId, contextB]])) => vi.fn((url: string) => {
-  if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: schools })));
-  const match = /\/api\/app\/schools\/(uuid-[ab])$/.exec(url);
-  if (match) return Promise.resolve(new Response(JSON.stringify({ data: contexts.get(match[1]!) })));
-  if (url.endsWith('/school-years')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] })));
-  if (url.includes('/students?')) return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'student-a', studentCode: 'S1', fullName: 'Bé An', hasPhoto: false, enrollment: { id: 'enrollment-a', lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', classroom: null }, relatives: { mother: null, father: null, otherRelativeCount: 0 } }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } })));
-  return Promise.resolve(new Response(JSON.stringify({ data: [] })));
-});
-
+const context = (school = schoolA) => ({ ...school, membershipId: `member-${school.schoolId}`, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'], navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'roster', label: 'Danh bộ' }] });
+const fetchFor = () => vi.fn((url: string) => Promise.resolve(new Response(JSON.stringify(url === '/api/app/schools' ? { data: [schoolA, schoolB] } : url.endsWith('/uuid-a') ? { data: context(schoolA) } : url.endsWith('/uuid-b') ? { data: context(schoolB) } : url.includes('/overview') ? { data: { date: '2026-02-09', isToday: true, metrics: { students: 0, staff: 0, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: 'Chưa đến lớp', count: 0 }, notRecorded: 0 }, classes: [] } } : url.includes('/students?') ? { data: [{ id: 'student-a', studentCode: 'S1', fullName: 'Bé An', hasPhoto: false, enrollment: { id: 'enrollment-a', lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', classroom: null }, relatives: { mother: null, father: null, otherRelativeCount: 0 } }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } } : url.includes('/school-years') ? { data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] } : { data: [], meta: { page: 1, pageSize: 25, totalItems: 0, totalPages: 1 } }))));
+const renderContext = () => render(<BrowserRouter><SchoolContext clear={vi.fn()} userIdentityId="identity-a" /></BrowserRouter>);
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); window.history.replaceState({}, '', '/'); });
-
-describe('SchoolContext slug routes', () => {
-  it('opens Tổng quan as the first authorized destination and accepts its slug deep link', async () => {
-    const overviewContext = { ...contextA, navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'roster', label: 'Danh bộ' }] };
-    window.history.replaceState({}, '', '/schools/peakland/overview');
-    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]));
-    fetch.mockImplementation((url: string) => url.endsWith('/overview') ? Promise.resolve(new Response(JSON.stringify({ data: { date: '2026-02-09', isToday: true, metrics: { students: 0, staff: 0, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: 'Chưa đến lớp', count: 0 }, notRecorded: 0 }, classes: [] } }))) : rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]))(url));
-    vi.stubGlobal('fetch', fetch); renderContext();
-    await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
-    expect(screen.getByRole('button', { name: 'Tổng quan' }).getAttribute('aria-current')).toBe('page');
-    expect(window.location.pathname).toBe('/schools/peakland/overview');
+describe('SchoolContext Home-only chooser', () => {
+  it('renders the mutable chooser only at Home and focuses the authorized overview', async () => {
+    vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } });
+    const heading = await screen.findByRole('heading', { name: 'Tổng quan vận hành' }); await waitFor(() => expect(document.activeElement).toBe(heading)); expect(screen.queryByLabelText('Chọn trường')).toBeNull(); expect(screen.getByText('Trường Peakland')).toBeTruthy();
   });
-  it('keeps a valid overview date query in the GET request and URL', async () => {
-    const overviewContext = { ...contextA, navigation: [{ id: 'overview', label: 'Tổng quan' }] };
-    window.history.replaceState({}, '', '/schools/peakland/overview?date=2026-02-08');
-    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]));
-    fetch.mockImplementation((url: string) => url.includes('/overview?date=2026-02-08') ? Promise.resolve(new Response(JSON.stringify({ data: { date: '2026-02-08', isToday: false, metrics: { students: 0, staff: 0, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: 'Nghỉ không phép', count: 0 }, notRecorded: 0 }, classes: [] } }))) : rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]))(url));
-    vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
-    expect(fetch.mock.calls.some(([url]) => url === '/api/app/schools/uuid-a/overview?date=2026-02-08')).toBe(true); expect(window.location.search).toBe('?date=2026-02-08');
+  it('accepts an authorized direct slug and clears an unknown selector to Home', async () => {
+    window.history.replaceState({}, '', '/schools/peakland/overview'); vi.stubGlobal('fetch', fetchFor()); renderContext(); await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
+    window.history.pushState({}, '', '/schools/unknown/overview'); fireEvent.popState(window); await screen.findByLabelText('Chọn trường'); expect(window.location.pathname).toBe('/');
   });
-  it('resolves a slug deep link with UUID context and workspace requests', async () => {
-    window.history.replaceState({}, '', '/schools/peakland/staff'); const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext();
-    await screen.findByRole('heading', { name: 'Nhân viên' });
-    expect(window.location.pathname).toBe('/schools/peakland/staff'); expect(fetch).toHaveBeenCalledWith('/api/app/schools/uuid-a', { credentials: 'include' });
-    expect(fetch.mock.calls.some(([url]) => String(url).includes('/api/app/schools/uuid-a/roster/staff?'))).toBe(true);
-    expect(fetch.mock.calls.some(([url]) => String(url).includes('/schools/peakland/'))).toBe(false);
+  it('guards a dirty workspace when returning Home and discards only explicitly', async () => {
+    window.history.replaceState({}, '', '/schools/peakland/students'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Về trang chủ' })); await screen.findByRole('dialog', { name: 'Rời không gian làm việc?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
+    fireEvent.click(screen.getByRole('button', { name: 'Về trang chủ' })); fireEvent.click(await screen.findByRole('button', { name: 'Bỏ thay đổi' })); await waitFor(() => expect(screen.getByLabelText('Chọn trường')).toBeTruthy());
   });
-  it('renders an authorized overview route', async () => {
-    const overviewContext = { ...contextA, navigation: [{ id: 'overview', label: 'Tổng quan vận hành' }] };
-    window.history.replaceState({}, '', '/schools/peakland/overview');
-    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, overviewContext]]));
-    vi.stubGlobal('fetch', fetch); renderContext();
-    await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/uuid-a/overview', expect.objectContaining({ credentials: 'include' })));
+  it('lets the staff intake modal request the shell leave guard without losing its draft', async () => {
+    window.history.replaceState({}, '', '/schools/peakland/staff'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm nhân viên' }));
+    const intake = await screen.findByRole('dialog', { name: 'Tạo hồ sơ nhân viên' }); fireEvent.change(screen.getByLabelText('Email liên hệ'), { target: { value: 'draft@example.com' } }); fireEvent.click(within(intake).getByRole('button', { name: 'Về trang chủ' }));
+    await screen.findByRole('dialog', { name: 'Rời không gian làm việc?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); expect((screen.getByLabelText('Email liên hệ') as HTMLInputElement).value).toBe('draft@example.com');
   });
-  it('canonicalizes an authorized legacy UUID bookmark before rendering protected UI', async () => {
-    window.history.replaceState({}, '', '/schools/uuid-a/students'); let resolveContext!: (value: Response) => void;
-    const fetch = vi.fn((url: string) => url === '/api/app/schools' ? Promise.resolve(new Response(JSON.stringify({ data: [schoolA] }))) : new Promise<Response>((resolve) => { resolveContext = resolve; })); vi.stubGlobal('fetch', fetch); renderContext();
-    await waitFor(() => expect(window.location.pathname).toBe('/schools/peakland/students')); expect(screen.queryByRole('heading', { name: 'Học sinh' })).toBeNull(); resolveContext(new Response(JSON.stringify({ data: contextA }))); await screen.findByRole('heading', { name: 'Học sinh' });
-  });
-  it.each(['stale-slug', 'uuid-stale'])('returns to chooser without context fetch for unknown selector %s', async (selector) => {
-    window.history.replaceState({}, '', `/schools/${selector}/staff`); const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByLabelText('Chọn trường'); await waitFor(() => expect(window.location.pathname).toBe('/')); expect(fetch).toHaveBeenCalledTimes(1);
-  });
-  it.each([{ schoolSlug: 'other' }, { schoolId: 'uuid-b' }, undefined, null])('clears protected UI for a malformed or mismatched context response', async (data) => {
-    window.history.replaceState({}, '', '/schools/peakland/staff'); const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [schoolA] }))).mockResolvedValueOnce(new Response(JSON.stringify(data === undefined ? {} : { data: data === null ? null : { ...contextA, ...data } }))); vi.stubGlobal('fetch', fetch); renderContext(); await waitFor(() => expect(window.location.pathname).toBe('/')); expect(screen.queryByRole('heading', { name: /PassionEdu/ })).toBeNull();
-  });
-  it('clears a denied rendered School while preserving chooser, alternative, and storage clearing', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [schoolA, schoolB] }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: contextA }))).mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: [schoolB] }))); const clear = vi.fn(); vi.stubGlobal('fetch', fetch); renderContext(clear); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } }); await screen.findByRole('button', { name: 'Học sinh' }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'uuid-b' } }); await screen.findByRole('option', { name: 'Trường Sunrise' }); expect(localStorage.getItem(storageKey())).toBeNull(); expect(clear).not.toHaveBeenCalled();
-  });
-  it('does not let a delayed A denial overwrite selected School B', async () => {
-    let resolveA!: (response: Response) => void; const fallback = rosterFetch([schoolA, schoolB]); const fetch = vi.fn((url: string) => url === '/api/app/schools' ? Promise.resolve(new Response(JSON.stringify({ data: [schoolA, schoolB] }))) : url === '/api/app/schools/uuid-a' ? new Promise<Response>((resolve) => { resolveA = resolve; }) : url === '/api/app/schools/uuid-b' ? Promise.resolve(new Response(JSON.stringify({ data: contextB }))) : fallback(url)); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'uuid-b' } }); resolveA(new Response(null, { status: 404 })); await screen.findByRole('button', { name: 'Học sinh' });
-  });
-  it('does not let a delayed A success overwrite selected School B', async () => {
-    let resolveA!: (response: Response) => void; const fallback = rosterFetch([schoolA, schoolB]); const fetch = vi.fn((url: string) => url === '/api/app/schools' ? Promise.resolve(new Response(JSON.stringify({ data: [schoolA, schoolB] }))) : url === '/api/app/schools/uuid-a' ? new Promise<Response>((resolve) => { resolveA = resolve; }) : url === '/api/app/schools/uuid-b' ? Promise.resolve(new Response(JSON.stringify({ data: contextB }))) : fallback(url)); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'uuid-b' } }); resolveA(new Response(JSON.stringify({ data: contextA }))); await screen.findByRole('button', { name: 'Học sinh' }); expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường Peakland' })).toBeNull();
-  });
-  it('guards a dirty chooser School switch', async () => {
-    const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } }); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); await waitFor(() => expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An')); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'uuid-b' } }); expect(await screen.findByRole('dialog', { name: 'Đổi trường?' })).toBeTruthy(); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
-  });
-  it('guards a dirty history School switch and restores the slug route on stay', async () => {
-    window.history.replaceState({}, '', '/schools/peakland/students'); const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } }); window.history.pushState({}, '', '/schools/sunrise/students'); fireEvent.popState(window); await screen.findByRole('dialog', { name: 'Đổi trường?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' })); await waitFor(() => expect(window.location.pathname).toBe('/schools/peakland/students')); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
-  });
-  it('does not remount an open intake after focus or file-picker return', async () => {
-    const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); const before = fetch.mock.calls.length; fireEvent.focus(window); await waitFor(() => expect(fetch).toHaveBeenCalledTimes(before + 1)); expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/app/schools'); expect(screen.getByRole('dialog', { name: 'Tạo học sinh và ghi danh' })).toBeTruthy();
-  });
-  it('re-authorizes the School chooser on foreground events without remounting workspace data', async () => {
-    const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByText('Bé An'); const before = fetch.mock.calls.length; fireEvent.focus(window); await waitFor(() => expect(fetch).toHaveBeenCalledTimes(before + 1)); expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/app/schools');
-  });
-  it('keeps shell for chooser 500 but clears shell for chooser 401', async () => {
-    const clear500 = vi.fn(); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 500 }))); renderContext(clear500); await screen.findByText('Không thể tải danh sách trường.'); expect(clear500).not.toHaveBeenCalled();
-    const clear401 = vi.fn(); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 }))); renderContext(clear401); await waitFor(() => expect(clear401).toHaveBeenCalled());
-  });
-  it('clears previous context when identity changes', async () => {
-    localStorage.setItem(storageKey(), 'uuid-a'); let reads = 0; const fetch = rosterFetch(); fetch.mockImplementation((url: string) => url === '/api/app/schools' ? Promise.resolve(new Response(JSON.stringify({ data: reads++ ? [schoolB] : [schoolA] }))) : url === '/api/app/schools/uuid-b' ? Promise.resolve(new Response(JSON.stringify({ data: contextB }))) : url === '/api/app/schools/uuid-a' ? Promise.resolve(new Response(JSON.stringify({ data: contextA }))) : Promise.resolve(new Response(JSON.stringify({ data: [] })))); vi.stubGlobal('fetch', fetch); const view = renderContext(); await screen.findByRole('button', { name: 'Học sinh' }); view.rerender(<BrowserRouter><SchoolContext clear={vi.fn()} userIdentityId="identity-b" /></BrowserRouter>); await screen.findByRole('option', { name: 'Trường Sunrise' }); expect(screen.queryByRole('heading', { name: 'PassionEdu - Trường Peakland' })).toBeNull();
-  });
-  it('restores only a same-identity persisted UUID selection', async () => {
-    localStorage.setItem(storageKey(), 'uuid-a'); const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); const first = renderContext(); await screen.findByRole('button', { name: 'Học sinh' }); expect(window.location.pathname).toBe('/schools/peakland/students'); first.unmount(); window.history.replaceState({}, '', '/'); const second = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', second); renderContext(vi.fn(), 'identity-b'); await screen.findByLabelText('Chọn trường'); expect(second).toHaveBeenCalledTimes(1);
-  });
-  it('forgets a stale persisted selection and keeps the chooser open', async () => {
-    localStorage.setItem(storageKey(), 'uuid-stale'); const fetch = rosterFetch([schoolA, schoolB]); vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByLabelText('Chọn trường'); expect(localStorage.getItem(storageKey())).toBeNull(); expect(fetch).toHaveBeenCalledTimes(1);
-  });
-  it('keeps chooser and workspace presentation hooks', async () => {
-    const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); const view = renderContext(); await screen.findByRole('button', { name: 'Học sinh' }); expect(view.container.querySelector('.school-context-switcher')).toBeNull(); expect(view.container.querySelector('.school-context-heading')).toBeNull(); expect(view.container.querySelector('.school-context-navigation')).not.toBeNull();
-  });
-  it('renders people and class destinations without configuration controls', async () => {
-    const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Nhân viên' })); await screen.findByRole('heading', { name: /Nhân viên/ }); expect(screen.queryByRole('button', { name: 'Tạo năm học' })).toBeNull(); fireEvent.click(screen.getByRole('button', { name: 'Lớp học' })); await screen.findByRole('heading', { name: /Lớp học/ }); expect(screen.queryByRole('button', { name: 'Tạo chức danh' })).toBeNull();
-  });
-  it('opens the independent parent list', async () => {
-    const fetch = rosterFetch(); fetch.mockImplementation((url: string) => url.includes('/school-years/year-a/parents?') ? Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'parent-a', fullName: 'Mai Trần', phone: '0900', email: null, children: [] }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } }))) : rosterFetch()(url)); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Phụ huynh' })); await screen.findByText('Mai Trần');
-  });
-  it('guards a dirty settings form before switching School', async () => {
-    const settings = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'SETTINGS_MANAGE'], navigation: [{ id: 'settings', label: 'Cấu hình trường' }] }; const fetch = rosterFetch([schoolA, schoolB], new Map([[schoolA.schoolId, settings], [schoolB.schoolId, contextB]])); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.change(await screen.findByLabelText('Chọn trường'), { target: { value: 'uuid-a' } }); fireEvent.click(await screen.findByRole('button', { name: 'Cấu hình trường' })); await screen.findByRole('heading', { name: 'Cấu hình trường' }); fireEvent.change(screen.getByLabelText('Tên trường'), { target: { value: 'Trường mới' } }); fireEvent.change(screen.getByLabelText('Chọn trường'), { target: { value: 'uuid-b' } }); expect(await screen.findByRole('dialog', { name: 'Đổi trường?' })).toBeTruthy(); expect((screen.getByLabelText('Tên trường') as HTMLInputElement).value).toBe('Trường mới');
-  });
-  it('falls back from a denied page to the first authorized slug page', async () => {
-    window.history.replaceState({}, '', '/schools/peakland/students'); const settings = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'SETTINGS_MANAGE'], navigation: [{ id: 'settings', label: 'Cấu hình trường' }] }; const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, settings]])); vi.stubGlobal('fetch', fetch); renderContext(); await screen.findByRole('heading', { name: 'Cấu hình trường' }); expect(window.location.pathname).toBe('/schools/peakland/settings');
-  });
-  it('renders the server-authorized Finance destinations in an expanded group and rejects the retired aggregate route', async () => {
-    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }, { id: 'promotions', label: 'Ưu đãi' }, { id: 'collection-runs', label: 'Đợt thu' }, { id: 'receipt-queue', label: 'Thu tiền' }, { id: 'finance-reports', label: 'Báo cáo' }] };
-    window.history.replaceState({}, '', '/schools/peakland/receivables');
-    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, finance]]));
-    vi.stubGlobal('fetch', fetch); renderContext();
-    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
-    expect(screen.getByRole('button', { name: 'Tài chính' }).getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('button', { name: 'Khoản thu' }).getAttribute('aria-current')).toBe('page');
-    expect(screen.getByRole('button', { name: 'Ưu đãi' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Đợt thu' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Thu tiền' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Báo cáo' })).toBeTruthy();
-    window.history.pushState({}, '', '/schools/peakland/finance'); fireEvent.popState(window);
-    await waitFor(() => expect(window.location.pathname).toBe('/'));
-  });
-  it('collapses Finance navigation without changing the active route or workspace', async () => {
-    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }, { id: 'receipt-queue', label: 'Thu tiền' }] };
-    window.history.replaceState({}, '', '/schools/peakland/receivables');
-    vi.stubGlobal('fetch', rosterFetch([schoolA], new Map([[schoolA.schoolId, finance]]))); renderContext();
-    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
-    fireEvent.click(screen.getByRole('button', { name: 'Tài chính' }));
-    expect(screen.getByRole('button', { name: 'Tài chính' }).getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByRole('button', { name: 'Khoản thu' })).toBeNull();
-    expect(window.location.pathname).toBe('/schools/peakland/receivables');
-    expect(screen.getByRole('heading', { name: 'Khoản thu', level: 1 })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Tài chính' }));
-    expect(screen.getByRole('button', { name: 'Khoản thu' }).getAttribute('aria-current')).toBe('page');
-    expect(screen.queryByRole('button', { name: 'Ưu đãi' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Thu tiền' })).toBeTruthy();
-  });
-  it('opens a server-filtered Finance rail flyout and closes it with Escape without changing route', async () => {
-    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }, { id: 'receipt-queue', label: 'Thu tiền' }] };
-    const listener = vi.fn();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true, addEventListener: listener, removeEventListener: listener }));
-    window.history.replaceState({}, '', '/schools/peakland/receivables');
-    vi.stubGlobal('fetch', rosterFetch([schoolA], new Map([[schoolA.schoolId, finance]]))); renderContext();
-    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
-    const trigger = screen.getByRole('button', { name: 'Tài chính' });
-    fireEvent.focus(trigger);
-    expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('button', { name: 'Khoản thu' }).getAttribute('aria-current')).toBe('page');
-    expect(screen.getByRole('button', { name: 'Thu tiền' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Ưu đãi' })).toBeNull();
-    fireEvent.keyDown(trigger, { key: 'Escape' });
-    await waitFor(() => expect(trigger.getAttribute('aria-expanded')).toBe('false'));
-    expect(window.location.pathname).toBe('/schools/peakland/receivables');
-  });
-  it('keeps a Finance flyout open after mouse focus and click, then closes it after selecting an authorized child', async () => {
-    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }] };
-    const listener = vi.fn();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true, addEventListener: listener, removeEventListener: listener }));
-    window.history.replaceState({}, '', '/schools/peakland/receivables');
-    vi.stubGlobal('fetch', rosterFetch([schoolA], new Map([[schoolA.schoolId, finance]]))); renderContext();
-    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
-    const trigger = screen.getByRole('button', { name: 'Tài chính' });
-    fireEvent.focus(trigger);
-    fireEvent.click(trigger);
-    expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    fireEvent.click(screen.getByRole('button', { name: 'Khoản thu' }));
-    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
-    expect(trigger.getAttribute('aria-expanded')).toBe('false');
-  });
-  it.each(['receivables', 'promotions', 'collection-runs', 'receipt-queue', 'finance-reports'] as const)('does not render an ungranted Finance deep link: %s', async (page) => {
-    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }] };
-    window.history.replaceState({}, '', `/schools/peakland/${page}`);
-    const fetch = rosterFetch([schoolA], new Map([[schoolA.schoolId, finance]]));
-    vi.stubGlobal('fetch', fetch); renderContext();
-    await screen.findByRole('heading', { name: 'Khoản thu', level: 1 });
-    expect(window.location.pathname).toBe('/schools/peakland/receivables');
-    expect(fetch.mock.calls.some(([url]) => String(url).includes('/finance/promotion-') || String(url).includes('/finance/collection-runs'))).toBe(false);
-  });
-  it('keeps one pending Finance reconciliation while navigating between Finance routes without replaying the mutation', async () => {
-    const finance = { ...contextA, capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'receivables', label: 'Khoản thu' }, { id: 'promotions', label: 'Ưu đãi' }, { id: 'collection-runs', label: 'Đợt thu' }] };
-    const groups = [{ id: 'group-a', name: 'Nhóm A', status: 'ACTIVE' }];
-    let operationGets = 0;
-    const fetch = vi.fn((url: string, options?: RequestInit) => {
-      if (url === '/api/app/schools') return Promise.resolve(new Response(JSON.stringify({ data: [schoolA] })));
-      if (url === '/api/app/schools/uuid-a') return Promise.resolve(new Response(JSON.stringify({ data: finance })));
-      if (String(url).includes('/finance/operations/')) { operationGets += 1; return Promise.resolve(new Response(JSON.stringify({ data: { status: 'PENDING' } }))); }
-      if (options?.method === 'POST' && String(url).includes('/finance/receivables')) return Promise.resolve(new Response(null, { status: 503 }));
-      if (String(url).includes('/finance/receivables')) return Promise.resolve(new Response(JSON.stringify({ data: { groups, receivables: [] } })));
-      if (String(url).includes('promotion-students')) return Promise.resolve(new Response(JSON.stringify({ data: { students: [] } })));
-      if (String(url).includes('promotion-policies')) return Promise.resolve(new Response(JSON.stringify({ data: { policies: [] } })));
-      return Promise.resolve(new Response(JSON.stringify({ data: [] })));
-    });
-    window.history.replaceState({}, '', '/schools/peakland/receivables');
-    vi.stubGlobal('fetch', fetch); renderContext();
-    fireEvent.click(await screen.findByRole('button', { name: 'Thêm khoản thu' }));
-    fireEvent.change(screen.getByLabelText('Nhóm'), { target: { value: 'group-a' } });
-    fireEvent.change(screen.getByLabelText('Tên khoản thu'), { target: { value: 'Học phí' } });
-    fireEvent.change(screen.getByLabelText('Đơn vị'), { target: { value: 'tháng' } });
-    fireEvent.change(screen.getByLabelText('Đơn giá mặc định (VND)'), { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu khoản thu' }));
-    await waitFor(() => expect(operationGets).toBe(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Ưu đãi' }));
-    await screen.findByRole('heading', { name: 'Ưu đãi', level: 1 });
-    expect(operationGets).toBe(1);
-    expect(fetch.mock.calls.filter(([url, options]) => String(url).includes('/finance/receivables') && (options as RequestInit | undefined)?.method === 'POST')).toHaveLength(1);
-  });
-  it('retries a transient context error', async () => {
-    window.history.replaceState({}, '', '/schools/peakland/staff'); const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: [schoolA] }))).mockResolvedValueOnce(new Response(null, { status: 500 })).mockResolvedValueOnce(new Response(JSON.stringify({ data: contextA }))); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thử lại' })); await screen.findByRole('heading', { name: /Nhân viên/ });
-  });
-  it('uses slug navigation paths and restores the prior page through browser history', async () => {
-    window.history.replaceState({}, '', '/schools/peakland/students'); const fetch = rosterFetch(); vi.stubGlobal('fetch', fetch); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Nhân viên' })); await screen.findByRole('heading', { name: /Nhân viên/ }); expect(window.location.pathname).toBe('/schools/peakland/staff'); window.history.back(); window.dispatchEvent(new PopStateEvent('popstate')); await screen.findByRole('heading', { name: /Học sinh/ }); expect(window.location.pathname).toBe('/schools/peakland/students');
+  it('guards browser Back to Home and restores the scoped route on stay', async () => {
+    window.history.replaceState({}, '', '/'); window.history.pushState({}, '', '/schools/peakland/students'); vi.stubGlobal('fetch', fetchFor()); renderContext(); fireEvent.click(await screen.findByRole('button', { name: 'Thêm học sinh' })); fireEvent.change(await screen.findByLabelText('Họ và tên'), { target: { value: 'Bé An' } });
+    window.history.back(); fireEvent.popState(window); await screen.findByRole('dialog', { name: 'Rời không gian làm việc?' }); fireEvent.click(screen.getByRole('button', { name: 'Ở lại' }));
+    expect(window.location.pathname).toBe('/schools/peakland/students'); expect((screen.getByLabelText('Họ và tên') as HTMLInputElement).value).toBe('Bé An');
   });
 });

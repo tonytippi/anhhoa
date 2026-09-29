@@ -198,12 +198,14 @@ export function RosterWorkspace({
   schoolName,
   denied,
   onStatusChange,
+  requestHome,
   section = "all",
 }: {
   schoolId: string;
   schoolName: string;
   denied: () => void;
   onStatusChange?: (status: Status) => void;
+  requestHome?: () => void;
   section?: "all" | "students" | "parents" | "staff" | "classes" | "years" | "positions";
 }) {
   const [years, setYears] = useState<SchoolYear[]>([]);
@@ -1599,9 +1601,10 @@ export function RosterWorkspace({
            <button type="button" className="primary-action" disabled={disabled} onClick={() => { clearStaffIntake(); setStaffIntakeOpen(true); }}>Thêm nhân viên</button>
          </div>
        </div>
-       {staffIntakeOpen && <div className="student-intake-backdrop"><div ref={staffIntakeDialog} className="student-intake-dialog staff-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-intake-title" onKeyDown={trapStaffIntakeDialog}><form className="roster-form student-intake-form" onSubmit={saveStaff}>
-        <h3 id="staff-intake-title">{editingStaffId ? "Sửa hồ sơ nhân viên" : "Tạo hồ sơ nhân viên"}</h3>
-        <fieldset><legend>Thông tin cơ bản</legend>
+        {staffIntakeOpen && <div className="student-intake-backdrop"><div ref={staffIntakeDialog} className="student-intake-dialog staff-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-intake-title" onKeyDown={trapStaffIntakeDialog}><form className="roster-form student-intake-form" onSubmit={saveStaff}>
+         <h3 id="staff-intake-title">{editingStaffId ? "Sửa hồ sơ nhân viên" : "Tạo hồ sơ nhân viên"}</h3>
+         {requestHome && <button type="button" className="staff-intake-home" onClick={requestHome}>Về trang chủ</button>}
+         <fieldset><legend>Thông tin cơ bản</legend>
         <label>
           Họ và tên nhân sự
           <input

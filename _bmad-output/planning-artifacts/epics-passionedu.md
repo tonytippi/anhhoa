@@ -291,7 +291,7 @@ Mo rong Payroll chi sau khi policy/compliance contract tuong ung duoc duyet: bon
 
 ## Epic 1: Vận hành nền tảng đa trường và truy cập có kiểm soát
 
-Platform Operator provision, suspend/reactivate School; Admin/Staff dang nhap, chon School va chi thuc hien capability hien hanh trong tenant do. Tenant isolation duoc chung minh truoc khi phat hanh nghiep vu School.
+Platform Operator provision, suspend/reactivate School; Admin/Staff dang nhap, chon School tu Home va chi thuc hien capability hien hanh trong tenant do. Tenant isolation duoc chung minh truoc khi phat hanh nghiep vu School.
 
 ### Story 1.1: Khởi tạo nền tảng target đa portal
 
@@ -460,6 +460,29 @@ So that Epic 2 tro di khong duoc phat hanh tren authorization chua duoc xac minh
 **When** user chuyen audience hoac School trong cac trang thai sach, dirty va timeout
 **Then** audience/session isolation, visible School context, switch guard, focus/error state va Operation reconciliation deu pass
 **And** Epic 1 khong duoc danh dau complete neu tenant-isolation suite con loi.
+
+### Story 1.7: Home-only School chooser và leave guard
+
+As an Admin or Teacher with multiple authorized Schools,
+I want to choose a School from Home and return there before selecting another,
+So that tenant work stays deliberate and unsaved or uncertain work cannot be lost during an in-page context transition.
+
+**Acceptance Criteria:**
+
+**Given** an authenticated Admin or Teacher has multiple authorized Schools
+**When** opening portal Home
+**Then** Home lists only server-authorized Schools and choosing one opens its authorized overview with focus on the route `h1`
+**And** scoped pages show the School name as read-only context with an explicit Home action, not a mutable School selector.
+
+**Given** an actor has dirty input or a pending/uncertain Operation in a scoped workspace
+**When** they navigate Home, browser back, an internal route or another authorized School URL
+**Then** a leave guard offers remain, discard only before submit, or Operation reconciliation
+**And** the browser never silently loses input, retries an uncertain mutation or assumes authorization for a target School.
+
+**Given** an actor opens an authorized School URL directly or a School becomes revoked/suspended
+**When** API authorization resolves the context
+**Then** the authorized route loads without Home selection, while denied/revoked/suspended context clears protected state to Home/chooser or signed-out safe state
+**And** Parent chooser behavior and all API School authorization remain unchanged.
 
 ## Epic 2: Thiết lập trường học và danh bộ có lịch sử
 

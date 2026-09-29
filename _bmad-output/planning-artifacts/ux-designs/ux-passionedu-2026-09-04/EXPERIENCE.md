@@ -20,7 +20,7 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | Surface | Audience | Purpose |
 | --- | --- | --- |
 | Ops School list and provision | Platform Operator | Create, suspend/reactivate School; bootstrap owner; never read School business data. |
-| School chooser / switcher | Admin/Staff, Parent with multiple active Schools | Select an authorized School before scoped work. A Parent with one active School enters its home directly; a Parent with no active StudentParent link is denied a Parent session. |
+| School chooser | Admin/Staff Home; Parent with multiple active Schools | Admin/Teacher select an authorized School only from Home before scoped work. Scoped Admin/Teacher pages show a read-only School context and return to Home to choose another. Parent with one active School enters its home directly; a Parent with no active StudentParent link is denied a Parent session. |
 | Tổng quan | Admin | Tổng quan vận hành theo School/ngày, read-only: sĩ số/lớp, điểm danh do server trả về, trẻ đã được đón và đơn nghỉ; không là nơi mutation điểm danh, giờ đón hay nhật ký. |
 | Danh bộ | School Admin | SchoolYear, Class, Student enrollment, Parent links, Staff assignments. |
 | Chức danh | School Admin | Quản lý Chức danh School-scoped, capability catalog được phép và trạng thái; không tạo quyền tự do hay thay login binding/phân công Lớp. |
@@ -54,7 +54,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 
 | Component | Use | Behavioral rules |
 | --- | --- | --- |
-| School context switcher | Admin/Staff, Parent | Visible name is mandatory. On dirty form or pending/uncertain mutation, open switch guard: remain, discard, or reconcile Operation. No auto-save draft. |
+| School context and Home return | Admin/Staff, Parent | Visible School name is mandatory. Admin/Teacher scoped pages use read-only context and an explicit Home return; Parent retains its chooser behavior. On dirty form or pending/uncertain mutation, a leave-workspace guard offers remain, discard before submit, or reconcile Operation. No auto-save draft. |
 | Tổng quan theo ngày | Admin | Dải chỉ số ngắn và bảng theo lớp hiển thị sĩ số, đã có mặt, nghỉ có đơn, đã được đón và trạng thái chưa đến lớp. Count/nhãn/date context là dữ liệu server, không optimistic hay tự tính trên browser. Hôm nay chưa có `PRESENT`/`ABSENT` xác nhận là `Chưa đến lớp`; ngày quá khứ `ABSENT` xác nhận không có đơn duyệt là `Nghỉ không phép`, còn không có bản ghi là `Chưa ghi nhận`. Card nghỉ có đơn mở danh sách đơn với filter URL-backed. |
 | SchoolYear setup | School Admin | Creates one active SchoolYear through a named confirmation. Class, Student, pending Parent link and Staff assignment forms show effective date and server validation; Staff profile never implies a login grant. |
 | Chức danh | School Admin | Workspace desktop table-first luôn nêu rõ Trường đang chọn ở heading/caption. Bảng có `Tên chức danh`, `Mã`, `Trạng thái`, `Số nhân sự`, `Khả năng thao tác` và `Tùy chọn`; capability hiển thị bằng nhãn tiếng Việt ngắn do server trả về, không dùng raw JSON hay mã kỹ thuật. Có tìm kiếm/lọc trạng thái, phân trang và nút `Thêm chức danh`; card chỉ dùng cho tóm tắt, ngoại lệ hoặc xác nhận. Tạo/Sửa dùng tên, mã và checkbox capability từ catalog Platform được server cho phép, nhóm theo khu vực vận hành; không có ô nhập quyền tự do, tạo capability mới, hoặc capability Platform/Parent/Ops. Tên chức danh chỉ để nhận biết, không mô tả hay chứng minh quyền thực thi. |
@@ -97,8 +97,8 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | No authorized Parent data | Gentle `{components.illustration-panel}` empty state with signed-out/safe next action; no child names remain. |
 | No attendance on a working day | `NOT_RECORDED` text label and update context; never infer absence. |
 | Holiday / non-operating date | Date history labels the calendar status instead of implying missing attendance. The server calendar uses the fixed Monday-Saturday schedule and confirmed inclusive School holiday ranges. |
-| Permission denied / revoke / `401` | Clear protected memory, close sheets/dialogs, then route to safe chooser or signed-out state. |
-| School suspended | Keep identity session; replace School content with suspended explanation and allowed alternative School chooser. |
+| Permission denied / revoke / `401` | Clear protected memory, close sheets/dialogs, then route Admin/Teacher to Home chooser, Parent to its safe chooser, or signed-out state. |
+| School suspended | Keep identity session; replace School content with suspended explanation and Home return for another authorized Admin/Teacher School. |
 | Validation error | Error summary receives focus and links to fields; `fieldErrors` appear adjacent to the field. |
 | Mutation timeout | Disable repeat submit, show reconciliation state, request Operation result before retry is offered. |
 | Operation completed with skips | Result screen lists created/skipped categories and links to affected filtered records. |
@@ -148,7 +148,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 - A daily operational detail replaces its landing header/actions with a single contextual title and Back action. Do not leave create/configure actions visible when they cannot act on the selected record.
 - Keep table cells scannable: one primary value, short secondary context only where necessary, and a labeled button/link for the next task. Put long explanation, source provenance and audit identifiers behind a disclosure or destination view.
 - Dialogs trap focus, restore focus to their trigger, have one obvious dismiss path and never stack. Create/change with financial effect, destructive, issue, settlement, reversal and discard actions require a named confirmation.
-- Trước khi đổi Trường từ form Chức danh chưa lưu, mở switch guard: `Ở lại để tiếp tục`, `Bỏ thay đổi` hoặc `Đối soát thao tác`. Khi mutation đã gửi hoặc chưa chắc kết quả, không cho bỏ thay đổi hay tự chuyển Trường; chỉ đối soát Operation hoặc hủy việc chuyển.
+- Trước khi rời workspace School-scoped từ form Chức danh chưa lưu, mở leave guard: `Ở lại để tiếp tục`, `Bỏ thay đổi` hoặc `Đối soát thao tác`. Khi mutation đã gửi hoặc chưa chắc kết quả, không cho bỏ thay đổi; chỉ đối soát Operation hoặc hủy điều hướng.
 - Date controls are keyboard reachable and announce selected day/calendar status. Status filters use text labels, not color-only chips.
 - Parent notification deep-links re-authorize child and School before rendering; if unavailable, show safe inbox context rather than stale detail.
 - Parent has no attendance edit affordance. Finance totals/statuses always display API-returned values.
@@ -187,7 +187,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 3. Hoa opens a queue card for a class; its filter remains in the URL and shows which Students still need attendance.
 4. She opens a pending leave record and sees the server result after approval.
 5. **Climax:** The queue count and class list refresh from the server; Hoa knows which class still needs attention without checking a finance screen.
-6. Failure: Hoa attempts to switch School while an approval mutation times out. The switch guard offers to remain and reconcile the Operation, discard only before submit, or cancel switching.
+6. Failure: Hoa attempts to return Home while an approval mutation times out. The leave guard offers to remain and reconcile the Operation, discard only before submit, or cancel navigation.
 
 ### Flow 1b - Provision and owner bootstrap (Linh, Platform Operator)
 
@@ -212,7 +212,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 2. She begins a transition wizard, selects source Students and maps each to a destination Class.
 3. Server preview identifies records that move and records that cannot move; Hoa confirms through an idempotent action.
 4. **Climax:** Destination enrollment history appears while source history remains readable and unchanged.
-5. Failure: timeout or conflicting enrollment enters Operation reconciliation; Hoa cannot switch School or submit a second batch until it resolves.
+5. Failure: timeout or conflicting enrollment enters Operation reconciliation; Hoa cannot leave the workspace or submit a second batch until it resolves.
 
 ### Flow 1d - School foundation setup (Hoa, School Admin)
 
@@ -230,7 +230,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 3. Sau khi gửi, UI đối soát Operation rồi làm mới bảng bằng dữ liệu server; tên không được coi là bằng chứng quyền.
 4. Hoa muốn ngừng áp dụng một Chức danh đang có Staff. Hộp xác nhận nêu tên, số Staff bị ảnh hưởng, yêu cầu lý do audit và nói rõ yêu cầu tiếp theo của họ sẽ bị chặn theo capability bị mất.
 5. **Climax:** Bảng hiển thị trạng thái `Ngừng áp dụng` do server xác nhận và vẫn giữ dòng/lịch sử để đối soát.
-6. Failure: lỗi mã trùng hoặc catalog không hợp lệ focus error summary và giữ input. Nếu Hoa đổi Trường khi form bẩn, switch guard cho ở lại hoặc bỏ thay đổi; nếu mutation đang đối soát, chỉ cho ở lại để đối soát hoặc hủy đổi Trường.
+6. Failure: lỗi mã trùng hoặc catalog không hợp lệ focus error summary và giữ input. Nếu Hoa về Trang chủ khi form bẩn, leave guard cho ở lại hoặc bỏ thay đổi; nếu mutation đang đối soát, chỉ cho ở lại để đối soát hoặc hủy điều hướng.
 
 ### Flow 1f - School policy and holiday calendar (Hoa, School Admin)
 

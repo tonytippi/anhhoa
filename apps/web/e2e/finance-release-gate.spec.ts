@@ -42,7 +42,11 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await login(page.context());
   await page.goto(app);
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
-  await page.getByRole('button', { name: 'Khoản thu' }).click();
+  await expect(page.getByRole('heading', { name: 'Tổng quan vận hành', level: 1 })).toBeFocused();
+  await page.getByRole('button', { name: 'Tài chính' }).click();
+  const receivablesNavigation = page.getByRole('button', { name: 'Khoản thu' });
+  await expect(receivablesNavigation).toBeVisible();
+  await receivablesNavigation.click();
   await expect(page.getByRole('heading', { name: 'Khoản thu', level: 1 })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   const receivablesToolbar = page.getByRole('form', { name: 'Điều khiển danh sách khoản thu' });
@@ -52,14 +56,16 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await page.getByRole('button', { name: 'Ưu đãi' }).click();
   await expect(page.getByRole('heading', { name: 'Ưu đãi', level: 1 })).toBeVisible();
   await expect(page.getByRole('form', { name: 'Điều khiển danh sách ưu đãi' }).getByRole('button', { name: 'Thêm chính sách' })).toBeInViewport();
-  await page.getByRole('button', { name: 'Đợt thu' }).click();
+   await page.getByRole('button', { name: 'Đợt thu' }).click();
   await expect(page.getByRole('heading', { name: 'Đợt thu', level: 1 })).toBeVisible();
   const runsToolbar = page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' });
   await expect(runsToolbar.getByLabel('Lọc trạng thái')).toBeInViewport();
-  await expect(runsToolbar.getByRole('button', { name: 'Tạo đợt thu' })).toBeInViewport();
+  const createRun = runsToolbar.getByRole('button', { name: 'Tạo đợt thu' });
+  await createRun.scrollIntoViewIfNeeded();
+  await expect(createRun).toBeInViewport();
   await page.setViewportSize({ width: 1280, height: 900 });
 
-  await page.getByRole('button', { name: 'Tạo đợt thu' }).click();
+  await createRun.click();
   const runDialog = page.getByRole('dialog', { name: 'Tạo hoặc mở đợt thu' });
   await runDialog.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
   await runDialog.getByLabel('Tháng thu').fill('2026-09');
@@ -219,18 +225,20 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    expect((await download).suggestedFilename()).toBe('finance-overview.csv');
 
    await page.setViewportSize({ width: 1280, height: 900 });
-   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
-  await expect(page.getByRole('heading', { name: 'PassionEdu - Release Gate B' })).toBeFocused();
+    await page.getByRole('button', { name: 'Về trang chủ' }).click();
+    await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+   await expect(page.getByRole('heading', { name: 'Tổng quan vận hành', level: 1 })).toBeFocused();
   const otherSchoolReport = page.waitForResponse((response) =>
     response.url().includes('/finance/reports/overview') &&
     response.request().method() === 'GET',
   );
-  await page.getByRole('button', { name: 'Báo cáo' }).click();
+   await page.getByRole('button', { name: 'Tài chính' }).click();
+   await page.getByRole('button', { name: 'Báo cáo' }).click();
   expect((await otherSchoolReport).status()).toBe(200);
   await expect(page.getByText('285.000 VND')).toHaveCount(0);
   await expect(page.getByText('RG1-1 / Bé An')).toHaveCount(0);
   await expect(page.getByText('Không có hoạt động sổ cái phù hợp tại thời điểm chốt.')).toBeVisible();
-  await page.getByRole('button', { name: 'Khoản thu' }).click();
+   await page.getByRole('button', { name: 'Khoản thu' }).click();
   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 2');
    await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).not.toContainText('Học phí Release 1');
    await expect(page.getByText('RG1-1 / Bé An')).toHaveCount(0);
