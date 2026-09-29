@@ -10,55 +10,143 @@
 </head>
 <body>
   <div data-admin-shell data-admin-route="runs" class="finance-page">
-    <section>
+    <section id="run-list" data-run-view>
       <div class="route">
         <div>
           <p class="eyebrow">TÀI CHÍNH · TRƯỜNG ÁNH HOA · NĂM HỌC 2026-2027</p>
           <h1>Đợt thu</h1>
-          <p>Mở đợt theo tháng; hệ thống xác định roster, preview và kết quả tạo hóa đơn.</p>
+          <p>Mở đợt theo tháng; hệ thống xác định danh sách học sinh, bản xem trước và kết quả tạo hóa đơn.</p>
         </div>
         <button class="btn btn-primary" type="button" id="open-create">Tạo đợt thu</button>
       </div>
       <div class="table-wrap">
         <table>
           <caption>Danh sách đợt thu của Trường Ánh Hoa · Năm học 2026-2027</caption>
-          <thead><tr><th>Đợt thu</th><th>Trạng thái</th><th>Phạm vi roster</th><th>Tùy chọn</th></tr></thead>
+          <thead><tr><th>Tháng</th><th>Năm học</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
           <tbody>
-            <tr><td><b>Thu tháng 10/2026</b></td><td><span class="badge info">Đã xem trước</span></td><td>Preview máy chủ đã xác nhận</td><td><button class="btn btn-secondary" type="button">Rà soát đợt thu</button></td></tr>
-            <tr><td><b>Thu tháng 11/2026</b></td><td><span class="badge neutral">Đang soạn</span></td><td>Đánh giá khi xem trước</td><td><button class="btn btn-secondary" type="button">Mở đợt thu</button></td></tr>
+            <tr><td><b>09/2026</b></td><td>Năm học 2026-2027</td><td><span class="badge success">Đã tạo hóa đơn</span></td><td><a class="btn btn-secondary" href="#run-generated">Mở chi tiết</a></td></tr>
+            <tr><td><b>10/2026</b></td><td>Năm học 2026-2027</td><td><span class="badge info">Sẵn sàng tạo hóa đơn</span></td><td><a class="btn btn-secondary" href="#run-ready">Mở chi tiết</a></td></tr>
+            <tr><td><b>11/2026</b></td><td>Năm học 2026-2027</td><td><span class="badge neutral">Nháp</span></td><td><a class="btn btn-secondary" href="#run-draft">Mở chi tiết</a></td></tr>
           </tbody>
         </table>
       </div>
     </section>
-    <section id="detail" aria-labelledby="run-detail-title">
-      <div class="route"><div><p class="eyebrow">ĐỢT THU · THÁNG 10/2026</p><h1 id="run-detail-title">Đợt thu tháng 10/2026 · Nháp</h1><p>Máy chủ xác định học sinh đang theo học, có phân lớp hiệu lực và lớp đang hoạt động tại đầu tháng thu.</p></div><a class="btn btn-secondary" href="invoice-generation.html">Quay lại danh sách đợt thu</a></div>
-      <div class="table-wrap">
-        <table>
-          <caption>Khoản thu mẫu chung</caption>
-          <thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá mặc định</th><th>Thành tiền</th><th>Tùy chọn</th></tr></thead>
-          <tbody><tr><td>Học phí tháng</td><td>1</td><td class="money">1.500.000 đ</td><td class="money">1.500.000 đ</td><td><button class="btn btn-secondary" type="button">Bỏ</button></td></tr></tbody>
-        </table>
+
+    <section id="run-draft" data-run-view hidden aria-labelledby="run-draft-title">
+      <div class="route"><div><p class="eyebrow">ĐỢT THU · NĂM HỌC 2026-2027</p><h1 id="run-draft-title" tabindex="-1">Đợt thu tháng 11/2026 · Nháp</h1><p>Máy chủ xác định học sinh đang theo học, có phân lớp hiệu lực và lớp đang hoạt động tại đầu tháng thu.</p></div><a class="btn btn-secondary" href="#">Quay lại danh sách đợt thu</a></div>
+      <ol class="steps" aria-label="Tiến trình đợt thu"><li class="current" aria-current="step">Nháp</li><li>Sẵn sàng tạo hóa đơn</li><li>Đã tạo hóa đơn</li><li>Đã đóng</li></ol>
+      <div class="summary" aria-label="Tổng quan do máy chủ tính">
+        <div class="metric"><span>Học sinh đủ điều kiện</span><b>124</b></div>
+        <div class="metric"><span>Học sinh bị bỏ qua</span><b>1</b></div>
+        <div class="metric"><span>Cần thu dự kiến</span><b>262.600.000 đ</b></div>
       </div>
-      <p>Thay đổi template hoặc roster sau preview cần preview mới trước khi xác nhận sẵn sàng.</p>
-      <button class="btn btn-secondary" type="button">Xem trước từ máy chủ</button>
-      <div class="table-wrap">
-        <table>
-          <caption>Học sinh đủ điều kiện do máy chủ trả về</caption>
-          <thead><tr><th>Học sinh</th><th>Lớp</th><th>Khoản thu</th><th class="money">Tổng phải thu</th></tr></thead>
-          <tbody><tr><td>AH-001 / Bé An</td><td>Lá 1</td><td>Học phí tháng</td><td class="money">1.500.000 đ</td></tr></tbody>
-        </table>
+      <div class="card">
+        <h2>Khoản thu trong đợt</h2>
+        <p class="muted">Đơn giá và thành tiền do máy chủ xác nhận. Thay đổi khoản thu sau khi xem trước cần xem trước lại.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Khoản thu mẫu chung</caption>
+            <thead><tr><th>Khoản thu</th><th>Số lượng</th><th class="money">Đơn giá</th><th class="money">Thành tiền</th><th>Tùy chọn</th></tr></thead>
+            <tbody>
+              <tr><td>Học phí tháng</td><td>1 tháng</td><td class="money">1.500.000 đ</td><td class="money">1.500.000 đ</td><td><button class="btn btn-secondary" type="button">Bỏ</button></td></tr>
+              <tr><td>Tiền ăn tháng</td><td>22 ngày</td><td class="money">35.000 đ</td><td class="money">770.000 đ</td><td><button class="btn btn-secondary" type="button">Bỏ</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="filters"><label class="field">Khoản thu<select><option>Chọn khoản thu</option><option>Phí dã ngoại mùa thu</option></select></label><label class="field">Số lượng<input inputmode="numeric"></label><button class="btn btn-primary" type="button">Lưu khoản thu mẫu</button></div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <caption>Học sinh bị bỏ qua do máy chủ trả về</caption>
-          <thead><tr><th>Học sinh</th><th>Lý do</th></tr></thead>
-          <tbody><tr><td>AH-002 / Bé Bình</td><td>Chưa có lớp được phân công hiệu lực vào đầu tháng thu.</td></tr></tbody>
-        </table>
+      <div class="card">
+        <h2>Kết quả xem trước từ máy chủ</h2>
+        <p class="muted">Bản xem trước do máy chủ xác định từ danh sách học sinh hợp lệ tại đầu tháng thu.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Học sinh đủ điều kiện</caption>
+            <thead><tr><th>Học sinh</th><th>Lớp</th><th class="money">Tổng trước giảm</th><th class="money">Giảm trừ</th><th class="money">Tổng phải thu</th><th>Lý do ưu đãi</th></tr></thead>
+            <tbody>
+              <tr><td>AH-104 / Bé Minh Anh</td><td>Mầm 4A</td><td class="money">2.270.000 đ</td><td class="money">150.000 đ</td><td class="money">2.120.000 đ</td><td>Con cán bộ trường</td></tr>
+              <tr><td>AH-121 / Bé Tuấn Huy</td><td>Chồi 3B</td><td class="money">2.270.000 đ</td><td class="money">0 đ</td><td class="money">2.270.000 đ</td><td>Không áp dụng</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>Học sinh bị bỏ qua</caption>
+            <thead><tr><th>Học sinh</th><th>Lý do</th></tr></thead>
+            <tbody><tr><td>AH-002 / Bé Bình</td><td>Chưa có lớp được phân công hiệu lực vào đầu tháng thu.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="line"><button class="btn btn-secondary" type="button">Xem trước từ máy chủ</button><button class="btn btn-primary" type="button">Xác nhận xem trước và chuyển sẵn sàng</button></div>
       </div>
-      <button class="btn btn-primary" type="button">Xác nhận preview và chuyển sẵn sàng</button>
-      <button class="btn btn-primary" type="button">Tạo hóa đơn nháp</button>
     </section>
-    <dialog id="create-dialog"><form method="dialog" class="dialog-body"><h2>Tạo hoặc mở đợt thu</h2><p class="muted">Mỗi tháng có một đợt thu. Máy chủ tạo mới hoặc mở đúng đợt đã có.</p><label class="field">Năm học<select><option>Năm học 2026-2027</option></select></label><label class="field">Tháng thu<input type="month" value="2026-11"></label><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" value="default">Xác nhận tạo hoặc mở</button></div></form></dialog>
+
+    <section id="run-ready" data-run-view hidden aria-labelledby="run-ready-title">
+      <div class="route"><div><p class="eyebrow">ĐỢT THU · NĂM HỌC 2026-2027</p><h1 id="run-ready-title" tabindex="-1">Đợt thu tháng 10/2026 · Sẵn sàng tạo hóa đơn</h1><p>Máy chủ xác định học sinh đang theo học, có phân lớp hiệu lực và lớp đang hoạt động tại đầu tháng thu.</p></div><a class="btn btn-secondary" href="#">Quay lại danh sách đợt thu</a></div>
+      <ol class="steps" aria-label="Tiến trình đợt thu"><li>Nháp</li><li class="current" aria-current="step">Sẵn sàng tạo hóa đơn</li><li>Đã tạo hóa đơn</li><li>Đã đóng</li></ol>
+      <div class="summary" aria-label="Tổng quan do máy chủ tính">
+        <div class="metric"><span>Học sinh đủ điều kiện</span><b>125</b></div>
+        <div class="metric"><span>Học sinh bị bỏ qua</span><b>0</b></div>
+        <div class="metric"><span>Cần thu dự kiến</span><b>264.900.000 đ</b></div>
+      </div>
+      <div class="card">
+        <h2>Tạo hóa đơn nháp</h2>
+        <p class="muted">Bản xem trước đã được xác nhận. Máy chủ sẽ đánh giá lại danh sách học sinh khi tạo và dùng bản chốt khoản thu của đợt.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Khoản thu đã chốt cho đợt</caption>
+            <thead><tr><th>Khoản thu</th><th>Số lượng</th><th class="money">Đơn giá</th><th class="money">Thành tiền</th></tr></thead>
+            <tbody>
+              <tr><td>Học phí tháng</td><td>1 tháng</td><td class="money">1.500.000 đ</td><td class="money">1.500.000 đ</td></tr>
+              <tr><td>Tiền ăn tháng</td><td>22 ngày</td><td class="money">35.000 đ</td><td class="money">770.000 đ</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="line"><span class="muted">Thay đổi khoản thu cần quay lại bước Nháp và xem trước mới.</span><button class="btn btn-primary" type="button">Tạo hóa đơn nháp</button></div>
+      </div>
+    </section>
+
+    <section id="run-generated" data-run-view hidden aria-labelledby="run-generated-title">
+      <div class="route"><div><p class="eyebrow">ĐỢT THU · NĂM HỌC 2026-2027</p><h1 id="run-generated-title" tabindex="-1">Đợt thu tháng 09/2026 · Đã tạo hóa đơn</h1><p>Máy chủ xác định học sinh đang theo học, có phân lớp hiệu lực và lớp đang hoạt động tại đầu tháng thu.</p></div><a class="btn btn-secondary" href="#">Quay lại danh sách đợt thu</a></div>
+      <ol class="steps" aria-label="Tiến trình đợt thu"><li>Nháp</li><li>Sẵn sàng tạo hóa đơn</li><li class="current" aria-current="step">Đã tạo hóa đơn</li><li>Đã đóng</li></ol>
+      <div class="summary" aria-label="Tổng quan do máy chủ tính">
+        <div class="metric"><span>Hóa đơn</span><b>125</b></div>
+        <div class="metric"><span>Đã phát hành</span><b>118</b></div>
+        <div class="metric"><span>Tổng phải thu</span><b>264.900.000 đ</b></div>
+      </div>
+      <div class="notice" role="status">Đã tạo 125 hóa đơn nháp; bỏ qua 1 học sinh. <details><summary>Xem học sinh bị bỏ qua</summary>AH-002 / Bé Bình: Chưa có lớp được phân công hiệu lực vào đầu tháng thu.</details></div>
+      <div class="card">
+        <div class="line"><div><h2>Hóa đơn trong đợt</h2><p class="muted">118/125 hóa đơn đã phát hành hoặc hoàn tất.</p></div><button class="btn btn-secondary" type="button" id="open-add-student">Thêm học sinh</button></div>
+        <div class="table-wrap">
+          <table>
+            <caption>Hóa đơn hiện có trong đợt thu</caption>
+            <thead><tr><th>Học sinh</th><th>Lớp</th><th>Trạng thái</th><th class="money">Tổng</th><th>Tùy chọn</th></tr></thead>
+            <tbody>
+              <tr><td>AH-104 / Bé Minh Anh</td><td>Mầm 4A</td><td><span class="badge neutral">Nháp</span></td><td class="money">2.120.000 đ</td><td><a class="btn btn-secondary" href="invoice-detail-review.html?run=2026-09&amp;student=minh-anh&amp;invoice=draft-minh-anh">Rà soát hóa đơn</a></td></tr>
+              <tr><td>AH-121 / Bé Tuấn Huy</td><td>Chồi 3B</td><td><span class="badge success">Đã phát hành</span></td><td class="money">2.270.000 đ</td><td><a class="btn btn-secondary" href="invoice-detail-review.html?run=2026-09&amp;student=tuan-huy&amp;invoice=issued-tuan-huy">Rà soát hóa đơn</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="line"><span class="muted">Chưa thể đóng: còn hóa đơn nháp cần phát hành.</span><button class="btn btn-secondary" type="button" disabled>Đóng đợt thu</button></div>
+      </div>
+    </section>
+
+    <dialog id="create-dialog"><form method="dialog" class="dialog-body"><h2>Tạo hoặc mở đợt thu</h2><p class="muted">Mỗi tháng có một đợt thu. Máy chủ tạo mới hoặc mở đúng đợt đã có.</p><label class="field">Năm học<select><option>Năm học 2026-2027</option></select></label><label class="field">Tháng thu<input type="month" value="2026-12"></label><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" value="default">Xác nhận tạo hoặc mở</button></div></form></dialog>
+    <dialog id="add-student-dialog"><form method="dialog" class="dialog-body"><h2>Thêm học sinh vào đợt đã tạo</h2><p class="muted">Máy chủ tự xác nhận điều kiện và dùng bản chốt khoản thu của đợt.</p><div class="table-wrap"><table><caption>Học sinh có thể yêu cầu thêm</caption><thead><tr><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody><tr><td>AH-130 / Bé Khánh Linh</td><td><button class="btn btn-secondary" value="default">Yêu cầu thêm</button></td></tr></tbody></table></div><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Đóng</button></div></form></dialog>
   </div>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      var views = [].slice.call(document.querySelectorAll('[data-run-view]'));
+      function showRunView() {
+        var target = document.getElementById(window.location.hash.slice(1));
+        if (!target || !target.hasAttribute('data-run-view')) target = document.getElementById('run-list');
+        views.forEach(function (view) { view.hidden = view !== target; });
+        var heading = target.querySelector('h1');
+        if (heading && target.id !== 'run-list') heading.focus();
+      }
+      window.addEventListener('hashchange', showRunView);
+      showRunView();
+      document.getElementById('open-create').addEventListener('click', function () { document.getElementById('create-dialog').showModal(); });
+      document.getElementById('open-add-student').addEventListener('click', function () { document.getElementById('add-student-dialog').showModal(); });
+    });
+  </script>
 </body>
 </html>

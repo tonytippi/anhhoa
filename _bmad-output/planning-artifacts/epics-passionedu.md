@@ -507,6 +507,56 @@ So that I can work through its growing information without scanning an inactive 
 **Then** labels are Vietnamese and do not expose raw lifecycle, eligibility, accounting or implementation terms by default
 **And** changing labels does not change API-authoritative lifecycle, VND, preview fingerprint, snapshot or Operation behavior.
 
+### Story 5.19: Route rà soát hóa đơn theo học sinh
+
+As a Finance Manager,
+I want to review and issue each Invoice on its own per-Student screen,
+So that I can work through Drafts without scrolling past the run and can reload or return to the same Invoice.
+
+**Acceptance Criteria:**
+
+**Given** Finance chooses `Rà soát hóa đơn` from a CollectionRun
+**When** the route `/collection-runs/:runId/invoices/:invoiceId` loads
+**Then** only the Invoice destination renders with the two-column layout of `invoice-detail-review.html`
+**And** `Quay lại đợt thu` returns to the originating run detail with list context preserved.
+
+**Given** the Invoice URL is reloaded or opened directly
+**When** the server authorizes the School, run and Invoice
+**Then** the same Invoice and its server-ordered `Học sinh trước`/`Học sinh tiếp theo` render
+**And** a denied or unavailable Invoice returns to the run with the server message.
+
+**Given** Finance issues, prepares a revision, edits a line or applies coverage
+**When** the server responds or an Operation is uncertain
+**Then** existing confirmation, idempotency, reconciliation and lifecycle behavior is unchanged
+**And** the UI shows the result without auto-advancing to the next Student.
+
+### Story 5.20: Tổng quan và tiến trình đợt thu
+
+As a Finance Manager,
+I want each CollectionRun to show its lifecycle step and a server-computed overview,
+So that I know where the run stands and what comes next without reading every table.
+
+**Acceptance Criteria:**
+
+**Given** a CollectionRun in any lifecycle state
+**When** detail loads
+**Then** a step indicator marks the server status with `aria-current="step"`
+**And** it offers no navigation or transition.
+
+**Given** a previewed, ready, generated or closed run
+**When** detail loads
+**Then** counts and VND totals come only from the server `summary` DTO computed as School/run-scoped `BIGINT` sums
+**And** the browser never sums line or Invoice amounts.
+
+**Given** a READY run
+**When** detail loads
+**Then** the locked template and summary are visible with `Tạo hóa đơn nháp` as the single primary action.
+
+**Given** a GENERATED run
+**When** generation completes or detail loads
+**Then** a result notice replaces the duplicate generated-Student table
+**And** `Thêm học sinh` opens a dialog listing server-eligible candidates.
+
 ## Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

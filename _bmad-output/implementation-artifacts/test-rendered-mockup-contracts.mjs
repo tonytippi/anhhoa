@@ -3,10 +3,10 @@ import { readFile, readdir } from 'node:fs/promises';
 
 const mockups = new URL('../planning-artifacts/ux-designs/ux-passionedu-2026-09-04/mockups/', import.meta.url);
 const read = path => readFile(new URL(path, mockups), 'utf8');
-const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, generationUx, receivables, promotions, settings, report] = await Promise.all([
+const [css, shell, prototype, parent, timekeeping, payroll, invoice, generation, receivables, promotions, settings, report] = await Promise.all([
   read('prototype.css'), read('admin/admin-shell.js'), read('prototype.js'), read('parent/parent.html'),
   read('admin/payroll-timekeeping-import.html'), read('admin/payroll-run-review.html'),
-   read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'), read('admin/invoice-generation-ux.js'),
+   read('admin/invoice-detail-review.html'), read('admin/invoice-generation.html'),
     read('admin/receivable-configuration.html'), read('admin/promotion-configuration.html'), read('admin/school-settings.html'), read('admin/finance-report.html')
 ]);
 
@@ -60,8 +60,12 @@ assert.doesNotMatch(shell, /'invoice-review'|\'settlement\'/);
 assert.match(shell, /'runs', 'Đợt thu', root \+ 'invoice-generation\.html'/);
 assert.match(shell, /'promotions', 'Ưu đãi', root \+ 'promotion-configuration\.html'/);
 assert.doesNotMatch(shell, /Đợt thu \/ Nộp trước/);
-assert.match(generation, /id="run-detail" tabindex="-1" hidden/);
+// CollectionRun list and each run detail are mutually exclusive route states.
+assert.match(generation, /id="run-list" data-run-view>/);
+for (const state of ['draft', 'ready', 'generated']) assert.match(generation, new RegExp(`id="run-${state}" data-run-view hidden`));
+assert.match(generation, /views\.forEach\(function \(view\) \{ view\.hidden = view !== target; \}\)/);
 assert.doesNotMatch(generation, /href="invoice-detail-review\.html"/);
+assert.match(invoice, /href="invoice-generation\.html#run-generated">Quay lại đợt thu</);
 assert.match(invoice, /data-admin-route="runs"/);
 assert.match(invoice, /Con cán bộ trường · Phiên bản 1/);
 assert.match(invoice, /Giảm trừ ưu đãi/);
@@ -86,30 +90,22 @@ assert.doesNotMatch(report, /PDF|XLSX|Payroll|createObjectURL|Blob\(|toLocaleStr
 // Finance Admin MVP exposes catalog and CollectionRun destinations only.
 assert.match(generation, /<h1>Đợt thu<\/h1>/);
 assert.match(generation, /TRƯỜNG ÁNH HOA · NĂM HỌC 2026-2027/);
-assert.match(generation, /<h2>Rà soát đợt thu<\/h2>/);
-assert.match(generation, /<h3>Khoản thu trong đợt<\/h3>/);
-assert.match(generation, /id="template-lines"/);
-assert.match(generation, /Tiền ăn tháng/);
-assert.match(generation, /Số ngày tiền ăn tháng/);
-assert.match(generation, /value="22"/);
-assert.match(generation, /35\.000 đ/);
-assert.match(generation, /770\.000 đ/);
-assert.match(generation, /Giá và thành tiền do hệ thống xác nhận/);
-assert.match(generation, /770\.000 đ/);
-assert.match(generation, /class="template-quantity" type="number" min="1" step="1"/);
-assert.match(generation, /Template khoản thu đã thay đổi\. Hãy yêu cầu preview mới từ hệ thống\./);
-assert.match(generation, /Preview và generate do hệ thống quyết định/);
-assert.match(generation, /Đang kiểm tra kết quả với hệ thống\. Đối soát thao tác trước khi thử lại hoặc đổi Trường\./);
-assert.match(generation, /Tháng 11\/2026/);
-assert.match(generation, /href="invoice-detail-review\.html\?run=2026-10&amp;student=minh-anh&amp;invoice=draft-minh-anh"/);
-assert.match(generation, /id="preview-run"/);
-assert.match(generation, /id="generate-invoices"[^>]*disabled/);
-assert.match(generation, /data-open-run="11\/2026"/);
-assert.match(generation, /function openRun\(month,readonly\)/);
-assert.match(generation, /invoice-generation-ux\.js/);
-assert.match(generationUx, /reviewLinks\.forEach/);
-assert.match(generationUx, /selectAll\.indeterminate/);
-assert.match(generationUx, /Lựa chọn đã thay đổi\. Hãy yêu cầu preview mới từ hệ thống\./);
+assert.match(generation, /Quay lại danh sách đợt thu/);
+// Detail shows server lifecycle as a non-interactive step indicator and a server-computed overview.
+assert.equal((generation.match(/<ol class="steps" aria-label="Tiến trình đợt thu">/g) ?? []).length, 3);
+assert.equal((generation.match(/aria-current="step"/g) ?? []).length, 3);
+assert.doesNotMatch(generation, /<ol class="steps"[^>]*>(?:(?!<\/ol>)[^])*<(a|button)\b/);
+assert.equal((generation.match(/aria-label="Tổng quan do máy chủ tính"/g) ?? []).length, 3);
+for (const metric of ['Học sinh đủ điều kiện', 'Học sinh bị bỏ qua', 'Cần thu dự kiến', 'Đã phát hành', 'Tổng phải thu']) assert.match(generation, new RegExp(`<span>${metric}</span>`));
+assert.doesNotMatch(generation, /reduce\(|parseInt|toLocaleString/);
+assert.match(generation, /<h2>Khoản thu trong đợt<\/h2>/);
+assert.match(generation, /Tiền ăn tháng<\/td><td>22 ngày<\/td><td class="money">35\.000 đ<\/td><td class="money">770\.000 đ/);
+assert.match(generation, /<caption>Khoản thu đã chốt cho đợt<\/caption>/);
+assert.match(generation, /<thead><tr><th>Học sinh<\/th><th>Lý do<\/th><\/tr><\/thead>/);
+assert.match(generation, /Đã tạo 125 hóa đơn nháp; bỏ qua 1 học sinh\./);
+assert.doesNotMatch(generation, /<caption>Hóa đơn nháp đã tạo<\/caption>/);
+assert.match(generation, /id="add-student-dialog"/);
+assert.match(generation, /href="invoice-detail-review\.html\?run=2026-09&amp;student=minh-anh&amp;invoice=draft-minh-anh"/);
 for (const unavailable of ['Đã nhận', 'Còn thiếu', 'Receipt', 'carry', 'thực nhận', 'chênh lệch']) assert.doesNotMatch(generation, new RegExp(unavailable, 'i'));
 
 // Receivables remains catalog-only; Pha 1b promotion configuration is separate.

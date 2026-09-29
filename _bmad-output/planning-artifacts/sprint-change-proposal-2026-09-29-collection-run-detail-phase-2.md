@@ -1,6 +1,6 @@
 ---
 name: CollectionRun detail phase 2 - Invoice review destination, run overview and lifecycle progress
-status: proposed
+status: approved
 date: 2026-09-29
 trigger: After Story 5.18 and the layout remediation in commit `1bd166a`, stakeholder review still finds the CollectionRun detail hard to work in. Invoice review renders at the bottom of a long run page instead of as the per-Student destination the UX spine requires, the run has no at-a-glance overview, and lifecycle progress is only visible in the heading text.
 mode: batch
@@ -140,9 +140,9 @@ Update `sprint-status.yaml` after approval: add both story keys as `ready-for-de
 | 4.4 Selected path | [x] Done | Direct UX/backlog adjustment in two stories. |
 | 5.1-5.5 Proposal/handoff | [x] Done | Sections 1-5. |
 | 6.1-6.2 Review | [x] Done | Finance invariants preserved. |
-| 6.3 Approval | [!] Action-needed | Approval required before canonical UX/mockup/backlog, API or Admin changes. |
-| 6.4 Tracker | [!] Action-needed | Apply after approval. |
+| 6.3 Approval | [x] Done | Approved 2026-09-29. |
+| 6.4 Tracker | [x] Done | Stories 5.19/5.20 added as `ready-for-dev`; Story 5.18 moved to `done`. |
 
 ## 7. Approval
 
-Pending.
+Approved by the product owner on 2026-09-29. Approval covers the Invoice review route, run overview metrics with the additive read-only `summary` DTO, the lifecycle step indicator, the GENERATED result notice and Student addition dialog, and the related UX spine, mockup, backlog and tracker updates. Finance authority, lifecycle, VND, preview/generation, snapshots and Operations remain unchanged.

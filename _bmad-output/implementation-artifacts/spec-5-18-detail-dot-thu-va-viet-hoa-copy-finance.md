@@ -2,7 +2,7 @@
 title: 'Detail Đợt thu và Việt hóa copy Finance'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 baseline_commit: '1f9a93ac08e9dbc01efc5dc876bdbc2df2f4b7e6'
 review_loop_iteration: 0
 context:
