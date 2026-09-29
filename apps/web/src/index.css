@@ -1391,37 +1391,8 @@ tbody tr:last-child td {
 .parent-list-table table { min-width: 860px; }
 .parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }
 .parent-children span { color: #5f746e; }
-.parent-list-controls {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 16px;
-}
-.staff-list-controls { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
-.staff-list-search { display: flex; flex: 1 1 360px; align-items: end; gap: 8px; }
-.staff-list-search label { display: grid; flex: 1 1 auto; gap: 5px; }
-.staff-list-search label span { color: #527067; font-size: 12px; font-weight: 800; }
-.staff-list-search input { min-width: 0; }
 .staff-list-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: end; gap: 8px; }
 .staff-list-actions label { display: grid; gap: 5px; color: #527067; font-size: 12px; font-weight: 800; }
-.parent-list-search {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: end;
-  gap: 8px;
-}
-.parent-list-search label {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 5px;
-}
-.parent-list-search label span {
-  color: #527067;
-  font-size: 12px;
-  font-weight: 800;
-}
-.parent-list-search input { min-width: 0; }
-.parent-list-search button { flex: 0 0 auto; }
 .relative-count { display: block; color: #5f746e !important; white-space: nowrap; }
 .roster-row-actions { position: relative; width: 72px; }
 .roster-action-menu {
@@ -1440,7 +1411,6 @@ tbody tr:last-child td {
 .roster-action-menu button { border: 0 !important; background: transparent !important; color: #18332d !important; text-align: left; }
 .roster-action-menu button:hover,
 .roster-action-menu button:focus-visible { background: #eef6f1 !important; }
-.roster-list-filters,
 .finance-list-toolbar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -1460,7 +1430,31 @@ tbody tr:last-child td {
   max-height: calc(100dvh - 32px);
   overflow: auto;
 }
-.roster-workspace-staff .roster-list-filters button { min-height: 42px; }
+.roster-list-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-block: 0 16px;
+}
+.roster-list-filters label {
+  display: grid;
+  flex: 1 1 160px;
+  gap: 5px;
+  color: #527067;
+  font-size: 12px;
+  font-weight: 800;
+}
+.roster-list-filters .roster-filter-search { flex: 2 1 240px; }
+.roster-list-filters input,
+.roster-list-filters select { width: 100%; min-width: 0; }
+.roster-list-filters button { min-height: 42px; }
+.roster-list-filter-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+@media (max-width: 767px) {
+  .roster-list-filters label,
+  .roster-list-filter-actions { flex-basis: 100%; }
+  .roster-list-filter-actions button { flex: 1 1 auto; }
+}
 /* CollectionRun detail: contextual header, sibling cards and content-width actions. */
 .finance-workspace .primary-action {
   border-color: #247a51;
@@ -1666,8 +1660,6 @@ tbody tr:last-child td {
   .finance-inline-form { grid-template-columns: 1fr; }
 }
 @media (max-width: 767px) {
-  .staff-list-controls { display: grid; }
-  .staff-list-search { width: 100%; }
   .staff-list-actions { display: grid; grid-template-columns: 1fr 1fr; justify-content: stretch; }
   .staff-list-actions .primary-action { grid-column: 1 / -1; }
 }
@@ -1835,14 +1827,6 @@ tbody tr:last-child td {
   color: #922e2e;
   font-size: 12px;
   line-height: 1.4;
-}
-@media (max-width: 720px) {
-  .parent-list-controls,
-  .parent-list-search {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .parent-list-search label { max-width: none; }
 }
 
 /* Desktop navigation belongs to the persistent Admin sidebar.  The navigation

@@ -255,6 +255,7 @@ export function RosterWorkspace({
   const [positionAction, setPositionAction] = useState<PositionAction>();
   const [editingStaffId, setEditingStaffId] = useState("");
   const [staffIntakeOpen, setStaffIntakeOpen] = useState(false);
+  const [classIntakeOpen, setClassIntakeOpen] = useState(false);
   const confirmedStaff = useRef<string | undefined>(undefined);
   const [assignment, setAssignment] = useState({
     staffId: "",
@@ -337,6 +338,8 @@ export function RosterWorkspace({
   const parentDetailTrigger = useRef<HTMLButtonElement>(null);
   const staffIntakeDialog = useRef<HTMLDivElement>(null);
   const staffIntakeTrigger = useRef<HTMLButtonElement>(null);
+  const classIntakeDialog = useRef<HTMLDivElement>(null);
+  const classIntakeTrigger = useRef<HTMLButtonElement>(null);
   const endTrigger = useRef<HTMLButtonElement>(null);
   const restoreEndFocus = useRef(false);
   const timer = useRef<number | undefined>(undefined);
@@ -388,6 +391,13 @@ export function RosterWorkspace({
     clearStaffIntake();
     staffIntakeTrigger.current?.focus();
   };
+  const closeClassIntake = () => {
+    if (pending) return;
+    setClassIntakeOpen(false);
+    setClassName("");
+    setClassErrors({});
+    classIntakeTrigger.current?.focus();
+  };
   // The intake form pre-selects the first active class on load; that default alone is not user input.
   const defaultStudentClassId = classes.find((item) => item.status === "ACTIVE")?.id ?? "";
   const dirty = Boolean(
@@ -434,10 +444,10 @@ export function RosterWorkspace({
     onStatusChange?.({
       dirty,
       pending: Boolean(pending),
-       dialogOpen: studentIntakeOpen || staffIntakeOpen,
+       dialogOpen: studentIntakeOpen || staffIntakeOpen || classIntakeOpen,
       reconcile: pending ? () => void reconcile(pending) : undefined,
     });
-  }, [dirty, pending, studentIntakeOpen, staffIntakeOpen, onStatusChange]);
+  }, [dirty, pending, studentIntakeOpen, staffIntakeOpen, classIntakeOpen, onStatusChange]);
   useEffect(() => { sectionRef.current = section; }, [section]);
   useEffect(() => { parentQueryRef.current = parentQuery; }, [parentQuery]);
   useEffect(() => { parentPageRef.current = parentMeta.page; }, [parentMeta.page]);
@@ -927,8 +937,11 @@ export function RosterWorkspace({
         `/api/app/schools/${schoolId}/roster/school-years/${yearId}/classes`,
         { name: className },
         "class",
-      )))
+      ))) {
       setClassName("");
+      setClassIntakeOpen(false);
+      classIntakeTrigger.current?.focus();
+    }
   };
   const submitRename = async (event: FormEvent) => {
     event.preventDefault();
@@ -1493,6 +1506,20 @@ export function RosterWorkspace({
     if (!studentIntakeOpen) return;
     studentIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus();
   }, [studentIntakeOpen]);
+  const trapClassIntakeDialog = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      closeClassIntake();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(classIntakeDialog.current?.querySelectorAll<HTMLElement>("input:not([disabled]), button:not([disabled])") ?? [])];
+    if (!focusable.length) return;
+    const first = focusable[0]!;
+    const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  useEffect(() => { if (classIntakeOpen) classIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus(); }, [classIntakeOpen]);
   useEffect(() => { if (staffIntakeOpen) staffIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus(); }, [staffIntakeOpen]);
   useEffect(() => {
     if (!studentDetail || detailLoading) return;
@@ -1591,18 +1618,16 @@ export function RosterWorkspace({
       {positionAction && <div role="dialog" aria-modal="true" aria-labelledby="position-action-title"><form className="roster-form" onSubmit={submitPositionAction}><h3 id="position-action-title">{positionAction.kind === "rename" ? `Đổi tên ${positionAction.position.name}` : positionAction.kind === "inactivate" ? `Ngừng hiệu lực ${positionAction.position.name}` : positionAction.kind === "grant" ? `Cấp capability cho ${positionAction.position.name}` : `Thu hồi capability của ${positionAction.position.name}`}</h3>{positionAction.kind === "rename" && <label>Tên chức danh mới<input value={positionAction.name} onChange={(event) => setPositionAction({ ...positionAction, name: event.target.value })} {...field(positionErrors, "name", "position-")} /></label>}{positionAction.kind === "grant" && <label>Capability cần cấp<select value={positionAction.capability} onChange={(event) => setPositionAction({ ...positionAction, capability: event.target.value })}><option value="">Chọn capability</option>{Object.entries(capabilityLabel).filter(([capability]) => !positionAction.position.capabilities.includes(capability)).map(([capability, label]) => <option key={capability} value={capability}>{label}</option>)}</select></label>}<label>{positionAction.kind === "rename" ? "Lý do đổi tên chức danh" : positionAction.kind === "inactivate" ? "Lý do ngừng hiệu lực chức danh" : positionAction.kind === "grant" ? "Lý do cấp capability" : "Lý do thu hồi capability"}<input value={positionAction.reason} onChange={(event) => setPositionAction({ ...positionAction, reason: event.target.value })} {...field(positionErrors, "reason", "position-")} /></label>{positionErrors.reason && <small id="position-reason-error">{positionErrors.reason}</small>}{positionAction.kind === "inactivate" && <label>Nhập NGỪNG HIỆU LỰC để xác nhận<input value={positionAction.confirmation} onChange={(event) => setPositionAction({ ...positionAction, confirmation: event.target.value })} /></label>}<button type="button" onClick={() => setPositionAction(undefined)}>Hủy</button><button disabled={disabled || (positionAction.kind === "inactivate" && positionAction.confirmation !== "NGỪNG HIỆU LỰC")}>{positionAction.kind === "rename" ? "Lưu tên chức danh" : positionAction.kind === "inactivate" ? "Xác nhận ngừng hiệu lực" : positionAction.kind === "grant" ? "Cấp capability" : "Xác nhận thu hồi capability"}</button></form></div>}
       </>}
       {(section === "all" || section === "staff") && <>
-       <div className="staff-list-controls">
-         <form className="staff-list-search" aria-label="Lọc nhân viên" onSubmit={(event) => { event.preventDefault(); void reloadStaff(1); }}>
-           <label><span>Tìm kiếm</span><input type="search" value={staffQuery.q} onChange={(event) => setStaffQuery({ ...staffQuery, q: event.target.value })} placeholder="Tên, mã, email hoặc số điện thoại" /></label>
+       <form className="roster-list-filters" aria-label="Lọc nhân viên" onSubmit={(event) => { event.preventDefault(); void reloadStaff(1); }}>
+         <label className="roster-filter-search">Tìm kiếm<input type="search" value={staffQuery.q} onChange={(event) => setStaffQuery({ ...staffQuery, q: event.target.value })} placeholder="Tên, mã, email hoặc số điện thoại" /></label>
+         <label>Trạng thái<select value={staffQuery.employmentStatus} onChange={(event) => setStaffQuery({ ...staffQuery, employmentStatus: event.target.value as StaffQuery["employmentStatus"] })}><option value="">Tất cả trạng thái</option><option value="ACTIVE">Đang hiệu lực</option><option value="INACTIVE">Không hiệu lực</option></select></label>
+         <label>Chức danh chính<select value={staffQuery.primaryPositionId} onChange={(event) => setStaffQuery({ ...staffQuery, primaryPositionId: event.target.value })}><option value="">Tất cả chức danh</option>{positions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+         <label>Sắp xếp<select value={staffQuery.sort} onChange={(event) => setStaffQuery({ ...staffQuery, sort: event.target.value as StaffQuery["sort"] })}><option value="name">Tên nhân viên</option><option value="position">Chức danh</option><option value="status">Trạng thái</option></select></label>
+         <div className="roster-list-filter-actions">
            <button>Áp dụng</button><button type="button" disabled={staffLoading} onClick={() => void reloadStaff()}>Làm mới</button>
-         </form>
-         <div className="staff-list-actions">
-           <label>Trạng thái<select value={staffQuery.employmentStatus} onChange={(event) => setStaffQuery({ ...staffQuery, employmentStatus: event.target.value as StaffQuery["employmentStatus"] })}><option value="">Tất cả trạng thái</option><option value="ACTIVE">Đang hiệu lực</option><option value="INACTIVE">Không hiệu lực</option></select></label>
-           <label>Chức danh chính<select value={staffQuery.primaryPositionId} onChange={(event) => setStaffQuery({ ...staffQuery, primaryPositionId: event.target.value })}><option value="">Tất cả chức danh</option>{positions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-           <label>Sắp xếp<select value={staffQuery.sort} onChange={(event) => setStaffQuery({ ...staffQuery, sort: event.target.value as StaffQuery["sort"] })}><option value="name">Tên nhân viên</option><option value="position">Chức danh</option><option value="status">Trạng thái</option></select></label>
            <button type="button" className="primary-action" disabled={disabled} onClick={() => { clearStaffIntake(); setStaffIntakeOpen(true); }}>Thêm nhân viên</button>
          </div>
-       </div>
+       </form>
         {staffIntakeOpen && <div className="student-intake-backdrop"><div ref={staffIntakeDialog} className="student-intake-dialog staff-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-intake-title" onKeyDown={trapStaffIntakeDialog}><form className="roster-form student-intake-form" onSubmit={saveStaff}>
          <h3 id="staff-intake-title">{editingStaffId ? "Sửa hồ sơ nhân viên" : "Tạo hồ sơ nhân viên"}</h3>
          {requestHome && <button type="button" className="staff-intake-home" onClick={requestHome}>Về trang chủ</button>}
@@ -1869,23 +1894,6 @@ export function RosterWorkspace({
             </p>
           )}
           <fieldset className={section === "students" || section === "parents" ? "student-roster-surface" : undefined} disabled={readOnly || disabled}>
-            {(section === "all" || section === "classes") && !readOnly && (
-              <form className="roster-form" onSubmit={createClass}>
-                <h3>Thêm lớp cho {selected?.name}</h3>
-                <label>
-                  Tên lớp
-                  <input
-                    value={className}
-                    onChange={(event) => setClassName(event.target.value)}
-                    {...field(classErrors, "name")}
-                  />
-                </label>
-                {classErrors.name && (
-                  <small id="name-error">{classErrors.name}</small>
-                )}
-                <button disabled={disabled}>Tạo lớp</button>
-              </form>
-            )}
             {section === "all" && <>
             <form className="roster-form" onSubmit={saveAssignment}>
               <h3>
@@ -2116,7 +2124,24 @@ export function RosterWorkspace({
               </table>
             </div>
             </>}
-            {(section === "all" || section === "classes") && <div className="table-scroll">
+            {(section === "all" || section === "classes") && <>
+            {!readOnly && <div className="staff-list-actions">
+              <button ref={classIntakeTrigger} type="button" className="primary-action" disabled={disabled} onClick={() => { setClassName(""); setClassErrors({}); setClassIntakeOpen(true); }}>Thêm lớp học</button>
+            </div>}
+            {classIntakeOpen && <div className="student-intake-backdrop"><div ref={classIntakeDialog} className="student-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="class-intake-title" onKeyDown={trapClassIntakeDialog}><form className="roster-form student-intake-form" onSubmit={createClass}>
+              <h3 id="class-intake-title">Thêm lớp cho {selected?.name}</h3>
+              <label>
+                Tên lớp
+                <input
+                  value={className}
+                  onChange={(event) => setClassName(event.target.value)}
+                  {...field(classErrors, "name")}
+                />
+              </label>
+              {classErrors.name && <small id="name-error">{classErrors.name}</small>}
+              <div className="student-intake-actions"><button type="button" disabled={disabled} onClick={closeClassIntake}>Đóng</button><button disabled={disabled}>Tạo lớp</button></div>
+            </form></div></div>}
+            <div className="table-scroll student-list-table">
               <table>
                 <caption>Lớp thuộc {selected?.name}</caption>
                 <thead>
@@ -2178,7 +2203,8 @@ export function RosterWorkspace({
                   )}
                 </tbody>
               </table>
-            </div>}
+            </div>
+            </>}
             {(section === "all" || section === "years") && <>
             <form className="roster-form" onSubmit={previewRosterTransition}>
               <h3>Chuyển danh bộ</h3>
@@ -2467,12 +2493,14 @@ export function RosterWorkspace({
               </p>
             )}
             <form className="roster-list-filters" aria-label="Lọc danh bộ" onSubmit={(event) => { event.preventDefault(); reloadRoster(1); }}>
-              <label>Tìm kiếm<input type="search" value={rosterQuery.q} onChange={(event) => setRosterQuery({ ...rosterQuery, q: event.target.value })} placeholder="Tên hoặc mã học sinh" /></label>
+              <label className="roster-filter-search">Tìm kiếm<input type="search" value={rosterQuery.q} onChange={(event) => setRosterQuery({ ...rosterQuery, q: event.target.value })} placeholder="Tên hoặc mã học sinh" /></label>
               <label>Lớp<select value={rosterQuery.classId} onChange={(event) => setRosterQuery({ ...rosterQuery, classId: event.target.value })}><option value="">Tất cả lớp</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
               <label>Trạng thái<select value={rosterQuery.lifecycle} onChange={(event) => setRosterQuery({ ...rosterQuery, lifecycle: event.target.value })}><option value="">Tất cả trạng thái</option>{Object.entries(lifecycleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label>Sắp xếp<select value={rosterQuery.sort} onChange={(event) => setRosterQuery({ ...rosterQuery, sort: event.target.value as "name" | "class" })}><option value="name">Tên học sinh</option><option value="class">Lớp</option></select></label>
-              <button>Áp dụng</button><button type="button" disabled={rosterLoading} onClick={() => reloadRoster()}>Làm mới danh sách</button>
-              {section === "students" && selected?.isActive && <button type="button" className="primary-action" disabled={disabled} onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh</button>}
+              <div className="roster-list-filter-actions">
+                <button>Áp dụng</button><button type="button" disabled={rosterLoading} onClick={() => reloadRoster()}>Làm mới danh sách</button>
+                {section === "students" && selected?.isActive && <button type="button" className="primary-action" disabled={disabled} onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh</button>}
+              </div>
             </form>
             <div className="table-scroll student-list-table">
               <table aria-label="Danh sách học sinh">
@@ -2567,16 +2595,13 @@ export function RosterWorkspace({
             {rosterMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang danh bộ"><button type="button" disabled={rosterLoading || rosterMeta.page === 1} onClick={() => reloadRoster(rosterMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, rosterMeta.totalPages) }, (_, index) => rosterMeta.totalPages <= 5 ? index + 1 : Math.min(rosterMeta.totalPages - 4, Math.max(1, rosterMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={rosterLoading || page === rosterMeta.page} aria-current={page === rosterMeta.page ? "page" : undefined} onClick={() => reloadRoster(page)}>{page}</button>)}<button type="button" disabled={rosterLoading || rosterMeta.page === rosterMeta.totalPages} onClick={() => reloadRoster(rosterMeta.page + 1)}>Sau</button></nav>}
             </>}
             {section === "parents" && <>
-              <div className="parent-list-controls">
-                <form className="parent-list-search" aria-label="Lọc phụ huynh" onSubmit={(event) => { event.preventDefault(); reloadParents(1); }}>
-                  <label>
-                    <span>Tìm kiếm</span>
-                    <input type="search" value={parentQuery.q} onChange={(event) => { const next = { q: event.target.value }; parentQueryRef.current = next; setParentQuery(next); }} placeholder="Tên, con, số điện thoại hoặc email" />
-                  </label>
+              <form className="roster-list-filters" aria-label="Lọc phụ huynh" onSubmit={(event) => { event.preventDefault(); reloadParents(1); }}>
+                <label className="roster-filter-search">Tìm kiếm<input type="search" value={parentQuery.q} onChange={(event) => { const next = { q: event.target.value }; parentQueryRef.current = next; setParentQuery(next); }} placeholder="Tên, con, số điện thoại hoặc email" /></label>
+                <div className="roster-list-filter-actions">
                   <button>Áp dụng</button>
                   <button type="button" disabled={rosterLoading} onClick={() => reloadParents()}>Làm mới</button>
-                </form>
-              </div>
+                </div>
+              </form>
               <div className="table-scroll student-list-table parent-list-table">
                 <table aria-label="Danh sách phụ huynh">
                   <thead><tr><th>STT</th><th>Phụ huynh</th><th>Số điện thoại</th><th>Email</th><th>Con / lớp</th><th>Tùy chọn</th></tr></thead>
