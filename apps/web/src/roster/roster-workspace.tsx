@@ -1893,7 +1893,7 @@ export function RosterWorkspace({
               Năm học đã đóng. Danh bộ và lịch sử chỉ có thể xem.
             </p>
           )}
-          <fieldset className={section === "students" || section === "parents" ? "student-roster-surface" : undefined} disabled={readOnly || disabled}>
+          <fieldset className={section === "students" || section === "parents" || section === "classes" ? "student-roster-surface" : undefined} disabled={readOnly || disabled}>
             {section === "all" && <>
             <form className="roster-form" onSubmit={saveAssignment}>
               <h3>
@@ -2141,7 +2141,7 @@ export function RosterWorkspace({
               {classErrors.name && <small id="name-error">{classErrors.name}</small>}
               <div className="student-intake-actions"><button type="button" disabled={disabled} onClick={closeClassIntake}>Đóng</button><button disabled={disabled}>Tạo lớp</button></div>
             </form></div></div>}
-            <div className="table-scroll student-list-table">
+            <div className="table-scroll student-list-table class-list-table">
               <table>
                 <caption>Lớp thuộc {selected?.name}</caption>
                 <thead>
