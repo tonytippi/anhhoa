@@ -6,7 +6,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.cookie = 'parent_cs
 
 function parentResponse(session: object, input: RequestInfo | URL) {
   const path = String(input);
-  if (path.includes('/obligations')) { const obligation = { id: 'invoice-a', studentId: 'student-a', obligationCode: 'OBL-202609-000001', period: '2026-09', issuedTotal: '2100000', actualReceipt: '0', outcome: null, outstanding: '2100000', state: 'ISSUED', effectiveAt: '2026-09-27T00:00:00.000Z', paymentInstruction: { receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferContent: 'BE AN' } }; return Promise.resolve(new Response(JSON.stringify({ data: /obligations\/[^/]+$/.test(path) ? obligation : [obligation] }))); }
+  if (path.includes('/obligations')) { const obligation = { id: 'invoice-a', studentId: 'student-a', obligationCode: 'OBL-202609-000001', period: '2026-09', issuedTotal: '2100000', vatTotal: '100000', actualReceipt: '0', outcome: null, outstanding: '2100000', state: 'ISSUED', effectiveAt: '2026-09-27T00:00:00.000Z', paymentInstruction: { receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferContent: 'BE AN' } }; return Promise.resolve(new Response(JSON.stringify({ data: /obligations\/[^/]+$/.test(path) ? obligation : [obligation] }))); }
   if (path.includes('/inbox')) return Promise.resolve(new Response(JSON.stringify({ data: [], meta: { unreadCount: 0 } })));
   if (path.includes('/attendance?')) return Promise.resolve(new Response(JSON.stringify({ data: [{ studentId: 'student-a', studentDisplayName: 'Bé An', date: '2026-09-27', status: 'NOT_RECORDED', updatedAt: null }] })));
   if (path.includes('/daily-journal?')) return Promise.resolve(new Response(JSON.stringify({ data: null })));
@@ -79,6 +79,7 @@ describe('ParentShell', () => {
     fireEvent.click(screen.getByRole('button', { name: /OBL-202609-000001/ }));
     await screen.findByText('Tổng tiền khi phát hành');
     expect(screen.getByText('Còn phải thanh toán')).toBeTruthy();
+    expect(screen.getByText('Đã gồm thuế GTGT 100.000 đ')).toBeTruthy();
     expect(screen.queryByText(/Tôi đã thanh toán|VietQR|Sao chép/)).toBeNull();
   });
 

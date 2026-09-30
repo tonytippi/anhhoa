@@ -239,12 +239,12 @@ async function promotion(
   return versionId;
 }
 
-async function coverageFixture(reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL" = "DIRECT") {
+async function coverageFixture(reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL" = "DIRECT", taxCategory?: string) {
   const current = await roster(await graph());
   const student = await enrolled(current);
   await prisma.schoolCalendarVersion.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   const groupId = outcomeId(await group(current, "Coverage"));
-  const coveredReceivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Học phí coverage", unitLabel: "tháng", defaultUnitPrice: "100" }));
+  const coveredReceivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Học phí coverage", unitLabel: "tháng", defaultUnitPrice: "100", ...(taxCategory ? { taxCategory } : {}) }));
   const otherReceivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Tiền ăn bình thường", unitLabel: "tháng", defaultUnitPrice: "25" }));
   const versionId = await promotion(current, student.student.id, coveredReceivableId, { name: "Nộp trước", discountType: "FIXED_VND", discountValue: "10", priority: "1", stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 2 });
   const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
@@ -258,7 +258,7 @@ async function coverageFixture(reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL" 
   invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: student.student.id } });
   const operationId = uuid();
   await prisma.operation.create({ data: { id: operationId, schoolId: current.school.id, membershipId: current.membership.id, actorIdentityId: current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: current.membership.id, route: "fixture", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
-  const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng Ánh Hoa", bankBin: "970436", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+  const bank = await prisma.bankAccount.create({ data: { schoolId: current.school.id, receivingBank: "Ngân hàng Ánh Hoa", bankBin: "970436", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", kind: taxCategory && taxCategory !== "NOT_DECLARED" ? "SCHOOL" : "PERSONAL", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: current.school.id, bankAccountId: bank.id, status: "ACTIVE", actorIdentityId: current.identity.id, membershipId: current.membership.id, operationId, sequence: 1 } });
   await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode, actorIdentityId: current.identity.id, membershipId: current.membership.id } });
   const eligibilityOperationId = uuid();
@@ -2462,6 +2462,32 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.coverageReversal.aggregate({ where: { schoolId: fixture.current.school.id, coverageId: coverage.id }, _sum: { amount: true } })).toMatchObject({ _sum: { amount: 90n } });
     });
 
+    it("refunds the unused share with its VAT and reports billed and refunded VAT", async () => {
+      const fixture = await coverageFixture("DIRECT", "VAT_10"); const coverage = await closeCoverage(fixture);
+      // Paid source per covered month: net 100 - 10 = 90 plus 10% VAT 9.
+      expect(coverage).toMatchObject({ vatRateSnapshot: 10, vatAmount: 9n });
+      const preview = await finance.previewCoverageReversal(fixture.current.identity.id, fixture.current.school.id, { coverageId: coverage.id, effectiveOn: "2026-10-01" });
+      const net = (90n * BigInt(preview.remainingDays)) / BigInt(preview.denominator); const vat = (net * 10n + 50n) / 100n;
+      expect(preview).toMatchObject({ vatRate: 10, calculatedAmount: (net + vat).toString(), calculatedVatAmount: vat.toString(), availableAmount: "99" });
+      const posted = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Rút học", confirmation: fixture.student.student.fullName });
+      expect(posted).toMatchObject({ status: "COMPLETED", outcome: { status: "POSTED", amount: (net + vat).toString(), vatAmount: vat.toString() } });
+      // An overridden amount is VAT-inclusive; the remaining paid source including VAT caps it.
+      const rest = 99n - net - vat;
+      await expect(finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Vượt", amount: (rest + 1n).toString(), confirmation: fixture.student.student.fullName })).rejects.toMatchObject({ response: { code: "COVERAGE_REVERSAL_LIMIT" } });
+      const last = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Phần còn lại", amount: rest.toString(), confirmation: fixture.student.student.fullName });
+      const restVat = rest - (rest * 200n + 110n) / 220n;
+      expect(last).toMatchObject({ outcome: { amount: rest.toString(), vatAmount: restVat.toString() } });
+      await expect(prisma.coverageReversal.create({ data: { schoolId: fixture.current.school.id, coverageId: coverage.id, amount: 1n, vatAmount: 1n, calculatedAmount: 1n, effectiveOn: date("2026-10-01"), reason: "VAT sai" } })).rejects.toThrow();
+      const invoiceVat = (await prisma.invoiceLine.aggregate({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id }, _sum: { vatAmount: true } }))._sum.vatAmount!;
+      expect(invoiceVat).toBe(10n);
+      const report = await finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", {});
+      expect(report.summary).toMatchObject({ vat: "10", refundVat: (vat + restVat).toString(), refund: "99" });
+      expect(report.rows).toEqual([expect.objectContaining({ type: "INVOICE_ISSUED", vatAmount: "10", netAmount: "110" })]);
+      // Coverage issuedAt is a timestamp without time zone, so read the ledger at a later cut-off.
+      const cash = await finance.report(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", { asOf: "2100-01-01T00:00:00Z" });
+      expect(cash.rows.filter((row: any) => row.type === "COVERAGE_ISSUED").map((row: any) => [row.amount, row.vatAmount])).toEqual([["99", "9"], ["99", "9"]]);
+    });
+
     it("serializes concurrent direct reversal inserts at the PostgreSQL coverage lock", async () => {
       const fixture = await coverageFixture(); const coverage = await closeCoverage(fixture);
       const attempts = await Promise.allSettled([
@@ -2622,7 +2648,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(events.find((event) => event.type === "RECEIPT_POSTED")?.provenance).toMatchObject({ invoiceId: fixture.invoice.id, lines: expect.any(Array) });
       await expect(prisma.financeLedgerEvent.delete({ where: { id: events[0]!.id } })).rejects.toThrow(/append-only/);
       const beforeReceipt = new Date(events.find((event) => event.type === "RECEIPT_POSTED")!.postedAt.getTime() - 1);
-      await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", { asOf: beforeReceipt.toISOString(), schoolYearId: fixture.current.year.id })).resolves.toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V3", summary: { netBilled: "100", actualReceipt: "0" } });
+      await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", { asOf: beforeReceipt.toISOString(), schoolYearId: fixture.current.year.id })).resolves.toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V4", summary: { netBilled: "100", actualReceipt: "0" } });
       for (const workspace of ["overview", "collection-runs", "outstanding", "cash-adjustments"]) await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, workspace, { billingMonth: "2026-09", className: fixture.current.activeClass.name })).resolves.toMatchObject({ workspace, timezone: "Asia/Ho_Chi_Minh" });
       const key = uuid(); const operationId = uuid(); const exported = await finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", key, operationId, { billingMonth: "2026-09" });
       await expect(finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", key, uuid(), { billingMonth: "2026-09" })).resolves.toEqual(exported);
@@ -2630,7 +2656,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await finance.operation(fixture.current.identity.id, fixture.current.school.id, operationId)).toMatchObject({ id: operationId, status: "COMPLETED", outcome: { exportId: exportOutcome.exportId } });
       expect(await prisma.financeReportExport.count({ where: { schoolId: fixture.current.school.id, operationId } })).toBe(1);
       const downloaded = await finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, exportOutcome.exportId);
-      expect(downloaded).toMatchObject({ workspace: "cash-adjustments" }); expect(Buffer.from(downloaded.csv).toString()).toContain("FINANCE_LEDGER_V3");
+      expect(downloaded).toMatchObject({ workspace: "cash-adjustments" }); expect(Buffer.from(downloaded.csv).toString()).toContain("FINANCE_LEDGER_V4");
       expect(await prisma.auditRecord.count({ where: { schoolId: fixture.current.school.id, action: { in: ["FINANCE_REPORT_EXPORT_REQUESTED", "FINANCE_REPORT_EXPORT_DOWNLOADED"] } } })).toBe(2);
       const secondActor = await schoolAdmin(fixture.current);
       await expect(finance.downloadReportExport(secondActor.identity.id, fixture.current.school.id, exportOutcome.exportId)).resolves.toMatchObject({ workspace: "cash-adjustments" });

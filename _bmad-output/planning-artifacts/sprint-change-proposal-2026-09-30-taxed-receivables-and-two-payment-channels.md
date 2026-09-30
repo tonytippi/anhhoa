@@ -198,3 +198,11 @@ As a Finance Manager, I want to set the tax category of each receivable, so that
 2. D9 VAT after discount: approved.
 3. A School without an `ACTIVE` `SCHOOL` account may issue notices that have only a `PERSONAL` part; the School account is required only when a notice has a `SCHOOL` part: approved.
 4. Seed data covers both channels (taxed and untaxed receivables, one School account, personal accounts with Class defaults) so local and E2E testing can exercise two-QR notices.
+
+## 9. Follow-up approved 2026-09-30: VAT in reports and coverage refunds
+
+User request after review of Stories 5.22-5.25: "Làm thêm phần hiển thị VAT nếu có, hoàn tiền hoàn cả VAT phần hoàn."
+
+- **D10 VAT in Finance reports.** `FinanceLedgerEvent` snapshots the VAT included in the Invoice obligation (`vatAmount`) and each ledger line snapshot carries `vatAmount`. Reports return `summary.vat`, `summary.refundVat`, a per-row `vatAmount` and a `vatAmount` CSV column (`FINANCE_LEDGER_V4`). The admin report shows "Thuế GTGT" and "VAT đã hoàn" measures and a VAT column only when a value in the result is non-zero; `netBilled` stays the obligation including VAT, so `gross - discount + VAT (+ prior debt) = netBilled`. Existing ledger events are backfilled from the immutable Invoice lines.
+- **D11 Coverage refund includes the refunded VAT.** An issued `StudentPromotionalCoverage` snapshots the VAT rate of its receivable line on the source Invoice and `vatAmount = VAT(originalPrice - reduction)`; the paid source is `originalPrice - reduction + vatAmount`. The refund net is still `floor(paidNet × remainingDays / denominator)`, and the refund adds `VAT(refundNet)` with the D8 rounding. An overridden amount is VAT-inclusive; its VAT part is `amount - round_half_up(amount × 100 / (100 + rate))`, which gives back the same split for a calculated amount. `CoverageReversal`/`CoverageReversalRequest` store that VAT part, the DB limit uses the VAT-inclusive paid source, and the preview shows "gồm thuế GTGT X VND".
+- **D12 Parent sees the VAT part.** The Parent obligation DTO adds `vatTotal`; the Parent portal shows "Đã gồm thuế GTGT X VND" under the total only when it is non-zero.

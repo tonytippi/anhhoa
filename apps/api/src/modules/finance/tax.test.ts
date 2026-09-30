@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { taxChannel, taxCategories, taxedLine, vatAmount, vatRate } from './tax.js';
+import { includedVat, taxChannel, taxCategories, taxedLine, vatAmount, vatRate } from './tax.js';
 
 describe('receivable tax', () => {
   it('routes only NOT_DECLARED to the personal account', () => {
@@ -19,5 +19,12 @@ describe('receivable tax', () => {
   });
   it('stays exact at the maximum safe VND', () => {
     expect(vatAmount(9007199254740991n, 10)).toBe(900719925474099n);
+  });
+  it('splits the VAT back out of a VAT-inclusive refund amount', () => {
+    for (const rate of [5, 8, 10]) for (let net = 0n; net < 3000n; net += 7n) expect(includedVat(net + vatAmount(net, rate), rate)).toBe(vatAmount(net, rate));
+    expect(includedVat(110n, 10)).toBe(10n);
+    expect(includedVat(55n, 10)).toBe(5n); // net 50
+    expect(includedVat(1000n, 0)).toBe(0n);
+    expect(includedVat(1000n, null)).toBe(0n);
   });
 });

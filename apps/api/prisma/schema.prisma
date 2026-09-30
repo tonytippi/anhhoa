@@ -1129,6 +1129,7 @@ model CoverageReversalRequest {
   coverageId            String                        @db.Uuid
   amount                BigInt                        @db.BigInt
   calculatedAmount      BigInt                        @db.BigInt
+  vatAmount             BigInt                        @default(0) @db.BigInt
   overrideReason        String?
   effectiveOn           DateTime                      @db.Date
   reason                String
@@ -1156,6 +1157,7 @@ model CoverageReversal {
   requestId   String?                 @unique @db.Uuid
   amount      BigInt                  @db.BigInt
   calculatedAmount BigInt             @db.BigInt
+  vatAmount   BigInt                  @default(0) @db.BigInt
   overrideReason String?
   effectiveOn DateTime                @db.Date
   reason      String
@@ -1213,6 +1215,8 @@ model StudentPromotionalCoverage {
   versionId             String                       @db.Uuid
   originalPrice         BigInt                       @db.BigInt
   reduction             BigInt                       @db.BigInt
+  vatRateSnapshot       Int?
+  vatAmount             BigInt                       @default(0) @db.BigInt
   serviceStart          DateTime                     @db.Date
   serviceEnd            DateTime                     @db.Date
   calendarEffectiveFrom DateTime                     @db.Date
@@ -1339,6 +1343,7 @@ model FinanceLedgerEvent {
   grossAmount     BigInt                 @default(0) @db.BigInt
   discountAmount  BigInt                 @default(0) @db.BigInt
   netAmount       BigInt                 @default(0) @db.BigInt
+  vatAmount       BigInt                 @default(0) @db.BigInt
   provenance      Json
   school          School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
 

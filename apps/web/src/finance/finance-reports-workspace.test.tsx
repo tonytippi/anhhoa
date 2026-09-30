@@ -29,6 +29,25 @@ describe("FinanceReportsWorkspace", () => {
     expect(screen.getByRole("cell", { name: "1.000.000" })).toBeTruthy();
   });
 
+  it("shows VAT measures and a VAT column only when the server result has VAT", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(report())));
+    const { unmount } = render(<FinanceReportsWorkspace {...props()} />);
+    await screen.findByRole("button", { name: "Tải CSV từ máy chủ" });
+    expect(screen.queryByText("Thuế GTGT")).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Thuế GTGT (VND)" })).toBeNull();
+    unmount();
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(report({ summary: { gross: "3000000", promotionDiscount: "0", vat: "250000", refund: "-110000", refundVat: "10000", netBilled: "3250000" }, rows: [{ id: "issue-a", postedAt: "2026-09-25T09:00:00+07:00", type: "INVOICE_ISSUED", billingMonth: "2026-09", amount: "3250000", vatAmount: "250000" }, { id: "receipt-a", postedAt: "2026-09-25T10:00:00+07:00", type: "RECEIPT_POSTED", billingMonth: "2026-09", amount: "3250000", vatAmount: "0" }] }))));
+    render(<FinanceReportsWorkspace {...props()} />);
+    await screen.findByText("Thuế GTGT");
+    expect(screen.getByText("250.000 VND")).toBeTruthy();
+    expect(screen.getByText("VAT đã hoàn")).toBeTruthy();
+    expect(screen.getByText("10.000 VND")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Thuế GTGT (VND)" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "250.000" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "-" })).toBeTruthy();
+  });
+
   it("requests each of the four server report workspaces", async () => {
     const fetch = vi.fn().mockResolvedValue(response(report()));
     vi.stubGlobal("fetch", fetch);

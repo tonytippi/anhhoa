@@ -23,6 +23,7 @@ const window = load();
 const document = window.document;
 assert.equal(document.querySelector('[data-workspace="overview"]').getAttribute('aria-current'), 'page');
 assert.match(document.querySelector('[data-report-rows]').textContent, /Thu đủ; coverage đã cấp/);
+assert.match(document.querySelector('[data-report-result]').textContent, /Giảm trừ ưu đãi[\s\S]*Thuế GTGT[\s\S]*Hoàn tiền coverage[\s\S]*VAT đã hoàn/);
 assert.match(document.querySelector('[data-normalized-filter]').textContent, /Tháng thu 10\/2026/);
 assert.equal(document.querySelector('[data-report-export]').hidden, false);
 

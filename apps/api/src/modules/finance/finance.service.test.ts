@@ -47,7 +47,7 @@ describe('FinanceService validation', () => {
     const events = [{ id: 'issued', type: 'INVOICE_ISSUED', postedAt: new Date('2026-09-01T00:00:00.000Z'), amount: 0n, netAmount: 100n, billingMonth: '2026-09', invoiceId: 'invoice', provenance: {} }, { id: 'receipt', type: 'RECEIPT_POSTED', postedAt: new Date('2026-09-02T00:00:00.000Z'), amount: 90n, netAmount: 0n, billingMonth: '2026-09', invoiceId: 'invoice', provenance: {} }];
     const prisma = { financeLedgerEvent: { findMany: vi.fn().mockResolvedValue(events) } };
     const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).report('identity', school, 'overview', { asOf: '2026-09-03T00:00:00.000Z', billingMonth: '2026-09' });
-    expect(result).toMatchObject({ timezone: 'Asia/Ho_Chi_Minh', reportDefinitionVersion: 'FINANCE_LEDGER_V3', summary: { netBilled: '100', actualReceipt: '90' } });
+    expect(result).toMatchObject({ timezone: 'Asia/Ho_Chi_Minh', reportDefinitionVersion: 'FINANCE_LEDGER_V4', summary: { netBilled: '100', actualReceipt: '90' } });
     expect(prisma.financeLedgerEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, postedAt: { lte: new Date('2026-09-03T00:00:00.000Z') }, billingMonth: '2026-09' }) }));
   });
   it('rejects ambiguous report cutoffs instead of silently choosing the current time', async () => {
@@ -103,7 +103,7 @@ describe('FinanceService validation', () => {
     expect(issued).not.toHaveProperty('debtTransfers');
     const retained = obligations.find((item) => item.id === closed.id)!;
     expect(retained).toMatchObject({ outstanding: '0', actualReceipt: '2100000', outcome: 'EXACT', state: 'CLOSED', effectiveAt: receiptAt.toISOString() });
-    expect(Object.keys(obligations[0]!)).toEqual(['id', 'studentId', 'channel', 'obligationCode', 'period', 'issuedTotal', 'actualReceipt', 'outcome', 'outstanding', 'state', 'effectiveAt', 'paymentInstruction']);
+    expect(Object.keys(obligations[0]!)).toEqual(['id', 'studentId', 'channel', 'obligationCode', 'period', 'issuedTotal', 'vatTotal', 'actualReceipt', 'outcome', 'outstanding', 'state', 'effectiveAt', 'paymentInstruction']);
     expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, studentId: { in: [student, closed.studentId] }, status: { in: ['ISSUED', 'CLOSED', 'CANCELLED'] } }) }));
   });
   it('keeps an issued source effective until its revision is issued and retains a closed replacement for unresolved source coverage', async () => {

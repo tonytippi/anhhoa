@@ -27,3 +27,11 @@ export function taxedLine(netAmount: bigint, category: TaxCategory) {
   const vat = vatAmount(netAmount, rate);
   return { taxCategorySnapshot: category, vatRateSnapshot: rate, vatAmount: vat, amount: netAmount + vat };
 }
+
+// VAT part of a VAT-inclusive amount: amount - round_half_up(amount * 100 / (100 + rate)).
+// For amount = net + vatAmount(net, rate) it returns exactly vatAmount(net, rate).
+export function includedVat(amount: bigint, rate: number | null): bigint {
+  if (!rate) return 0n;
+  const divisor = BigInt(100 + rate);
+  return amount - (amount * 200n + divisor) / (2n * divisor);
+}
