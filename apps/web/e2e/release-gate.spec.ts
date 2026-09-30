@@ -479,6 +479,8 @@ test('Teacher attendance and handover use server capability, confirmed errors, a
     await route.fulfill({ status: 504 });
   });
   await page.route('**/api/teacher/schools/*/operations/*', async (route) => { handoverReconciled = true; await route.continue(); });
+  // The picked-up time defaults to now; it must fall on the fixed handover date or the server rightly rejects it.
+  await page.getByLabel('Giờ trả trẻ Bé An').fill(`${attendanceDate}T16:30`);
   await page.getByRole('region', { name: 'Bàn giao - tham chiếu vận hành' }).getByRole('row').filter({ hasText: 'Bé An' }).getByRole('button', { name: 'Xác nhận trả trẻ' }).click();
   await expect.poll(() => handoverReconciled).toBe(true);
   await page.unroute('**/api/teacher/schools/*/handovers');
@@ -534,6 +536,7 @@ test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and 
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeFocused();
   await expect(page.getByRole('navigation', { name: 'Điều hướng trường' })).toContainText('Nhận xét trong ngày');
 
+  // The Parent fixture already seeds today's journal for Bé An, so this flow writes Bé Bình's first journal.
   const journalDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
   const classId = '00000000-0000-4000-8000-000000000001';
   const rosterRequest = page.waitForResponse((response) => response.url().includes('/daily-journal-roster?') && response.status() === 200);
@@ -541,7 +544,7 @@ test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and 
   await page.getByLabel('Ngày nhận xét').fill(journalDate);
   await page.getByRole('button', { name: 'Tải danh sách' }).last().click();
   await rosterRequest;
-  await page.getByRole('row').filter({ hasText: 'Bé An' }).getByRole('button', { name: 'Viết nhận xét' }).click();
+  await page.getByRole('row').filter({ hasText: 'Bé Bình' }).getByRole('button', { name: 'Viết nhận xét' }).click();
 
   let validationIntercepted = false;
   await page.route('**/api/teacher/schools/*/daily-journals', async (route) => {
@@ -553,10 +556,10 @@ test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and 
   const validationError = page.getByRole('alert').first();
   await expect(validationError).toHaveText('Nhận xét cần từ 1 đến 5000 ký tự.');
   await expect(validationError).toBeFocused();
-  await expect(page.getByRole('row').filter({ hasText: 'Bé An' })).toContainText('Chưa có nhận xét');
+  await expect(page.getByRole('row').filter({ hasText: 'Bé Bình' })).toContainText('Chưa có nhận xét');
   await page.unroute('**/api/teacher/schools/*/daily-journals');
 
-  await page.locator('textarea').fill('Bé An tham gia hoạt động rất tích cực.');
+  await page.locator('textarea').fill('Bé Bình tham gia hoạt động rất tích cực.');
   let intercepted = false;
   let reconciled = false;
   await page.route('**/api/teacher/schools/*/daily-journals', async (route) => {
@@ -568,11 +571,11 @@ test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and 
   await page.route('**/api/teacher/schools/*/operations/*', async (route) => { reconciled = true; await route.continue(); });
   await page.getByRole('button', { name: 'Lưu nhận xét' }).click();
   await expect.poll(() => reconciled).toBe(true);
-  await expect(page.getByRole('cell', { name: 'Đã có nhận xét' })).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: 'Bé Bình' }).getByRole('cell', { name: 'Đã có nhận xét' })).toBeVisible();
   await page.unroute('**/api/teacher/schools/*/daily-journals');
   await page.unroute('**/api/teacher/schools/*/operations/*');
 
-  await page.getByRole('button', { name: 'Xem/Sửa' }).click();
+  await page.getByRole('row').filter({ hasText: 'Bé Bình' }).getByRole('button', { name: 'Xem/Sửa' }).click();
   await page.locator('textarea').fill('Bản nháp không được mang sang trường khác.');
   await page.getByRole('button', { name: 'Về trang chủ' }).click();
   await expect(page.getByRole('dialog', { name: 'Rời không gian làm việc?' })).toContainText('Thay đổi chưa gửi sẽ không được tự lưu.');
@@ -583,6 +586,6 @@ test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and 
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate B' })).toBeVisible();
   await expect(page.getByLabel('Mã lớp nhận xét')).toHaveValue('');
-  await expect(page.getByText('Bé An')).toHaveCount(0);
+  await expect(page.getByText('Bé Bình')).toHaveCount(0);
   await expect(page.getByText('Bản nháp không được mang sang trường khác.')).toHaveCount(0);
 });
