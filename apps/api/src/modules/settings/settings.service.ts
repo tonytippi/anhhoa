@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { AuthorizationService } from "../authorization/authorization.service.js";
@@ -29,7 +30,19 @@ const routes = {
   bankAccount: "POST /api/app/schools/:schoolId/settings/bank-accounts",
   bankAccountLifecycle:
     "POST /api/app/schools/:schoolId/settings/bank-accounts/:bankAccountId/lifecycle",
+  holidayCreate: "POST /api/app/schools/:schoolId/settings/holidays",
+  holidayUpdate: "POST /api/app/schools/:schoolId/settings/holidays/:holidayId",
+  holidayDelete:
+    "POST /api/app/schools/:schoolId/settings/holidays/:holidayId/delete",
+  versionDelete:
+    "POST /api/app/schools/:schoolId/settings/:kind/:versionId/delete",
 };
+const deletableVersions = {
+  "finance-policy-versions": ["financePolicy", "FINANCE_POLICY_VERSION_DELETED"],
+  "attendance-policy-versions": ["attendancePolicy", "ATTENDANCE_POLICY_VERSION_DELETED"],
+  "handover-policy-versions": ["handoverPolicy", "HANDOVER_POLICY_VERSION_DELETED"],
+  "daily-journal-policy-versions": ["dailyJournalPolicy", "DAILY_JOURNAL_POLICY_VERSION_DELETED"],
+} as const;
 const transferTemplate = "{{studentName}} {{className}}";
 const dailyJournalPolicyFacts = {
   parentRetentionDaysAfterEnrollmentEnded: 30,
@@ -96,6 +109,7 @@ export class SettingsService {
         schoolName: value.schoolName,
         address: value.address,
         phone: value.phone,
+        supportEmail: value.supportEmail ?? null,
         createdAt: value.createdAt.toISOString(),
       }
     );
@@ -216,6 +230,7 @@ export class SettingsService {
       dailyJournalPolicies,
       leavePolicies,
       bankAccounts,
+      latestCalendar,
     ] = await Promise.all([
       this.prisma.schoolProfileVersion.findFirst({
         where,
@@ -256,6 +271,11 @@ export class SettingsService {
         },
         orderBy: { createdAt: "desc" },
       }),
+      this.prisma.schoolCalendarVersion.findFirst({
+        where: { schoolId, effectiveFrom: { gt: new Date(`${day}T00:00:00.000Z`) } },
+        include: { holidays: { orderBy: { startsOn: "asc" } } },
+        orderBy: { effectiveFrom: "desc" },
+      }),
     ]);
     const policies = financePolicies.map((policy: any) =>
       this.financePolicyDto(policy),
@@ -279,6 +299,7 @@ export class SettingsService {
       timezone: "Asia/Ho_Chi_Minh",
       profile: this.profileDto(profile),
       calendar: this.calendarDto(calendar),
+      upcomingCalendar: this.calendarDto(latestCalendar),
       financePolicy,
       financePolicyVersions: policies,
       attendancePolicy:
@@ -320,6 +341,7 @@ export class SettingsService {
       schoolName: this.text(body?.schoolName, "schoolName")!,
       address: this.text(body?.address, "address", false, 500),
       phone: this.text(body?.phone, "phone", false, 30),
+      supportEmail: this.email(body?.supportEmail),
     };
     return this.mutate(
       actor,
@@ -329,51 +351,8 @@ export class SettingsService {
       key,
       operationId,
       input,
-      async (tx, operation) => {
-        const prior = await tx.schoolProfileVersion.findFirst({
-          where: {
-            schoolId,
-            effectiveFrom: {
-              lt: new Date(`${input.effectiveFrom}T00:00:00.000Z`),
-            },
-          },
-          orderBy: { effectiveFrom: "desc" },
-        });
-        try {
-          const profile = await tx.schoolProfileVersion.create({
-            data: {
-              schoolId,
-              ...input,
-              effectiveFrom: new Date(`${input.effectiveFrom}T00:00:00.000Z`),
-              actorIdentityId: identityId,
-              membershipId: actor.membershipId,
-            },
-          });
-          await this.audit(
-            tx,
-            schoolId,
-            identityId,
-            actor.membershipId,
-            "SCHOOL_PROFILE_VERSION_CREATED",
-            operation,
-            {
-              oldValue: this.profileDto(prior),
-              newValue: this.profileDto(profile),
-            },
-          );
-          return this.profileDto(profile);
-        } catch (error) {
-          if (this.unique(error))
-            throw new BadRequestException({
-              code: "VALIDATION_ERROR",
-              message: "Dữ liệu không hợp lệ.",
-              fieldErrors: {
-                effectiveFrom: "Đã có phiên bản tại ngày hiệu lực này.",
-              },
-            });
-          throw error;
-        }
-      },
+      (tx, operation) =>
+        this.saveVersion(tx, "schoolProfileVersion", schoolId, identityId, actor.membershipId, operation, input, (value: any) => this.profileDto(value), "SCHOOL_PROFILE_VERSION"),
     );
   }
   async createCalendar(
@@ -529,51 +508,8 @@ export class SettingsService {
       key,
       operationId,
       input,
-      async (tx, operation) => {
-        const prior = await tx.financePolicy.findFirst({
-          where: {
-            schoolId,
-            effectiveFrom: {
-              lt: new Date(`${input.effectiveFrom}T00:00:00.000Z`),
-            },
-          },
-          orderBy: { effectiveFrom: "desc" },
-        });
-        try {
-          const policy = await tx.financePolicy.create({
-            data: {
-              schoolId,
-              ...input,
-              effectiveFrom: new Date(`${input.effectiveFrom}T00:00:00.000Z`),
-              actorIdentityId: identityId,
-              membershipId: actor.membershipId,
-            },
-          });
-          await this.audit(
-            tx,
-            schoolId,
-            identityId,
-            actor.membershipId,
-            "FINANCE_POLICY_VERSION_CREATED",
-            operation,
-            {
-              oldValue: this.financePolicyDto(prior),
-              newValue: this.financePolicyDto(policy),
-            },
-          );
-          return this.financePolicyDto(policy);
-        } catch (error) {
-          if (this.unique(error))
-            throw new BadRequestException({
-              code: "VALIDATION_ERROR",
-              message: "Dữ liệu không hợp lệ.",
-              fieldErrors: {
-                effectiveFrom: "Đã có phiên bản tại ngày hiệu lực này.",
-              },
-            });
-          throw error;
-        }
-      },
+      (tx, operation) =>
+        this.saveVersion(tx, "financePolicy", schoolId, identityId, actor.membershipId, operation, input, (value: any) => this.financePolicyDto(value), "FINANCE_POLICY_VERSION"),
     );
   }
   async createAttendancePolicy(
@@ -644,51 +580,8 @@ export class SettingsService {
       key,
       operationId,
       input,
-      async (tx, operation) => {
-        const prior = await tx[model].findFirst({
-          where: {
-            schoolId,
-            effectiveFrom: {
-              lt: new Date(`${input.effectiveFrom}T00:00:00.000Z`),
-            },
-          },
-          orderBy: { effectiveFrom: "desc" },
-        });
-        try {
-          const policy = await tx[model].create({
-            data: {
-              schoolId,
-              ...input,
-              effectiveFrom: new Date(`${input.effectiveFrom}T00:00:00.000Z`),
-              actorIdentityId: identityId,
-              membershipId: actor.membershipId,
-            },
-          });
-          await this.audit(
-            tx,
-            schoolId,
-            identityId,
-            actor.membershipId,
-            action,
-            operation,
-            {
-              oldValue: this.evidencePolicyDto(prior),
-              newValue: this.evidencePolicyDto(policy),
-            },
-          );
-          return this.evidencePolicyDto(policy);
-        } catch (error) {
-          if (this.unique(error))
-            throw new BadRequestException({
-              code: "VALIDATION_ERROR",
-              message: "Dữ liệu không hợp lệ.",
-              fieldErrors: {
-                effectiveFrom: "Đã có phiên bản tại ngày hiệu lực này.",
-              },
-            });
-          throw error;
-        }
-      },
+      (tx, operation) =>
+        this.saveVersion(tx, model, schoolId, identityId, actor.membershipId, operation, input, (value: any) => this.evidencePolicyDto(value), action.replace("_CREATED", "")),
     );
   }
   async createDailyJournalPolicy(
@@ -712,51 +605,8 @@ export class SettingsService {
       key,
       operationId,
       input,
-      async (tx, operation) => {
-        const prior = await tx.dailyJournalPolicy.findFirst({
-          where: {
-            schoolId,
-            effectiveFrom: {
-              lt: new Date(`${input.effectiveFrom}T00:00:00.000Z`),
-            },
-          },
-          orderBy: { effectiveFrom: "desc" },
-        });
-        try {
-          const policy = await tx.dailyJournalPolicy.create({
-            data: {
-              schoolId,
-              ...input,
-              effectiveFrom: new Date(`${input.effectiveFrom}T00:00:00.000Z`),
-              actorIdentityId: identityId,
-              membershipId: actor.membershipId,
-            },
-          });
-          await this.audit(
-            tx,
-            schoolId,
-            identityId,
-            actor.membershipId,
-            "DAILY_JOURNAL_POLICY_VERSION_CREATED",
-            operation,
-            {
-              oldValue: this.dailyJournalPolicyDto(prior),
-              newValue: this.dailyJournalPolicyDto(policy),
-            },
-          );
-          return this.dailyJournalPolicyDto(policy);
-        } catch (error) {
-          if (this.unique(error))
-            throw new BadRequestException({
-              code: "VALIDATION_ERROR",
-              message: "Dữ liệu không hợp lệ.",
-              fieldErrors: {
-                effectiveFrom: "Đã có phiên bản tại ngày hiệu lực này.",
-              },
-            });
-          throw error;
-        }
-      },
+      (tx, operation) =>
+        this.saveVersion(tx, "dailyJournalPolicy", schoolId, identityId, actor.membershipId, operation, input, (value: any) => this.dailyJournalPolicyDto(value), "DAILY_JOURNAL_POLICY_VERSION"),
     );
   }
   async createLeavePolicy(
@@ -991,6 +841,210 @@ export class SettingsService {
         return newValue;
       },
     );
+  }
+  private email(value: unknown) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) return null;
+    if (text.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text))
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: { supportEmail: "Email không hợp lệ." },
+      });
+    return text;
+  }
+  private addDays(day: string, days: number) {
+    const date = new Date(`${day}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+  // Versions effective today or later are corrected in place (audited); earlier ones stay history.
+  private async saveVersion(
+    tx: any,
+    model: string,
+    schoolId: string,
+    identityId: string,
+    membershipId: string,
+    operation: string,
+    input: { effectiveFrom: string } & Record<string, unknown>,
+    dto: (value: any) => any,
+    action: string,
+  ) {
+    const effectiveFrom = new Date(`${input.effectiveFrom}T00:00:00.000Z`);
+    const data = { ...input, effectiveFrom, actorIdentityId: identityId, membershipId };
+    const existing = await tx[model].findFirst({ where: { schoolId, effectiveFrom } });
+    if (existing) {
+      if (input.effectiveFrom < this.today())
+        throw new BadRequestException({
+          code: "VALIDATION_ERROR",
+          message: "Dữ liệu không hợp lệ.",
+          fieldErrors: {
+            effectiveFrom: "Phiên bản của ngày này đã áp dụng, không thể sửa. Chọn ngày từ hôm nay trở đi.",
+          },
+        });
+      const updated = await tx[model].update({ where: { id: existing.id }, data });
+      await this.audit(tx, schoolId, identityId, membershipId, `${action}_UPDATED`, operation, {
+        oldValue: dto(existing),
+        newValue: dto(updated),
+      });
+      return dto(updated);
+    }
+    const prior = await tx[model].findFirst({
+      where: { schoolId, effectiveFrom: { lt: effectiveFrom } },
+      orderBy: { effectiveFrom: "desc" },
+    });
+    try {
+      const created = await tx[model].create({ data: { schoolId, ...data } });
+      await this.audit(tx, schoolId, identityId, membershipId, `${action}_CREATED`, operation, {
+        oldValue: dto(prior),
+        newValue: dto(created),
+      });
+      return dto(created);
+    } catch (error) {
+      if (this.unique(error))
+        throw new BadRequestException({
+          code: "VALIDATION_ERROR",
+          message: "Dữ liệu không hợp lệ.",
+          fieldErrors: { effectiveFrom: "Đã có phiên bản tại ngày hiệu lực này." },
+        });
+      throw error;
+    }
+  }
+  private holidayInput(body: any) {
+    const input = {
+      name: this.text(body?.name, "name")!,
+      startsOn: this.date(body?.startsOn, "startsOn"),
+      endsOn: this.date(body?.endsOn, "endsOn"),
+    };
+    if (input.endsOn < input.startsOn)
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: { endsOn: "Ngày kết thúc không được trước ngày bắt đầu." },
+      });
+    if (input.endsOn < this.today())
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: { endsOn: "Kỳ nghỉ đã kết thúc. Chỉ thêm hoặc sửa kỳ nghỉ từ hôm nay trở đi." },
+      });
+    return input;
+  }
+  async createHoliday(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
+    const input = this.holidayInput(body);
+    return this.changeHolidays(identityId, schoolId, key, operationId, routes.holidayCreate, input, "SCHOOL_CALENDAR_HOLIDAY_ADDED", (holidays) => [...holidays, input]);
+  }
+  async updateHoliday(identityId: string, schoolId: string, holidayId: string, key: string, operationId: string, body: any) {
+    const input = this.holidayInput(body);
+    return this.changeHolidays(identityId, schoolId, key, operationId, routes.holidayUpdate, { holidayId, ...input }, "SCHOOL_CALENDAR_HOLIDAY_UPDATED", (holidays) =>
+      holidays.map((holiday) => (holiday.id === this.currentHoliday(holidays, holidayId).id ? input : holiday)),
+    );
+  }
+  async deleteHoliday(identityId: string, schoolId: string, holidayId: string, key: string, operationId: string) {
+    return this.changeHolidays(identityId, schoolId, key, operationId, routes.holidayDelete, { holidayId }, "SCHOOL_CALENDAR_HOLIDAY_DELETED", (holidays) =>
+      holidays.filter((holiday) => holiday.id !== this.currentHoliday(holidays, holidayId).id),
+    );
+  }
+  private currentHoliday(holidays: { id?: string; endsOn: string }[], holidayId: string) {
+    const holiday = uuid.test(holidayId) ? holidays.find((item) => item.id === holidayId) : undefined;
+    if (!holiday)
+      throw new NotFoundException({ code: "HOLIDAY_NOT_FOUND", message: "Không tìm thấy kỳ nghỉ trong lịch hiện tại." });
+    if (holiday.endsOn < this.today())
+      throw new ConflictException({ code: "HOLIDAY_ENDED", message: "Kỳ nghỉ đã kết thúc nên không thể sửa hoặc xóa." });
+    return holiday;
+  }
+  // Holiday changes always edit the latest calendar version: in place when it is effective today or
+  // later and no leave/coverage snapshot references it, otherwise as a new version.
+  private async changeHolidays(
+    identityId: string,
+    schoolId: string,
+    key: string,
+    operationId: string,
+    route: string,
+    body: object,
+    action: string,
+    change: (holidays: { id?: string; name: string; startsOn: string; endsOn: string }[]) => { name: string; startsOn: string; endsOn: string }[],
+  ) {
+    const actor = await this.actor(identityId, schoolId);
+    return this.mutate(actor, identityId, schoolId, route, key, operationId, body, async (tx, operation) => {
+      const today = this.today();
+      const latest = await tx.schoolCalendarVersion.findFirst({
+        where: { schoolId },
+        include: { holidays: { orderBy: { startsOn: "asc" } } },
+        orderBy: { effectiveFrom: "desc" },
+      });
+      const current = latest ? this.calendarDto(latest) : null;
+      const holidays = change(current?.holidays ?? []).map(({ name, startsOn, endsOn }) => ({ name, startsOn, endsOn }));
+      const sorted = [...holidays].sort((a, b) => a.startsOn.localeCompare(b.startsOn));
+      for (const [index, holiday] of sorted.entries())
+        if (index && sorted[index - 1]!.endsOn >= holiday.startsOn)
+          throw new BadRequestException({
+            code: "VALIDATION_ERROR",
+            message: "Dữ liệu không hợp lệ.",
+            fieldErrors: { startsOn: `Trùng với kỳ nghỉ ${sorted[index - 1]!.name}.` },
+          });
+      const rows = (calendarVersionId: string) =>
+        holidays.map((holiday) => ({
+          schoolId,
+          calendarVersionId,
+          name: holiday.name,
+          startsOn: new Date(`${holiday.startsOn}T00:00:00.000Z`),
+          endsOn: new Date(`${holiday.endsOn}T00:00:00.000Z`),
+        }));
+      let versionId: string;
+      if (current && current.effectiveFrom >= today && !(await this.calendarReferenced(tx, schoolId, latest.effectiveFrom))) {
+        versionId = latest.id;
+        await tx.schoolCalendarHoliday.deleteMany({ where: { schoolId, calendarVersionId: versionId } });
+      } else {
+        const effectiveFrom = current && current.effectiveFrom >= today ? this.addDays(current.effectiveFrom, 1) : today;
+        versionId = (
+          await tx.schoolCalendarVersion.create({
+            data: {
+              schoolId,
+              effectiveFrom: new Date(`${effectiveFrom}T00:00:00.000Z`),
+              actorIdentityId: identityId,
+              membershipId: actor.membershipId,
+            },
+          })
+        ).id;
+      }
+      if (holidays.length) await tx.schoolCalendarHoliday.createMany({ data: rows(versionId) });
+      const saved = await tx.schoolCalendarVersion.findUniqueOrThrow({
+        where: { id: versionId },
+        include: { holidays: { orderBy: { startsOn: "asc" } } },
+      });
+      const newValue = this.calendarDto(saved);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, action, operation, { oldValue: current, newValue });
+      return newValue;
+    });
+  }
+  private async calendarReferenced(tx: any, schoolId: string, calendarEffectiveFrom: Date) {
+    const where = { schoolId, calendarEffectiveFrom };
+    const counts = await Promise.all([
+      tx.leaveRequestDay.count({ where }),
+      tx.invoicePromotionCoverageFact.count({ where }),
+      tx.studentPromotionalCoverage.count({ where }),
+    ]);
+    return counts.some(Boolean);
+  }
+  async deleteVersion(identityId: string, schoolId: string, kind: string, versionId: string, key: string, operationId: string) {
+    const target = deletableVersions[kind as keyof typeof deletableVersions];
+    if (!target || !uuid.test(versionId))
+      throw new NotFoundException({ code: "SETTINGS_VERSION_NOT_FOUND", message: "Không tìm thấy phiên bản." });
+    const [model, action] = target;
+    const actor = await this.actor(identityId, schoolId);
+    const dto = (value: any) =>
+      model === "financePolicy" ? this.financePolicyDto(value) : model === "dailyJournalPolicy" ? this.dailyJournalPolicyDto(value) : this.evidencePolicyDto(value);
+    return this.mutate(actor, identityId, schoolId, `${routes.versionDelete}#${kind}`, key, operationId, { kind, versionId }, async (tx, operation) => {
+      const version = await (tx as any)[model].findFirst({ where: { id: versionId, schoolId } });
+      if (!version)
+        throw new NotFoundException({ code: "SETTINGS_VERSION_NOT_FOUND", message: "Không tìm thấy phiên bản." });
+      if (version.effectiveFrom.toISOString().slice(0, 10) <= this.today())
+        throw new ConflictException({ code: "SETTINGS_VERSION_EFFECTIVE", message: "Chỉ xóa được phiên bản chưa đến ngày áp dụng." });
+      await (tx as any)[model].delete({ where: { id: version.id } });
+      await this.audit(tx, schoolId, identityId, actor.membershipId, action, operation, { oldValue: dto(version), newValue: null });
+      return { id: version.id, deleted: true };
+    });
   }
   private unique(error: unknown) {
     return Boolean(

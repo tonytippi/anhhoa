@@ -1578,6 +1578,7 @@ model SchoolProfileVersion {
   schoolName      String
   address         String?
   phone           String?
+  supportEmail    String?
   actorIdentityId String   @db.Uuid
   membershipId    String   @db.Uuid
   createdAt       DateTime @default(now())

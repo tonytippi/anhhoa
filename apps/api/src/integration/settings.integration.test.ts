@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthorizationService } from '../modules/authorization/authorization.service.js';
 import { PrismaService } from '../modules/identity/prisma.service.js';
 import { SettingsService } from '../modules/settings/settings.service.js';
@@ -7,6 +7,8 @@ const prisma = new PrismaService();
 const settings = new SettingsService(prisma, new AuthorizationService(prisma));
 const schools: string[] = [];
 const uuid = () => crypto.randomUUID();
+const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+const day = (offset: number) => { const date = new Date(`${today}T00:00:00.000Z`); date.setUTCDate(date.getUTCDate() + offset); return date.toISOString().slice(0, 10); };
 async function graph() { const school = await prisma.school.create({ data: { name: 'Settings', slug: `settings-${uuid()}`, studentCodePrefix: 'ST' } }); schools.push(school.id); const identity = await prisma.userIdentity.create({ data: { emailNormalized: `${uuid()}@example.com` } }); const membership = await prisma.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: identity.id } }); const position = await prisma.schoolPosition.create({ data: { schoolId: school.id, code: `SETTINGS_${uuid().replaceAll('-', '').slice(0, 12)}`, name: `Settings ${uuid()}` } }); await prisma.positionCapabilityGrant.createMany({ data: ['SCHOOL_CONTEXT_READ', 'SETTINGS_MANAGE'].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })) }); await prisma.staffProfile.create({ data: { schoolId: school.id, fullName: 'Settings actor', email: identity.emailNormalized, phone: '0900000000', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Khác', address: 'Test', primaryPositionId: position.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } }); return { school, identity, membership }; }
  afterEach(async () => { const ids = schools.splice(0); if (!ids.length) return; await prisma.$transaction(async (tx) => { await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`; await tx.auditRecord.deleteMany({ where: { schoolId: { in: ids } } }); await tx.bankAccountLifecycleTransition.deleteMany({ where: { schoolId: { in: ids } } }); await tx.operation.deleteMany({ where: { schoolId: { in: ids } } }); await tx.bankAccount.deleteMany({ where: { schoolId: { in: ids } } }); await tx.financePolicy.deleteMany({ where: { schoolId: { in: ids } } }); await tx.attendancePolicy.deleteMany({ where: { schoolId: { in: ids } } }); await tx.handoverPolicy.deleteMany({ where: { schoolId: { in: ids } } }); await tx.dailyJournalPolicy.deleteMany({ where: { schoolId: { in: ids } } }); await tx.leavePolicy.deleteMany({ where: { schoolId: { in: ids } } }); await tx.schoolCalendarHoliday.deleteMany({ where: { schoolId: { in: ids } } }); await tx.schoolCalendarVersion.deleteMany({ where: { schoolId: { in: ids } } }); await tx.schoolProfileVersion.deleteMany({ where: { schoolId: { in: ids } } }); await tx.staffProfile.deleteMany({ where: { schoolId: { in: ids } } }); await tx.positionCapabilityGrant.deleteMany({ where: { schoolId: { in: ids } } }); await tx.schoolPosition.deleteMany({ where: { schoolId: { in: ids } } }); await tx.schoolMembership.deleteMany({ where: { schoolId: { in: ids } } }); await tx.school.deleteMany({ where: { id: { in: ids } } }); }); });
 afterAll(() => prisma.$disconnect());
@@ -111,5 +113,65 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('settings PostgreS
     expect(await prisma.auditRecord.count({ where: { schoolId: b.school.id } })).toBe(before.bAudits);
     const audit = await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: a.school.id, action: 'BANK_ACCOUNT_CREATED' } });
     expect(audit).toMatchObject({ actorIdentityId: a.identity.id, membershipId: a.membership.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: a.membership.id, provenance: { operationId: expect.any(String), oldValue: null, newValue: expect.objectContaining({ accountNumber: '111' }) } });
+  });
+  it('corrects versions effective today or later in place with audit and deletes only upcoming policy versions', async () => {
+    const a = await graph();
+    await settings.createProfile(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: today, schoolName: 'Sai chính tả' });
+    const fixed = await settings.createProfile(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: today, schoolName: 'Đúng chính tả', supportEmail: 'hotro@example.com' });
+    expect(fixed.outcome).toMatchObject({ schoolName: 'Đúng chính tả', supportEmail: 'hotro@example.com' });
+    expect(await prisma.schoolProfileVersion.count({ where: { schoolId: a.school.id } })).toBe(1);
+    expect(await prisma.auditRecord.findFirst({ where: { schoolId: a.school.id, action: 'SCHOOL_PROFILE_VERSION_UPDATED' } })).toMatchObject({ provenance: { oldValue: { schoolName: 'Sai chính tả' }, newValue: { schoolName: 'Đúng chính tả' } } });
+    await expect(settings.createProfile(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: today, schoolName: 'A', supportEmail: 'không phải email' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { supportEmail: expect.any(String) } } });
+
+    const finance = { dueDaysAfterIssue: 10, taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT' };
+    const current = await settings.createFinancePolicy(a.identity.id, a.school.id, uuid(), uuid(), { ...finance, effectiveFrom: today });
+    const upcoming = await settings.createFinancePolicy(a.identity.id, a.school.id, uuid(), uuid(), { ...finance, effectiveFrom: day(5) });
+    await settings.createFinancePolicy(a.identity.id, a.school.id, uuid(), uuid(), { ...finance, dueDaysAfterIssue: 20, effectiveFrom: day(5) });
+    await expect(settings.read(a.identity.id, a.school.id, day(5))).resolves.toMatchObject({ financePolicy: { dueDaysAfterIssue: 20 } });
+    await expect(settings.deleteVersion(a.identity.id, a.school.id, 'finance-policy-versions', (current.outcome as { id: string }).id, uuid(), uuid())).rejects.toMatchObject({ status: 409 });
+    await expect(settings.deleteVersion(a.identity.id, a.school.id, 'finance-policy-versions', (upcoming.outcome as { id: string }).id, uuid(), uuid())).resolves.toMatchObject({ outcome: { deleted: true } });
+    expect(await prisma.financePolicy.count({ where: { schoolId: a.school.id } })).toBe(1);
+    expect(await prisma.auditRecord.findFirst({ where: { schoolId: a.school.id, action: 'FINANCE_POLICY_VERSION_DELETED' } })).toMatchObject({ provenance: { oldValue: { dueDaysAfterIssue: 20 }, newValue: null } });
+    await expect(settings.deleteVersion(a.identity.id, a.school.id, 'bank-accounts', uuid(), uuid(), uuid())).rejects.toMatchObject({ status: 404 });
+
+    const attendance = await settings.createAttendancePolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: today, photoEvidenceMode: 'REQUIRED', reason: 'Đầu năm' });
+    await settings.createAttendancePolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: today, photoEvidenceMode: 'OPTIONAL', reason: 'Nhập nhầm' });
+    expect(await prisma.attendancePolicy.findUniqueOrThrow({ where: { id: (attendance.outcome as { id: string }).id } })).toMatchObject({ photoEvidenceMode: 'OPTIONAL', reason: 'Nhập nhầm' });
+
+    await settings.createHandoverPolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: day(-1), photoEvidenceMode: 'REQUIRED', reason: 'Hôm qua' });
+    await expect(settings.createHandoverPolicy(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: day(-1), photoEvidenceMode: 'OPTIONAL', reason: 'Sửa quá khứ' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveFrom: expect.any(String) } } });
+  });
+  it('adds, edits and deletes holidays on the latest calendar without rewriting referenced or past versions', async () => {
+    const a = await graph();
+    await settings.createCalendar(a.identity.id, a.school.id, uuid(), uuid(), { effectiveFrom: day(-30), holidays: [{ name: 'Đã qua', startsOn: day(-20), endsOn: day(-19) }] });
+    const added = await settings.createHoliday(a.identity.id, a.school.id, uuid(), uuid(), { name: 'Nghỉ lễ', startsOn: day(3), endsOn: day(4) });
+    expect(added.outcome).toMatchObject({ effectiveFrom: today, holidays: [{ name: 'Đã qua' }, { name: 'Nghỉ lễ', startsOn: day(3), endsOn: day(4) }] });
+    const second = await settings.createHoliday(a.identity.id, a.school.id, uuid(), uuid(), { name: 'Nghỉ bù', startsOn: day(10), endsOn: day(10) });
+    expect(await prisma.schoolCalendarVersion.count({ where: { schoolId: a.school.id } })).toBe(2);
+    const holidays = (second.outcome as { holidays: { id: string; name: string }[] }).holidays;
+    const moved = await settings.updateHoliday(a.identity.id, a.school.id, holidays.find((item) => item.name === 'Nghỉ lễ')!.id, uuid(), uuid(), { name: 'Nghỉ lễ (dời)', startsOn: day(5), endsOn: day(6) });
+    expect((moved.outcome as { holidays: { name: string }[] }).holidays.map((item) => item.name)).toEqual(['Đã qua', 'Nghỉ lễ (dời)', 'Nghỉ bù']);
+    await expect(settings.createHoliday(a.identity.id, a.school.id, uuid(), uuid(), { name: 'Trùng', startsOn: day(6), endsOn: day(7) })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { startsOn: expect.stringContaining('Nghỉ lễ (dời)') } } });
+    await expect(settings.createHoliday(a.identity.id, a.school.id, uuid(), uuid(), { name: 'Quá khứ', startsOn: day(-3), endsOn: day(-2) })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { endsOn: expect.any(String) } } });
+    const pastId = (moved.outcome as { holidays: { id: string; name: string }[] }).holidays.find((item) => item.name === 'Đã qua')!.id;
+    await expect(settings.deleteHoliday(a.identity.id, a.school.id, pastId, uuid(), uuid())).rejects.toMatchObject({ status: 409 });
+    const deletedId = (moved.outcome as { holidays: { id: string; name: string }[] }).holidays.find((item) => item.name === 'Nghỉ bù')!.id;
+    const removed = await settings.deleteHoliday(a.identity.id, a.school.id, deletedId, uuid(), uuid());
+    expect((removed.outcome as { holidays: { name: string }[] }).holidays.map((item) => item.name)).toEqual(['Đã qua', 'Nghỉ lễ (dời)']);
+    expect(await prisma.schoolCalendarVersion.count({ where: { schoolId: a.school.id } })).toBe(2);
+    expect(await prisma.auditRecord.findFirst({ where: { schoolId: a.school.id, action: 'SCHOOL_CALENDAR_HOLIDAY_DELETED' } })).toMatchObject({ provenance: { oldValue: { holidays: expect.arrayContaining([expect.objectContaining({ name: 'Nghỉ bù' })]) } } });
+    await expect(settings.read(a.identity.id, a.school.id, day(-1))).resolves.toMatchObject({ calendar: { effectiveFrom: day(-30), holidays: [{ name: 'Đã qua' }] }, upcomingCalendar: { effectiveFrom: today } });
+
+    const pastVersion = await prisma.schoolCalendarVersion.findFirstOrThrow({ where: { schoolId: a.school.id, effectiveFrom: new Date(`${day(-30)}T00:00:00.000Z`) }, include: { holidays: true } });
+    await expect(prisma.schoolCalendarHoliday.delete({ where: { id: pastVersion.holidays[0]!.id } })).rejects.toBeTruthy();
+
+    const referenced = vi.spyOn(settings as unknown as { calendarReferenced: () => Promise<boolean> }, 'calendarReferenced').mockResolvedValue(true);
+    try {
+      const branched = await settings.createHoliday(a.identity.id, a.school.id, uuid(), uuid(), { name: 'Sau khi đã dùng', startsOn: day(20), endsOn: day(20) });
+      expect(branched.outcome).toMatchObject({ effectiveFrom: day(1) });
+    } finally {
+      referenced.mockRestore();
+    }
+    expect(await prisma.schoolCalendarHoliday.count({ where: { schoolId: a.school.id, calendarVersion: { effectiveFrom: new Date(`${today}T00:00:00.000Z`) } } })).toBe(2);
   });
 });

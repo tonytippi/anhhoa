@@ -54,7 +54,7 @@ describe('SettingsService validation and read scope', () => {
   it('audits the immediately preceding effective version rather than the latest version', async () => {
     const prior = { id: 'prior', effectiveFrom: new Date('2026-01-01T00:00:00Z'), schoolName: 'Cũ', address: null, phone: null, createdAt: new Date('2026-01-01T00:00:00Z') };
     const created = { ...prior, id: 'new', effectiveFrom: new Date('2026-03-01T00:00:00Z'), schoolName: 'Mới' };
-    const tx = { $queryRaw: vi.fn(), schoolMembership: { findFirst: vi.fn().mockResolvedValue({}) }, operation: { create: vi.fn().mockResolvedValue({ id: 'operation' }), update: vi.fn().mockResolvedValue({ id: 'operation', status: 'COMPLETED', outcome: created }) }, schoolProfileVersion: { findFirst: vi.fn().mockResolvedValue(prior), create: vi.fn().mockResolvedValue(created) }, auditRecord: { create: vi.fn() } };
+    const tx = { $queryRaw: vi.fn(), schoolMembership: { findFirst: vi.fn().mockResolvedValue({}) }, operation: { create: vi.fn().mockResolvedValue({ id: 'operation' }), update: vi.fn().mockResolvedValue({ id: 'operation', status: 'COMPLETED', outcome: created }) }, schoolProfileVersion: { findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValue(prior), create: vi.fn().mockResolvedValue(created) }, auditRecord: { create: vi.fn() } };
     const prisma = { operation: { findFirst: vi.fn().mockResolvedValue(null) }, $transaction: vi.fn((work: (value: typeof tx) => unknown) => work(tx)) };
     const service = new SettingsService(prisma as never, authorization as never);
     await service.createProfile('identity', 'school', crypto.randomUUID(), crypto.randomUUID(), { effectiveFrom: '2026-03-01', schoolName: 'Mới' });

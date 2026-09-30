@@ -1,22 +1,36 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsWorkspace } from './settings-workspace';
 
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
 const settings = { asOf: '2026-01-01', timezone: 'Asia/Ho_Chi_Minh', profile: null, calendar: null, financePolicy: null, financePolicyVersions: [], attendancePolicy: null, attendancePolicyVersions: [], handoverPolicy: null, handoverPolicyVersions: [], dailyJournalPolicy: null, dailyJournalPolicyVersions: [], bankAccounts: [] };
-afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); });
+afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); window.history.replaceState(null, '', '/'); });
+
+const tab = (name: string) => fireEvent.click(screen.getByRole('link', { name }));
 
 describe('SettingsWorkspace', () => {
   it('keeps invalid input, focuses the server error summary, and describes its field', async () => {
-    vi.stubGlobal('fetch', vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? new Response(JSON.stringify({ error: { message: 'Dữ liệu không hợp lệ.', fieldErrors: { effectiveFrom: 'Đã có phiên bản tại ngày hiệu lực này.' } } }), { status: 400 }) : response(settings))));
+    vi.stubGlobal('fetch', vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? new Response(JSON.stringify({ error: { message: 'Dữ liệu không hợp lệ.', fieldErrors: { supportEmail: 'Email không hợp lệ.' } } }), { status: 400 }) : response(settings))));
     render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.change((await screen.findAllByLabelText('Ngày hiệu lực'))[0]!, { target: { value: '2026-01-01' } });
-    fireEvent.change(screen.getByLabelText('Tên trường'), { target: { value: 'Trường mới' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Tạo phiên bản hồ sơ' }).closest('form')!);
-    expect(await screen.findByText('Đã có phiên bản tại ngày hiệu lực này.')).toBeTruthy();
+    fireEvent.change(await screen.findByLabelText('Tên hiển thị'), { target: { value: 'Trường mới' } });
+    expect(screen.queryByLabelText('Ngày hiệu lực')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Email hỗ trợ'), { target: { value: 'sai' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu hồ sơ' }));
+    expect(await screen.findByText('Email không hợp lệ.')).toBeTruthy();
     expect(document.activeElement?.getAttribute('role')).toBe('alert');
-    expect(screen.getAllByLabelText('Ngày hiệu lực')[0]!.getAttribute('aria-describedby')).toBe('profile-effectiveFrom-error');
-    expect((screen.getByLabelText('Tên trường') as HTMLInputElement).value).toBe('Trường mới');
+    expect(screen.getByLabelText('Email hỗ trợ').getAttribute('aria-describedby')).toBe('profile-supportEmail-error');
+    expect((screen.getByLabelText('Tên hiển thị') as HTMLInputElement).value).toBe('Trường mới');
+  });
+  it('prefills the confirmed profile and posts it with the default effective date', async () => {
+    const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? response({}) : response({ ...settings, profile: { effectiveFrom: '2025-09-01', schoolName: 'Trường A', address: 'Số 1', phone: '0901', supportEmail: 'a@truong.vn', createdAt: '2025-09-01T01:30:00.000Z' } })));
+    vi.stubGlobal('fetch', fetch);
+    render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await waitFor(() => expect((screen.getByLabelText('Tên hiển thị') as HTMLInputElement).value).toBe('Trường A'));
+    expect(screen.getByText(/Đang áp dụng từ 01\/09\/2025/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Điện thoại hỗ trợ'), { target: { value: '0902' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu hồ sơ' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/profile-versions', expect.objectContaining({ body: JSON.stringify({ schoolName: 'Trường A', address: 'Số 1', phone: '0902', supportEmail: 'a@truong.vn', effectiveFrom: '2026-01-01' }) })));
+    expect(await screen.findByText('Đã lưu hồ sơ trường.')).toBeTruthy();
   });
   it('reconciles a timeout Operation without replaying the Settings POST', async () => {
     const fetch = vi.fn((url: string, options?: RequestInit) => {
@@ -26,30 +40,51 @@ describe('SettingsWorkspace', () => {
     });
     vi.stubGlobal('fetch', fetch);
     render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.change((await screen.findAllByLabelText('Ngày hiệu lực'))[0]!, { target: { value: '2026-01-01' } });
-    fireEvent.change(screen.getByLabelText('Tên trường'), { target: { value: 'Trường mới' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Tạo phiên bản hồ sơ' }).closest('form')!);
+    fireEvent.change(await screen.findByLabelText('Tên hiển thị'), { target: { value: 'Trường mới' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu hồ sơ' }));
     await waitFor(() => expect(sessionStorage.getItem('passionedu.app.pending-settings-operation')).toContain('school-a'));
     expect(fetch.mock.calls.filter(([url, options]) => url.endsWith('/settings/profile-versions') && options?.method === 'POST')).toHaveLength(1);
     expect(fetch.mock.calls.some(([url]) => url.includes('/operations/'))).toBe(true);
   });
-  it('keeps calendar input and marks its own field after a calendar validation error', async () => {
-    vi.stubGlobal('fetch', vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? new Response(JSON.stringify({ error: { message: 'Dữ liệu không hợp lệ.', fieldErrors: { effectiveFrom: 'Đã có phiên bản tại ngày hiệu lực này.' } } }), { status: 400 }) : response(settings))));
+  it('adds, edits and deletes upcoming holidays and keeps input after a calendar error', async () => {
+    const withHoliday = { ...settings, calendar: { effectiveFrom: '2025-08-01', holidays: [{ id: 'h1', name: 'Quốc khánh', startsOn: '2025-09-02', endsOn: '2025-09-03' }, { id: 'h2', name: 'Tết', startsOn: '2026-02-16', endsOn: '2026-02-20' }] } };
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method !== 'POST' ? response(withHoliday) : url.endsWith('/settings/holidays') ? new Response(JSON.stringify({ error: { message: 'Dữ liệu không hợp lệ.', fieldErrors: { startsOn: 'Trùng với kỳ nghỉ Tết.' } } }), { status: 400 }) : response({})));
+    vi.stubGlobal('fetch', fetch);
     render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.change((await screen.findAllByLabelText('Ngày hiệu lực'))[5]!, { target: { value: '2026-01-01' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Tạo phiên bản lịch' }).closest('form')!);
-    expect(await screen.findByText('Đã có phiên bản tại ngày hiệu lực này.')).toBeTruthy();
-    expect(screen.getAllByLabelText('Ngày hiệu lực')[5]!.getAttribute('aria-describedby')).toBe('calendar-effectiveFrom-error');
-    expect((screen.getAllByLabelText('Ngày hiệu lực')[5] as HTMLInputElement).value).toBe('2026-01-01');
+    await screen.findByLabelText('Tên hiển thị');
+    tab('Lịch hoạt động');
+    expect(screen.getByText('Đã qua')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Tùy chọn cho kỳ nghỉ Quốc khánh' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm kỳ nghỉ' }));
+    expect(screen.queryByLabelText('Ngày hiệu lực')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Tên kỳ nghỉ'), { target: { value: 'Nghỉ bù' } });
+    fireEvent.change(screen.getByLabelText('Ngày bắt đầu'), { target: { value: '2026-02-18' } });
+    fireEvent.change(screen.getByLabelText('Ngày kết thúc'), { target: { value: '2026-02-18' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo kỳ nghỉ' }));
+    expect(await screen.findByText('Trùng với kỳ nghỉ Tết.')).toBeTruthy();
+    expect(JSON.parse(fetch.mock.calls.find(([url]) => url.endsWith('/settings/holidays'))![1]!.body as string)).toEqual({ name: 'Nghỉ bù', startsOn: '2026-02-18', endsOn: '2026-02-18' });
+    expect(screen.getByLabelText('Ngày bắt đầu').getAttribute('aria-describedby')).toBe('calendar-startsOn-error');
+    expect((screen.getByLabelText('Tên kỳ nghỉ') as HTMLInputElement).value).toBe('Nghỉ bù');
+    fireEvent.click(screen.getByRole('button', { name: 'Hủy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tùy chọn cho kỳ nghỉ Tết' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Sửa' }));
+    fireEvent.change(screen.getByLabelText('Ngày kết thúc'), { target: { value: '2026-02-21' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu kỳ nghỉ' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/holidays/h2', expect.objectContaining({ body: JSON.stringify({ name: 'Tết', startsOn: '2026-02-16', endsOn: '2026-02-21' }) })));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tùy chọn cho kỳ nghỉ Tết' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Xóa' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Xóa kỳ nghỉ' })).getByRole('button', { name: 'Xóa kỳ nghỉ' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/holidays/h2/delete', expect.objectContaining({ method: 'POST' })));
+    expect(await screen.findByText('Đã xóa kỳ nghỉ “Tết”.')).toBeTruthy();
   });
   it('resets drafts and safely discards malformed persisted pending state on school change', async () => {
     sessionStorage.setItem('passionedu.app.pending-settings-operation', '{bad json');
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(settings))));
     const view = render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.change(await screen.findByLabelText('Tên trường'), { target: { value: 'Nháp A' } });
+    fireEvent.change(await screen.findByLabelText('Tên hiển thị'), { target: { value: 'Nháp A' } });
     view.rerender(<SettingsWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
     await waitFor(() => expect(sessionStorage.getItem('passionedu.app.pending-settings-operation')).toBeNull());
-    expect((screen.getByLabelText('Tên trường') as HTMLInputElement).value).toBe('');
+    await waitFor(() => expect((screen.getByLabelText('Tên hiển thị') as HTMLInputElement).value).toBe('Trường B'));
   });
   it('does not render a late School A response after switching to School B', async () => {
     let resolveA: ((value: Response) => void) | undefined;
@@ -57,9 +92,10 @@ describe('SettingsWorkspace', () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/schools/school-a/') ? schoolA : Promise.resolve(response({ ...settings, profile: { effectiveFrom: '2026-01-01', schoolName: 'Trường B xác nhận', address: null, phone: null } }))));
     const view = render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     view.rerender(<SettingsWorkspace schoolId="school-b" schoolName="Trường B" denied={vi.fn()} />);
-    expect(await screen.findByText(/Trường B xác nhận/)).toBeTruthy();
+    await waitFor(() => expect((screen.getByLabelText('Tên hiển thị') as HTMLInputElement).value).toBe('Trường B xác nhận'));
     resolveA!(response({ ...settings, profile: { effectiveFrom: '2026-01-01', schoolName: 'Trường A cũ', address: null, phone: null } }));
-    await waitFor(() => expect(screen.queryByText(/Trường A cũ/)).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((screen.getByLabelText('Tên hiển thị') as HTMLInputElement).value).toBe('Trường B xác nhận');
   });
   it('keeps School B data and errors clear when a delayed School A GET fails after the switch', async () => {
     let rejectA: ((reason?: unknown) => void) | undefined;
@@ -68,65 +104,75 @@ describe('SettingsWorkspace', () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('/schools/school-a/') ? schoolA : Promise.resolve(response({ ...settings, profile: { effectiveFrom: '2026-01-01', schoolName: 'Trường B xác nhận', address: null, phone: null } }))));
     const view = render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={denied} />);
     view.rerender(<SettingsWorkspace schoolId="school-b" schoolName="Trường B" denied={denied} />);
-    expect(await screen.findByText(/Trường B xác nhận/)).toBeTruthy();
+    await waitFor(() => expect((screen.getByLabelText('Tên hiển thị') as HTMLInputElement).value).toBe('Trường B xác nhận'));
     rejectA!(new Error('Không thể tải cấu hình trường.'));
-    await waitFor(() => expect(screen.getByText(/Trường B xác nhận/)).toBeTruthy());
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText('Không thể tải cấu hình trường.')).toBeNull();
     expect(denied).not.toHaveBeenCalled();
   });
-  it('submits fixed Finance settings input and retains server-confirmed account status', async () => {
-    const finance = { ...settings, vietQrBanks: [{ bin: '970436', shortName: 'Vietcombank', name: 'Ngân hàng TMCP Ngoại Thương Việt Nam' }, { bin: '970418', shortName: 'BIDV', name: 'Ngân hàng TMCP Đầu tư và Phát triển Việt Nam' }], bankAccounts: [{ id: 'account-a', receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}', status: 'ACTIVE' as const, lifecycleReason: null }] };
+  it('submits fixed Finance settings input with Vietnamese labels and retains server-confirmed account status', async () => {
+    const finance = { ...settings, financePolicyVersions: [{ id: 'fp2', effectiveFrom: '2026-03-01', dueDaysAfterIssue: 15, taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: 'Năm sau' }, { id: 'fp1', effectiveFrom: '2025-08-01', dueDaysAfterIssue: 10, taxTreatment: 'TAX_INCLUDED', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'SCHOOL_ADMIN_APPROVAL', reason: 'Ban đầu' }], vietQrBanks: [{ bin: '970436', shortName: 'Vietcombank', name: 'Ngân hàng TMCP Ngoại Thương Việt Nam' }, { bin: '970418', shortName: 'BIDV', name: 'Ngân hàng TMCP Đầu tư và Phát triển Việt Nam' }], bankAccounts: [{ id: 'account-a', receivingBank: 'Ngân hàng A', accountNumber: '0123452088', accountHolderName: 'Trường A', transferTemplate: '{{studentName}} {{className}}', status: 'ACTIVE' as const, createdAt: '2025-08-01T02:00:00.000Z', lifecycleTransitions: [{ previousStatus: null, status: 'ACTIVE' as const, reason: null, changedAt: '2025-08-01T02:00:00.000Z' }] }] };
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? response({}) : response(finance)));
     vi.stubGlobal('fetch', fetch); render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.change((await screen.findAllByLabelText('Ngày hiệu lực'))[1]!, { target: { value: '2026-01-01' } });
+    await screen.findByLabelText('Tên hiển thị');
+    tab('Tài chính & thanh toán');
+    expect(screen.getAllByText('Đã gồm thuế').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Cần quản trị viên trường duyệt').length).toBeGreaterThan(0);
+    expect(screen.queryByText('TAX_INCLUDED')).toBeNull();
+    expect(screen.getByText('•••• 2088')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Số ngày hạn thanh toán'), { target: { value: '30' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Tạo phiên bản chính sách' }).closest('form')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo phiên bản chính sách' }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/finance-policy-versions', expect.objectContaining({ method: 'POST', body: expect.stringContaining('CURRENT_SCHOOL_YEAR_ONLY') })));
-    expect(screen.getAllByText('Đang hoạt động')).toHaveLength(2);
     const bank = screen.getByLabelText('Ngân hàng nhận') as HTMLSelectElement;
     expect(bank.required).toBe(true);
     expect(Array.from(bank.options).map((option) => [option.value, option.textContent])).toEqual([['', 'Chọn ngân hàng'], ['970436', 'Vietcombank - Ngân hàng TMCP Ngoại Thương Việt Nam'], ['970418', 'BIDV - Ngân hàng TMCP Đầu tư và Phát triển Việt Nam']]);
     fireEvent.change(bank, { target: { value: '970418' } });
     fireEvent.change(screen.getByLabelText('Số tài khoản'), { target: { value: '0123456789' } });
     fireEvent.change(screen.getByLabelText('Chủ tài khoản'), { target: { value: 'TRUONG A' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Thêm tài khoản nhận tiền' }).closest('form')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm tài khoản nhận tiền' }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/bank-accounts', expect.objectContaining({ method: 'POST' })));
     const body = JSON.parse(fetch.mock.calls.find(([url]) => url === '/api/app/schools/school-a/settings/bank-accounts')![1]!.body as string);
     expect(body).toEqual({ bankBin: '970418', accountNumber: '0123456789', accountHolderName: 'TRUONG A', transferTemplate: '{{studentName}} {{className}}' });
-    fireEvent.change(screen.getByLabelText('Trạng thái tài khoản'), { target: { value: 'INACTIVE' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ngừng dùng' }));
+    const dialog = screen.getByRole('dialog', { name: 'Ngừng dùng tài khoản' });
+    fireEvent.change(within(dialog).getByLabelText('Lý do'), { target: { value: 'Đổi ngân hàng' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Xác nhận ngừng dùng' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/bank-accounts/account-a/lifecycle', expect.objectContaining({ body: JSON.stringify({ status: 'INACTIVE', reason: 'Đổi ngân hàng' }) })));
+    expect(screen.getAllByRole('button', { name: 'Xóa' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Xóa' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Xóa phiên bản sắp áp dụng' })).getByRole('button', { name: 'Xóa phiên bản' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/finance-policy-versions/fp2/delete', expect.objectContaining({ method: 'POST' })));
+    fireEvent.change(screen.getByLabelText('Trạng thái'), { target: { value: 'INACTIVE' } });
     expect(screen.queryByText('Ngân hàng A')).toBeNull();
   });
-  it('posts separate evidence and fixed Daily Journal policy input', async () => {
+  it('posts evidence and fixed Daily Journal policy input without English policy terms', async () => {
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? response({}) : response(settings)));
     vi.stubGlobal('fetch', fetch); render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    fireEvent.change((await screen.findAllByLabelText('Yêu cầu ảnh'))[0]!, { target: { value: 'OPTIONAL' } });
-    fireEvent.change(screen.getAllByLabelText('Ngày hiệu lực')[1]!, { target: { value: '2026-01-01' } });
+    await screen.findByLabelText('Tên hiển thị');
+    tab('Điểm danh & bàn giao');
+    expect(document.body.textContent).not.toMatch(/PRESENT|pickedUpAt|Policy|Daily Journal|Retention|Parent|enrollment/);
+    fireEvent.change(screen.getAllByLabelText('Yêu cầu ảnh')[0]!, { target: { value: 'OPTIONAL' } });
     fireEvent.change(screen.getAllByLabelText('Lý do')[0]!, { target: { value: 'Linh hoạt' } });
-    fireEvent.submit(screen.getAllByRole('button', { name: 'Tạo phiên bản policy' })[0]!.closest('form')!);
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/attendance-policy-versions', expect.objectContaining({ body: expect.stringContaining('OPTIONAL') })));
-    expect(screen.getByText(/không giới hạn số ảnh mỗi journal/i)).toBeTruthy();
-    expect(screen.queryByText(/Parent access/i)).toBeNull();
-  });
-  it('posts exact Handover and Daily Journal payloads without client-owned journal facts', async () => {
-    const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? response({}) : response(settings)));
-    vi.stubGlobal('fetch', fetch); render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await screen.findByText('Điểm danh và bàn giao');
-    fireEvent.change(screen.getAllByLabelText('Ngày hiệu lực')[2]!, { target: { value: '2026-02-01' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Thay đổi' })[0]!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/attendance-policy-versions', expect.objectContaining({ body: JSON.stringify({ effectiveFrom: '2026-01-01', photoEvidenceMode: 'OPTIONAL', reason: 'Linh hoạt' }) })));
+    fireEvent.change(screen.getAllByLabelText('Ngày hiệu lực')[1]!, { target: { value: '2026-02-01' } });
     fireEvent.change(screen.getAllByLabelText('Yêu cầu ảnh')[1]!, { target: { value: 'OPTIONAL' } });
     fireEvent.change(screen.getAllByLabelText('Lý do')[1]!, { target: { value: 'Bàn giao linh hoạt' } });
-    fireEvent.submit(screen.getAllByRole('button', { name: 'Tạo phiên bản policy' })[1]!.closest('form')!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Thay đổi' })[1]!);
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/handover-policy-versions', expect.objectContaining({ body: JSON.stringify({ effectiveFrom: '2026-02-01', photoEvidenceMode: 'OPTIONAL', reason: 'Bàn giao linh hoạt' }) })));
-    fireEvent.change(screen.getAllByLabelText('Ngày hiệu lực')[3]!, { target: { value: '2026-02-02' } });
+    expect(screen.getByText(/không giới hạn số ảnh mỗi nhật ký/i)).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText('Ngày hiệu lực')[2]!, { target: { value: '2026-02-02' } });
     fireEvent.change(screen.getAllByLabelText('Lý do')[2]!, { target: { value: 'Media cố định' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Xác nhận policy Daily Journal' }).closest('form')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận chính sách nhật ký' }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/daily-journal-policy-versions', expect.objectContaining({ body: JSON.stringify({ effectiveFrom: '2026-02-02', reason: 'Media cố định' }) })));
   });
   it('marks evidence mode errors accessibly and clears evidence and journal drafts on school switch', async () => {
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method === 'POST' ? new Response(JSON.stringify({ error: { message: 'Dữ liệu không hợp lệ.', fieldErrors: { photoEvidenceMode: 'Mode không hợp lệ.' } } }), { status: 400 }) : response(settings)));
     vi.stubGlobal('fetch', fetch); const view = render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await screen.findByText('Điểm danh và bàn giao');
+    await screen.findByLabelText('Tên hiển thị');
+    tab('Điểm danh & bàn giao');
     fireEvent.change(screen.getAllByLabelText('Yêu cầu ảnh')[0]!, { target: { value: 'OPTIONAL' } });
-    fireEvent.submit(screen.getAllByRole('button', { name: 'Tạo phiên bản policy' })[0]!.closest('form')!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Thay đổi' })[0]!);
     expect(await screen.findByText('Mode không hợp lệ.')).toBeTruthy();
     expect(screen.getAllByLabelText('Yêu cầu ảnh')[0]!.getAttribute('aria-describedby')).toBe('attendancePolicy-photoEvidenceMode-error');
     fireEvent.change(screen.getAllByLabelText('Lý do')[2]!, { target: { value: 'Nháp journal' } });
