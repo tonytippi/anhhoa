@@ -116,7 +116,10 @@ describe('SettingsWorkspace', () => {
     vi.stubGlobal('fetch', fetch); render(<SettingsWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await screen.findByLabelText('Tên hiển thị');
     tab('Tài chính & thanh toán');
-    expect(screen.getAllByText('Đã gồm thuế').length).toBeGreaterThan(0);
+    // Tax belongs to each receivable now; the Finance policy no longer shows or asks for a tax label.
+    expect(screen.queryByText('Đã gồm thuế')).toBeNull(); expect(screen.queryByLabelText('Nhãn thuế')).toBeNull();
+    expect(screen.getByRole('table', { name: 'Tài khoản trường · Trường A' }).textContent).toContain('Chưa có tài khoản trường.');
+    expect(screen.getByRole('table', { name: 'Tài khoản cá nhân · Trường A' }).textContent).toContain('•••• 2088');
     expect(screen.getAllByText('Cần quản trị viên trường duyệt').length).toBeGreaterThan(0);
     expect(screen.queryByText('TAX_INCLUDED')).toBeNull();
     expect(screen.getByText('•••• 2088')).toBeTruthy();
@@ -132,7 +135,8 @@ describe('SettingsWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Thêm tài khoản nhận tiền' }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/bank-accounts', expect.objectContaining({ method: 'POST' })));
     const body = JSON.parse(fetch.mock.calls.find(([url]) => url === '/api/app/schools/school-a/settings/bank-accounts')![1]!.body as string);
-    expect(body).toEqual({ bankBin: '970418', accountNumber: '0123456789', accountHolderName: 'TRUONG A', transferTemplate: '{{studentName}} {{className}}' });
+    expect(body).toEqual({ kind: 'PERSONAL', bankBin: '970418', accountNumber: '0123456789', accountHolderName: 'TRUONG A', transferTemplate: '{{studentName}} {{className}}' });
+    expect(Array.from((screen.getByLabelText('Loại tài khoản') as HTMLSelectElement).options).map((option) => [option.value, option.textContent])).toEqual([['PERSONAL', 'Tài khoản cá nhân (khoản không kê khai)'], ['SCHOOL', 'Tài khoản trường (khoản có thuế)']]);
     fireEvent.click(screen.getByRole('button', { name: 'Ngừng dùng' }));
     const dialog = screen.getByRole('dialog', { name: 'Ngừng dùng tài khoản' });
     fireEvent.change(within(dialog).getByLabelText('Lý do'), { target: { value: 'Đổi ngân hàng' } });

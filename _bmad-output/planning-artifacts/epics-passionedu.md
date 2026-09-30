@@ -97,7 +97,7 @@ FR-15: Finance Manager persona Ke toan prepare/materially edit/reconcile/submit 
 
 FR-16: Parent dung portal multi-School de xem dung Student duoc active link uy quyen, attendance history DTO toi thieu, DailyJournal/media duoc cap quyen va in-app notification 30 ngay; revoke/session expiry xoa protected state va Parent khong mutate operational data.
 
-FR-17: Parent xem read-only Invoice hieu luc `ISSUED` con outstanding hoac `CLOSED` moi nhat va Payment instruction snapshot khi du dieu kien; Parent khong post Receipt, xac nhan payment, chon uu dai/refund hay sua finance, va khong co VietQR/copy/deep link trong release nay. Rieng Finance duoc tai anh hoa don `ISSUED` co VietQR do API tao de gui cho Parent (Story 5.21, sprint-change-proposal-2026-09-29-issued-invoice-payment-image); Parent QR/deep link van deferred.
+FR-17: Parent xem read-only Invoice hieu luc `ISSUED` con outstanding hoac `CLOSED` moi nhat va Payment instruction snapshot khi du dieu kien; Parent khong post Receipt, xac nhan payment, chon uu dai/refund hay sua finance, va khong co VietQR/copy/deep link trong release nay. Rieng Finance duoc tai anh hoa don `ISSUED` co VietQR do API tao de gui cho Parent (Story 5.21, sprint-change-proposal-2026-09-29-issued-invoice-payment-image); Tu 2026-09-30 anh la phieu thu co mot VietQR cho moi kenh (Story 5.25); Parent QR/deep link van deferred.
 
 ### NonFunctional Requirements
 
@@ -234,6 +234,83 @@ So that I can send it to the Parent, who pays the exact amount from a banking ap
 **And** other states hide the action; a failed download keeps the text payment details and offers retry.
 
 **And** unit tests cover transfer content truncation and decode the VietQR payload (BIN, account, amount, content, CRC); E2E downloads the image for an issued Invoice.
+
+### Story 5.22: Phân loại thuế cho khoản thu và tính VAT
+
+As a Finance Manager,
+I want to set the tax category of each receivable,
+So that the Invoice adds VAT and each line is routed to the right receiving account.
+
+Source: sprint-change-proposal-2026-09-30-taxed-receivables-and-two-payment-channels.
+
+**Acceptance Criteria:**
+
+**Given** a receivable is created or edited
+**When** Finance picks `Không kê khai nộp thuế`, `Không chịu thuế`, `Thuế suất 0%`, `5%`, `8%` or `10%`
+**Then** the API stores the category, audits a change and derives the channel (`NOT_DECLARED` -> `PERSONAL`, others -> `SCHOOL`)
+**And** the browser cannot send a VAT rate, VAT amount or channel.
+
+**Given** a DRAFT line is generated or edited
+**When** its receivable has a VAT rate
+**Then** the API snapshots category and rate and computes `vatAmount = (netAmount * rate + 50) / 100` after discount, with `amount = netAmount + vatAmount`
+**And** prior-debt lines and settlement carries have no VAT.
+
+**And** unit tests cover half-up rounding, discount before VAT, maximum safe VND and every category.
+
+### Story 5.23: Tài khoản trường và tài khoản thu mặc định theo lớp
+
+As a Finance Manager,
+I want a School account for taxed receivables and a default personal account per Class,
+So that issue routes money without choosing an account by hand.
+
+**Acceptance Criteria:**
+
+**Given** a BankAccount is created
+**Then** it has kind `SCHOOL` or `PERSONAL`; existing accounts are `PERSONAL`
+**And** activating a second `ACTIVE` `SCHOOL` account in the School is refused.
+
+**Given** a Class
+**When** Finance sets `Tài khoản thu mặc định`
+**Then** only an `ACTIVE` `PERSONAL` account of the same School is accepted and the change is audited
+**And** a cross-School or inactive account is refused
+**And** the roster transition does not create or carry over Classes, so each Class of a new SchoolYear sets its own default; without a default, Finance picks a personal account at issue.
+
+### Story 5.24: Tách hóa đơn theo kênh thanh toán và phát hành phiếu thu
+
+As a Finance Manager,
+I want taxed and untaxed lines in separate channel Invoices issued together,
+So that each transfer is reconciled against its own account with exact settlement.
+
+**Acceptance Criteria:**
+
+**Given** generation or a manual DRAFT line
+**Then** a Student gets at most one normal Invoice per CollectionRun and channel; retry or timeout never duplicates one.
+
+**Given** issue of a payment notice
+**Then** both channel Invoices issue in one Operation, the `SCHOOL` Invoice with the single `ACTIVE` `SCHOOL` account and the `PERSONAL` Invoice with the chosen or Class-default account
+**And** a missing required account returns `409 SCHOOL_BANK_ACCOUNT_REQUIRED` or `409 PERSONAL_BANK_ACCOUNT_REQUIRED` and nothing is issued.
+
+**Given** a non-exact receipt on one channel Invoice
+**Then** its carry applies only to a later Invoice of the same Student and channel, and prior-debt transfer across channels is refused.
+
+**And** integration tests cover tenant isolation, idempotent retry, cross-channel refusal and snapshot immutability.
+
+### Story 5.25: Ảnh phiếu thu hai mã VietQR
+
+As a Finance Manager,
+I want one payment image with a VietQR per channel,
+So that the Parent pays both parts from a banking app.
+
+**Acceptance Criteria:**
+
+**Given** a payment notice with unsettled Invoices in both channels
+**When** Finance downloads the image
+**Then** the PNG has one section per unsettled channel with lines, VAT, total, bank and a VietQR whose amount equals that Invoice obligation total, plus the grand total.
+
+**Given** one channel Invoice is settled, transferred or cancelled
+**Then** only the other section is rendered.
+
+**And** a unit test decodes both QR payloads; E2E downloads a two-QR image.
 
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 

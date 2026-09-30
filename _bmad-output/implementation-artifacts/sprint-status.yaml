@@ -74,6 +74,10 @@ development_status:
   5-19-route-ra-soat-hoa-don-theo-hoc-sinh: review
   5-20-tong-quan-va-tien-trinh-dot-thu: review
   5-21-tai-anh-hoa-don-da-phat-hanh-co-vietqr: review
+  5-22-phan-loai-thue-cho-khoan-thu-va-tinh-vat: review
+  5-23-tai-khoan-truong-va-tai-khoan-thu-mac-dinh-theo-lop: review
+  5-24-tach-hoa-don-theo-kenh-thanh-toan-va-phat-hanh-phieu-thu: review
+  5-25-anh-phieu-thu-hai-ma-vietqr: review
   epic-5-retrospective: optional
 
   epic-6: done

@@ -63,6 +63,15 @@ click(classes, '[data-school-context]');
 click(classes, '[data-discard-context]');
 assert.equal(form.dataset.dirty, undefined);
 assert.equal(name.value, '');
+classes.document.querySelectorAll('.dialog-backdrop').forEach(node => node.remove());
+click(classes, '[data-class-bank-account="Mầm 3-4 tuổi"]');
+const accountDialog = classes.document.querySelector('.dialog');
+assert.equal(accountDialog.querySelector('#dialog-title').textContent, 'Tài khoản thu mặc định · Mầm 3-4 tuổi');
+assert.equal(accountDialog.querySelector('#default-bank-account').value, 'an-binh');
+assert.equal(accountDialog.querySelector('#default-bank-account option').textContent, 'Chưa chọn');
+assert.deepEqual([...accountDialog.querySelectorAll('.dialog-actions button')].map(button => button.textContent), ['Hủy', 'Lưu tài khoản thu']);
+click(classes, '.dialog [data-close]');
+assert.equal(classes.document.querySelector('.dialog'), null);
 
 const transition = await load('roster-transition.html');
 const action = transition.document.querySelector('[data-idempotent-action]');

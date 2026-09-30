@@ -64,24 +64,24 @@ describe("FinanceWorkspace", () => {
     const catalogWithReceivables = {
       groups: [{ id: "group-a", name: "Học tập", status: "ACTIVE" as const }, { id: "group-b", name: "Hoạt động", status: "INACTIVE" as const }],
       receivables: [
-        { id: "receivable-a", groupId: "group-a", code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "1500000", status: "ACTIVE" as const, available: true },
+        { id: "receivable-a", groupId: "group-a", code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "1500000", taxCategory: "VAT_5" as const, channel: "SCHOOL" as const, status: "ACTIVE" as const, available: true },
         { id: "receivable-b", groupId: "missing-group", code: null, displayName: "Dã ngoại", unitLabel: "lần", defaultUnitPrice: "350000", status: "INACTIVE" as const, available: false },
       ],
     };
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(catalogWithReceivables))));
     render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
     const table = await screen.findByRole("table", { name: "Khoản thu theo trường" });
-    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["#", "Tên khoản thu", "Mã", "Giá / đơn vị", "Nhóm khoản thu", "Trạng thái", "Tùy chọn"]);
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["#", "Tên khoản thu", "Mã", "Giá / đơn vị (chưa VAT)", "Thuế", "Nhóm khoản thu", "Trạng thái", "Tùy chọn"]);
     const rows = within(table).getAllByRole("row");
-    expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["1", "Học phí", "HP", "1.500.000 VND / tháng", "Học tập", "Đang áp dụng", "..."]);
-    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["2", "Dã ngoại", "-", "350.000 VND / lần", "-", "Ngừng áp dụng", "..."]);
+    expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["1", "Học phí", "HP", "1.500.000 VND / tháng", "5%Tài khoản trường", "Học tập", "Đang áp dụng", "..."]);
+    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["2", "Dã ngoại", "-", "350.000 VND / lần", "Không kê khaiTài khoản cá nhân", "-", "Ngừng áp dụng", "..."]);
     expect(table.parentElement?.classList.contains("table-scroll")).toBe(true);
   });
   it("spans all receivable columns for an empty catalog", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(catalog))));
     render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
     const emptyCell = await screen.findByText("Chưa có khoản thu.");
-    expect(emptyCell.getAttribute("colspan")).toBe("7");
+    expect(emptyCell.getAttribute("colspan")).toBe("8");
   });
   it("opens a receivable action menu as an overlay without changing the table row layout", async () => {
     const catalogWithReceivable = { groups: [{ id: "group", name: "Học tập", status: "ACTIVE" as const }], receivables: [{ id: "receivable", groupId: "group", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE" as const, available: true }] };
@@ -137,6 +137,59 @@ describe("FinanceWorkspace", () => {
     expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/invoices/invoice-b"))).toBe(false);
     fireEvent.click(within(review).getByRole("button", { name: "Quay lại đợt thu" }));
     expect(onBackToRun).toHaveBeenCalledWith(run.id);
+  });
+  it("creates a receivable with its tax category and changes the category through the server", async () => {
+    const receivables = [{ id: "receivable-a", groupId: "group", code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "3500000", taxCategory: "NOT_DECLARED", channel: "PERSONAL", status: "ACTIVE", available: true }];
+    const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method ? response({ status: "COMPLETED", outcome: { id: "receivable-a" } }) : response({ groups: [{ id: "group", name: "Học tập", status: "ACTIVE" }], receivables })));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm khoản thu" }));
+    const tax = screen.getByLabelText("Mức thuế suất") as HTMLSelectElement;
+    expect(Array.from(tax.options).map((option) => option.textContent)).toEqual(["Không kê khai nộp thuế", "Không chịu thuế", "Thuế suất 0%", "Thuế suất 5%", "Thuế suất 8%", "Thuế suất 10%"]);
+    expect(screen.getByText("Thu vào tài khoản cá nhân")).toBeTruthy();
+    fireEvent.change(tax, { target: { value: "VAT_10" } });
+    expect(screen.getByText("Thu vào tài khoản trường")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Nhóm"), { target: { value: "group" } });
+    fireEvent.change(screen.getByLabelText("Tên khoản thu"), { target: { value: "Tiếng Anh" } });
+    fireEvent.change(screen.getByLabelText("Đơn vị tính"), { target: { value: "tháng" } });
+    fireEvent.change(screen.getByLabelText("Giá / đơn vị (chưa VAT)"), { target: { value: "600000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables") && options?.method === "POST" && JSON.parse(String(options.body)).taxCategory === "VAT_10")).toBe(true));
+    fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Học phí" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Đổi mức thuế suất" }));
+    const dialog = await screen.findByRole("dialog", { name: /Đổi mức thuế suất/ });
+    fireEvent.change(within(dialog).getByLabelText("Mức thuế suất"), { target: { value: "EXEMPT" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu mức thuế suất" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables/receivable-a/tax-category") && (options as RequestInit).method === "PUT" && (options as RequestInit).body === JSON.stringify({ taxCategory: "EXEMPT" }))).toBe(true));
+  });
+  it("reviews and issues a two-part payment notice with the School account and the Class default personal account", async () => {
+    const line = (id: string, name: string, amount: string, extra: Record<string, unknown> = {}) => ({ id, receivableId: `r-${id}`, receivableName: name, unitLabel: "tháng", unitPrice: amount, quantity: "1", amount, grossAmount: amount, discountAmount: "0", netAmount: amount, taxCategory: "NOT_DECLARED", vatRate: null, vatAmount: "0", promotionEvaluation: null, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null, ...extra });
+    const base = { status: "DRAFT", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Mầm 4A" } };
+    const schoolPart = { ...base, id: "invoice-school", channel: "SCHOOL", total: "1417500", lines: [line("a", "Học phí", "1417500", { grossAmount: "1500000", discountAmount: "150000", netAmount: "1350000", taxCategory: "VAT_5", vatRate: 5, vatAmount: "67500" })] };
+    const personalPart = { ...base, id: "invoice-personal", channel: "PERSONAL", total: "770000", lines: [line("b", "Tiền ăn", "770000")] };
+    const notice = { classDefaultBankAccountId: "bank-an", invoices: [schoolPart, personalPart] };
+    const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-school", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Mầm 4A", status: "DRAFT", total: "1417500", channel: "SCHOOL" }, { id: "invoice-personal", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Mầm 4A", status: "DRAFT", total: "770000", channel: "PERSONAL" }] };
+    const accounts = [{ id: "bank-school", kind: "SCHOOL", receivingBank: "Vietcombank", accountNumber: "0123456789", accountHolderName: "TRUONG MN" }, { id: "bank-binh", kind: "PERSONAL", receivingBank: "Techcombank", accountNumber: "1903", accountHolderName: "TRAN THI BINH" }, { id: "bank-an", kind: "PERSONAL", receivingBank: "ABBANK", accountNumber: "2088", accountHolderName: "NGUYEN VAN AN" }];
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue") ? response({ outcome: { ...schoolPart, notice } }) : url.includes("bank-accounts") ? response({ accounts }) : url.endsWith("/invoices/invoice-school") ? response({ ...schoolPart, notice }) : url.endsWith(`/collection-runs/${run.id}`) ? response(routedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [routedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-school" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} />);
+    const first = await screen.findByRole("table", { name: "Dòng phần 1 do máy chủ tính" });
+    expect(screen.getByText("Phần 1 · Thu vào tài khoản trường")).toBeTruthy();
+    expect(screen.getByText("Phần 2 · Thu vào tài khoản cá nhân")).toBeTruthy();
+    expect(within(first).getByText("67.500 (5%)")).toBeTruthy();
+    expect(within(screen.getByRole("table", { name: "Dòng phần 2 do máy chủ tính" })).getByText("—")).toBeTruthy();
+    expect(screen.getByText(/Tổng cần thu do hệ thống xác nhận/).closest("p")!.textContent).toContain("2.187.500 VND");
+    const panel = screen.getByRole("complementary", { name: "Rà soát trước khi phát hành" });
+    await waitFor(() => expect(within(panel).getByText("Vietcombank · 0123456789 · TRUONG MN")).toBeTruthy());
+    await waitFor(() => expect((within(panel).getByLabelText("Tài khoản cá nhân") as HTMLSelectElement).value).toBe("bank-an"));
+    expect(within(panel).getByRole("option", { name: "ABBANK · 2088 · NGUYEN VAN AN (mặc định lớp Mầm 4A)" })).toBeTruthy();
+    fireEvent.change(within(panel).getByLabelText("Tài khoản cá nhân"), { target: { value: "bank-binh" } });
+    fireEvent.click(within(panel).getByRole("button", { name: "Phát hành phiếu thu" }));
+    const dialog = await screen.findByRole("dialog", { name: /Phát hành phiếu thu cho Bé An/ });
+    expect(dialog.textContent).toContain("Tài khoản trường · 1.417.500 VND: Vietcombank / 0123456789 / TRUONG MN");
+    fireEvent.change(within(dialog).getByLabelText("Nhập chính xác tên học sinh Bé An để xác nhận"), { target: { value: "Bé An" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận phát hành" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-school/issue") && (options as RequestInit).body === JSON.stringify({ personalBankAccountId: "bank-binh" }))).toBe(true));
   });
   it("offers the server payment image only for an unsettled issued Invoice and saves the returned PNG", async () => {
     const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "1350000" }] };
@@ -310,7 +363,7 @@ describe("FinanceWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Nhóm"), { target: { value: "group" } });
     fireEvent.change(screen.getByLabelText("Tên khoản thu"), { target: { value: "Học phí" } });
     fireEvent.change(screen.getByLabelText("Đơn vị tính"), { target: { value: "tháng" } });
-    fireEvent.change(screen.getByLabelText("Đơn giá mặc định (VND)"), { target: { value: "100" } });
+    fireEvent.change(screen.getByLabelText("Giá / đơn vị (chưa VAT)"), { target: { value: "100" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thêm khoản thu" })).toBeNull());
     expect(document.activeElement).toBe(trigger);
@@ -1215,7 +1268,7 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(confirm);
     expect(await screen.findByText("Nội dung chuyển khoản: Be An La 1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Thêm dòng" })).toBeNull(); expect(screen.queryByRole("button", { name: "Phát hành hóa đơn" })).toBeNull();
-    expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/issue") && (options as RequestInit).method === "POST" && (options as RequestInit).body === JSON.stringify({ bankAccountId: "bank-active" }))).toBe(true);
+    expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/issue") && (options as RequestInit).method === "POST" && (options as RequestInit).body === JSON.stringify({ personalBankAccountId: "bank-active" }))).toBe(true);
   });
   it("refreshes the selected run from the server after issuing the second invoice so it can be closed", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [

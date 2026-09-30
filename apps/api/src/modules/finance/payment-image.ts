@@ -3,14 +3,9 @@ import { Resvg } from "@resvg/resvg-js";
 import QRCode from "qrcode";
 import satori from "satori";
 
-export type PaymentImageInput = {
-  schoolName: string;
-  billingMonth: string;
-  studentCode: string;
-  studentName: string;
-  className: string;
+export type PaymentImagePart = {
+  channel: "SCHOOL" | "PERSONAL";
   obligationCode: string;
-  dueOn: string;
   rows: { label: string; amount: bigint }[];
   total: bigint;
   bankName: string;
@@ -18,6 +13,17 @@ export type PaymentImageInput = {
   accountHolderName: string;
   transferContent: string;
   qrPayload: string;
+};
+
+// A payment notice has one part per unsettled channel Invoice, School-account part first.
+export type PaymentImageInput = {
+  schoolName: string;
+  billingMonth: string;
+  studentCode: string;
+  studentName: string;
+  className: string;
+  dueOn: string;
+  parts: PaymentImagePart[];
 };
 
 const font = (file: string) => readFileSync(new URL(`../../../assets/fonts/${file}`, import.meta.url));
@@ -49,27 +55,34 @@ export function paymentImageTree(input: PaymentImageInput): Node {
   const fact = (label: string, value: string) => h("div", { display: "flex", fontSize: 28, lineHeight: 1.5 }, h("div", { width: 230, color: muted }, label), h("div", { flex: 1, fontWeight: 700 }, value));
   const row = (label: string, amount: string, last = false) => h("div", { display: "flex", justifyContent: "space-between", gap: 24, padding: "14px 0", fontSize: 28, borderBottom: last ? "none" : "1px solid #e3e8e5" }, h("div", { flex: 1 }, label), h("div", { whiteSpace: "nowrap" }, amount));
   const payFact = (label: string, value: string, content = false) => h("div", { display: "flex", flexDirection: "column", marginBottom: 14 }, h("div", { color: muted, fontSize: 24 }, label), h("div", { fontWeight: 700, fontSize: 30, ...(content ? { background: "#fff", padding: "6px 12px", borderRadius: 8 } : {}) }, value));
-  const qr = `data:image/svg+xml;base64,${Buffer.from(qrSvg(input.qrPayload)).toString("base64")}`;
+  const several = input.parts.length > 1;
+  const part = (item: PaymentImagePart, index: number) => {
+    const qr = `data:image/svg+xml;base64,${Buffer.from(qrSvg(item.qrPayload)).toString("base64")}`;
+    return h("div", { display: "flex", flexDirection: "column", marginTop: 36 },
+      ...(several ? [h("div", { display: "flex", justifyContent: "space-between", alignItems: "baseline", paddingBottom: 12, borderBottom: `2px solid ${green}` }, h("div", { color: green, fontWeight: 800, fontSize: 30 }, `Phần ${index + 1} · Thu vào ${item.channel === "SCHOOL" ? "tài khoản trường" : "tài khoản cá nhân"}`), h("div", { color: muted, fontSize: 24 }, `Mã: ${item.obligationCode}`))] : []),
+      h("div", { display: "flex", justifyContent: "space-between", padding: "12px 0", color: muted, fontSize: 26, fontWeight: 700, borderBottom: "2px solid #d5ddd8" }, h("div", {}, "Khoản thu"), h("div", {}, "Số tiền")),
+      ...item.rows.map((entry, rowIndex) => row(entry.label, formatVnd(entry.amount), rowIndex === item.rows.length - 1)),
+      h("div", { display: "flex", justifyContent: "space-between", paddingTop: 22, fontSize: 36, fontWeight: 800, borderTop: "2px solid #d5ddd8" }, h("div", {}, several ? `Tổng phần ${index + 1}` : "Tổng cần nộp"), h("div", {}, formatVnd(item.total))),
+      h("div", { display: "flex", alignItems: "center", gap: 40, marginTop: 28, padding: 32, background: "#f1f7f3", borderRadius: 24 },
+        { type: "img", props: { src: qr, width: 400, height: 400, style: { borderRadius: 12 } } },
+        h("div", { display: "flex", flexDirection: "column", flex: 1 },
+          payFact("Ngân hàng", item.bankName),
+          payFact("Số tài khoản", item.accountNumber),
+          payFact("Chủ tài khoản", item.accountHolderName),
+          payFact("Nội dung chuyển khoản", item.transferContent, true))));
+  };
+  const grandTotal = input.parts.reduce((sum, item) => sum + item.total, 0n);
   return h("div", { display: "flex", flexDirection: "column", width: 1080, padding: "64px 64px 56px", background: "#fff", color: ink, fontFamily: "Be Vietnam Pro" },
     h("div", { display: "flex", flexDirection: "column", borderBottom: `3px solid ${green}`, paddingBottom: 28, marginBottom: 32 },
       h("div", { color: green, fontWeight: 800, fontSize: 26, letterSpacing: 2 }, input.schoolName.toUpperCase()),
       h("div", { marginTop: 8, fontWeight: 800, fontSize: 44 }, `Thông báo học phí tháng ${month(input.billingMonth)}`)),
     fact("Học sinh", `${input.studentCode} · ${input.studentName}`),
     fact("Lớp", input.className),
-    fact("Mã hóa đơn", input.obligationCode),
+    ...(several ? [] : [fact("Mã hóa đơn", input.parts[0]!.obligationCode)]),
     fact("Hạn thanh toán", date(input.dueOn)),
-    h("div", { display: "flex", flexDirection: "column", marginTop: 36 },
-      h("div", { display: "flex", justifyContent: "space-between", padding: "12px 0", color: muted, fontSize: 26, fontWeight: 700, borderBottom: "2px solid #d5ddd8" }, h("div", {}, "Khoản thu"), h("div", {}, "Số tiền")),
-      ...input.rows.map((item, index) => row(item.label, formatVnd(item.amount), index === input.rows.length - 1)),
-      h("div", { display: "flex", justifyContent: "space-between", paddingTop: 22, fontSize: 36, fontWeight: 800, borderTop: "2px solid #d5ddd8" }, h("div", {}, "Tổng cần nộp"), h("div", {}, formatVnd(input.total)))),
-    h("div", { display: "flex", alignItems: "center", gap: 40, marginTop: 40, padding: 32, background: "#f1f7f3", borderRadius: 24 },
-      { type: "img", props: { src: qr, width: 400, height: 400, style: { borderRadius: 12 } } },
-      h("div", { display: "flex", flexDirection: "column", flex: 1 },
-        payFact("Ngân hàng", input.bankName),
-        payFact("Số tài khoản", input.accountNumber),
-        payFact("Chủ tài khoản", input.accountHolderName),
-        payFact("Nội dung chuyển khoản", input.transferContent, true))),
-    h("div", { marginTop: 32, color: muted, fontSize: 24 }, "Quét mã bằng ứng dụng ngân hàng để chuyển đúng số tiền và nội dung. Nhà trường xác nhận sau khi nhận được tiền."));
+    ...input.parts.map(part),
+    ...(several ? [h("div", { display: "flex", justifyContent: "space-between", marginTop: 36, padding: "24px 32px", background: ink, color: "#fff", borderRadius: 16, fontSize: 34, fontWeight: 800 }, h("div", {}, `Tổng cần nộp (${input.parts.length} lần chuyển khoản)`), h("div", {}, formatVnd(grandTotal)))] : []),
+    h("div", { marginTop: 32, color: muted, fontSize: 24 }, several ? "Quét từng mã bằng ứng dụng ngân hàng để chuyển đúng số tiền và nội dung của từng phần. Nhà trường xác nhận sau khi nhận được tiền." : "Quét mã bằng ứng dụng ngân hàng để chuyển đúng số tiền và nội dung. Nhà trường xác nhận sau khi nhận được tiền."));
 }
 
 export async function renderPaymentImage(input: PaymentImageInput) {

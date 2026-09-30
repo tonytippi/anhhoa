@@ -63,18 +63,37 @@ describe('VietQR payload', () => {
 });
 
 describe('payment image', () => {
-  const input = { schoolName: 'Trường Mầm non Ánh Hoa', billingMonth: '2026-10', studentCode: 'HS001', studentName: 'Nguyễn Minh Anh', className: 'Mầm 4A', obligationCode: 'OBL-202610-000123', dueOn: '2026-10-10', rows: [{ label: 'Học phí tháng 10/2026', amount: 1500000n }, { label: 'Giảm trừ ưu đãi · Học phí tháng 10/2026', amount: -150000n }], total: 1350000n, bankName: 'Vietcombank', accountNumber: '1020888999', accountHolderName: 'TRUONG MAM NON ANH HOA', transferContent: 'Nguyen Minh Anh Mam 4A' };
+  const school = { bin: '970436', accountNumber: '1020888999', holder: 'TRUONG MAM NON ANH HOA' };
+  const part = (overrides: Record<string, unknown> = {}) => ({ channel: 'SCHOOL' as const, obligationCode: 'OBL-202610-000123', rows: [{ label: 'Học phí tháng 10/2026', amount: 1500000n }, { label: 'Giảm trừ ưu đãi · Học phí tháng 10/2026', amount: -150000n }, { label: 'Thuế GTGT 5%', amount: 67500n }], total: 1417500n, bankName: 'Vietcombank', accountNumber: school.accountNumber, accountHolderName: school.holder, transferContent: 'Nguyen Minh Anh Mam 4A', qrPayload: vietQrPayload({ bin: school.bin, accountNumber: school.accountNumber, amount: 1417500n, content: 'Nguyen Minh Anh Mam 4A' }), ...overrides });
+  const personal = part({ channel: 'PERSONAL', obligationCode: 'OBL-202610-000124', rows: [{ label: 'Tiền ăn · 22 ngày', amount: 770000n }], total: 770000n, bankName: 'ABBANK', accountNumber: '215000002088', accountHolderName: 'NGUYEN VAN AN', qrPayload: vietQrPayload({ bin: '970425', accountNumber: '215000002088', amount: 770000n, content: 'Nguyen Minh Anh Mam 4A' }) });
+  const input = { schoolName: 'Trường Mầm non Ánh Hoa', billingMonth: '2026-10', studentCode: 'HS001', studentName: 'Nguyễn Minh Anh', className: 'Mầm 4A', dueOn: '2026-10-10' };
+  const pixels = async (tree: unknown) => {
+    const svg = await satori(tree as never, { width: 1080, fonts: [{ name: 'Be Vietnam Pro', data: (await import('node:fs')).readFileSync(new URL('../../../assets/fonts/BeVietnamPro-Regular.ttf', import.meta.url)), weight: 400, style: 'normal' }] });
+    return new Resvg(svg, { fitTo: { mode: 'width', value: 1080 } }).render();
+  };
   it('renders a PNG whose QR decodes to the server payload', async () => {
-    const qrPayload = vietQrPayload({ bin: '970436', accountNumber: input.accountNumber, amount: input.total, content: input.transferContent });
-    const png = await renderPaymentImage({ ...input, qrPayload });
+    const png = await renderPaymentImage({ ...input, parts: [part()] });
     expect(png.subarray(1, 4).toString()).toBe('PNG');
-    const svg = await satori(paymentImageTree({ ...input, qrPayload }) as never, { width: 1080, fonts: [{ name: 'Be Vietnam Pro', data: (await import('node:fs')).readFileSync(new URL('../../../assets/fonts/BeVietnamPro-Regular.ttf', import.meta.url)), weight: 400, style: 'normal' }] });
-    const image = new Resvg(svg, { fitTo: { mode: 'width', value: 1080 } }).render();
-    const decoded = jsQR(new Uint8ClampedArray(image.pixels), image.width, image.height);
-    expect(decoded?.data).toBe(qrPayload);
+    const image = await pixels(paymentImageTree({ ...input, parts: [part()] }));
+    expect(jsQR(new Uint8ClampedArray(image.pixels), image.width, image.height)?.data).toBe(part().qrPayload);
   }, 20000);
-  it('shows the server total and payment facts', () => {
-    const text = JSON.stringify(paymentImageTree({ ...input, qrPayload: vietQrPayload({ bin: '970436', accountNumber: '1', amount: 1n, content: 'A' }) }));
-    for (const value of ['Thông báo học phí tháng 10/2026', 'HS001 · Nguyễn Minh Anh', 'OBL-202610-000123', '10/10/2026', '1.500.000 đ', '-150.000 đ', 'Tổng cần nộp', '1.350.000 đ', 'Vietcombank', 'Nguyen Minh Anh Mam 4A']) expect(text).toContain(value);
+  it('renders one decodable VietQR per channel part', async () => {
+    const image = await pixels(paymentImageTree({ ...input, parts: [part(), personal] }));
+    // Scan horizontal bands so each band holds at most one code.
+    const found = new Set<string>();
+    const rowBytes = image.width * 4;
+    for (let top = 0; top + 600 <= image.height; top += 100) {
+      const band = new Uint8ClampedArray(image.pixels.subarray(top * rowBytes, (top + 600) * rowBytes));
+      const decoded = jsQR(band, image.width, 600);
+      if (decoded) found.add(decoded.data);
+    }
+    expect(found).toEqual(new Set([part().qrPayload, personal.qrPayload]));
+  }, 20000);
+  it('shows the server totals and payment facts', () => {
+    const single = JSON.stringify(paymentImageTree({ ...input, parts: [part()] }));
+    for (const value of ['Thông báo học phí tháng 10/2026', 'HS001 · Nguyễn Minh Anh', 'OBL-202610-000123', '10/10/2026', '1.500.000 đ', '-150.000 đ', 'Thuế GTGT 5%', '67.500 đ', 'Tổng cần nộp', '1.417.500 đ', 'Vietcombank', 'Nguyen Minh Anh Mam 4A']) expect(single).toContain(value);
+    expect(single).not.toContain('Phần 1');
+    const notice = JSON.stringify(paymentImageTree({ ...input, parts: [part(), personal] }));
+    for (const value of ['Phần 1 · Thu vào tài khoản trường', 'Phần 2 · Thu vào tài khoản cá nhân', 'Mã: OBL-202610-000124', 'Tổng phần 1', 'Tổng phần 2', '770.000 đ', 'Tổng cần nộp (2 lần chuyển khoản)', '2.187.500 đ', 'NGUYEN VAN AN']) expect(notice).toContain(value);
   });
 });

@@ -347,7 +347,7 @@ function renderSettings() {
   const displayed = matching.slice((page - 1) * pageSize, page * pageSize);
   rows.forEach(row => { row.hidden = !displayed.includes(row); });
   $('[data-bank-account-empty]', section).hidden = matching.length !== 0;
-  $('[data-bank-account-caption]', section).textContent = `Tài khoản nhận tiền · Trường Ánh Hoa · Trang ${page} / ${pageCount} · ${matching.length} tài khoản`;
+  $('[data-bank-account-caption]', section).textContent = `Tài khoản cá nhân · Trường Ánh Hoa · Trang ${page} / ${pageCount} · ${matching.length} tài khoản`;
   $$('[data-bank-account-page]', section).forEach(button => {
     const current = Number(button.dataset.bankAccountPage) === page;
     button.hidden = Number(button.dataset.bankAccountPage) > pageCount;
@@ -605,6 +605,12 @@ function bindMockActions() {
     renderSettings();
   }));
   $$('[data-journal-search], [data-journal-filter]').forEach(control => control.addEventListener(control.matches('select') ? 'change' : 'input', renderTeacherJournals));
+  $$('[data-class-bank-account]').forEach(button => button.addEventListener('click', () => {
+    const current = button.dataset.currentAccount || '';
+    const options = [['', 'Chưa chọn'], ['an-binh', 'Ngân hàng An Bình · •••• 2088 · NGUYEN VAN AN'], ['viet-thinh', 'Ngân hàng Việt Thịnh · •••• 4501 · TRAN THU HA']]
+      .map(([value, label]) => `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`).join('');
+    dialog(`Tài khoản thu mặc định · ${button.dataset.classBankAccount}`, `<form><label for="default-bank-account">Tài khoản thu mặc định</label><select id="default-bank-account" name="default-bank-account" aria-describedby="default-bank-account-help">${options}</select><p id="default-bank-account-help" class="muted">Chỉ tài khoản cá nhân đang hiệu lực của Trường. Dùng sẵn cho phần khoản không kê khai khi phát hành phiếu thu; kế toán có thể chọn tài khoản khác. Chuyển năm học không tạo hoặc chuyển lớp, nên mỗi lớp của năm học mới tự đặt tài khoản thu mặc định; nếu chưa chọn, kế toán chọn tài khoản cá nhân khi phát hành.</p></form>`, '<button class="button" type="button" data-close>Lưu tài khoản thu</button>', button);
+  }));
   $$('[data-open-holiday-form]').forEach(button => button.addEventListener('click', () => {
     const form = $('#holiday-form');
     form.hidden = false;

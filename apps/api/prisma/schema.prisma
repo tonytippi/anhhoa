@@ -130,10 +130,12 @@ model Class {
   schoolYearId               String                      @db.Uuid
   name                       String
   status                     ClassStatus                 @default(ACTIVE)
+  defaultBankAccountId       String?                     @db.Uuid
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
   school                     School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   schoolYear                 SchoolYear                  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  defaultBankAccount         BankAccount?                @relation(fields: [schoolId, defaultBankAccountId], references: [schoolId, id], onDelete: Restrict, map: "Class_defaultBankAccount_fkey")
   enrollments                StudentEnrollment[]
   staffClassAssignments      StaffClassAssignment[]
   enrollmentClassAssignments EnrollmentClassAssignment[]
@@ -513,6 +515,20 @@ model StudentEnrollmentLifecycleTransition {
 enum SchoolStatus {
   ACTIVE
   SUSPENDED
+}
+
+enum ReceivableTaxCategory {
+  NOT_DECLARED
+  EXEMPT
+  VAT_0
+  VAT_5
+  VAT_8
+  VAT_10
+}
+
+enum PaymentChannel {
+  SCHOOL
+  PERSONAL
 }
 
 enum FinanceTaxTreatment {
@@ -920,6 +936,7 @@ model Invoice {
   classNameSnapshot                    String
   selectionProvenance                  Json
   status                               InvoiceStatus                  @default(DRAFT)
+  channel                              PaymentChannel                 @default(PERSONAL)
   total                                BigInt                         @default(0) @db.BigInt
   issuedAt                             DateTime?
   obligationCodeSnapshot               String?
@@ -960,6 +977,7 @@ model Invoice {
 
   @@unique([schoolId, id])
   @@index([schoolId, collectionRunId])
+  @@index([schoolId, collectionRunId, studentId])
   @@index([schoolId, status])
   @@unique([schoolId, obligationCodeSnapshot])
   @@index([schoolId, status, schoolYearId, billingMonth, classIdSnapshot, issuedAt, id])
@@ -1232,6 +1250,9 @@ model InvoiceLine {
   grossAmount                   BigInt                       @default(0) @db.BigInt
   discountAmount                BigInt                       @default(0) @db.BigInt
   netAmount                     BigInt                       @default(0) @db.BigInt
+  taxCategorySnapshot           ReceivableTaxCategory?
+  vatRateSnapshot               Int?
+  vatAmount                     BigInt                       @default(0) @db.BigInt
   promotionEvaluationProvenance Json?
   overrideReason                String?
   source                        Json?
@@ -1416,6 +1437,7 @@ model Receivable {
   displayName          String
   unitLabel            String
   defaultUnitPrice     BigInt                          @db.BigInt
+  taxCategory          ReceivableTaxCategory           @default(NOT_DECLARED)
   createdAt            DateTime                        @default(now())
   school               School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   group                ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
@@ -1943,12 +1965,14 @@ model BankAccount {
   accountNumber        String
   accountHolderName    String
   transferTemplate     String
+  kind                 PaymentChannel                   @default(PERSONAL)
   actorIdentityId      String                           @db.Uuid
   membershipId         String                           @db.Uuid
   createdAt            DateTime                         @default(now())
   school               School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership           SchoolMembership                 @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   lifecycleTransitions BankAccountLifecycleTransition[]
+  defaultForClasses    Class[]
 
   @@unique([schoolId, id])
   @@index([schoolId, createdAt])

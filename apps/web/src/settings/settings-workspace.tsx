@@ -6,7 +6,7 @@ type EvidenceMode = "REQUIRED" | "OPTIONAL";
 type EvidencePolicy = { id: string; effectiveFrom: string; photoEvidenceMode: EvidenceMode; reason: string; createdAt?: string };
 type FinancePolicy = { id: string; effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string; reason: string | null; createdAt?: string };
 type DailyJournalPolicy = { id: string; effectiveFrom: string; reason: string; parentRetentionDaysAfterEnrollmentEnded: number; acceptedImageMimeTypes: string[]; maxImageSizeBytes: number; imageCountLimit: null; createdAt?: string };
-type BankAccount = { id: string; receivingBank: string; bankBin?: string; accountNumber: string; accountHolderName: string; transferTemplate: string; status: "ACTIVE" | "INACTIVE"; createdAt?: string; lifecycleTransitions: { previousStatus: "ACTIVE" | "INACTIVE" | null; status: "ACTIVE" | "INACTIVE"; reason: string | null; changedAt: string }[] };
+type BankAccount = { id: string; kind?: "SCHOOL" | "PERSONAL"; receivingBank: string; bankBin?: string; accountNumber: string; accountHolderName: string; transferTemplate: string; status: "ACTIVE" | "INACTIVE"; createdAt?: string; lifecycleTransitions: { previousStatus: "ACTIVE" | "INACTIVE" | null; status: "ACTIVE" | "INACTIVE"; reason: string | null; changedAt: string }[] };
 type Settings = {
   asOf: string;
   timezone: string;
@@ -73,11 +73,6 @@ const tabFromHash = (): Tab => {
   const hash = typeof window === "undefined" ? "" : window.location.hash.slice(1);
   return tabs.some(([id]) => id === hash) ? (hash as Tab) : "school-information";
 };
-const taxLabels: Record<string, string> = {
-  NOT_APPLICABLE: "Không áp dụng",
-  TAX_INCLUDED: "Đã gồm thuế",
-  TAX_EXCLUDED: "Chưa gồm thuế",
-};
 const reversalLabels: Record<string, string> = {
   DIRECT: "Thực hiện trực tiếp",
   SCHOOL_ADMIN_APPROVAL: "Cần quản trị viên trường duyệt",
@@ -124,7 +119,7 @@ const versionState = (
 };
 const emptyFinancePolicy = () => ({ effectiveFrom: "", dueDaysAfterIssue: "", taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", reason: "" });
 const emptyEvidencePolicy = () => ({ effectiveFrom: "", photoEvidenceMode: "" as "" | EvidenceMode, reason: "" });
-const emptyBankAccount = () => ({ bankBin: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
+const emptyBankAccount = () => ({ kind: "PERSONAL" as "SCHOOL" | "PERSONAL", bankBin: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
 
 export function SettingsWorkspace({
   schoolId,
@@ -514,7 +509,8 @@ export function SettingsWorkspace({
       returnFocus();
     }
   };
-  const visibleAccounts = (data?.bankAccounts ?? []).filter((account) => (accountStatus === "ALL" || account.status === accountStatus) && `${account.receivingBank} ${account.accountNumber} ${account.accountHolderName}`.toLocaleLowerCase("vi").includes(accountQuery.trim().toLocaleLowerCase("vi"))).sort((a, b) => accountSort === "bank" ? a.receivingBank.localeCompare(b.receivingBank, "vi") : 0);
+  const schoolAccounts = (data?.bankAccounts ?? []).filter((account) => account.kind === "SCHOOL");
+  const visibleAccounts = (data?.bankAccounts ?? []).filter((account) => account.kind !== "SCHOOL").filter((account) => (accountStatus === "ALL" || account.status === accountStatus) && `${account.receivingBank} ${account.accountNumber} ${account.accountHolderName}`.toLocaleLowerCase("vi").includes(accountQuery.trim().toLocaleLowerCase("vi"))).sort((a, b) => accountSort === "bank" ? a.receivingBank.localeCompare(b.receivingBank, "vi") : 0);
   const field = (scope: Scope, name: string) =>
     errorScope === scope && errors[name]
       ? { "aria-invalid": true, "aria-describedby": `${scope}-${name}-error` }
@@ -696,7 +692,7 @@ export function SettingsWorkspace({
           <div className="table-scroll">
             <table>
               <caption>Phiên bản chính sách tài chính</caption>
-              <thead><tr><th>Hiệu lực</th><th>Hạn thanh toán</th><th>Thuế</th><th>Hoàn tiền ưu đãi</th><th>Lý do</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
+              <thead><tr><th>Hiệu lực</th><th>Hạn thanh toán</th><th>Hoàn tiền ưu đãi</th><th>Lý do</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
               <tbody>
                 {data?.financePolicyVersions.length ? data.financePolicyVersions.map((policy) => {
                   const [label, tone] = versionState(policy, data.financePolicyVersions, today);
@@ -704,14 +700,13 @@ export function SettingsWorkspace({
                     <tr key={policy.id}>
                       <td>{formatDate(policy.effectiveFrom)}</td>
                       <td>{policy.dueDaysAfterIssue} ngày sau khi phát hành</td>
-                      <td>{taxLabels[policy.taxTreatment] ?? policy.taxTreatment}</td>
                       <td>{reversalLabels[policy.reversalMode] ?? policy.reversalMode}</td>
                       <td>{policy.reason ?? ""}</td>
                       <td>{badge(label, tone)}</td>
                       <td>{deleteVersionCell("finance-policy-versions", "financePolicy", policy, "Chính sách tài chính")}</td>
                     </tr>
                   );
-                }) : <tr><td colSpan={7} role="status">Chưa có chính sách tài chính.</td></tr>}
+                }) : <tr><td colSpan={6} role="status">Chưa có chính sách tài chính.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -732,12 +727,6 @@ export function SettingsWorkspace({
                 </label>
                 {fieldError("financePolicy", "dueDaysAfterIssue")}
               </div>
-              <label>
-                Nhãn thuế
-                <select value={financePolicy.taxTreatment} onChange={(event) => setFinancePolicy({ ...financePolicy, taxTreatment: event.target.value })}>
-                  {Object.entries(taxLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
               <label>
                 Hoàn tiền ưu đãi
                 <select value={financePolicy.reversalMode} onChange={(event) => setFinancePolicy({ ...financePolicy, reversalMode: event.target.value })}>
@@ -760,9 +749,19 @@ export function SettingsWorkspace({
           <section className="settings-card" aria-labelledby="bank-accounts-title">
             <div>
               <h3 id="bank-accounts-title">Tài khoản nhận tiền</h3>
-              <p className="settings-muted">Chỉ tài khoản đang hiệu lực được dùng cho hóa đơn mới. Tài khoản ngừng dùng vẫn đọc được trong lịch sử.</p>
+              <p className="settings-muted">Khoản có thuế thu vào tài khoản trường; khoản không kê khai thu vào tài khoản cá nhân. Chỉ tài khoản đang hiệu lực được dùng cho hóa đơn mới. Tài khoản ngừng dùng vẫn đọc được trong lịch sử.</p>
             </div>
             <form className="settings-fields settings-bank-form" onSubmit={saveBankAccount} aria-label="Thông tin tài khoản mới">
+              <div className="settings-field">
+                <label>
+                  Loại tài khoản
+                  <select required value={bankAccount.kind} onChange={(event) => setBankAccount({ ...bankAccount, kind: event.target.value as "SCHOOL" | "PERSONAL" })} {...field("bankAccount", "kind")}>
+                    <option value="PERSONAL">Tài khoản cá nhân (khoản không kê khai)</option>
+                    <option value="SCHOOL">Tài khoản trường (khoản có thuế)</option>
+                  </select>
+                </label>
+                {!lifecycle && fieldError("bankAccount", "kind")}
+              </div>
               <div className="settings-field">
                 <label>
                   Ngân hàng nhận
@@ -792,6 +791,34 @@ export function SettingsWorkspace({
                 <button type="submit" className="primary-action" disabled={Boolean(pending)}>Thêm tài khoản nhận tiền</button>
               </div>
             </form>
+            <section aria-labelledby="school-account-title">
+              <h3 id="school-account-title">Tài khoản trường (khoản có thuế)</h3>
+              <p className="settings-muted">Tối đa một tài khoản trường đang hiệu lực. Hệ thống tự dùng tài khoản này cho phần thu có thuế khi phát hành phiếu thu; muốn đổi, ngừng dùng tài khoản hiện tại trước.</p>
+              <div className="table-scroll">
+                <table>
+                  <caption>Tài khoản trường · {schoolName}</caption>
+                  <thead><tr><th>Ngân hàng</th><th>Chủ tài khoản</th><th>Số tài khoản</th><th>Trạng thái</th><th>Hiệu lực từ</th><th>Tùy chọn</th></tr></thead>
+                  <tbody>
+                    {schoolAccounts.length ? schoolAccounts.map((account) => (
+                    <tr key={account.id}>
+                      <td><b>{account.receivingBank}</b></td>
+                      <td>{account.accountHolderName}</td>
+                      <td title={account.accountNumber}>{maskAccount(account.accountNumber)}</td>
+                      <td>{account.status === "ACTIVE" ? badge("Đang hiệu lực", "finance-badge-success") : badge("Ngừng dùng", "finance-badge-neutral")}</td>
+                      <td>{account.createdAt ? formatDate(account.createdAt.slice(0, 10)) : ""}</td>
+                      <td>
+                        <button type="button" disabled={Boolean(pending)} onClick={(event) => { dialogTrigger.current = event.currentTarget; setErrors({}); setMessage(""); setLifecycle({ account, status: account.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{account.status === "ACTIVE" ? "Ngừng dùng" : "Dùng lại"}</button>
+                        <button type="button" onClick={(event) => { dialogTrigger.current = event.currentTarget; setAccountHistory(account); }}>Xem lịch sử</button>
+                      </td>
+                    </tr>
+                                      )) : <tr><td colSpan={6} role="status">Chưa có tài khoản trường.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            <section aria-labelledby="personal-account-title">
+            <h3 id="personal-account-title">Tài khoản cá nhân (khoản không kê khai)</h3>
+            <p className="settings-muted">Mỗi lớp có thể chọn một tài khoản cá nhân mặc định tại Năm học và lớp; khi phát hành, Finance có thể chọn tài khoản khác.</p>
             <div className="roster-list-filters" role="search" aria-label="Lọc tài khoản nhận tiền">
               <label className="roster-filter-search">
                 Tìm kiếm
@@ -815,7 +842,7 @@ export function SettingsWorkspace({
             </div>
             <div className="table-scroll">
               <table>
-                <caption>Tài khoản nhận tiền · {schoolName}</caption>
+                <caption>Tài khoản cá nhân · {schoolName}</caption>
                 <thead><tr><th>Ngân hàng</th><th>Chủ tài khoản</th><th>Số tài khoản</th><th>Trạng thái</th><th>Hiệu lực từ</th><th>Tùy chọn</th></tr></thead>
                 <tbody>
                   {visibleAccounts.length ? visibleAccounts.map((account) => (
@@ -834,6 +861,7 @@ export function SettingsWorkspace({
                 </tbody>
               </table>
             </div>
+            </section>
           </section>
         </section>
       )}

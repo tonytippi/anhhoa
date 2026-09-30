@@ -81,12 +81,25 @@ assert.match(invoice, /id="payment-panel" aria-labelledby="payment-title" hidden
 assert.match(invoice, /id="download-image">Tải ảnh hóa đơn</);
 assert.match(invoice, /Tổng cần nộp/);
 assert.match(invoice, /Nguyen Minh Anh Mam 4A/);
+// Payment notice: taxed lines go to the School account, untaxed lines to a personal account; VAT is server-calculated.
+assert.match(invoice, /Phần 1 · Thu vào tài khoản trường/);
+assert.match(invoice, /Phần 2 · Thu vào tài khoản cá nhân/);
+assert.match(invoice, /Thuế GTGT 5%[\s\S]*67\.500 đ[\s\S]*Tổng phần 1<\/b><b>1\.417\.500 đ/);
+assert.match(invoice, /id="invoice-total">2\.187\.500 đ</);
+assert.match(invoice, /Hệ thống tự dùng tài khoản trường đang hiệu lực; không đổi tại đây\./);
+assert.match(invoice, /<select id="personal-account"[^>]*>[\s\S]*<option value="an-binh" selected>[^<]*\(mặc định lớp Mầm 4A\)<\/option>/);
+assert.match(invoice, /id="issue-invoice"[^>]*>Phát hành phiếu thu</);
+for (const code of ['OBL-202610-000123', 'OBL-202610-000124']) assert.match(invoice, new RegExp(`Mã hóa đơn ${code}`));
+assert.doesNotMatch(invoice, /Ghi nhận thực thu/);
+assert.equal((invoice.match(/<b id="paid-part-(school|personal)">[^<]*<\/b><span class="badge info">Chưa thu<\/span>/g) ?? []).length, 2);
 assert.match(invoice, /window\.location\.hash==='#issued'/);
 assert.doesNotMatch(invoice, /Gửi email|createObjectURL|Blob\(|canvas/i);
 assert.match(paymentImage, /Thông báo học phí tháng 10\/2026/);
-assert.match(paymentImage, /aria-label="Mã VietQR minh họa"/);
-assert.match(paymentImage, /<dd class="content">Nguyen Minh Anh Mam 4A<\/dd>/);
-assert.match(paymentImage, /Tổng cần nộp<\/td><td class="money">2\.120\.000 đ/);
+assert.equal((paymentImage.match(/aria-label="Mã VietQR minh họa · Phần [12] · [\d.]+ đ"/g) ?? []).length, 2);
+assert.equal((paymentImage.match(/<dd class="content">Nguyen Minh Anh Mam 4A<\/dd>/g) ?? []).length, 2);
+assert.match(paymentImage, /Phần 1 · Thu vào tài khoản trường<\/h2><span>Mã: OBL-202610-000123[\s\S]*Thuế GTGT 5%<\/td><td class="money">67\.500 đ[\s\S]*Tổng phần 1<\/td><td class="money">1\.417\.500 đ[\s\S]*TRUONG MN ANH HOA/);
+assert.match(paymentImage, /Phần 2 · Thu vào tài khoản cá nhân<\/h2><span>Mã: OBL-202610-000124[\s\S]*Tổng phần 2<\/td><td class="money">770\.000 đ[\s\S]*NGUYEN VAN AN/);
+assert.match(paymentImage, /Tổng cần nộp <small>\(2 lần chuyển khoản\)<\/small><\/td><td class="money">2\.187\.500 đ/);
 assert.match(paymentImage, /OBL-202610-000123-HS001\.png/);
 assert.doesNotMatch(paymentImage, /reduce\(|parseInt|toLocaleString|Tôi đã chuyển/);
 // Finance reports are a server-result-only Finance workspace with CSV as its sole export.
@@ -119,6 +132,11 @@ assert.match(generation, /<thead><tr><th>Học sinh<\/th><th>Lý do<\/th><\/tr><
 assert.match(generation, /Đã tạo 125 hóa đơn nháp; bỏ qua 1 học sinh\./);
 assert.doesNotMatch(generation, /<caption>Hóa đơn nháp đã tạo<\/caption>/);
 assert.match(generation, /id="add-student-dialog"/);
+assert.doesNotMatch(generation, /2\.120\.000/);
+assert.match(generation, /Bé Minh Anh<\/td><td>Mầm 4A<\/td><td class="money">2\.270\.000 đ<\/td><td class="money">150\.000 đ<\/td><td class="money">67\.500 đ<\/td><td class="money">2\.187\.500 đ/);
+assert.match(generation, /<thead><tr><th>Học sinh<\/th><th>Lớp<\/th><th>Tài khoản nhận<\/th><th>Trạng thái<\/th>/);
+assert.match(generation, /Bé Minh Anh<\/td><td>Mầm 4A<\/td><td>Tài khoản trường<\/td><td><span class="badge neutral">Nháp<\/span><\/td><td class="money">1\.417\.500 đ/);
+assert.match(generation, /Bé Minh Anh<\/td><td>Mầm 4A<\/td><td>Tài khoản cá nhân<\/td><td><span class="badge neutral">Nháp<\/span><\/td><td class="money">770\.000 đ/);
 assert.match(generation, /href="invoice-detail-review\.html\?run=2026-09&amp;student=minh-anh&amp;invoice=draft-minh-anh"/);
 for (const unavailable of ['Đã nhận', 'Còn thiếu', 'Receipt', 'carry', 'thực nhận', 'chênh lệch']) assert.doesNotMatch(generation, new RegExp(unavailable, 'i'));
 
@@ -126,7 +144,13 @@ for (const unavailable of ['Đã nhận', 'Còn thiếu', 'Receipt', 'carry', 't
 assert.match(receivables, /<h1>Khoản thu<\/h1>/);
 assert.match(receivables, /TRƯỜNG ÁNH HOA · NĂM HỌC 2026-2027/);
 assert.match(receivables, /<h2>Danh sách khoản thu<\/h2>/);
-assert.match(receivables, /Đơn giá mặc định/);
+assert.match(receivables, /Đơn giá mặc định \(chưa VAT\)<\/th><th>Thuế<\/th>/);
+assert.match(receivables, /Giá \/ đơn vị \(chưa VAT\)/);
+const taxOptions = [...(receivables.match(/<select name="taxCategory"[^>]*>([\s\S]*?)<\/select>/)?.[1] ?? '').matchAll(/<option value="([A-Z_0-9]+)"[^>]*>([^<]+)<\/option>/g)].map(match => `${match[1]}:${match[2]}`);
+assert.deepEqual(taxOptions, ['NOT_DECLARED:Không kê khai nộp thuế', 'EXEMPT:Không chịu thuế', 'VAT_0:Thuế suất 0%', 'VAT_5:Thuế suất 5%', 'VAT_8:Thuế suất 8%', 'VAT_10:Thuế suất 10%']);
+assert.match(receivables, /<option value="NOT_DECLARED" selected>/);
+assert.match(receivables, /id="tax-channel-hint">Thu vào tài khoản cá nhân</);
+assert.match(receivables, /'Thu vào tài khoản cá nhân':'Thu vào tài khoản trường'/);
 assert.match(receivables, /Tiền ăn[ -]*35\.000 đ\/ngày/);
 assert.doesNotMatch(receivables, /TA-THANG|600\.000 đ/);
 assert.match(invoice, /22 ngày · 35\.000 đ\/ngày · Không có ưu đãi áp dụng/);
@@ -157,5 +181,34 @@ assert.doesNotMatch(settings, /#parent-access|id="parent-access"|Truy cập ph�
 assert.match(settings, /<select name="bankBin" required><option value="">Chọn ngân hàng<\/option>/);
 assert.match(settings, /<option value="970436">Vietcombank - Ngân hàng TMCP Ngoại thương Việt Nam<\/option>/);
 assert.doesNotMatch(settings, /name="receivingBank"/);
+// Receiving accounts are split by kind; tax treatment is per Receivable, not a School finance setting.
+assert.match(settings, /<h3 id="school-account-title">Tài khoản trường \(khoản có thuế\)<\/h3>/);
+assert.match(settings, /<h3 id="personal-account-title">Tài khoản cá nhân \(khoản không kê khai\)<\/h3>/);
+assert.match(settings, /<select name="kind" required><option value="PERSONAL" selected>Tài khoản cá nhân \(khoản không kê khai\)<\/option><option value="SCHOOL">Tài khoản trường \(khoản có thuế\)<\/option>/);
+assert.match(settings, /Tối đa một tài khoản trường đang hiệu lực/);
+assert.doesNotMatch(settings, /taxTreatment|Xử lý thuế/i);
+
+// Receipt queue: one row per channel Invoice; receipts are posted per receiving account.
+const receiptQueue = await read('admin/receipt-queue.html');
+assert.match(receiptQueue, /<thead><tr><th>Học sinh<\/th><th>Lớp<\/th><th>Tháng<\/th><th>Tài khoản nhận<\/th><th class="money">Còn phải thu<\/th><th>Trạng thái<\/th><th>Tùy chọn<\/th><\/tr><\/thead>/);
+assert.equal((receiptQueue.match(/<td><b>Bé Minh Anh<\/b>/g) ?? []).length, 2);
+assert.match(receiptQueue, /<td>Tài khoản trường<\/td><td class="money">1\.417\.500 đ/);
+assert.match(receiptQueue, /<td>Tài khoản cá nhân<\/td><td class="money">770\.000 đ/);
+assert.match(receiptQueue, /<h2 id="receipt-title">Ghi thực nhận cho Bé Minh Anh · Tài khoản trường<\/h2>/);
+assert.match(receiptQueue, /'Ghi thực nhận cho Bé Minh Anh · '\+current/);
+assert.doesNotMatch(receiptQueue, /[pP]hần [12]|2\.120\.000/);
+
+// Class default receiving account: table column plus row-action dialog, not part of the create form.
+const classes = await read('admin/roster/school-year-classes.html');
+assert.match(classes, /<th>Tài khoản thu mặc định<\/th>/);
+assert.match(classes, /Ngân hàng An Bình · •••• 2088<br><small class="muted">NGUYEN VAN AN<\/small>/);
+assert.match(classes, /<td>Chưa chọn<\/td>/);
+assert.match(classes, /data-class-bank-account="Mầm 3-4 tuổi"[^>]*>Tài khoản thu<\/button>/);
+assert.doesNotMatch(classes.slice(classes.indexOf('<form'), classes.indexOf('</form>')), /default-bank-account|Tài khoản thu/);
+assert.doesNotMatch(classes, /sao chép/);
+assert.match(prototype, /dialog\(`Tài khoản thu mặc định · \$\{button\.dataset\.classBankAccount\}`/);
+assert.match(prototype, /\['', 'Chưa chọn'\], \['an-binh', 'Ngân hàng An Bình · •••• 2088 · NGUYEN VAN AN'\]/);
+assert.match(prototype, />Lưu tài khoản thu<\/button>/);
+assert.doesNotMatch(prototype, /Chuyển năm học sẽ sao chép/);
 
 console.log('Rendered mockup contract checks passed (collection-run landing included).');

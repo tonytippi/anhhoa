@@ -360,6 +360,7 @@ export async function seed(): Promise<void> {
           : await tx.class.create({ data: { schoolId: school.id, schoolYearId: schoolYear.id, name, status: 'ACTIVE' } });
         return [name, classroom] as const;
       })));
+      await seedFinanceFixtures(tx, { schoolId: school.id, membershipId: membership.id, ownerId: owner.id, classrooms: [...classrooms.values()] });
       for (const record of staff) {
         const primaryPosition = positionByCode.get(record.primaryPositionCode)!;
         const registries = await tx.staffCodeRegistry.findMany({ where: { schoolId: school.id, staffCode: record.staffCode } });
@@ -441,6 +442,52 @@ export async function seed(): Promise<void> {
     });
   } finally {
     await prisma.$disconnect();
+  }
+}
+
+// Finance fixtures for local testing of the two payment channels (decision 2026-09-30): one active School
+// account for taxed receivables, two personal accounts used as Class defaults, a finance policy and a catalog
+// mixing every tax category. Rows are created once and left untouched on later seeds.
+const financeSeedKey = '8d5c7a52-3f0e-4c61-9d7b-2a41e6f0b9c3';
+const financeSeedRoute = 'development-seed/finance-fixtures';
+const financeSeedAccounts = [
+  { key: 'school', kind: 'SCHOOL', receivingBank: 'Vietcombank', bankBin: '970436', accountNumber: '0123456789', accountHolderName: 'TRUONG MN PEAKLAND' },
+  { key: 'an', kind: 'PERSONAL', receivingBank: 'ABBANK', bankBin: '970425', accountNumber: '215000002088', accountHolderName: 'NGUYEN VAN AN' },
+  { key: 'binh', kind: 'PERSONAL', receivingBank: 'Techcombank', bankBin: '970407', accountNumber: '19036677889900', accountHolderName: 'TRAN THI BINH' },
+] as const;
+const financeSeedReceivables = [
+  { code: 'HP', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: 3500000n, taxCategory: 'EXEMPT', group: 'Khoản thu chung' },
+  { code: 'AN', displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 35000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu chung' },
+  { code: 'TA', displayName: 'Tiếng Anh bản ngữ', unitLabel: 'tháng', defaultUnitPrice: 600000n, taxCategory: 'VAT_10', group: 'Ngoại khóa' },
+  { code: 'NK', displayName: 'Năng khiếu vẽ', unitLabel: 'tháng', defaultUnitPrice: 450000n, taxCategory: 'VAT_8', group: 'Ngoại khóa' },
+  { code: 'XE', displayName: 'Xe đưa đón', unitLabel: 'tháng', defaultUnitPrice: 800000n, taxCategory: 'VAT_5', group: 'Khoản thu chung' },
+  { code: 'DP', displayName: 'Đồng phục', unitLabel: 'bộ', defaultUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu đột xuất' },
+  { code: 'CSVC', displayName: 'Cơ sở vật chất', unitLabel: 'năm', defaultUnitPrice: 1200000n, taxCategory: 'VAT_0', group: 'Khoản thu đột xuất' },
+] as const;
+
+async function seedFinanceFixtures(tx: any, input: { schoolId: string; membershipId: string; ownerId: string; classrooms: Array<{ id: string; defaultBankAccountId: string | null }> }) {
+  const { schoolId, membershipId, ownerId } = input;
+  const operation = await tx.operation.findFirst({ where: { schoolId, route: financeSeedRoute, idempotencyKey: financeSeedKey } })
+    ?? await tx.operation.create({ data: { schoolId, membershipId, actorIdentityId: ownerId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membershipId, route: financeSeedRoute, fingerprint: 'peakland-finance-fixtures-v1', idempotencyKey: financeSeedKey, status: 'COMPLETED', outcome: { schoolId } } });
+  if (!await tx.financePolicy.findFirst({ where: { schoolId } })) {
+    await tx.financePolicy.create({ data: { schoolId, effectiveFrom: new Date('2026-08-01T00:00:00.000Z'), dueDaysAfterIssue: 10, taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: 'PeakLand development seed', actorIdentityId: ownerId, membershipId } });
+  }
+  const accounts = new Map<string, string>();
+  for (const { key, ...account } of financeSeedAccounts) {
+    const existing = await tx.bankAccount.findFirst({ where: { schoolId, bankBin: account.bankBin, accountNumber: account.accountNumber } });
+    const row = existing ?? await tx.bankAccount.create({ data: { schoolId, ...account, transferTemplate: '{{studentName}} {{className}}', actorIdentityId: ownerId, membershipId } });
+    if (!existing) await tx.bankAccountLifecycleTransition.create({ data: { schoolId, bankAccountId: row.id, status: 'ACTIVE', actorIdentityId: ownerId, membershipId, operationId: operation.id, sequence: 1 } });
+    accounts.set(key, row.id);
+  }
+  // Alternate the two personal accounts across Classes so issue pre-selects a different default per Class.
+  for (const [index, classroom] of input.classrooms.entries()) {
+    if (!classroom.defaultBankAccountId) await tx.class.update({ where: { id: classroom.id }, data: { defaultBankAccountId: accounts.get(index % 2 === 0 ? 'an' : 'binh') } });
+  }
+  const groups = new Map<string, string>((await tx.receivableGroup.findMany({ where: { schoolId } })).map((group: { name: string; id: string }) => [group.name, group.id]));
+  for (const { group, ...receivable } of financeSeedReceivables) {
+    if (await tx.receivable.findFirst({ where: { schoolId, code: receivable.code } })) continue;
+    const row = await tx.receivable.create({ data: { schoolId, groupId: groups.get(group)!, ...receivable } });
+    await tx.receivableLifecycleTransition.create({ data: { schoolId, receivableId: row.id, status: 'ACTIVE', actorIdentityId: ownerId, membershipId, operationId: operation.id, sequence: 1 } });
   }
 }
 

@@ -2005,7 +2005,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const first = await finance.receiptQueue(fixture.current.identity.id, fixture.current.school.id, { billingMonth: fixture.invoice.billingMonth, limit: "1" });
       expect(first.invoices).toHaveLength(1);
       expect(first.meta.nextCursor).toEqual(expect.any(String));
-      expect(Object.keys(first.invoices[0]!).sort()).toEqual(["billingMonth", "class", "id", "issuedAt", "outstanding", "schoolYearId", "status", "student"]);
+      expect(Object.keys(first.invoices[0]!).sort()).toEqual(["billingMonth", "channel", "class", "collectionRunId", "id", "issuedAt", "outstanding", "schoolYearId", "status", "student"]);
       expect(first.invoices[0]).toMatchObject({ status: "ISSUED", outstanding: "100", student: { code: expect.any(String), name: expect.any(String) } });
       expect(first.invoices[0]).not.toHaveProperty("lines");
       expect(first.invoices[0]).not.toHaveProperty("issue");
@@ -2022,7 +2022,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         expect(response.status).toBe(200);
         const body = await response.json() as { data: typeof first };
         expect(Object.keys(body)).toEqual(["data"]);
-        expect(Object.keys(body.data.invoices[0]!).sort()).toEqual(["billingMonth", "class", "id", "issuedAt", "outstanding", "schoolYearId", "status", "student"]);
+        expect(Object.keys(body.data.invoices[0]!).sort()).toEqual(["billingMonth", "channel", "class", "collectionRunId", "id", "issuedAt", "outstanding", "schoolYearId", "status", "student"]);
       } finally {
         await app.close();
       }

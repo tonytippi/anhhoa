@@ -401,3 +401,27 @@ describe("RosterWorkspace paged read model", () => {
     expect(await screen.findByText("Không thể tải danh sách nhân viên")).toBeTruthy();
   });
 });
+
+describe("RosterWorkspace class default receiving account", () => {
+  it("shows the Class default account and saves a personal account through Finance", async () => {
+    const withDefault = { ...classroom, defaultBankAccountId: null, defaultBankAccount: null };
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "PUT") return Promise.resolve(response({ id: "operation", status: "COMPLETED" }));
+      if (url.endsWith("/finance/bank-accounts")) return Promise.resolve(response({ accounts: [{ id: "bank-school", kind: "SCHOOL", receivingBank: "Vietcombank", accountNumber: "0123456789", accountHolderName: "TRUONG" }, { id: "bank-an", kind: "PERSONAL", receivingBank: "ABBANK", accountNumber: "215000002088", accountHolderName: "NGUYEN VAN AN" }] }));
+      if (url.endsWith("/classes")) return Promise.resolve(response([withDefault]));
+      return fetcher()(url, options);
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="classes" />);
+    const row = await screen.findByRole("row", { name: /Lớp Mầm/ });
+    expect(row.textContent).toContain("Chưa chọn");
+    fireEvent.click(screen.getByRole("button", { name: "Tài khoản thu" }));
+    const dialog = await screen.findByRole("dialog", { name: "Tài khoản thu mặc định · Lớp Mầm" });
+    const select = await waitFor(() => { const value = dialog.querySelector("select")!; expect(value.disabled).toBe(false); return value; });
+    // Only personal accounts can be the Class default.
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["Chưa chọn", "ABBANK · •••• 2088 · NGUYEN VAN AN"]);
+    fireEvent.change(select, { target: { value: "bank-an" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu tài khoản thu" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/classes/class-a/default-bank-account") && options?.method === "PUT" && options.body === JSON.stringify({ bankAccountId: "bank-an" }))).toBe(true));
+  });
+});

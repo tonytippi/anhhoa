@@ -208,6 +208,7 @@ export class SettingsService {
       accountNumber: value.accountNumber,
       accountHolderName: value.accountHolderName,
       transferTemplate: value.transferTemplate,
+      kind: value.kind ?? "PERSONAL",
       status: latest?.status ?? null,
       createdAt: value.createdAt.toISOString(),
       lifecycleTransitions,
@@ -477,7 +478,8 @@ export class SettingsService {
         message: "Dữ liệu không hợp lệ.",
         fieldErrors: { dueDaysAfterIssue: "Cần là số nguyên từ 0 đến 365." },
       });
-    const taxTreatment = body?.taxTreatment;
+    // Tax now belongs to each receivable (decision 2026-09-30); the School-level label is kept only as a snapshot default.
+    const taxTreatment = body?.taxTreatment ?? "NOT_APPLICABLE";
     const debtScope = body?.debtScope;
     const reversalMode = body?.reversalMode;
     if (
@@ -705,7 +707,14 @@ export class SettingsService {
         "accountHolderName",
       )!,
       transferTemplate: body?.transferTemplate,
+      kind: body?.kind ?? "PERSONAL",
     };
+    if (!["SCHOOL", "PERSONAL"].includes(input.kind))
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: { kind: "Chọn tài khoản trường hoặc tài khoản cá nhân." },
+      });
     if (input.transferTemplate !== transferTemplate)
       throw new BadRequestException({
         code: "VALIDATION_ERROR",
@@ -724,6 +733,7 @@ export class SettingsService {
       operationId,
       input,
       async (tx, operation) => {
+        if (input.kind === "SCHOOL") await this.assertNoActiveSchoolAccount(tx, schoolId);
         const account = await tx.bankAccount.create({
           data: {
             schoolId,
@@ -811,6 +821,7 @@ export class SettingsService {
             message: "Dữ liệu không hợp lệ.",
             fieldErrors: { status: "Tài khoản đã ở trạng thái này." },
           });
+        if (status === "ACTIVE" && account.kind === "SCHOOL") await this.assertNoActiveSchoolAccount(tx, schoolId);
         const transition = await tx.bankAccountLifecycleTransition.create({
           data: {
             schoolId,
@@ -841,6 +852,12 @@ export class SettingsService {
         return newValue;
       },
     );
+  }
+  // Taxed receivables are paid into exactly one School account, so at most one may be active.
+  private async assertNoActiveSchoolAccount(tx: any, schoolId: string) {
+    const accounts = await tx.bankAccount.findMany({ where: { schoolId, kind: "SCHOOL" }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
+    if (accounts.some((account: any) => account.lifecycleTransitions[0]?.status === "ACTIVE"))
+      throw new ConflictException({ code: "SCHOOL_BANK_ACCOUNT_EXISTS", message: "Trường đã có tài khoản trường đang hoạt động. Ngừng tài khoản đó trước khi thêm tài khoản mới." });
   }
   private email(value: unknown) {
     const text = typeof value === "string" ? value.trim() : "";
