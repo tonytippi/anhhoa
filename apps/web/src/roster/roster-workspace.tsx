@@ -140,6 +140,14 @@ type TransitionPreview = {
   }[];
   destination: { schoolYearName: string; className: string };
 };
+type TransitionResult = {
+  operationId?: string;
+  source: string;
+  destination: string;
+  effectiveFrom: string;
+  moved: string[];
+  excluded: { name: string; reason: string }[];
+};
 type ErrorBody = {
   error?: { message?: string; fieldErrors?: Record<string, string> };
 };
@@ -191,6 +199,7 @@ const csrf = () =>
     .find((item) => item.startsWith(`${csrfName}=`))
     ?.slice(csrfName.length + 1);
 const deniedStatus = (status: number) => [401, 403, 404].includes(status);
+const formatDate = (value: string) => value.split("-").reverse().join("/");
 const uncertain = (status: number) => [408, 502, 503, 504].includes(status);
 
 export function RosterWorkspace({
@@ -199,6 +208,8 @@ export function RosterWorkspace({
   denied,
   onStatusChange,
   requestHome,
+  onOpenTransition,
+  onBackToRoster,
   section = "all",
 }: {
   schoolId: string;
@@ -206,7 +217,9 @@ export function RosterWorkspace({
   denied: () => void;
   onStatusChange?: (status: Status) => void;
   requestHome?: () => void;
-  section?: "all" | "students" | "parents" | "staff" | "classes" | "years" | "positions";
+  onOpenTransition?: () => void;
+  onBackToRoster?: () => void;
+  section?: "all" | "students" | "parents" | "staff" | "classes" | "years" | "positions" | "transitions";
 }) {
   const [years, setYears] = useState<SchoolYear[]>([]);
   const [yearId, setYearId] = useState("");
@@ -281,6 +294,9 @@ export function RosterWorkspace({
   });
   const [transitionPreview, setTransitionPreview] =
     useState<TransitionPreview>();
+  const [transitionResult, setTransitionResult] = useState<TransitionResult>();
+  const [transitionErrors, setTransitionErrors] = useState<Record<string, string>>({});
+  const confirmedTransition = useRef<TransitionResult | undefined>(undefined);
   const [destinationClasses, setDestinationClasses] = useState<Classroom[]>([]);
   const [closeYear, setCloseYear] = useState({
     effectiveTo: "",
@@ -675,6 +691,16 @@ export function RosterWorkspace({
           void completeStaffIntake(operation.staffId, true);
         } else if (operation.kind === "parent" && operation.studentId === confirmedStudent.current)
           clearStudentIntake();
+        else if (operation.kind === "transition")
+          completeRosterTransition({
+            source: "",
+            destination: "",
+            effectiveFrom: "",
+            moved: [],
+            excluded: [],
+            ...confirmedTransition.current,
+            operationId: operation.id,
+          });
       }
       else setMessage("Thao tác không thành công.");
     } catch {
@@ -768,6 +794,8 @@ export function RosterWorkspace({
       confirmation: "",
     });
     setTransitionPreview(undefined);
+    setTransitionResult(undefined);
+    confirmedTransition.current = undefined;
     setDestinationClasses([]);
     setCloseYear({ effectiveTo: "", reason: "", confirmation: "" });
     setClosePreview(undefined);
@@ -909,7 +937,7 @@ export function RosterWorkspace({
       if (kind === "parent-revoke" && sectionRef.current === "parents" && parentYearRef.current)
         await loadYear(parentYearRef.current, requestGeneration, rosterQuery, parentPageRef.current);
       else await refresh(requestGeneration);
-      return valid(schoolId, requestGeneration) ? { outcome: result.data?.outcome } : false;
+      return valid(schoolId, requestGeneration) ? { outcome: result.data?.outcome, operationId: operation.id } : false;
     } catch (error) {
       if (!valid(schoolId, requestGeneration)) return false;
       if (error instanceof TypeError) {
@@ -1215,6 +1243,7 @@ export function RosterWorkspace({
     };
     const snapshot = JSON.stringify(input);
     setMessage("");
+    setTransitionErrors({});
     setTransitionPreview(undefined);
     try {
       const response = await fetch(
@@ -1249,6 +1278,7 @@ export function RosterWorkspace({
       }
       if (!response.ok) {
         const data = (await response.json()) as ErrorBody;
+        setTransitionErrors(data.error?.fieldErrors ?? {});
         setMessage(data.error?.message ?? "Không thể tạo kết quả xem trước.");
         return;
       }
@@ -1260,38 +1290,59 @@ export function RosterWorkspace({
         setMessage("Không thể tạo kết quả xem trước.");
     }
   };
+  const resetTransition = () => {
+    setTransitionErrors({});
+    setTransitionPreview(undefined);
+    setTransitionResult(undefined);
+    confirmedTransition.current = undefined;
+    setTransition({
+      kind: "CLASS_TRANSFER",
+      sourceClassId: "",
+      destinationSchoolYearId: yearId,
+      destinationClassId: "",
+      effectiveFrom: "",
+      reason: "",
+      confirmation: "",
+    });
+  };
+  const completeRosterTransition = (result: TransitionResult) => {
+    resetTransition();
+    setTransitionResult(result);
+  };
   const confirmRosterTransition = async () => {
     if (!transitionPreview || readOnly) return;
-    if (
-      await post(
-        `/api/app/schools/${schoolId}/roster/transitions`,
-        {
-          ...transition,
-          sourceSchoolYearId: yearId,
-          destinationSchoolYearId:
-            transition.kind === "CLASS_TRANSFER"
-              ? yearId
-              : transition.destinationSchoolYearId,
-          selectedEnrollmentIds: transitionPreview.movable.map(
-            (item) => item.enrollmentId,
-          ),
-          previewFingerprint: transitionPreview.fingerprint,
-          confirmation: transition.confirmation,
-        },
-        "transition",
-      )
-    ) {
-      setTransitionPreview(undefined);
-      setTransition({
-        kind: "CLASS_TRANSFER",
-        sourceClassId: "",
-        destinationSchoolYearId: yearId,
-        destinationClassId: "",
-        effectiveFrom: "",
-        reason: "",
-        confirmation: "",
+    confirmedTransition.current = {
+      source: `${selected?.name ?? ""} · ${classes.find((item) => item.id === transition.sourceClassId)?.name ?? ""}`,
+      destination: `${transitionPreview.destination.schoolYearName} · ${transitionPreview.destination.className}`,
+      effectiveFrom: transition.effectiveFrom,
+      moved: transitionPreview.movable.map((item) => item.student.fullName),
+      excluded: transitionPreview.excluded.map((item) => ({
+        name: item.student.fullName,
+        reason: item.reason,
+      })),
+    };
+    const result = await post(
+      `/api/app/schools/${schoolId}/roster/transitions`,
+      {
+        ...transition,
+        sourceSchoolYearId: yearId,
+        destinationSchoolYearId:
+          transition.kind === "CLASS_TRANSFER"
+            ? yearId
+            : transition.destinationSchoolYearId,
+        selectedEnrollmentIds: transitionPreview.movable.map(
+          (item) => item.enrollmentId,
+        ),
+        previewFingerprint: transitionPreview.fingerprint,
+        confirmation: transition.confirmation,
+      },
+      "transition",
+    );
+    if (result && confirmedTransition.current)
+      completeRosterTransition({
+        ...confirmedTransition.current,
+        operationId: result.operationId,
       });
-    }
   };
   const loadDestinationClasses = async (
     destinationYearId: string,
@@ -1397,6 +1448,40 @@ export function RosterWorkspace({
       setClosePreview(undefined);
       setCloseYear({ effectiveTo: "", reason: "", confirmation: "" });
     }
+  };
+  const transitionStep =
+    pending?.kind === "transition" || transitionResult
+      ? 3
+      : transitionPreview
+        ? 2
+        : 1;
+  const selectYear = (nextYearId: string) => {
+    detailRequest.current += 1;
+    selectedDetailStudent.current = undefined;
+    setDetailLoading(false);
+    setStudentDetail(undefined);
+    setParentLinks([]);
+    selectedYear.current = nextYearId;
+    loadedYear.current = "";
+    rosterRequest.current += 1;
+    setClasses([]);
+    setStudents([]);
+    setRosterLoading(true);
+    setRosterLoadFailed(false);
+    setTransitionPreview(undefined);
+    setTransitionResult(undefined);
+    setClosePreview(undefined);
+    setDestinationClasses([]);
+    setTransition({
+      kind: "CLASS_TRANSFER",
+      sourceClassId: "",
+      destinationSchoolYearId: "",
+      destinationClassId: "",
+      effectiveFrom: "",
+      reason: "",
+      confirmation: "",
+    });
+    setYearId(nextYearId);
   };
   const selected = years.find((item) => item.id === yearId);
   const readOnly = Boolean(selected?.closedAt);
@@ -1593,7 +1678,7 @@ export function RosterWorkspace({
 
   return (
     <section className={`roster-workspace roster-workspace-${section}`} aria-labelledby="roster-title">
-      <h2 id="roster-title">{({ all: "Danh bộ", students: "Học sinh", parents: "Phụ huynh", staff: "Nhân viên", classes: "Lớp học", years: "Năm học", positions: "Chức danh & capability" } as const)[section]}</h2>
+      <h2 id="roster-title">{({ all: "Danh bộ", students: "Học sinh", parents: "Phụ huynh", staff: "Nhân viên", classes: "Lớp học", years: "Năm học", positions: "Chức danh & capability", transitions: "Chuyển danh bộ" } as const)[section]}</h2>
       <p>
         {selected ? `Năm học: ${selected.name}` : "Chưa có năm học"}
       </p>
@@ -1835,35 +1920,7 @@ export function RosterWorkspace({
               years.map((item) => (
                 <tr key={item.id}>
                   <th scope="row">
-                    <button
-                       onClick={() => {
-                         detailRequest.current += 1;
-                         selectedDetailStudent.current = undefined;
-                         setDetailLoading(false);
-                         setStudentDetail(undefined);
-                         setParentLinks([]);
-                         selectedYear.current = item.id;
-                         loadedYear.current = "";
-                         rosterRequest.current += 1;
-                         setClasses([]);
-                         setStudents([]);
-                         setRosterLoading(true);
-                         setRosterLoadFailed(false);
-                        setTransitionPreview(undefined);
-                        setClosePreview(undefined);
-                        setDestinationClasses([]);
-                        setTransition({
-                          kind: "CLASS_TRANSFER",
-                          sourceClassId: "",
-                          destinationSchoolYearId: "",
-                          destinationClassId: "",
-                          effectiveFrom: "",
-                          reason: "",
-                          confirmation: "",
-                        });
-                        setYearId(item.id);
-                      }}
-                    >
+                    <button onClick={() => selectYear(item.id)}>
                       {item.name}
                     </button>
                   </th>
@@ -1893,7 +1950,7 @@ export function RosterWorkspace({
               Năm học đã đóng. Danh bộ và lịch sử chỉ có thể xem.
             </p>
           )}
-          <fieldset className={section === "students" || section === "parents" || section === "classes" ? "student-roster-surface" : undefined} disabled={readOnly || disabled}>
+          <fieldset className={section === "students" || section === "parents" || section === "classes" || section === "years" || section === "transitions" ? "student-roster-surface" : undefined} disabled={(readOnly && section !== "transitions") || disabled}>
             {section === "all" && <>
             <form className="roster-form" onSubmit={saveAssignment}>
               <h3>
@@ -2205,201 +2262,366 @@ export function RosterWorkspace({
               </table>
             </div>
             </>}
-            {(section === "all" || section === "years") && <>
-            <form className="roster-form" onSubmit={previewRosterTransition}>
-              <h3>Chuyển danh bộ</h3>
-              <p>
-                Xem trước, xác nhận bằng tên thao tác và đối soát kết quả từ hệ
-                thống.
-              </p>
-              <label>
-                Loại chuyển
-                <select
-                  value={transition.kind}
-                  onChange={(event) => {
-                    setTransition((current) => ({
-                      ...current,
-                      kind: event.target.value,
-                      destinationSchoolYearId:
-                        event.target.value === "CLASS_TRANSFER" ? yearId : "",
-                      destinationClassId: "",
-                      confirmation: "",
-                    }));
-                    setTransitionPreview(undefined);
-                  }}
-                >
-                  <option value="CLASS_TRANSFER">Chuyển lớp</option>
-                  <option value="YEAR_TRANSITION">Chuyển năm</option>
-                </select>
-              </label>
-              <label>
-                Lớp nguồn
-                <select
-                  value={transition.sourceClassId}
-                  onChange={(event) => {
-                    setTransition((current) => ({
-                      ...current,
-                      sourceClassId: event.target.value,
-                    }));
-                    setTransitionPreview(undefined);
-                  }}
-                >
-                  <option value="">Chọn lớp nguồn</option>
-                  {classes
-                    .filter((item) => item.status === "ACTIVE")
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              {transition.kind === "YEAR_TRANSITION" && (
-                <label>
-                  Năm học đích
-                  <select
-                    value={transition.destinationSchoolYearId}
-                    onChange={(event) => {
-                      setTransition((current) => ({
-                        ...current,
-                        destinationSchoolYearId: event.target.value,
-                        destinationClassId: "",
-                      }));
-                      setTransitionPreview(undefined);
-                    }}
-                  >
-                    <option value="">Chọn năm học đích</option>
-                    {years
-                      .filter((item) => item.id !== yearId)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              )}
-              {transition.kind === "CLASS_TRANSFER" && (
-                <label>
-                  Lớp đích
-                  <select
-                    value={transition.destinationClassId}
-                    onChange={(event) => {
-                      setTransition((current) => ({
-                        ...current,
-                        destinationClassId: event.target.value,
-                      }));
-                      setTransitionPreview(undefined);
-                    }}
-                  >
-                    <option value="">Chọn lớp đích</option>
-                    {classes
-                      .filter((item) => item.status === "ACTIVE")
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              )}
-              <label>
-                Ngày hiệu lực
-                <input
-                  type="date"
-                  value={transition.effectiveFrom}
-                  onChange={(event) => {
-                    setTransition((current) => ({
-                      ...current,
-                      effectiveFrom: event.target.value,
-                    }));
-                    setTransitionPreview(undefined);
-                  }}
-                />
-              </label>
-              <label>
-                Lý do
-                <input
-                  value={transition.reason}
-                  onChange={(event) => {
-                    setTransition((current) => ({
-                      ...current,
-                      reason: event.target.value,
-                    }));
-                    setTransitionPreview(undefined);
-                  }}
-                />
-              </label>
-              <button disabled={disabled}>Tạo kết quả xem trước</button>
-            </form>
-            {transition.kind === "YEAR_TRANSITION" && (
-              <label>
-                Lớp đích của năm được chọn
-                <select
-                  value={transition.destinationClassId}
-                  onChange={(event) => {
-                    setTransition({
-                      ...transition,
-                      destinationClassId: event.target.value,
-                    });
-                    setTransitionPreview(undefined);
-                  }}
-                >
-                  <option value="">Chọn lớp đích</option>
-                  {destinationClasses
-                    .filter((item) => item.status === "ACTIVE")
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
+            {(section === "all" || section === "transitions") && <>
+            {section === "transitions" && onBackToRoster && (
+              <button type="button" className="roster-transition-back" onClick={onBackToRoster}>
+                ← Danh bộ
+              </button>
             )}
-            {transitionPreview && (
-              <section
-                className="roster-form"
-                aria-label="Kết quả xem trước chuyển danh bộ"
-              >
-                <h3>Kết quả xem trước</h3>
+            <p className="roster-transition-lede">
+              Xem trước, xác nhận và đối soát kết quả từ hệ thống.
+            </p>
+            <ol className="finance-steps" aria-label="Tiến trình chuyển danh bộ">
+              <li aria-current={transitionStep === 1 ? "step" : undefined}>Xem trước</li>
+              <li aria-current={transitionStep === 2 ? "step" : undefined}>Xác nhận</li>
+              <li aria-current={transitionStep === 3 ? "step" : undefined}>Đối soát</li>
+            </ol>
+            {transitionStep === 1 && (
+              <form className="roster-form roster-transition-form" onSubmit={previewRosterTransition}>
+                <h3>Nguồn và đích</h3>
                 <p>
-                  Đích: {transitionPreview.destination.schoolYearName} /{" "}
-                  {transitionPreview.destination.className}
+                  Hệ thống sẽ phân loại học sinh theo lịch sử nguồn, lớp đích và ngày hiệu lực.
                 </p>
-                <ul>
-                  {transitionPreview.movable.map((item) => (
-                    <li key={item.enrollmentId}>
-                      {item.student.fullName}: Có thể chuyển
-                    </li>
-                  ))}
-                  {transitionPreview.excluded.map((item) => (
-                    <li key={item.enrollmentId}>
-                      {item.student.fullName}: Không chuyển, {item.reason}
-                    </li>
-                  ))}
-                </ul>
                 <label>
-                  Nhập CHUYỂN DANH BỘ để xác nhận
-                  <input
-                    value={transition.confirmation}
-                    onChange={(event) =>
-                      setTransition({
-                        ...transition,
-                        confirmation: event.target.value,
-                      })
-                    }
-                  />
+                  Loại chuyển
+                  <select
+                    value={transition.kind}
+                    onChange={(event) => {
+                      setTransition((current) => ({
+                        ...current,
+                        kind: event.target.value,
+                        destinationSchoolYearId:
+                          event.target.value === "CLASS_TRANSFER" ? yearId : "",
+                        destinationClassId: "",
+                        confirmation: "",
+                      }));
+                      setTransitionPreview(undefined);
+                    }}
+                  >
+                    <option value="CLASS_TRANSFER">Chuyển lớp trong năm học</option>
+                    <option value="YEAR_TRANSITION">Chuyển sang năm học mới</option>
+                  </select>
                 </label>
-                <button
-                  type="button"
-                  disabled={
-                    disabled ||
-                    transition.confirmation !== "CHUYỂN DANH BỘ" ||
-                    !transitionPreview.movable.length
-                  }
-                  onClick={() => void confirmRosterTransition()}
-                >
-                  Xác nhận chuyển danh bộ
+                <fieldset className="roster-transition-side">
+                  <legend>Nguồn</legend>
+                  <label>
+                    Năm học nguồn
+                    <select value={yearId} onChange={(event) => selectYear(event.target.value)}>
+                      {years.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Lớp nguồn
+                    <select
+                      value={transition.sourceClassId}
+                    {...field(transitionErrors, "sourceClassId", "transition-")}
+                      onChange={(event) => {
+                        setTransition((current) => ({
+                          ...current,
+                          sourceClassId: event.target.value,
+                        }));
+                        setTransitionPreview(undefined);
+                      }}
+                    >
+                      <option value="">Chọn lớp nguồn</option>
+                      {classes
+                        .filter((item) => item.status === "ACTIVE")
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {transitionErrors.sourceClassId && <small id="transition-sourceClassId-error">{transitionErrors.sourceClassId}</small>}
+                </fieldset>
+                <fieldset className="roster-transition-side">
+                  <legend>Đích</legend>
+                  {transition.kind === "YEAR_TRANSITION" && (
+                    <label>
+                      Năm học đích
+                      <select
+                        value={transition.destinationSchoolYearId}
+                    {...field(transitionErrors, "destinationSchoolYearId", "transition-")}
+                        onChange={(event) => {
+                          setTransition((current) => ({
+                            ...current,
+                            destinationSchoolYearId: event.target.value,
+                            destinationClassId: "",
+                          }));
+                          setTransitionPreview(undefined);
+                        }}
+                      >
+                        <option value="">Chọn năm học đích</option>
+                        {years
+                          .filter((item) => item.id !== yearId)
+                          .map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  )}
+                  {transitionErrors.destinationSchoolYearId && <small id="transition-destinationSchoolYearId-error">{transitionErrors.destinationSchoolYearId}</small>}
+                  <label>
+                    Lớp đích
+                    <select
+                      value={transition.destinationClassId}
+                    {...field(transitionErrors, "destinationClassId", "transition-")}
+                      disabled={
+                        transition.kind === "YEAR_TRANSITION" &&
+                        !transition.destinationSchoolYearId
+                      }
+                      onChange={(event) => {
+                        setTransition((current) => ({
+                          ...current,
+                          destinationClassId: event.target.value,
+                        }));
+                        setTransitionPreview(undefined);
+                      }}
+                    >
+                      <option value="">Chọn lớp đích</option>
+                      {(transition.kind === "YEAR_TRANSITION" ? destinationClasses : classes)
+                        .filter(
+                          (item) =>
+                            item.status === "ACTIVE" &&
+                            (transition.kind === "YEAR_TRANSITION" ||
+                              item.id !== transition.sourceClassId),
+                        )
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {transitionErrors.destinationClassId && <small id="transition-destinationClassId-error">{transitionErrors.destinationClassId}</small>}
+                </fieldset>
+                <div className="roster-transition-field">
+                  <label>
+                    Ngày hiệu lực
+                    <input
+                      type="date"
+                      value={transition.effectiveFrom}
+                      {...field(transitionErrors, "effectiveFrom", "transition-")}
+                      onChange={(event) => {
+                        setTransition((current) => ({
+                          ...current,
+                          effectiveFrom: event.target.value,
+                        }));
+                        setTransitionPreview(undefined);
+                      }}
+                    />
+                  </label>
+                    {transitionErrors.effectiveFrom && <small id="transition-effectiveFrom-error">{transitionErrors.effectiveFrom}</small>}
+                </div>
+                <div className="roster-transition-field">
+                  <label>
+                    Lý do
+                    <input
+                      value={transition.reason}
+                      {...field(transitionErrors, "reason", "transition-")}
+                      placeholder="Ví dụ: Lên lớp đầu năm học"
+                      onChange={(event) => {
+                        setTransition((current) => ({
+                          ...current,
+                          reason: event.target.value,
+                        }));
+                        setTransitionPreview(undefined);
+                      }}
+                    />
+                  </label>
+                    {transitionErrors.reason && <small id="transition-reason-error">{transitionErrors.reason}</small>}
+                </div>
+                <div className="roster-transition-actions">
+                  <button disabled={disabled || readOnly}>Tạo kết quả xem trước</button>
+                </div>
+              </form>
+            )}
+            {transitionStep === 2 && transitionPreview && (
+              <>
+                <div className="roster-transition-summary">
+                  <section aria-labelledby="transition-route-title">
+                    <h3 id="transition-route-title">Nguồn và đích</h3>
+                    <p><b>Nguồn:</b> {selected?.name} · {classes.find((item) => item.id === transition.sourceClassId)?.name}</p>
+                    <p><b>Đích:</b> {transitionPreview.destination.schoolYearName} · {transitionPreview.destination.className}</p>
+                    <p><b>Ngày hiệu lực:</b> {formatDate(transition.effectiveFrom)}</p>
+                  </section>
+                  <section aria-labelledby="transition-preview-title">
+                    <h3 id="transition-preview-title">Kết quả xem trước</h3>
+                    <p>
+                      {transitionPreview.movable.length} học sinh có thể chuyển,{" "}
+                      {transitionPreview.excluded.length} học sinh không chuyển.
+                    </p>
+                    <p className="roster-transition-muted">
+                      Chỉ kết quả xem trước từ hệ thống mới quyết định học sinh nào được chuyển. Lịch sử nguồn vẫn được giữ sau khi hoàn tất.
+                    </p>
+                  </section>
+                </div>
+                <div className="table-scroll">
+                  <table>
+                    <caption>Kết quả xem trước · {schoolName}</caption>
+                    <thead>
+                      <tr>
+                        <th>Học sinh</th>
+                        <th>Lớp đích</th>
+                        <th>Kết quả</th>
+                        <th>Lý do</th>
+                        <th>Tùy chọn</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transitionPreview.movable.map((item) => (
+                        <tr key={item.enrollmentId}>
+                          <td>{item.student.fullName}</td>
+                          <td>{transitionPreview.destination.className}</td>
+                          <td><span className="finance-badge finance-badge-success">Có thể chuyển</span></td>
+                          <td>Khoảng hiệu lực hợp lệ</td>
+                          <td>Được đưa vào xác nhận</td>
+                        </tr>
+                      ))}
+                      {transitionPreview.excluded.map((item) => (
+                        <tr key={item.enrollmentId}>
+                          <td>{item.student.fullName}</td>
+                          <td>Chưa có</td>
+                          <td><span className="finance-badge finance-badge-warning">Không chuyển</span></td>
+                          <td>{item.reason}</td>
+                          <td>Không có thao tác</td>
+                        </tr>
+                      ))}
+                      {!transitionPreview.movable.length && !transitionPreview.excluded.length && (
+                        <tr>
+                          <td colSpan={5}>Lớp nguồn không có học sinh đang phân lớp.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <section className="roster-form roster-transition-confirm" aria-labelledby="transition-confirm-title">
+                  <h3 id="transition-confirm-title">Xác nhận chuyển danh bộ cho {schoolName}</h3>
+                  <p>
+                    Hệ thống sẽ thực hiện đúng kết quả xem trước: {transitionPreview.movable.length} học sinh được chuyển sang {transitionPreview.destination.className}
+                    {transitionPreview.excluded.length ? `, ${transitionPreview.excluded.length} học sinh không được chuyển` : ""}. Không gửi lại cho đến khi đã đối soát kết quả.
+                  </p>
+                  <label>
+                    Nhập CHUYỂN DANH BỘ để xác nhận
+                    <input
+                      value={transition.confirmation}
+                      onChange={(event) =>
+                        setTransition({
+                          ...transition,
+                          confirmation: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <div className="roster-transition-actions">
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        setTransitionPreview(undefined);
+                        setTransition((current) => ({ ...current, confirmation: "" }));
+                      }}
+                    >
+                      Sửa thông tin
+                    </button>
+                    <button
+                      type="button"
+                      className="primary-action"
+                      disabled={
+                        disabled ||
+                        readOnly ||
+                        transition.confirmation !== "CHUYỂN DANH BỘ" ||
+                        !transitionPreview.movable.length
+                      }
+                      onClick={() => void confirmRosterTransition()}
+                    >
+                      Xác nhận chuyển danh bộ
+                    </button>
+                  </div>
+                </section>
+              </>
+            )}
+            {transitionStep === 3 && pending?.kind === "transition" && (
+              <section className="roster-form" aria-live="polite" aria-labelledby="transition-pending-title">
+                <h3 id="transition-pending-title">Đang đối soát kết quả</h3>
+                <p>
+                  Hệ thống chưa trả kết quả cuối cùng. Không gửi lại thao tác; trang sẽ tự cập nhật khi đối soát xong.
+                </p>
+              </section>
+            )}
+            {transitionStep === 3 && !pending && transitionResult && (
+              <section className="roster-form" aria-live="polite" aria-labelledby="transition-result-title">
+                <h3 id="transition-result-title">Kết quả chuyển danh bộ cho {schoolName}</h3>
+                {transitionResult.moved.length || transitionResult.excluded.length ? (
+                  <>
+                    <p>
+                      Hệ thống đã chuyển {transitionResult.moved.length} học sinh
+                      {transitionResult.destination ? ` sang ${transitionResult.destination}` : ""}
+                      {transitionResult.effectiveFrom ? ` từ ${formatDate(transitionResult.effectiveFrom)}` : ""}.
+                    </p>
+                    <div className="table-scroll">
+                      <table>
+                        <caption>Kết quả cuối cùng</caption>
+                        <thead>
+                          <tr>
+                            <th>Học sinh</th>
+                            <th>Lịch sử nguồn</th>
+                            <th>Kết quả cuối cùng</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {transitionResult.moved.map((name) => (
+                            <tr key={`moved-${name}`}>
+                              <td>{name}</td>
+                              <td>{transitionResult.source} · vẫn được giữ</td>
+                              <td><span className="finance-badge finance-badge-success">Đã chuyển</span></td>
+                            </tr>
+                          ))}
+                          {transitionResult.excluded.map((item) => (
+                            <tr key={`excluded-${item.name}`}>
+                              <td>{item.name}</td>
+                              <td>{transitionResult.source} · vẫn được giữ</td>
+                              <td><span className="finance-badge finance-badge-warning">Không thay đổi</span> {item.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <p>Hệ thống đã hoàn tất chuyển danh bộ. Xem danh sách học sinh để kiểm tra lớp hiện tại.</p>
+                )}
+                {transitionResult.operationId && (
+                  <details>
+                    <summary>Thông tin đối soát</summary>
+                    <p>Mã thao tác: {transitionResult.operationId}</p>
+                  </details>
+                )}
+                <div className="roster-transition-actions">
+                  {onBackToRoster && <button type="button" onClick={onBackToRoster}>Về danh bộ</button>}
+                  <button type="button" className="primary-action" onClick={resetTransition}>
+                    Thực hiện chuyển khác
+                  </button>
+                </div>
+              </section>
+            )}
+            </>}
+            {(section === "all" || section === "years") && <>
+            {section === "years" && onOpenTransition && (
+              <section className="roster-form roster-transition-entry" aria-labelledby="transition-entry-title">
+                <h3 id="transition-entry-title">Chuyển danh bộ</h3>
+                <p>
+                  Chuyển học sinh sang lớp khác hoặc lên năm học mới với bước xem trước, xác nhận và đối soát.
+                </p>
+                <button type="button" disabled={disabled} onClick={onOpenTransition}>
+                  Mở trang chuyển danh bộ
                 </button>
               </section>
             )}
@@ -2499,6 +2721,7 @@ export function RosterWorkspace({
               <label>Sắp xếp<select value={rosterQuery.sort} onChange={(event) => setRosterQuery({ ...rosterQuery, sort: event.target.value as "name" | "class" })}><option value="name">Tên học sinh</option><option value="class">Lớp</option></select></label>
               <div className="roster-list-filter-actions">
                 <button>Áp dụng</button><button type="button" disabled={rosterLoading} onClick={() => reloadRoster()}>Làm mới danh sách</button>
+                {section === "students" && onOpenTransition && <button type="button" disabled={disabled} onClick={onOpenTransition}>Chuyển danh bộ</button>}
                 {section === "students" && selected?.isActive && <button type="button" className="primary-action" disabled={disabled} onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh</button>}
               </div>
             </form>

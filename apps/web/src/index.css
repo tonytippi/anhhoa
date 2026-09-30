@@ -1368,11 +1368,86 @@ tbody tr:last-child td {
 }
 .student-list-toolbar h3 { margin: 0; }
 .student-list-toolbar .primary-action { flex: 0 0 auto; }
+/* Roster transition: dedicated preview → confirm → reconcile page. */
+.school-context-workspace .roster-transition-back {
+  justify-self: start;
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 0;
+}
+.roster-transition-lede { margin: -4px 0 0; color: #5f746e; }
+.school-context-workspace .roster-transition-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+.school-context-workspace .roster-transition-form > fieldset {
+  display: grid;
+  grid-column: auto;
+  gap: 12px;
+  align-content: start;
+  padding: 14px;
+}
+.school-context-workspace .roster-transition-form > label:first-of-type { grid-column: 1 / -1; max-width: calc(50% - 7px); }
+.roster-transition-field { display: grid; gap: 6px; align-content: start; }
+.school-context-workspace .roster-form > .table-scroll,
+.school-context-workspace .roster-form > details { grid-column: 1 / -1; }
+.school-context-workspace .roster-transition-form small { color: #922e2e; font-size: 13px; }
+.roster-transition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+.school-context-workspace .roster-transition-actions .primary-action,
+.school-context-workspace .roster-transition-form .roster-transition-actions button {
+  border-color: #247a51;
+  background: #247a51;
+  color: #fff;
+}
+.school-context-workspace .roster-transition-actions .primary-action:hover:not(:disabled),
+.school-context-workspace .roster-transition-form .roster-transition-actions button:hover:not(:disabled) {
+  border-color: #1d6538;
+  background: #1d6538;
+}
+.school-context-workspace .roster-transition-actions button:disabled {
+  border-color: #dce4e0;
+  background: #e8ecea;
+  color: #66746f;
+}
+.roster-transition-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.roster-transition-summary > section {
+  border: 1px solid #d7e2dc;
+  border-radius: 12px;
+  background: #fff;
+  padding: 20px;
+}
+.roster-transition-summary h3 { margin: 0 0 8px; }
+.roster-transition-summary p { margin: 4px 0; }
+.roster-transition-muted { color: #5f746e; }
+.school-context-workspace .roster-transition-confirm > label { grid-column: 1 / -1; max-width: 420px; }
+.school-context-workspace .roster-transition-entry > button { justify-self: start; }
+@media (max-width: 767px) {
+  .school-context-workspace .roster-transition-form,
+  .roster-transition-summary { grid-template-columns: 1fr; }
+  .school-context-workspace .roster-transition-form > label:first-of-type { max-width: none; }
+}
 .school-context-workspace fieldset.student-roster-surface {
   display: grid;
   gap: 18px;
   border: 0;
   padding: 0;
+}
+.school-context-workspace .student-roster-surface .roster-form > label,
+.school-context-workspace .student-roster-surface .roster-transition-side > label,
+.school-context-workspace .student-roster-surface .roster-transition-field > label {
+  display: grid;
+  align-items: initial;
+  color: #35524a;
+  font-weight: 700;
 }
 .school-context-workspace .student-roster-surface > .student-list-toolbar {
   padding: 2px 0;

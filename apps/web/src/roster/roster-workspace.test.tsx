@@ -23,6 +23,40 @@ const fetcher = (overrides: Record<string, unknown> = {}) => vi.fn((url: string,
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("RosterWorkspace transition page", () => {
+  it("walks through preview, named confirmation and the reconciled result", async () => {
+    const secondClass = { ...classroom, id: "class-b", name: "Lớp Chồi" };
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (url.endsWith("/roster/transitions/preview")) return Promise.resolve(response({ fingerprint: "fp", movable: [{ enrollmentId: "enrollment-a", student: { fullName: "Bé An" } }], excluded: [{ enrollmentId: "enrollment-b", student: { fullName: "Bé Minh" }, reason: "Chưa có lớp đích phù hợp" }], destination: { schoolYearName: "Năm 2026", className: "Lớp Chồi" } }));
+      if (options?.method === "POST") return Promise.resolve(response({ outcome: { movedEnrollmentIds: ["enrollment-a"] } }));
+      if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
+      if (url.endsWith("/classes")) return Promise.resolve(response([classroom, secondClass]));
+      if (url.includes("/students?")) return Promise.resolve(pagedResponse(list()));
+      return Promise.resolve(response([]));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="transitions" />);
+    await screen.findAllByRole("option", { name: "Lớp Mầm" });
+    expect(screen.getByRole("listitem", { current: "step" }).textContent).toBe("Xem trước");
+    fireEvent.change(screen.getByLabelText("Lớp nguồn"), { target: { value: "class-a" } });
+    fireEvent.change(screen.getByLabelText("Lớp đích"), { target: { value: "class-b" } });
+    fireEvent.change(screen.getByLabelText("Ngày hiệu lực"), { target: { value: "2026-06-01" } });
+    fireEvent.change(screen.getByLabelText("Lý do"), { target: { value: "Lên lớp" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tạo kết quả xem trước" }));
+    expect(await screen.findByText("Chưa có lớp đích phù hợp")).toBeTruthy();
+    expect(screen.getByRole("listitem", { current: "step" }).textContent).toBe("Xác nhận");
+    const confirm = screen.getByRole("button", { name: "Xác nhận chuyển danh bộ" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Nhập CHUYỂN DANH BỘ để xác nhận"), { target: { value: "CHUYỂN DANH BỘ" } });
+    fireEvent.click(confirm);
+    expect(await screen.findByText("Kết quả chuyển danh bộ cho Trường A")).toBeTruthy();
+    expect(screen.getByRole("listitem", { current: "step" }).textContent).toBe("Đối soát");
+    expect(screen.getByText("Đã chuyển")).toBeTruthy();
+    const body = JSON.parse(String(fetch.mock.calls.find(([url, options]) => String(url).endsWith("/roster/transitions") && options?.method === "POST")?.[1]?.body));
+    expect(body).toMatchObject({ sourceClassId: "class-a", destinationClassId: "class-b", selectedEnrollmentIds: ["enrollment-a"], previewFingerprint: "fp" });
+  });
+});
+
 describe("RosterWorkspace paged read model", () => {
   it("renders an independent paged parent table without loading student rows", async () => {
     const fetch = vi.fn((url: string) => {
