@@ -256,7 +256,7 @@ export async function seed(): Promise<void> {
   const staff = parsePeakLandStaffCsv(await readFile(staffCsvPath, 'utf8'));
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required to seed the database.');
-  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString, options: '-c TimeZone=UTC' }) });
   try {
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(9162026)`;

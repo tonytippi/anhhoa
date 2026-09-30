@@ -13,7 +13,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
   });
 
   it('seeds the PeakLand owner graph for development login', async () => {
-    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl! }) });
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl!, options: '-c TimeZone=UTC' }) });
     try {
       const school = await prisma.school.findUniqueOrThrow({
         where: { slug: 'pl' },
@@ -62,7 +62,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
   });
 
   it('seeds the PeakLand roster and reserves the fixture student code sequence', async () => {
-    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl! }) });
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl!, options: '-c TimeZone=UTC' }) });
     try {
       const school = await prisma.school.findUniqueOrThrow({
         where: { slug: 'pl' },
@@ -92,7 +92,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
   });
 
   it('seeds the PeakLand staff graph without implicit login bindings and remains idempotent', async () => {
-    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl! }) });
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl!, options: '-c TimeZone=UTC' }) });
     try {
       const school = await prisma.school.findUniqueOrThrow({
         where: { slug: 'pl' },
@@ -149,7 +149,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
   });
 
   it('seeds active Mẹ and Bố links from complete PeakLand source contacts', async () => {
-    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl! }) });
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl!, options: '-c TimeZone=UTC' }) });
     try {
       const school = await prisma.school.findUniqueOrThrow({
         where: { slug: 'pl' },

@@ -2483,8 +2483,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const report = await finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", {});
       expect(report.summary).toMatchObject({ vat: "10", refundVat: (vat + restVat).toString(), refund: "99" });
       expect(report.rows).toEqual([expect.objectContaining({ type: "INVOICE_ISSUED", vatAmount: "10", netAmount: "110" })]);
-      // Coverage issuedAt is a timestamp without time zone, so read the ledger at a later cut-off.
-      const cash = await finance.report(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", { asOf: "2100-01-01T00:00:00Z" });
+      const cash = await finance.report(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", {});
       expect(cash.rows.filter((row: any) => row.type === "COVERAGE_ISSUED").map((row: any) => [row.amount, row.vatAmount])).toEqual([["99", "9"], ["99", "9"]]);
     });
 

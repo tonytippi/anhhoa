@@ -11,8 +11,8 @@ model School {
   name                              String
   slug                              String                                 @unique
   status                            SchoolStatus                           @default(ACTIVE)
-  createdAt                         DateTime                               @default(now())
-  updatedAt                         DateTime                               @updatedAt
+  createdAt                         DateTime                               @default(now()) @db.Timestamptz(3)
+  updatedAt                         DateTime                               @updatedAt @db.Timestamptz(3)
   initialOwnerIdentityId            String?                                @db.Uuid
   studentCodePrefix                 String
   studentCodeSequence               Int                                    @default(0)
@@ -99,8 +99,8 @@ model SchoolYear {
   name                          String
   startsOn                      DateTime                       @db.Date
   endsOn                        DateTime                       @db.Date
-  createdAt                     DateTime                       @default(now())
-  updatedAt                     DateTime                       @updatedAt
+  createdAt                     DateTime                       @default(now()) @db.Timestamptz(3)
+  updatedAt                     DateTime                       @updatedAt @db.Timestamptz(3)
   school                        School                         @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   classes                       Class[]
   enrollments                   StudentEnrollment[]
@@ -113,7 +113,7 @@ model SchoolYear {
   settlementCarries             SettlementCarry[]
   settlementTransfers           SettlementTransfer[]
   debtTransfers                 DebtTransfer[]
-  closedAt                      DateTime?
+  closedAt                      DateTime?                      @db.Timestamptz(3)
   closedByMembershipId          String?                        @db.Uuid
   closeOperationId              String?                        @unique @db.Uuid
   closeOperation                Operation?                     @relation("SchoolYearCloseOperation", fields: [schoolId, closeOperationId], references: [schoolId, id], onDelete: Restrict)
@@ -131,8 +131,8 @@ model Class {
   name                       String
   status                     ClassStatus                 @default(ACTIVE)
   defaultBankAccountId       String?                     @db.Uuid
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
+  createdAt                  DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime                    @updatedAt @db.Timestamptz(3)
   school                     School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   schoolYear                 SchoolYear                  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
   defaultBankAccount         BankAccount?                @relation(fields: [schoolId, defaultBankAccountId], references: [schoolId, id], onDelete: Restrict, map: "Class_defaultBankAccount_fkey")
@@ -163,10 +163,10 @@ model StaffProfile {
   employmentStatus           StaffEmploymentStatus  @default(ACTIVE)
   primaryPositionId          String                 @db.Uuid
   schoolMembershipId         String?                @unique @db.Uuid
-  boundAt                    DateTime?
+  boundAt                    DateTime?              @db.Timestamptz(3)
   boundByMembershipId        String?                @db.Uuid
-  createdAt                  DateTime               @default(now())
-  updatedAt                  DateTime               @updatedAt
+  createdAt                  DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime               @updatedAt @db.Timestamptz(3)
   school                     School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   primaryPosition            SchoolPosition         @relation(fields: [schoolId, primaryPositionId], references: [schoolId, id], onDelete: Restrict)
   schoolMembership           SchoolMembership?      @relation("StaffProfileLoginBinding", fields: [schoolId, schoolMembershipId], references: [schoolId, id], onDelete: Restrict)
@@ -194,8 +194,8 @@ model StaffPhoto {
   staffId     String       @db.Uuid
   contentType String
   blob        Bytes
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(6)
   school      School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   staff       StaffProfile @relation(fields: [schoolId, staffId], references: [schoolId, id], onDelete: Restrict)
 
@@ -208,7 +208,7 @@ model StaffCodeRegistry {
   schoolId  String       @db.Uuid
   staffId   String       @db.Uuid
   staffCode String
-  createdAt DateTime     @default(now())
+  createdAt DateTime     @default(now()) @db.Timestamptz(6)
   school    School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   staff     StaffProfile @relation(fields: [schoolId, staffId], references: [schoolId, id], onDelete: Restrict)
 
@@ -232,8 +232,8 @@ model SchoolPosition {
   code          String
   name          String
   status        SchoolPositionStatus      @default(ACTIVE)
-  createdAt     DateTime                  @default(now())
-  updatedAt     DateTime                  @updatedAt
+  createdAt     DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime                  @updatedAt @db.Timestamptz(3)
   school        School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   grants        PositionCapabilityGrant[]
   staffProfiles StaffProfile[]
@@ -249,7 +249,7 @@ model PositionCapabilityGrant {
   schoolId   String         @db.Uuid
   positionId String         @db.Uuid
   capability String
-  createdAt  DateTime       @default(now())
+  createdAt  DateTime       @default(now()) @db.Timestamptz(3)
   position   SchoolPosition @relation(fields: [schoolId, positionId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, positionId, capability])
@@ -270,8 +270,8 @@ model StaffClassAssignment {
   schoolYearStartsOn DateTime     @db.Date
   schoolYearEndsOn   DateTime     @db.Date
   className          String
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(3)
   school             School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   staffProfile       StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
   schoolYear         SchoolYear   @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
@@ -298,7 +298,7 @@ model LeavePolicy {
   nextDayDeadlineLocalTime String
   actorIdentityId          String           @db.Uuid
   membershipId             String           @db.Uuid
-  createdAt                DateTime         @default(now())
+  createdAt                DateTime         @default(now()) @db.Timestamptz(3)
   school                   School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership               SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
 
@@ -316,10 +316,10 @@ model LeaveRequest {
   policyEffectiveFrom     DateTime           @db.Date
   policyDeadlineLocalTime String
   rejectedReason          String?
-  decidedAt               DateTime?
+  decidedAt               DateTime?          @db.Timestamptz(3)
   decidedByMembershipId   String?            @db.Uuid
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
+  createdAt               DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime           @updatedAt @db.Timestamptz(3)
   school                  School             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student                 Student            @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   parentProfile           ParentProfile      @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
@@ -340,7 +340,7 @@ model LeaveRequestDay {
   leaveRequestId        String                @db.Uuid
   operatingOn           DateTime              @db.Date
   calendarEffectiveFrom DateTime              @db.Date
-  createdAt             DateTime              @default(now())
+  createdAt             DateTime              @default(now()) @db.Timestamptz(3)
   leaveRequest          LeaveRequest          @relation(fields: [schoolId, leaveRequestId], references: [schoolId, id], onDelete: Restrict)
   calendarVersion       SchoolCalendarVersion @relation(fields: [schoolId, calendarEffectiveFrom], references: [schoolId, effectiveFrom], onDelete: Restrict)
 
@@ -355,7 +355,7 @@ model LeaveDaySource {
   operatingOn    DateTime                  @db.Date
   leaveRequestId String                    @db.Uuid
   leaveStatus    LeaveRequestStatus
-  issuedAt       DateTime                  @default(now())
+  issuedAt       DateTime                  @default(now()) @db.Timestamptz(3)
   school         School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student        Student                   @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   leaveRequest   LeaveRequest              @relation(fields: [schoolId, leaveRequestId], references: [schoolId, id], onDelete: Restrict)
@@ -371,7 +371,7 @@ model LeaveDaySourceExclusion {
   schoolId           String           @db.Uuid
   leaveDaySourceId   String           @db.Uuid
   attendanceRecordId String           @db.Uuid
-  excludedAt         DateTime         @default(now())
+  excludedAt         DateTime         @default(now()) @db.Timestamptz(3)
   school             School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   leaveDaySource     LeaveDaySource   @relation(fields: [schoolId, leaveDaySourceId], references: [schoolId, id], onDelete: Restrict)
   attendanceRecord   AttendanceRecord @relation(fields: [schoolId, attendanceRecordId], references: [schoolId, id], onDelete: Restrict)
@@ -391,8 +391,8 @@ model Student {
   gender                          StudentGender?
   address                         String?
   personalIdentifier              String?
-  createdAt                       DateTime                         @default(now())
-  updatedAt                       DateTime                         @updatedAt
+  createdAt                       DateTime                         @default(now()) @db.Timestamptz(3)
+  updatedAt                       DateTime                         @updatedAt @db.Timestamptz(3)
   school                          School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   enrollments                     StudentEnrollment[]
   parentLinks                     StudentParent[]
@@ -423,26 +423,26 @@ model Student {
 }
 
 model StudentEnrollment {
-  id                   String                                 @id @default(uuid()) @db.Uuid
-  schoolId             String                                 @db.Uuid
-  studentId            String                                 @db.Uuid
-  schoolYearId         String                                 @db.Uuid
-  classId              String?                                @db.Uuid
-  lifecycle            StudentEnrollmentLifecycle
-  effectiveFrom        DateTime                               @db.Date
-  endedOn              DateTime?                              @db.Date
-  schoolYearName       String
-  schoolYearStartsOn   DateTime                               @db.Date
-  schoolYearEndsOn     DateTime                               @db.Date
-  className            String?
-  createdAt            DateTime                               @default(now())
-  updatedAt            DateTime                               @updatedAt
-  school               School                                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  student              Student                                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  schoolYear           SchoolYear                             @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  classroom            Class?                                 @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
-  lifecycleTransitions StudentEnrollmentLifecycleTransition[]
-  classAssignments     EnrollmentClassAssignment[]
+  id                          String                                 @id @default(uuid()) @db.Uuid
+  schoolId                    String                                 @db.Uuid
+  studentId                   String                                 @db.Uuid
+  schoolYearId                String                                 @db.Uuid
+  classId                     String?                                @db.Uuid
+  lifecycle                   StudentEnrollmentLifecycle
+  effectiveFrom               DateTime                               @db.Date
+  endedOn                     DateTime?                              @db.Date
+  schoolYearName              String
+  schoolYearStartsOn          DateTime                               @db.Date
+  schoolYearEndsOn            DateTime                               @db.Date
+  className                   String?
+  createdAt                   DateTime                               @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime                               @updatedAt @db.Timestamptz(3)
+  school                      School                                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student                     Student                                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear                  SchoolYear                             @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  classroom                   Class?                                 @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
+  lifecycleTransitions        StudentEnrollmentLifecycleTransition[]
+  classAssignments            EnrollmentClassAssignment[]
   coverageRefundEligibilities CoverageRefundEligibility[]
 
   @@unique([schoolId, studentId, schoolYearId])
@@ -463,8 +463,8 @@ model StudentPhoto {
   studentId   String   @db.Uuid
   contentType String
   blob        Bytes
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
   school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student     Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
 
@@ -481,8 +481,8 @@ model EnrollmentClassAssignment {
   effectiveFrom DateTime          @db.Date
   effectiveTo   DateTime?         @db.Date
   reason        String
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime          @updatedAt @db.Timestamptz(3)
   school        School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   enrollment    StudentEnrollment @relation(fields: [schoolId, enrollmentId], references: [schoolId, id], onDelete: Restrict)
   schoolYear    SchoolYear        @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
@@ -504,7 +504,7 @@ model StudentEnrollmentLifecycleTransition {
   actorIdentityId   String                      @db.Uuid
   membershipId      String                      @db.Uuid
   operationId       String                      @db.Uuid
-  createdAt         DateTime                    @default(now())
+  createdAt         DateTime                    @default(now()) @db.Timestamptz(3)
   school            School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   enrollment        StudentEnrollment           @relation(fields: [schoolId, enrollmentId], references: [schoolId, id], onDelete: Restrict)
 
@@ -583,8 +583,8 @@ model UserIdentity {
   id                    String                 @id @default(uuid()) @db.Uuid
   emailNormalized       String                 @unique
   googleSubject         String?                @unique
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  createdAt             DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime               @updatedAt @db.Timestamptz(3)
   memberships           SchoolMembership[]
   audits                AuditRecord[]
   debtTransfers         DebtTransfer[]
@@ -600,32 +600,32 @@ enum StudentParentStatus {
 }
 
 model ParentProfile {
-  id              String          @id @default(uuid()) @db.Uuid
-  emailNormalized String?         @unique
+  id              String                 @id @default(uuid()) @db.Uuid
+  emailNormalized String?                @unique
   fullName        String
   phone           String
-  userIdentityId  String?         @unique @db.Uuid
-  boundAt         DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  userIdentity    UserIdentity?   @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
+  userIdentityId  String?                @unique @db.Uuid
+  boundAt         DateTime?              @db.Timestamptz(3)
+  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @db.Timestamptz(3)
+  userIdentity    UserIdentity?          @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   studentParents  StudentParent[]
   leaveRequests   LeaveRequest[]
   inboxEventReads ParentInboxEventRead[]
 }
 
 model StudentParent {
-  id                String              @id @default(uuid()) @db.Uuid
-  schoolId          String              @db.Uuid
-  studentId         String              @db.Uuid
-  parentProfileId   String              @db.Uuid
-  relationshipLabel String              @default("Người thân")
-  status            StudentParentStatus @default(ACTIVE)
-  createdAt         DateTime            @default(now())
-  revokedAt         DateTime?
-  school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  student           Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  parentProfile     ParentProfile       @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
+  id                String                 @id @default(uuid()) @db.Uuid
+  schoolId          String                 @db.Uuid
+  studentId         String                 @db.Uuid
+  parentProfileId   String                 @db.Uuid
+  relationshipLabel String                 @default("Người thân")
+  status            StudentParentStatus    @default(ACTIVE)
+  createdAt         DateTime               @default(now()) @db.Timestamptz(3)
+  revokedAt         DateTime?              @db.Timestamptz(3)
+  school            School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student           Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  parentProfile     ParentProfile          @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
   leaveRequests     LeaveRequest[]
   inboxEventReads   ParentInboxEventRead[]
 
@@ -642,9 +642,9 @@ model OAuthTransaction {
   correlationHash String
   nonce           String
   redirect        String
-  expiresAt       DateTime
-  consumedAt      DateTime?
-  createdAt       DateTime  @default(now())
+  expiresAt       DateTime  @db.Timestamptz(3)
+  consumedAt      DateTime? @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
 
   @@index([audience, expiresAt])
 }
@@ -652,8 +652,8 @@ model OAuthTransaction {
 model PlatformOperatorGrant {
   id             String       @id @default(uuid()) @db.Uuid
   userIdentityId String       @unique @db.Uuid
-  createdAt      DateTime     @default(now())
-  revokedAt      DateTime?
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  revokedAt      DateTime?    @db.Timestamptz(3)
   userIdentity   UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   operations     Operation[]
 }
@@ -663,8 +663,8 @@ model SchoolMembership {
   schoolId                            String                               @db.Uuid
   userIdentityId                      String                               @db.Uuid
   status                              MembershipStatus                     @default(ACTIVE)
-  createdAt                           DateTime                             @default(now())
-  updatedAt                           DateTime                             @updatedAt
+  createdAt                           DateTime                             @default(now()) @db.Timestamptz(3)
+  updatedAt                           DateTime                             @updatedAt @db.Timestamptz(3)
   school                              School                               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   userIdentity                        UserIdentity                         @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   audits                              AuditRecord[]                        @relation("AuditMembership")
@@ -710,7 +710,7 @@ model AuditRecord {
   action          String
   reason          String?
   provenance      Json?
-  createdAt       DateTime            @default(now())
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
   school          School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   actorIdentity   UserIdentity?       @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
   membership      SchoolMembership?   @relation("AuditMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
@@ -731,8 +731,8 @@ model Operation {
   idempotencyKey                      String
   status                              OperationStatus                      @default(PENDING)
   outcome                             Json?
-  createdAt                           DateTime                             @default(now())
-  updatedAt                           DateTime                             @updatedAt
+  createdAt                           DateTime                             @default(now()) @db.Timestamptz(3)
+  updatedAt                           DateTime                             @updatedAt @db.Timestamptz(3)
   school                              School?                              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership                          SchoolMembership?                    @relation("OperationMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   platformOperatorGrant               PlatformOperatorGrant?               @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
@@ -781,7 +781,7 @@ model CollectionRunLifecycleTransition {
   membershipId    String               @db.Uuid
   operationId     String               @db.Uuid
   sequence        Int
-  changedAt       DateTime             @default(now())
+  changedAt       DateTime             @default(now()) @db.Timestamptz(3)
   school          School               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   collectionRun   CollectionRun        @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
   membership      SchoolMembership     @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
@@ -801,8 +801,8 @@ model CollectionRun {
   billingMonth            String
   status                  CollectionRunStatus                @default(DRAFT)
   version                 Int                                @default(1)
-  createdAt               DateTime                           @default(now())
-  updatedAt               DateTime                           @updatedAt
+  createdAt               DateTime                           @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                           @updatedAt @db.Timestamptz(3)
   school                  School                             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   schoolYear              SchoolYear                         @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
   selections              CollectionRunSelection[]
@@ -826,8 +826,8 @@ model CollectionRunTemplateLine {
   collectionRunId String        @db.Uuid
   receivableId    String        @db.Uuid
   quantity        Int
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
   collectionRun   CollectionRun @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
   receivable      Receivable    @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
 
@@ -862,11 +862,11 @@ model CollectionRunGeneration {
   processedCount   Int                           @default(0)
   eligibleCount    Int                           @default(0)
   skippedCount     Int                           @default(0)
-  leaseExpiresAt   DateTime?
+  leaseExpiresAt   DateTime?                     @db.Timestamptz(3)
   lastErrorCode    String?
   lastErrorMessage String?
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+  createdAt        DateTime                      @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime                      @updatedAt @db.Timestamptz(3)
   school           School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   collectionRun    CollectionRun                 @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
   operation        Operation                     @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
@@ -887,7 +887,7 @@ model CollectionRunGenerationItem {
   status       CollectionRunGenerationItemStatus @default(PENDING)
   snapshot     Json?
   skip         Json?
-  createdAt    DateTime                          @default(now())
+  createdAt    DateTime                          @default(now()) @db.Timestamptz(3)
   generation   CollectionRunGeneration           @relation(fields: [schoolId, generationId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
@@ -938,7 +938,7 @@ model Invoice {
   status                               InvoiceStatus                  @default(DRAFT)
   channel                              PaymentChannel                 @default(PERSONAL)
   total                                BigInt                         @default(0) @db.BigInt
-  issuedAt                             DateTime?
+  issuedAt                             DateTime?                      @db.Timestamptz(3)
   obligationCodeSnapshot               String?
   bankAccountIdSnapshot                String?                        @db.Uuid
   receivingBankSnapshot                String?
@@ -956,7 +956,7 @@ model Invoice {
   dueOn                                DateTime?                      @db.Date
   revisesInvoiceId                     String?                        @db.Uuid
   revisionReason                       String?
-  createdAt                            DateTime                       @default(now())
+  createdAt                            DateTime                       @default(now()) @db.Timestamptz(3)
   school                               School                         @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student                              Student                        @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   collectionRun                        CollectionRun                  @relation(fields: [schoolId, collectionRunId, schoolYearId, billingMonth], references: [schoolId, id, schoolYearId, billingMonth], onDelete: Restrict)
@@ -968,18 +968,18 @@ model Invoice {
   receipt                              Receipt?
   settlementDifference                 SettlementDifference?
   settlementCarries                    SettlementCarry[]
-  settlementTransfersFrom              SettlementTransfer[]                 @relation("SettlementTransferSource")
-  settlementTransferTo                 SettlementTransfer?                  @relation("SettlementTransferReplacement")
-  debtTransfersFrom                    DebtTransfer[]                       @relation("DebtTransferSource")
-  debtTransfersTo                      DebtTransfer[]                       @relation("DebtTransferTarget")
+  settlementTransfersFrom              SettlementTransfer[]           @relation("SettlementTransferSource")
+  settlementTransferTo                 SettlementTransfer?            @relation("SettlementTransferReplacement")
+  debtTransfersFrom                    DebtTransfer[]                 @relation("DebtTransferSource")
+  debtTransfersTo                      DebtTransfer[]                 @relation("DebtTransferTarget")
   coverageFacts                        InvoicePromotionCoverageFact[]
   studentPromotionalCoverages          StudentPromotionalCoverage[]
 
   @@unique([schoolId, id])
+  @@unique([schoolId, obligationCodeSnapshot])
   @@index([schoolId, collectionRunId])
   @@index([schoolId, collectionRunId, studentId])
   @@index([schoolId, status])
-  @@unique([schoolId, obligationCodeSnapshot])
   @@index([schoolId, status, schoolYearId, billingMonth, classIdSnapshot, issuedAt, id])
 }
 
@@ -990,7 +990,7 @@ model CollectionRunCoverageSelection {
   studentId       String                 @db.Uuid
   versionId       String                 @db.Uuid
   billingMonth    String
-  createdAt       DateTime               @default(now())
+  createdAt       DateTime               @default(now()) @db.Timestamptz(6)
   collectionRun   CollectionRun          @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
   student         Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   version         PromotionPolicyVersion @relation(fields: [schoolId, versionId], references: [schoolId, id], onDelete: Restrict)
@@ -1008,7 +1008,7 @@ model Receipt {
   invoiceId            String                       @db.Uuid
   actualAmount         BigInt                       @db.BigInt
   outcome              SettlementOutcome
-  postedAt             DateTime                     @default(now())
+  postedAt             DateTime                     @default(now()) @db.Timestamptz(6)
   school               School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student              Student                      @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   schoolYear           SchoolYear                   @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
@@ -1030,7 +1030,7 @@ model SettlementDifference {
   invoiceId    String            @db.Uuid
   receiptId    String            @db.Uuid
   signedAmount BigInt            @db.BigInt
-  createdAt    DateTime          @default(now())
+  createdAt    DateTime          @default(now()) @db.Timestamptz(6)
   school       School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student      Student           @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   schoolYear   SchoolYear        @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
@@ -1053,7 +1053,7 @@ model SettlementCarry {
   invoiceId              String               @db.Uuid
   type                   SettlementCarryType
   amount                 BigInt               @db.BigInt
-  createdAt              DateTime             @default(now())
+  createdAt              DateTime             @default(now()) @db.Timestamptz(6)
   school                 School               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student                Student              @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   schoolYear             SchoolYear           @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
@@ -1066,21 +1066,21 @@ model SettlementCarry {
 }
 
 model SettlementTransfer {
-  id                   String   @id @default(uuid()) @db.Uuid
-  schoolId             String   @db.Uuid
-  studentId            String   @db.Uuid
-  schoolYearId         String   @db.Uuid
-  sourceInvoiceId      String   @db.Uuid
-  sourceReceiptId      String   @db.Uuid
-  replacementInvoiceId String   @unique @db.Uuid
-  amount               BigInt   @db.BigInt
-  createdAt            DateTime @default(now())
-  school               School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  student              Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  id                   String     @id @default(uuid()) @db.Uuid
+  schoolId             String     @db.Uuid
+  studentId            String     @db.Uuid
+  schoolYearId         String     @db.Uuid
+  sourceInvoiceId      String     @db.Uuid
+  sourceReceiptId      String     @db.Uuid
+  replacementInvoiceId String     @unique @db.Uuid
+  amount               BigInt     @db.BigInt
+  createdAt            DateTime   @default(now()) @db.Timestamptz(6)
+  school               School     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student              Student    @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   schoolYear           SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  sourceInvoice        Invoice  @relation("SettlementTransferSource", fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
-  sourceReceipt        Receipt  @relation(fields: [schoolId, sourceReceiptId], references: [schoolId, id], onDelete: Restrict)
-  replacementInvoice   Invoice  @relation("SettlementTransferReplacement", fields: [schoolId, replacementInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  sourceInvoice        Invoice    @relation("SettlementTransferSource", fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  sourceReceipt        Receipt    @relation(fields: [schoolId, sourceReceiptId], references: [schoolId, id], onDelete: Restrict)
+  replacementInvoice   Invoice    @relation("SettlementTransferReplacement", fields: [schoolId, replacementInvoiceId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@unique([schoolId, replacementInvoiceId])
@@ -1111,7 +1111,7 @@ model CoverageRefundEligibility {
   actorIdentityId String                          @db.Uuid
   membershipId    String                          @db.Uuid
   operationId     String                          @unique @db.Uuid
-  createdAt       DateTime                        @default(now())
+  createdAt       DateTime                        @default(now()) @db.Timestamptz(3)
   school          School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student         Student                         @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   enrollment      StudentEnrollment?              @relation(fields: [schoolId, enrollmentId], references: [schoolId, id], onDelete: Restrict)
@@ -1124,47 +1124,47 @@ model CoverageRefundEligibility {
 }
 
 model CoverageReversalRequest {
-  id                    String                        @id @default(uuid()) @db.Uuid
-  schoolId              String                        @db.Uuid
-  coverageId            String                        @db.Uuid
-  amount                BigInt                        @db.BigInt
-  calculatedAmount      BigInt                        @db.BigInt
-  vatAmount             BigInt                        @default(0) @db.BigInt
-  overrideReason        String?
-  effectiveOn           DateTime                      @db.Date
-  reason                String
-  policyMode            FinanceReversalMode
-  status                CoverageReversalRequestStatus @default(PENDING)
-  requestedByMembershipId String                      @db.Uuid
-  decidedByMembershipId String?                       @db.Uuid
-  decidedAt             DateTime?
-  refusalReason         String?
-  createdAt             DateTime                      @default(now())
-  school                School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  coverage              StudentPromotionalCoverage    @relation(fields: [schoolId, coverageId], references: [schoolId, id], onDelete: Restrict)
-  requestedByMembership SchoolMembership              @relation("CoverageReversalRequester", fields: [schoolId, requestedByMembershipId], references: [schoolId, id], onDelete: Restrict)
-  decidedByMembership   SchoolMembership?             @relation("CoverageReversalDecider", fields: [schoolId, decidedByMembershipId], references: [schoolId, id], onDelete: Restrict)
-  reversal              CoverageReversal?
+  id                      String                        @id @default(uuid()) @db.Uuid
+  schoolId                String                        @db.Uuid
+  coverageId              String                        @db.Uuid
+  amount                  BigInt                        @db.BigInt
+  calculatedAmount        BigInt                        @db.BigInt
+  vatAmount               BigInt                        @default(0) @db.BigInt
+  overrideReason          String?
+  effectiveOn             DateTime                      @db.Date
+  reason                  String
+  policyMode              FinanceReversalMode
+  status                  CoverageReversalRequestStatus @default(PENDING)
+  requestedByMembershipId String                        @db.Uuid
+  decidedByMembershipId   String?                       @db.Uuid
+  decidedAt               DateTime?                     @db.Timestamptz(6)
+  refusalReason           String?
+  createdAt               DateTime                      @default(now()) @db.Timestamptz(6)
+  school                  School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  coverage                StudentPromotionalCoverage    @relation(fields: [schoolId, coverageId], references: [schoolId, id], onDelete: Restrict)
+  requestedByMembership   SchoolMembership              @relation("CoverageReversalRequester", fields: [schoolId, requestedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  decidedByMembership     SchoolMembership?             @relation("CoverageReversalDecider", fields: [schoolId, decidedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  reversal                CoverageReversal?
 
   @@unique([schoolId, id])
   @@index([schoolId, coverageId, status])
 }
 
 model CoverageReversal {
-  id          String                  @id @default(uuid()) @db.Uuid
-  schoolId    String                  @db.Uuid
-  coverageId  String                  @db.Uuid
-  requestId   String?                 @unique @db.Uuid
-  amount      BigInt                  @db.BigInt
-  calculatedAmount BigInt             @db.BigInt
-  vatAmount   BigInt                  @default(0) @db.BigInt
-  overrideReason String?
-  effectiveOn DateTime                @db.Date
-  reason      String
-  postedAt    DateTime                @default(now())
-  school      School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  coverage    StudentPromotionalCoverage @relation(fields: [schoolId, coverageId], references: [schoolId, id], onDelete: Restrict)
-  request     CoverageReversalRequest? @relation(fields: [schoolId, requestId], references: [schoolId, id], onDelete: Restrict)
+  id               String                     @id @default(uuid()) @db.Uuid
+  schoolId         String                     @db.Uuid
+  coverageId       String                     @db.Uuid
+  requestId        String?                    @unique @db.Uuid
+  amount           BigInt                     @db.BigInt
+  calculatedAmount BigInt                     @db.BigInt
+  vatAmount        BigInt                     @default(0) @db.BigInt
+  overrideReason   String?
+  effectiveOn      DateTime                   @db.Date
+  reason           String
+  postedAt         DateTime                   @default(now()) @db.Timestamptz(6)
+  school           School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  coverage         StudentPromotionalCoverage @relation(fields: [schoolId, coverageId], references: [schoolId, id], onDelete: Restrict)
+  request          CoverageReversalRequest?   @relation(fields: [schoolId, requestId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@unique([schoolId, requestId])
@@ -1189,7 +1189,7 @@ model InvoicePromotionCoverageFact {
   serviceEnd            DateTime                    @db.Date
   calendarEffectiveFrom DateTime                    @db.Date
   timezone              String                      @default("Asia/Ho_Chi_Minh")
-  createdAt             DateTime                    @default(now())
+  createdAt             DateTime                    @default(now()) @db.Timestamptz(6)
   invoice               Invoice                     @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
   student               Student                     @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   schoolYear            SchoolYear                  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
@@ -1221,7 +1221,7 @@ model StudentPromotionalCoverage {
   serviceEnd            DateTime                     @db.Date
   calendarEffectiveFrom DateTime                     @db.Date
   timezone              String                       @default("Asia/Ho_Chi_Minh")
-  issuedAt              DateTime                     @default(now())
+  issuedAt              DateTime                     @default(now()) @db.Timestamptz(6)
   school                School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student               Student                      @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   schoolYear            SchoolYear                   @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
@@ -1263,15 +1263,15 @@ model InvoiceLine {
   sourceReason                  String?
   sourceActorIdentityId         String?                      @db.Uuid
   sourceMembershipId            String?                      @db.Uuid
-  sourceRecordedAt              DateTime?
+  sourceRecordedAt              DateTime?                    @db.Timestamptz(3)
   sourceProvenance              Json?
-  createdAt                     DateTime                     @default(now())
-  updatedAt                     DateTime                     @updatedAt
+  createdAt                     DateTime                     @default(now()) @db.Timestamptz(3)
+  updatedAt                     DateTime                     @updatedAt @db.Timestamptz(3)
   school                        School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   invoice                       Invoice                      @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
   receivable                    Receivable?                  @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
   promotionApplications         IssuedPromotionApplication[]
-  debtTransfer                 DebtTransfer?
+  debtTransfer                  DebtTransfer?
 
   @@unique([schoolId, id])
   @@index([schoolId, invoiceId])
@@ -1284,28 +1284,28 @@ enum InvoiceLineKind {
 }
 
 model DebtTransfer {
-  id              String   @id @default(uuid()) @db.Uuid
-  schoolId        String   @db.Uuid
-  studentId       String   @db.Uuid
-  schoolYearId    String   @db.Uuid
-  sourceInvoiceId String   @db.Uuid
-  targetInvoiceId String   @db.Uuid
-  targetLineId    String   @unique @db.Uuid
-  amount          BigInt   @db.BigInt
+  id              String           @id @default(uuid()) @db.Uuid
+  schoolId        String           @db.Uuid
+  studentId       String           @db.Uuid
+  schoolYearId    String           @db.Uuid
+  sourceInvoiceId String           @db.Uuid
+  targetInvoiceId String           @db.Uuid
+  targetLineId    String           @unique @db.Uuid
+  amount          BigInt           @db.BigInt
   reason          String
-  actorIdentityId String   @db.Uuid
-  membershipId    String   @db.Uuid
-  operationId     String   @unique @db.Uuid
-  createdAt       DateTime @default(now())
-  school          School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  student         Student  @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  schoolYear      SchoolYear @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  sourceInvoice   Invoice  @relation("DebtTransferSource", fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
-  targetInvoice   Invoice  @relation("DebtTransferTarget", fields: [schoolId, targetInvoiceId], references: [schoolId, id], onDelete: Restrict)
-  targetLine      InvoiceLine @relation(fields: [schoolId, targetLineId], references: [schoolId, id], onDelete: Restrict)
+  actorIdentityId String           @db.Uuid
+  membershipId    String           @db.Uuid
+  operationId     String           @unique @db.Uuid
+  createdAt       DateTime         @default(now()) @db.Timestamptz(6)
+  school          School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student          @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear      SchoolYear       @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  sourceInvoice   Invoice          @relation("DebtTransferSource", fields: [schoolId, sourceInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  targetInvoice   Invoice          @relation("DebtTransferTarget", fields: [schoolId, targetInvoiceId], references: [schoolId, id], onDelete: Restrict)
+  targetLine      InvoiceLine      @relation(fields: [schoolId, targetLineId], references: [schoolId, id], onDelete: Restrict)
   membership      SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
-  operation       Operation @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
-  actorIdentity   UserIdentity @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
+  operation       Operation        @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+  actorIdentity   UserIdentity     @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@unique([schoolId, targetLineId])
@@ -1355,20 +1355,20 @@ model FinanceLedgerEvent {
 }
 
 model FinanceReportExport {
-  id          String    @id @default(uuid()) @db.Uuid
-  schoolId    String    @db.Uuid
-  membershipId String   @db.Uuid
-  operationId String    @db.Uuid
-  workspace   String
-  result      Json
-  csv         Bytes
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  downloadedAt DateTime?
-  school      School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  membership  SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
-  operation   Operation @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+  id           String           @id @default(uuid()) @db.Uuid
+  schoolId     String           @db.Uuid
+  membershipId String           @db.Uuid
+  operationId  String           @db.Uuid
+  workspace    String
+  result       Json
+  csv          Bytes
+  expiresAt    DateTime         @db.Timestamptz(3)
+  revokedAt    DateTime?        @db.Timestamptz(3)
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+  downloadedAt DateTime?        @db.Timestamptz(3)
+  school       School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership   SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation    Operation        @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@unique([schoolId, operationId])
@@ -1396,7 +1396,7 @@ model IssuedPromotionApplication {
   versionInterval    Json
   assignmentInterval Json
   assignmentReason   String
-  createdAt          DateTime              @default(now())
+  createdAt          DateTime              @default(now()) @db.Timestamptz(3)
   school             School                @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   invoice            Invoice               @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
   invoiceLine        InvoiceLine           @relation(fields: [schoolId, invoiceLineId], references: [schoolId, id], onDelete: Restrict)
@@ -1411,7 +1411,7 @@ model CollectionRunSelection {
   schoolId        String        @db.Uuid
   collectionRunId String        @db.Uuid
   studentId       String        @db.Uuid
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
   collectionRun   CollectionRun @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
   student         Student       @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
 
@@ -1424,7 +1424,7 @@ model ReceivableGroup {
   id                   String                               @id @default(uuid()) @db.Uuid
   schoolId             String                               @db.Uuid
   name                 String
-  createdAt            DateTime                             @default(now())
+  createdAt            DateTime                             @default(now()) @db.Timestamptz(3)
   school               School                               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   receivables          Receivable[]
   lifecycleTransitions ReceivableGroupLifecycleTransition[]
@@ -1443,7 +1443,7 @@ model Receivable {
   unitLabel            String
   defaultUnitPrice     BigInt                          @db.BigInt
   taxCategory          ReceivableTaxCategory           @default(NOT_DECLARED)
-  createdAt            DateTime                        @default(now())
+  createdAt            DateTime                        @default(now()) @db.Timestamptz(3)
   school               School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   group                ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
   lifecycleTransitions ReceivableLifecycleTransition[]
@@ -1469,7 +1469,7 @@ model ReceivableGroupLifecycleTransition {
   membershipId      String?           @db.Uuid
   operationId       String            @db.Uuid
   sequence          Int
-  changedAt         DateTime          @default(now())
+  changedAt         DateTime          @default(now()) @db.Timestamptz(3)
   group             ReceivableGroup   @relation(fields: [schoolId, receivableGroupId], references: [schoolId, id], onDelete: Restrict)
   membership        SchoolMembership? @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   operation         Operation         @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
@@ -1489,7 +1489,7 @@ model ReceivableLifecycleTransition {
   membershipId    String            @db.Uuid
   operationId     String            @db.Uuid
   sequence        Int
-  changedAt       DateTime          @default(now())
+  changedAt       DateTime          @default(now()) @db.Timestamptz(3)
   receivable      Receivable        @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
   membership      SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   operation       Operation         @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
@@ -1523,8 +1523,8 @@ model PromotionPolicy {
   id        String                   @id @default(uuid()) @db.Uuid
   schoolId  String                   @db.Uuid
   name      String
-  createdAt DateTime                 @default(now())
-  updatedAt DateTime                 @updatedAt
+  createdAt DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime                 @updatedAt @db.Timestamptz(3)
   school    School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   versions  PromotionPolicyVersion[]
 
@@ -1547,8 +1547,8 @@ model PromotionPolicyVersion {
   prepaidTermMonths  Int?
   effectiveFrom      DateTime                         @db.Date
   effectiveTo        DateTime?                        @db.Date
-  createdAt          DateTime                         @default(now())
-  updatedAt          DateTime                         @updatedAt
+  createdAt          DateTime                         @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                         @updatedAt @db.Timestamptz(3)
   school             School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   policy             PromotionPolicy                  @relation(fields: [schoolId, policyId], references: [schoolId, id], onDelete: Restrict)
   targets            PromotionPolicyTarget[]
@@ -1566,7 +1566,7 @@ model PromotionPolicyTarget {
   schoolId     String                 @db.Uuid
   versionId    String                 @db.Uuid
   receivableId String                 @db.Uuid
-  createdAt    DateTime               @default(now())
+  createdAt    DateTime               @default(now()) @db.Timestamptz(3)
   school       School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   version      PromotionPolicyVersion @relation(fields: [schoolId, versionId], references: [schoolId, id], onDelete: Restrict)
   receivable   Receivable             @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
@@ -1586,9 +1586,9 @@ model StudentPromotionAssignment {
   effectiveTo   DateTime?              @db.Date
   reason        String
   endReason     String?
-  endedAt       DateTime?
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
+  endedAt       DateTime?              @db.Timestamptz(3)
+  createdAt     DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime               @updatedAt @db.Timestamptz(3)
   school        School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student       Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   version       PromotionPolicyVersion @relation(fields: [schoolId, versionId, policyId], references: [schoolId, id, policyId], onDelete: Restrict)
@@ -1608,7 +1608,7 @@ model SchoolProfileVersion {
   supportEmail    String?
   actorIdentityId String   @db.Uuid
   membershipId    String   @db.Uuid
-  createdAt       DateTime @default(now())
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
   school          School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
 
   @@unique([schoolId, effectiveFrom])
@@ -1622,7 +1622,7 @@ model SchoolCalendarVersion {
   effectiveFrom    DateTime                @db.Date
   actorIdentityId  String                  @db.Uuid
   membershipId     String                  @db.Uuid
-  createdAt        DateTime                @default(now())
+  createdAt        DateTime                @default(now()) @db.Timestamptz(3)
   school           School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   holidays         SchoolCalendarHoliday[]
   leaveRequestDays LeaveRequestDay[]
@@ -1639,7 +1639,7 @@ model SchoolCalendarHoliday {
   name              String
   startsOn          DateTime              @db.Date
   endsOn            DateTime              @db.Date
-  createdAt         DateTime              @default(now())
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
   calendarVersion   SchoolCalendarVersion @relation(fields: [schoolId, calendarVersionId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
@@ -1657,7 +1657,7 @@ model FinancePolicy {
   reason            String?
   actorIdentityId   String              @db.Uuid
   membershipId      String              @db.Uuid
-  createdAt         DateTime            @default(now())
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
   school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership        SchoolMembership    @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
 
@@ -1673,7 +1673,7 @@ model ParentAccessPolicyVersion {
   closedRetentionMonths Int              @default(12)
   actorIdentityId       String           @db.Uuid
   membershipId          String           @db.Uuid
-  createdAt             DateTime         @default(now())
+  createdAt             DateTime         @default(now()) @db.Timestamptz(3)
   school                School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership            SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
 
@@ -1690,7 +1690,7 @@ model AttendancePolicy {
   reason            String
   actorIdentityId   String             @db.Uuid
   membershipId      String             @db.Uuid
-  createdAt         DateTime           @default(now())
+  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
   school            School             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership        SchoolMembership   @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   attendanceRecords AttendanceRecord[]
@@ -1716,13 +1716,13 @@ model EvidenceReference {
   uploadedStaffProfileId String?            @db.Uuid
   blob                   Bytes?
   preview                Bytes?
-  confirmedAt            DateTime?
+  confirmedAt            DateTime?          @db.Timestamptz(3)
   confirmedStudentId     String?            @db.Uuid
   confirmedAttendanceOn  DateTime?          @db.Date
   handoverRecord         HandoverRecord?    @relation("HandoverEvidence")
-  deletedAt              DateTime?
+  deletedAt              DateTime?          @db.Timestamptz(3)
   deletionReason         String?
-  createdAt              DateTime           @default(now())
+  createdAt              DateTime           @default(now()) @db.Timestamptz(3)
   school                 School             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   uploadedClass          Class?             @relation("EvidenceUploadedClass", fields: [schoolId, uploadedClassId], references: [schoolId, id], onDelete: Restrict)
   uploadedMembership     SchoolMembership?  @relation("EvidenceUploadedMembership", fields: [schoolId, uploadedMembershipId], references: [schoolId, id], onDelete: Restrict)
@@ -1736,20 +1736,20 @@ model EvidenceReference {
 }
 
 model NotificationSourceEvent {
-  id             String                 @id @default(uuid()) @db.Uuid
-  schoolId       String                 @db.Uuid
-  sourceType     NotificationSourceType
-  sourceRecordId String                 @db.Uuid
-  studentId      String                 @db.Uuid
-  attendanceOn   DateTime               @db.Date
-  state          AttendanceState?
-  pickedUpAt     DateTime?
+  id                         String                 @id @default(uuid()) @db.Uuid
+  schoolId                   String                 @db.Uuid
+  sourceType                 NotificationSourceType
+  sourceRecordId             String                 @db.Uuid
+  studentId                  String                 @db.Uuid
+  attendanceOn               DateTime               @db.Date
+  state                      AttendanceState?
+  pickedUpAt                 DateTime?              @db.Timestamptz(3)
   studentDisplayNameSnapshot String?
-  payload        Json
-  createdAt      DateTime               @default(now())
-  school         School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  student        Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
-  inboxReads     ParentInboxEventRead[]
+  payload                    Json
+  createdAt                  DateTime               @default(now()) @db.Timestamptz(3)
+  school                     School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student                    Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  inboxReads                 ParentInboxEventRead[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, sourceType, sourceRecordId])
@@ -1761,7 +1761,7 @@ model ParentInboxEventRead {
   schoolId                  String                  @db.Uuid
   parentProfileId           String                  @db.Uuid
   notificationSourceEventId String                  @db.Uuid
-  readAt                    DateTime                @default(now())
+  readAt                    DateTime                @default(now()) @db.Timestamptz(3)
   school                    School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   parentProfile             ParentProfile           @relation(fields: [parentProfileId], references: [id], onDelete: Restrict)
   sourceEvent               NotificationSourceEvent @relation(fields: [schoolId, notificationSourceEventId], references: [schoolId, id], onDelete: Restrict)
@@ -1790,8 +1790,8 @@ model AttendanceRecord {
   actorIdentityId          String                    @db.Uuid
   membershipId             String                    @db.Uuid
   staffProfileId           String                    @db.Uuid
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
+  createdAt                DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime                  @updatedAt @db.Timestamptz(3)
   school                   School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   classroom                Class                     @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
   student                  Student                   @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
@@ -1816,7 +1816,7 @@ model HandoverPolicy {
   reason            String
   actorIdentityId   String            @db.Uuid
   membershipId      String            @db.Uuid
-  createdAt         DateTime          @default(now())
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
   school            School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership        SchoolMembership  @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   handoverRecords   HandoverRecord[]
@@ -1831,13 +1831,13 @@ model HandoverRecord {
   schoolId            String             @db.Uuid
   studentId           String             @db.Uuid
   handoverOn          DateTime           @db.Date
-  pickedUpAt          DateTime
+  pickedUpAt          DateTime           @db.Timestamptz(3)
   evidenceId          String?            @unique @db.Uuid
   policyEffectiveFrom DateTime           @db.Date
   actorIdentityId     String             @db.Uuid
   membershipId        String             @db.Uuid
   staffProfileId      String             @db.Uuid
-  createdAt           DateTime           @default(now())
+  createdAt           DateTime           @default(now()) @db.Timestamptz(3)
   school              School             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student             Student            @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   evidence            EvidenceReference? @relation("HandoverEvidence", fields: [schoolId, evidenceId], references: [schoolId, id], onDelete: Restrict)
@@ -1862,7 +1862,7 @@ model DailyJournalPolicy {
   reason                                  String
   actorIdentityId                         String                      @db.Uuid
   membershipId                            String                      @db.Uuid
-  createdAt                               DateTime                    @default(now())
+  createdAt                               DateTime                    @default(now()) @db.Timestamptz(3)
   school                                  School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership                              SchoolMembership            @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   journals                                DailyJournal[]
@@ -1888,8 +1888,8 @@ model DailyJournal {
   actorIdentityId           String                @db.Uuid
   membershipId              String                @db.Uuid
   staffProfileId            String                @db.Uuid
-  createdAt                 DateTime              @default(now())
-  updatedAt                 DateTime              @updatedAt
+  createdAt                 DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime              @updatedAt @db.Timestamptz(3)
   school                    School                @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   classroom                 Class                 @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
   student                   Student               @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
@@ -1913,7 +1913,7 @@ model DailyJournalVersion {
   actorIdentityId     String                     @db.Uuid
   membershipId        String                     @db.Uuid
   staffProfileId      String                     @db.Uuid
-  createdAt           DateTime                   @default(now())
+  createdAt           DateTime                   @default(now()) @db.Timestamptz(3)
   school              School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   dailyJournal        DailyJournal               @relation(fields: [schoolId, dailyJournalId], references: [schoolId, id], onDelete: Restrict)
   membership          SchoolMembership           @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
@@ -1937,7 +1937,7 @@ model DailyJournalMedia {
   uploadedByStaffProfileId String                     @db.Uuid
   policyEffectiveFrom      DateTime                   @db.Date
   attachedDailyJournalId   String?                    @db.Uuid
-  createdAt                DateTime                   @default(now())
+  createdAt                DateTime                   @default(now()) @db.Timestamptz(3)
   school                   School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   classroom                Class                      @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
   student                  Student                    @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
@@ -1973,7 +1973,7 @@ model BankAccount {
   kind                 PaymentChannel                   @default(PERSONAL)
   actorIdentityId      String                           @db.Uuid
   membershipId         String                           @db.Uuid
-  createdAt            DateTime                         @default(now())
+  createdAt            DateTime                         @default(now()) @db.Timestamptz(3)
   school               School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   membership           SchoolMembership                 @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   lifecycleTransitions BankAccountLifecycleTransition[]
@@ -1994,7 +1994,7 @@ model BankAccountLifecycleTransition {
   membershipId    String             @db.Uuid
   operationId     String             @db.Uuid
   sequence        Int
-  changedAt       DateTime           @default(now())
+  changedAt       DateTime           @default(now()) @db.Timestamptz(3)
   bankAccount     BankAccount        @relation(fields: [schoolId, bankAccountId], references: [schoolId, id], onDelete: Restrict)
   membership      SchoolMembership   @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   operation       Operation          @relation("BankAccountLifecycleOperation", fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
