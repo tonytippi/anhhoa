@@ -199,6 +199,14 @@ export class RosterController {
       meta: {},
     };
   }
+  @Get("position-capabilities") async positionCapabilities(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+  ) {
+    return {
+      data: await this.roster.positionCapabilities(this.identity(request), schoolId),
+    };
+  }
   @Get("school-years/:schoolYearId/staff-assignments") async assignments(
     @Req() request: RequestLike,
     @Param("schoolId") schoolId: string,
@@ -346,6 +354,25 @@ export class RosterController {
       data: await this.roster.createPosition(
         this.identity(request),
         schoolId,
+        this.mutation(request, key),
+        operationId ?? "",
+        body,
+      ),
+    };
+  }
+  @Post("positions/:positionId") async updatePosition(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("positionId") positionId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return {
+      data: await this.roster.updatePosition(
+        this.identity(request),
+        schoolId,
+        positionId,
         this.mutation(request, key),
         operationId ?? "",
         body,

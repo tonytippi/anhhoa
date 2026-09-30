@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { CapabilityCatalog, PositionDraft, PositionRow, PositionsPanel } from "./positions-panel";
 
 type SchoolYear = {
   id: string;
@@ -79,21 +80,7 @@ type StaffQuery = {
   primaryPositionId: string;
   sort: "name" | "position" | "status";
 };
-type Position = {
-  id: string;
-  code: string;
-  name: string;
-  status: "ACTIVE" | "INACTIVE";
-  capabilities: string[];
-};
-type PositionAction = {
-  position: Position;
-  kind: "rename" | "inactivate" | "grant" | "revoke";
-  name: string;
-  capability: string;
-  reason: string;
-  confirmation: string;
-};
+type Position = PositionRow;
 type Assignment = {
   id: string;
   staffProfileId: string;
@@ -173,26 +160,6 @@ const lifecycleLabel: Record<string, string> = {
   WITHDRAWN: "Đã thôi học",
   GRADUATED: "Đã tốt nghiệp",
 };
-const capabilityLabel: Record<string, string> = {
-  SCHOOL_CONTEXT_READ: "Ngữ cảnh trường",
-  ACCESS_MANAGE: "Quản lý truy cập",
-  ROSTER_MANAGE: "Danh bộ",
-  SETTINGS_MANAGE: "Cấu hình",
-  CLASS_LEAVE_READ: "Xem đơn nghỉ lớp",
-  ATTENDANCE_WRITE: "Điểm danh",
-  DAILY_JOURNAL_WRITE: "Nhật ký ngày",
-  HANDOVER_WRITE: "Bàn giao",
-  WORKFORCE_MANAGE: "Quản lý nhân sự",
-  TIMEKEEPING_IMPORT: "Nhập chấm công",
-  TIMEKEEPING_REVIEW: "Duyệt chấm công",
-  LATE_CARE_MANAGE: "Trông muộn",
-  PAYROLL_PREPARE: "Chuẩn bị lương",
-  PAYROLL_RECONCILE: "Đối soát lương",
-  PAYROLL_APPROVE: "Duyệt lương",
-  PAYROLL_REOPEN: "Mở lại lương",
-  PAYROLL_PAYOUT_CONFIRM: "Xác nhận chi lương",
-  PAYROLL_REPORT_READ: "Xem báo cáo lương",
-};
 const csrf = () =>
   document.cookie
     .split("; ")
@@ -259,13 +226,8 @@ export function RosterWorkspace({
     personalIdentifier: "",
     photo: null as File | null,
   });
-  const [positionInput, setPositionInput] = useState({
-    code: "",
-    name: "",
-    capabilities: [] as string[],
-    reason: "",
-  });
-  const [positionAction, setPositionAction] = useState<PositionAction>();
+  const [positionDraft, setPositionDraft] = useState<PositionDraft>();
+  const [positionCatalog, setPositionCatalog] = useState<CapabilityCatalog>();
   const [editingStaffId, setEditingStaffId] = useState("");
   const [staffIntakeOpen, setStaffIntakeOpen] = useState(false);
   const [classIntakeOpen, setClassIntakeOpen] = useState(false);
@@ -460,7 +422,7 @@ export function RosterWorkspace({
     onStatusChange?.({
       dirty,
       pending: Boolean(pending),
-       dialogOpen: studentIntakeOpen || staffIntakeOpen || classIntakeOpen,
+       dialogOpen: studentIntakeOpen || staffIntakeOpen || classIntakeOpen || Boolean(positionDraft),
       reconcile: pending ? () => void reconcile(pending) : undefined,
     });
   }, [dirty, pending, studentIntakeOpen, staffIntakeOpen, classIntakeOpen, onStatusChange]);
@@ -605,7 +567,7 @@ export function RosterWorkspace({
     }
   };
   const refresh = async (requestGeneration = generation.current) => {
-    const [nextYears, nextPositions] = await Promise.all([
+    const [nextYears, nextPositions, nextCatalog] = await Promise.all([
       read<SchoolYear[]>(
         `/api/app/schools/${schoolId}/roster/school-years`,
         requestGeneration,
@@ -614,9 +576,14 @@ export function RosterWorkspace({
         `/api/app/schools/${schoolId}/roster/positions`,
         requestGeneration,
       ),
+      section === "positions" || section === "all" ? read<CapabilityCatalog>(
+        `/api/app/schools/${schoolId}/roster/position-capabilities`,
+        requestGeneration,
+      ) : Promise.resolve(undefined),
     ]);
     if (!nextYears || !valid(schoolId, requestGeneration)) return;
     setYears(nextYears);
+    if (nextCatalog) setPositionCatalog(nextCatalog);
     if (section !== "parents") setPositions((nextPositions ?? []).filter((item): item is Position => Boolean(item && Array.isArray(item.capabilities) && typeof item.id === 'string')));
     const selected = nextYears.some((item) => item.id === selectedYear.current)
       ? selectedYear.current
@@ -771,8 +738,7 @@ export function RosterWorkspace({
       personalIdentifier: "",
       photo: null,
     });
-    setPositionInput({ code: "", name: "", capabilities: [], reason: "" });
-    setPositionAction(undefined);
+    setPositionDraft(undefined);
     setEditingStaffId("");
     setAssignment({
       staffId: "",
@@ -865,7 +831,6 @@ export function RosterWorkspace({
       Object.keys(renameErrors).length ||
        Object.keys(studentErrors).length ||
        Object.keys(staffErrors).length ||
-       Object.keys(positionErrors).length ||
        Object.keys(assignmentErrors).length
     )
       summary.current?.focus();
@@ -1158,33 +1123,18 @@ export function RosterWorkspace({
       return false;
     }
   };
-  const savePosition = async (event: FormEvent) => {
-    event.preventDefault();
-    if (
-      await post(
-        `/api/app/schools/${schoolId}/roster/positions`,
-        positionInput,
-        "position",
-      )
-    )
-      setPositionInput({ code: "", name: "", capabilities: [], reason: "" });
-  };
-  const submitPositionAction = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!positionAction) return;
-    const { position, kind, name, capability, reason, confirmation } = positionAction;
-    if (kind === "inactivate" && confirmation !== "NGỪNG HIỆU LỰC") return;
-    const path =
-      kind === "rename"
-        ? `/api/app/schools/${schoolId}/roster/positions/${position.id}/name`
-        : kind === "inactivate"
-          ? `/api/app/schools/${schoolId}/roster/positions/${position.id}/inactivate`
-          : kind === "grant"
-            ? `/api/app/schools/${schoolId}/roster/positions/${position.id}/grants`
-            : `/api/app/schools/${schoolId}/roster/positions/${position.id}/grants/${capability}/revoke`;
-    const body =
-      kind === "rename" ? { name, reason } : kind === "grant" ? { capability, reason } : { reason };
-    if (await post(path, body, "position")) setPositionAction(undefined);
+  const submitPositionDraft = async () => {
+    if (!positionDraft) return;
+    const { mode, position, code, name, capabilities, reason, confirmation } = positionDraft;
+    const base = `/api/app/schools/${schoolId}/roster/positions`;
+    if (mode === "inactivate" && (!position || confirmation.trim() !== position.name)) return;
+    const [path, body] =
+      mode === "create"
+        ? [base, { code, name, capabilities, reason }]
+        : mode === "edit"
+          ? [`${base}/${position!.id}`, { name, capabilities, reason }]
+          : [`${base}/${position!.id}/inactivate`, { reason }];
+    if (await post(path, body, "position")) setPositionDraft(undefined);
   };
   const saveAssignment = async (event: FormEvent) => {
     event.preventDefault();
@@ -1678,30 +1628,35 @@ export function RosterWorkspace({
 
   return (
     <section className={`roster-workspace roster-workspace-${section}`} aria-labelledby="roster-title">
-      <h2 id="roster-title">{({ all: "Danh bộ", students: "Học sinh", parents: "Phụ huynh", staff: "Nhân viên", classes: "Lớp học", years: "Năm học", positions: "Chức danh & capability", transitions: "Chuyển danh bộ" } as const)[section]}</h2>
+      <h2 id="roster-title">{({ all: "Danh bộ", students: "Học sinh", parents: "Phụ huynh", staff: "Nhân viên", classes: "Lớp học", years: "Năm học", positions: "Chức danh", transitions: "Chuyển danh bộ" } as const)[section]}</h2>
       <p>
         {selected ? `Năm học: ${selected.name}` : "Chưa có năm học"}
       </p>
-      {message && (
+      {message && !positionDraft && (
         <div ref={summary} tabIndex={-1} role="alert">
           {message}
         </div>
       )}
-      {(section === "all" || section === "positions") && <>
-      <form className="roster-form" onSubmit={savePosition}>
-        <h3>Danh mục chức danh</h3>
-        <label>Mã chức danh<input value={positionInput.code} onChange={(event) => setPositionInput({ ...positionInput, code: event.target.value })} {...field(positionErrors, "code", "position-")} /></label>
-        {positionErrors.code && <small id="position-code-error">{positionErrors.code}</small>}
-        <label>Tên chức danh<input value={positionInput.name} onChange={(event) => setPositionInput({ ...positionInput, name: event.target.value })} {...field(positionErrors, "name", "position-")} /></label>
-        {positionErrors.name && <small id="position-name-error">{positionErrors.name}</small>}
-        <fieldset><legend>Capability hệ thống</legend>{Object.entries(capabilityLabel).map(([capability, label]) => <label key={capability}><input type="checkbox" checked={positionInput.capabilities.includes(capability)} onChange={() => setPositionInput({ ...positionInput, capabilities: positionInput.capabilities.includes(capability) ? positionInput.capabilities.filter((item) => item !== capability) : [...positionInput.capabilities, capability] })} />{label}</label>)}</fieldset>
-        <label>Lý do tạo chức danh<input value={positionInput.reason} onChange={(event) => setPositionInput({ ...positionInput, reason: event.target.value })} {...field(positionErrors, "reason", "position-")} /></label>
-        {positionErrors.reason && <small id="position-reason-error">{positionErrors.reason}</small>}
-        <button disabled={disabled}>Tạo chức danh</button>
-      </form>
-      <div className="table-scroll"><table><caption>Chức danh của {schoolName}</caption><thead><tr><th>Chức danh</th><th>Capability</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{positions.length ? positions.map((item) => <tr key={item.id}><th scope="row">{item.name} ({item.code})</th><td>{item.capabilities.map((capability) => <span key={capability}>{capabilityLabel[capability] ?? capability} <button type="button" disabled={disabled} aria-label={`Thu hồi ${capabilityLabel[capability] ?? capability} của ${item.name}`} onClick={() => setPositionAction({ position: item, kind: "revoke", name: item.name, capability, reason: "", confirmation: "" })}>Thu hồi</button> </span>) || 'Chưa cấp capability'}</td><td>{item.status === 'ACTIVE' ? 'Đang hiệu lực' : 'Không hiệu lực'}</td><td><button type="button" disabled={disabled} onClick={() => setPositionAction({ position: item, kind: "rename", name: item.name, capability: "", reason: "", confirmation: "" })}>Đổi tên {item.name}</button>{item.status === 'ACTIVE' && <><button type="button" disabled={disabled} onClick={() => setPositionAction({ position: item, kind: "grant", name: item.name, capability: "", reason: "", confirmation: "" })}>Cấp capability cho {item.name}</button><button type="button" disabled={disabled} onClick={() => setPositionAction({ position: item, kind: "inactivate", name: item.name, capability: "", reason: "", confirmation: "" })}>Ngừng hiệu lực {item.name}</button></>}</td></tr>) : <tr><td colSpan={4}>Chưa có chức danh.</td></tr>}</tbody></table></div>
-      {positionAction && <div role="dialog" aria-modal="true" aria-labelledby="position-action-title"><form className="roster-form" onSubmit={submitPositionAction}><h3 id="position-action-title">{positionAction.kind === "rename" ? `Đổi tên ${positionAction.position.name}` : positionAction.kind === "inactivate" ? `Ngừng hiệu lực ${positionAction.position.name}` : positionAction.kind === "grant" ? `Cấp capability cho ${positionAction.position.name}` : `Thu hồi capability của ${positionAction.position.name}`}</h3>{positionAction.kind === "rename" && <label>Tên chức danh mới<input value={positionAction.name} onChange={(event) => setPositionAction({ ...positionAction, name: event.target.value })} {...field(positionErrors, "name", "position-")} /></label>}{positionAction.kind === "grant" && <label>Capability cần cấp<select value={positionAction.capability} onChange={(event) => setPositionAction({ ...positionAction, capability: event.target.value })}><option value="">Chọn capability</option>{Object.entries(capabilityLabel).filter(([capability]) => !positionAction.position.capabilities.includes(capability)).map(([capability, label]) => <option key={capability} value={capability}>{label}</option>)}</select></label>}<label>{positionAction.kind === "rename" ? "Lý do đổi tên chức danh" : positionAction.kind === "inactivate" ? "Lý do ngừng hiệu lực chức danh" : positionAction.kind === "grant" ? "Lý do cấp capability" : "Lý do thu hồi capability"}<input value={positionAction.reason} onChange={(event) => setPositionAction({ ...positionAction, reason: event.target.value })} {...field(positionErrors, "reason", "position-")} /></label>{positionErrors.reason && <small id="position-reason-error">{positionErrors.reason}</small>}{positionAction.kind === "inactivate" && <label>Nhập NGỪNG HIỆU LỰC để xác nhận<input value={positionAction.confirmation} onChange={(event) => setPositionAction({ ...positionAction, confirmation: event.target.value })} /></label>}<button type="button" onClick={() => setPositionAction(undefined)}>Hủy</button><button disabled={disabled || (positionAction.kind === "inactivate" && positionAction.confirmation !== "NGỪNG HIỆU LỰC")}>{positionAction.kind === "rename" ? "Lưu tên chức danh" : positionAction.kind === "inactivate" ? "Xác nhận ngừng hiệu lực" : positionAction.kind === "grant" ? "Cấp capability" : "Xác nhận thu hồi capability"}</button></form></div>}
-      </>}
+      {(section === "all" || section === "positions") && (
+        <PositionsPanel
+          schoolName={schoolName}
+          positions={positions}
+          catalog={positionCatalog}
+          disabled={disabled}
+          pending={pending?.kind === "position"}
+          draft={positionDraft}
+          errors={positionErrors}
+          message={positionDraft ? message : ""}
+          onDraftChange={(next) => {
+            if (!next || next.mode !== positionDraft?.mode || next.position?.id !== positionDraft?.position?.id) {
+              setPositionErrors({});
+              setMessage("");
+            }
+            setPositionDraft(next);
+          }}
+          onSubmit={() => void submitPositionDraft()}
+        />
+      )}
       {(section === "all" || section === "staff") && <>
        <form className="roster-list-filters" aria-label="Lọc nhân viên" onSubmit={(event) => { event.preventDefault(); void reloadStaff(1); }}>
          <label className="roster-filter-search">Tìm kiếm<input type="search" value={staffQuery.q} onChange={(event) => setStaffQuery({ ...staffQuery, q: event.target.value })} placeholder="Tên, mã, email hoặc số điện thoại" /></label>
@@ -1950,7 +1905,7 @@ export function RosterWorkspace({
               Năm học đã đóng. Danh bộ và lịch sử chỉ có thể xem.
             </p>
           )}
-          <fieldset className={section === "students" || section === "parents" || section === "classes" || section === "years" || section === "transitions" ? "student-roster-surface" : undefined} disabled={(readOnly && section !== "transitions") || disabled}>
+          <fieldset className={section === "students" || section === "parents" || section === "classes" || section === "years" || section === "transitions" || section === "positions" ? "student-roster-surface" : undefined} disabled={(readOnly && section !== "transitions") || disabled}>
             {section === "all" && <>
             <form className="roster-form" onSubmit={saveAssignment}>
               <h3>

@@ -1368,6 +1368,41 @@ tbody tr:last-child td {
 }
 .student-list-toolbar h3 { margin: 0; }
 .student-list-toolbar .primary-action { flex: 0 0 auto; }
+/* Chức danh: table-first list with dialog editing and grouped capability picker. */
+.position-list-table table { min-width: 960px; }
+.position-code { color: #5f746e; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.position-muted { color: #5f746e; font-size: 13px; }
+.position-capabilities { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.position-capabilities li {
+  border-radius: 999px;
+  background: #eef6f1;
+  color: #1d5a3c;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.position-capabilities li.position-capability-system { background: #e2f0f8; color: #145a86; }
+.position-dialog { width: min(760px, 100%); }
+.position-dialog .roster-form > p { margin: 0; }
+.school-context-workspace .position-dialog .roster-form > fieldset label,
+.school-context-workspace .position-dialog .roster-form > label {
+  display: grid;
+  align-items: initial;
+  color: #35524a;
+  font-weight: 700;
+}
+.position-readonly { display: grid; gap: 7px; margin: 0; color: #35524a; font-size: 13px; font-weight: 700; }
+.position-readonly b { min-height: 42px; display: flex; align-items: center; color: #18332d; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.position-readonly span.position-muted { font-weight: 500; }
+.position-capability-picker { display: grid; gap: 10px; }
+.position-capability-picker h4 { margin: 0; }
+.position-capability-picker p { margin: 0; }
+.school-context-workspace .position-capability-picker fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+.school-context-workspace .student-intake-actions > button.position-danger { border-color: #ad3026; background: #ad3026; color: #fff; }
+.school-context-workspace .student-intake-actions > button:disabled { border-color: #dce4e0; background: #e8ecea; color: #66746f; }
+@media (max-width: 767px) {
+  .school-context-workspace .position-capability-picker fieldset { grid-template-columns: 1fr; }
+}
 /* Roster transition: dedicated preview → confirm → reconcile page. */
 .school-context-workspace .roster-transition-back {
   justify-self: start;

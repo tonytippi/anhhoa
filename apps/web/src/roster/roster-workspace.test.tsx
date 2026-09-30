@@ -23,6 +23,61 @@ const fetcher = (overrides: Record<string, unknown> = {}) => vi.fn((url: string,
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("RosterWorkspace positions page", () => {
+  const catalog = {
+    groups: [
+      { id: "roster-settings", label: "Danh bộ & cấu hình", capabilities: [{ code: "ROSTER_MANAGE", label: "Quản lý danh bộ" }, { code: "SETTINGS_MANAGE", label: "Cấu hình trường" }] },
+      { id: "payroll", label: "Lương", capabilities: [{ code: "PAYROLL_PREPARE", label: "Chuẩn bị bảng lương" }] },
+    ],
+    system: [{ code: "FINANCE_MANAGE", label: "Tài chính" }],
+  };
+  const accountant = { id: "position-a", code: "KE_TOAN", name: "Kế toán", status: "ACTIVE", staffCount: 2, capabilities: ["FINANCE_MANAGE", "PAYROLL_PREPARE"] };
+  const positionsFetch = () => vi.fn((url: string, options?: RequestInit) => {
+    if (options?.method === "POST") return Promise.resolve(response({ id: "operation", status: "COMPLETED" }));
+    if (url.endsWith("/position-capabilities")) return Promise.resolve(response(catalog));
+    if (url.endsWith("/positions")) return Promise.resolve(response([accountant]));
+    if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
+    if (url.includes("/staff?")) return Promise.resolve(pagedResponse({ data: [], meta: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 } }));
+    return Promise.resolve(response([]));
+  });
+
+  it("shows Vietnamese capability labels, staff count and no technical codes", async () => {
+    vi.stubGlobal("fetch", positionsFetch());
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="positions" />);
+    const list = await screen.findByRole("list", { name: "Khả năng thao tác của Kế toán" });
+    expect(list.textContent).toBe("Chuẩn bị bảng lươngTài chính");
+    expect(screen.getByRole("row", { name: /Kế toán/ }).textContent).toContain("Đang áp dụng");
+    expect(document.body.textContent).not.toMatch(/FINANCE_MANAGE|PAYROLL_PREPARE|[Cc]apability/);
+  });
+
+  it("creates a position from the grouped dialog and edits it without touching system grants", async () => {
+    const fetch = positionsFetch();
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="positions" />);
+    await screen.findByRole("list", { name: "Khả năng thao tác của Kế toán" });
+    fireEvent.click(screen.getByRole("button", { name: "Thêm chức danh" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm chức danh" });
+    fireEvent.change(screen.getByLabelText("Tên chức danh"), { target: { value: "Bếp" } });
+    fireEvent.change(screen.getByLabelText("Mã chức danh"), { target: { value: "bep" } });
+    fireEvent.click(screen.getByLabelText("Chuẩn bị bảng lương"));
+    fireEvent.change(screen.getByLabelText("Lý do tạo chức danh"), { target: { value: "Mở bếp" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tạo chức danh" }));
+    await waitFor(() => expect(dialog.isConnected).toBe(false));
+    const created = fetch.mock.calls.find(([url, options]) => String(url).endsWith("/roster/positions") && options?.method === "POST");
+    expect(JSON.parse(String(created?.[1]?.body))).toEqual({ code: "BEP", name: "Bếp", capabilities: ["PAYROLL_PREPARE"], reason: "Mở bếp" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tùy chọn cho Kế toán" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Sửa chức danh" }));
+    expect(screen.getByText(/Quyền hệ thống được giữ nguyên: Tài chính/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Cấu hình trường"));
+    fireEvent.change(screen.getByLabelText("Lý do thay đổi"), { target: { value: "Bổ sung" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/roster/positions/position-a"))).toBe(true));
+    const edited = fetch.mock.calls.find(([url]) => String(url).endsWith("/roster/positions/position-a"));
+    expect(JSON.parse(String(edited?.[1]?.body))).toEqual({ name: "Kế toán", capabilities: ["PAYROLL_PREPARE", "SETTINGS_MANAGE"], reason: "Bổ sung" });
+  });
+});
+
 describe("RosterWorkspace transition page", () => {
   it("walks through preview, named confirmation and the reconciled result", async () => {
     const secondClass = { ...classroom, id: "class-b", name: "Lớp Chồi" };

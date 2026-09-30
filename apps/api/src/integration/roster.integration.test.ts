@@ -104,6 +104,27 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     await expect(roster.revokePositionCapability(current.admin.id, current.current.id, manager.id, 'ROSTER_MANAGE', uuid(), uuid(), { reason: 'Bàn giao' })).resolves.toMatchObject({ status: 'COMPLETED' });
   });
 
+  it('updates a position name and managed capabilities atomically while keeping system grants', async () => {
+    const current = await graph();
+    const created = await roster.createPosition(current.admin.id, current.current.id, uuid(), uuid(), { code: 'KE_TOAN_TEST', name: 'Kế toán thử', capabilities: ['SCHOOL_CONTEXT_READ', 'PAYROLL_PREPARE'], reason: 'Tạo' });
+    const positionId = (created.outcome as { id: string }).id;
+    await prisma.positionCapabilityGrant.create({ data: { schoolId: current.current.id, positionId, capability: 'FINANCE_MANAGE' } });
+    await prisma.staffProfile.create({ data: { schoolId: current.current.id, fullName: 'Kế toán', email: 'ketoan@example.com', phone: '0900000009', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), gender: 'Nữ', address: 'Hà Nội', primaryPositionId: positionId } });
+    const catalog = await roster.positionCapabilities(current.admin.id, current.current.id);
+    expect(catalog.groups.flatMap((group) => group.capabilities.map((item) => item.code))).not.toContain('FINANCE_MANAGE');
+    expect(catalog.system).toEqual([{ code: 'FINANCE_MANAGE', label: 'Tài chính' }]);
+    const updated = await roster.updatePosition(current.admin.id, current.current.id, positionId, uuid(), uuid(), { name: 'Kế toán trưởng', capabilities: ['PAYROLL_PREPARE', 'PAYROLL_REPORT_READ'], reason: 'Đổi phân công' });
+    expect(updated.outcome).toMatchObject({ name: 'Kế toán trưởng', addedCapabilities: ['PAYROLL_REPORT_READ'], removedCapabilities: ['SCHOOL_CONTEXT_READ'] });
+    const listed = (await roster.positions(current.admin.id, current.current.id)).find((item) => item.id === positionId);
+    expect(listed).toMatchObject({ name: 'Kế toán trưởng', staffCount: 1 });
+    expect([...listed!.capabilities].sort()).toEqual(['FINANCE_MANAGE', 'PAYROLL_PREPARE', 'PAYROLL_REPORT_READ']);
+    await expect(roster.updatePosition(current.admin.id, current.current.id, positionId, uuid(), uuid(), { name: 'Kế toán trưởng', capabilities: ['FINANCE_MANAGE'], reason: 'Sai' })).rejects.toMatchObject({ status: 400 });
+    const other = (await roster.createPosition(current.admin.id, current.current.id, uuid(), uuid(), { code: 'BEP_TEST', name: 'Bếp thử', capabilities: [], reason: 'Tạo' })).outcome as { id: string };
+    await expect(roster.updatePosition(current.admin.id, current.current.id, other.id, uuid(), uuid(), { name: 'Kế toán trưởng', capabilities: [], reason: 'Trùng' })).rejects.toMatchObject({ status: 409, response: { code: 'POSITION_EXISTS', fieldErrors: { name: expect.any(String) } } });
+    const manager = await prisma.schoolPosition.findFirstOrThrow({ where: { schoolId: current.current.id, grants: { some: { capability: 'ROSTER_MANAGE' } } } });
+    await expect(roster.updatePosition(current.admin.id, current.current.id, manager.id, uuid(), uuid(), { name: manager.name, capabilities: ['SCHOOL_CONTEXT_READ'], reason: 'Sai' })).rejects.toMatchObject({ status: 409, response: { code: 'LAST_ROSTER_MANAGER' } });
+  });
+
   it('generates immutable School-scoped codes, persists snapshots, and replays an identical student command', async () => {
     const a = await graph('PE'); const b = await graph('AB');
     const key = uuid(); const first = await roster.createStudent(a.admin.id, a.current.id, key, uuid(), { fullName: 'Bé An', dateOfBirth: '2022-01-01', schoolYearId: a.year.id, classId: a.classroom.id, intakeStatus: 'PLACED', effectiveFrom: '2026-01-01' });

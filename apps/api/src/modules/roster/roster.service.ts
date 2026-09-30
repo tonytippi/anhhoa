@@ -48,6 +48,8 @@ const route = {
   assignmentEnd:
     "POST /api/app/schools/:schoolId/roster/staff-assignments/:assignmentId/end",
   position: "POST /api/app/schools/:schoolId/roster/positions",
+  positionUpdate:
+    "POST /api/app/schools/:schoolId/roster/positions/:positionId",
   positionRename:
     "POST /api/app/schools/:schoolId/roster/positions/:positionId/name",
   positionInactive:
@@ -59,6 +61,59 @@ const route = {
   transition: "POST /api/app/schools/:schoolId/roster/transitions",
   closeYear: "POST /api/app/schools/:schoolId/roster/close-year",
 };
+
+// School-manageable capabilities, grouped for the Chức danh workspace. FINANCE_MANAGE
+// is intentionally absent: it stays a system grant that this page shows but never edits.
+const positionCapabilityGroups = [
+  {
+    id: "roster-settings",
+    label: "Danh bộ & cấu hình",
+    capabilities: [
+      { code: "SCHOOL_CONTEXT_READ", label: "Xem tổng quan vận hành" },
+      { code: "ACCESS_MANAGE", label: "Quản lý truy cập" },
+      { code: "ROSTER_MANAGE", label: "Quản lý danh bộ" },
+      { code: "SETTINGS_MANAGE", label: "Cấu hình trường" },
+    ],
+  },
+  {
+    id: "classroom",
+    label: "Vận hành lớp",
+    capabilities: [
+      { code: "CLASS_LEAVE_READ", label: "Xem đơn nghỉ của lớp" },
+      { code: "LEAVE_REQUEST_DECIDE", label: "Duyệt đơn nghỉ" },
+      { code: "ATTENDANCE_WRITE", label: "Điểm danh" },
+      { code: "DAILY_JOURNAL_WRITE", label: "Nhận xét trong ngày" },
+      { code: "HANDOVER_WRITE", label: "Bàn giao" },
+      { code: "OPERATIONAL_QUEUE_READ", label: "Xem việc cần xử lý" },
+    ],
+  },
+  {
+    id: "workforce",
+    label: "Nhân sự & chấm công",
+    capabilities: [
+      { code: "WORKFORCE_MANAGE", label: "Quản lý nhân sự" },
+      { code: "TIMEKEEPING_IMPORT", label: "Nhập chấm công" },
+      { code: "TIMEKEEPING_REVIEW", label: "Duyệt chấm công" },
+      { code: "LATE_CARE_MANAGE", label: "Trông muộn" },
+    ],
+  },
+  {
+    id: "payroll",
+    label: "Lương",
+    capabilities: [
+      { code: "PAYROLL_PREPARE", label: "Chuẩn bị bảng lương" },
+      { code: "PAYROLL_RECONCILE", label: "Đối soát lương" },
+      { code: "PAYROLL_APPROVE", label: "Duyệt lương" },
+      { code: "PAYROLL_REOPEN", label: "Mở lại bảng lương" },
+      { code: "PAYROLL_PAYOUT_CONFIRM", label: "Xác nhận chi lương" },
+      { code: "PAYROLL_REPORT_READ", label: "Xem báo cáo lương" },
+    ],
+  },
+] as const;
+const systemCapabilities = [{ code: "FINANCE_MANAGE", label: "Tài chính" }] as const;
+const positionCapabilityCatalog = new Set<string>(
+  positionCapabilityGroups.flatMap((group) => group.capabilities.map((item) => item.code)),
+);
 
 @Injectable()
 export class RosterService {
@@ -503,7 +558,12 @@ export class RosterService {
     return (
       await this.prisma.schoolPosition.findMany({
         where: { schoolId },
-        include: { grants: true },
+        include: {
+          grants: true,
+          _count: {
+            select: { staffProfiles: { where: { employmentStatus: "ACTIVE" } } },
+          },
+        },
         orderBy: { name: "asc" },
       })
     ).map((position) => ({
@@ -511,8 +571,110 @@ export class RosterService {
       code: position.code,
       name: position.name,
       status: position.status,
+      staffCount: position._count.staffProfiles,
       capabilities: position.grants.map((grant) => grant.capability),
     }));
+  }
+  async positionCapabilities(identityId: string, schoolId: string) {
+    await this.actor(identityId, schoolId);
+    return { groups: positionCapabilityGroups, system: systemCapabilities };
+  }
+  async updatePosition(
+    identityId: string,
+    schoolId: string,
+    positionId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    const actor = await this.actor(identityId, schoolId);
+    const name = this.name(body?.name);
+    const capabilities: string[] = Array.isArray(body?.capabilities)
+      ? [
+          ...new Set(
+            (body.capabilities as unknown[]).filter(
+              (value): value is string => typeof value === "string",
+            ),
+          ),
+        ].sort()
+      : [];
+    if (capabilities.some((capability) => !positionCapabilityCatalog.has(capability)))
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: {
+          capabilities: "Khả năng thao tác phải thuộc danh mục của trường.",
+        },
+      });
+    const reason = this.reason(body?.reason);
+    return this.positionMutation(
+      actor,
+      identityId,
+      schoolId,
+      positionId,
+      route.positionUpdate,
+      key,
+      operationId,
+      { positionId, name, capabilities, reason },
+      async (tx, position, operation) => {
+        if (position.status !== "ACTIVE")
+          throw new ConflictException({
+            code: "POSITION_NOT_ACTIVE",
+            message: "Chức danh không còn hiệu lực.",
+          });
+        const current = (
+          await tx.positionCapabilityGrant.findMany({
+            where: { schoolId, positionId },
+            select: { capability: true },
+          })
+        )
+          .map((grant: { capability: string }) => grant.capability)
+          .filter((capability: string) => positionCapabilityCatalog.has(capability));
+        const added = capabilities.filter((capability) => !current.includes(capability));
+        const removed = current.filter((capability: string) => !capabilities.includes(capability));
+        if (removed.includes("ROSTER_MANAGE"))
+          await this.keepRosterManager(tx, schoolId, positionId);
+        const updated =
+          name === position.name
+            ? position
+            : await tx.schoolPosition.update({
+                where: { id: position.id },
+                data: { name },
+              });
+        if (removed.length)
+          await tx.positionCapabilityGrant.deleteMany({
+            where: { schoolId, positionId, capability: { in: removed } },
+          });
+        if (added.length)
+          await tx.positionCapabilityGrant.createMany({
+            data: added.map((capability) => ({ schoolId, positionId, capability })),
+          });
+        await this.audit(
+          tx,
+          schoolId,
+          identityId,
+          actor.membershipId,
+          "SCHOOL_POSITION_UPDATED",
+          operation,
+          {
+            positionId,
+            reason,
+            previousName: position.name,
+            name,
+            addedCapabilities: added,
+            removedCapabilities: removed,
+          },
+        );
+        return {
+          id: updated.id,
+          code: updated.code,
+          name: updated.name,
+          status: updated.status,
+          addedCapabilities: added,
+          removedCapabilities: removed,
+        };
+      },
+    );
   }
   async operation(identityId: string, schoolId: string, operationId: string) {
     const actor = await this.authorization.resolve(identityId, schoolId, "app");
@@ -2191,33 +2353,12 @@ export class RosterService {
   }
   private capability(value: unknown) {
     const capability = typeof value === "string" ? value : "";
-    const catalog = new Set([
-      "SCHOOL_CONTEXT_READ",
-      "ACCESS_MANAGE",
-      "ROSTER_MANAGE",
-      "SETTINGS_MANAGE",
-      "CLASS_LEAVE_READ",
-      "LEAVE_REQUEST_DECIDE",
-      "ATTENDANCE_WRITE",
-      "DAILY_JOURNAL_WRITE",
-       "HANDOVER_WRITE",
-       "OPERATIONAL_QUEUE_READ",
-      "WORKFORCE_MANAGE",
-      "TIMEKEEPING_IMPORT",
-      "TIMEKEEPING_REVIEW",
-      "LATE_CARE_MANAGE",
-      "PAYROLL_PREPARE",
-      "PAYROLL_RECONCILE",
-      "PAYROLL_APPROVE",
-      "PAYROLL_REOPEN",
-      "PAYROLL_PAYOUT_CONFIRM",
-      "PAYROLL_REPORT_READ",
-    ]);
+    const catalog = positionCapabilityCatalog;
     if (!catalog.has(capability))
       throw new BadRequestException({
         code: "VALIDATION_ERROR",
         message: "Dữ liệu không hợp lệ.",
-        fieldErrors: { capability: "Capability phải thuộc danh mục hệ thống." },
+        fieldErrors: { capability: "Khả năng thao tác phải thuộc danh mục của trường." },
       });
     return capability;
   }
@@ -2233,28 +2374,7 @@ export class RosterService {
           ),
         ]
       : [];
-    const catalog = new Set([
-      "SCHOOL_CONTEXT_READ",
-      "ACCESS_MANAGE",
-      "ROSTER_MANAGE",
-      "SETTINGS_MANAGE",
-      "CLASS_LEAVE_READ",
-      "LEAVE_REQUEST_DECIDE",
-      "ATTENDANCE_WRITE",
-      "DAILY_JOURNAL_WRITE",
-       "HANDOVER_WRITE",
-       "OPERATIONAL_QUEUE_READ",
-      "WORKFORCE_MANAGE",
-      "TIMEKEEPING_IMPORT",
-      "TIMEKEEPING_REVIEW",
-      "LATE_CARE_MANAGE",
-      "PAYROLL_PREPARE",
-      "PAYROLL_RECONCILE",
-      "PAYROLL_APPROVE",
-      "PAYROLL_REOPEN",
-      "PAYROLL_PAYOUT_CONFIRM",
-      "PAYROLL_REPORT_READ",
-    ]);
+    const catalog = positionCapabilityCatalog;
     if (
       !/^[A-Z][A-Z0-9_]{1,49}$/.test(code) ||
       capabilities.some((capability) => !catalog.has(capability))
@@ -2264,7 +2384,7 @@ export class RosterService {
         message: "Dữ liệu không hợp lệ.",
         fieldErrors: {
           code: "Mã chức danh không hợp lệ.",
-          capabilities: "Capability phải thuộc danh mục hệ thống.",
+          capabilities: "Khả năng thao tác phải thuộc danh mục của trường.",
         },
       });
     return {
@@ -2783,10 +2903,18 @@ export class RosterService {
         });
       if (command === route.student && this.personalIdentifierConflict(error))
         throw new ConflictException({ code: "PERSONAL_IDENTIFIER_EXISTS", message: "Mã định danh cá nhân đã được dùng.", fieldErrors: { personalIdentifier: "Mã định danh cá nhân đã được dùng." } });
+      if ((command === route.position || command === route.positionUpdate || command === route.positionRename) && this.positionConflict(error)) {
+        const field = JSON.stringify((error as { meta?: unknown }).meta).includes("code") ? "code" : "name";
+        const message = field === "code" ? "Mã chức danh đã được dùng trong trường này." : "Tên chức danh đã được dùng trong trường này.";
+        throw new ConflictException({ code: "POSITION_EXISTS", message, fieldErrors: { [field]: message } });
+      }
       if ((command === route.staff || command === route.staffUpdate) && this.staffCodeConflict(error))
         throw new ConflictException({ code: "STAFF_CODE_EXISTS", message: "Mã nhân viên đã được dùng trong trường này.", fieldErrors: { staffCode: "Mã nhân viên đã được dùng trong trường này." } });
       throw error;
     }
+  }
+  private positionConflict(error: unknown) {
+    return Boolean(error && typeof error === "object" && (error as { code?: string; meta?: unknown }).code === "P2002" && JSON.stringify((error as { meta?: unknown }).meta).includes("SchoolPosition"));
   }
   private schoolYearConflict(error: unknown) {
     return Boolean(
