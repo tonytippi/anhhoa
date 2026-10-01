@@ -2149,6 +2149,9 @@ tbody tr:last-child td {
 .finance-report-tabs [role="tab"][aria-selected="true"] { border-bottom-color: #2f7d4f; color: #18332d; }
 .finance-report-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 12px 0; }
 .finance-report-filters label { display: grid; gap: 4px; color: #5f746e; font-size: 13px; font-weight: 700; }
+.finance-report-filters input { min-height: 40px; border: 1px solid #dde5e1; border-radius: 9px; background: #fff; padding: 8px 10px; color: #18332d; font-weight: 600; }
+.finance-report-filters button { min-height: 40px; border: 1px solid #dde5e1; border-radius: 10px; background: #fff; padding: 8px 14px; font-weight: 700; }
+.finance-report .finance-money { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .finance-report-asof { margin: 0; color: #5f746e; font-size: 13px; }
 .finance-report-asof b { color: #18332d; }
 .finance-report-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }

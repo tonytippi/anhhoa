@@ -42,12 +42,13 @@ function Legend({ items }: { items: Array<[string, string]> }) {
 }
 
 function TableView({ head, rows }: { head: string[]; rows: string[][] }) {
-  return <details className="finance-chart-table"><summary>Xem dạng bảng</summary><table><thead><tr>{head.map((item) => <th key={item}>{item}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></details>;
+  return <details className="finance-chart-table"><summary>Xem dạng bảng</summary><table><thead><tr>{head.map((item, index) => <th key={index}>{item}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></details>;
 }
 
-export function ColumnChart({ series, rows, labelLast = true }: { series: string[]; rows: Array<{ label: string; values: bigint[] }>; labelLast?: boolean }) {
+// A chart's viewBox follows its card width so text keeps the same size in a half and a full-width card.
+export function ColumnChart({ series, rows, labelLast = true, wide = false }: { series: string[]; rows: Array<{ label: string; values: bigint[] }>; labelLast?: boolean; wide?: boolean }) {
   const { bind, view } = useTip();
-  const W = 560, H = 250, left = 52, right = 12, top = 26, bottom = 30, plotH = H - top - bottom;
+  const W = wide ? 1160 : 560, H = 250, left = 52, right = 12, top = 26, bottom = 30, plotH = H - top - bottom;
   const max = niceMax(Math.max(0, ...rows.flatMap((row) => row.values.map(Number))));
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((step) => step * max);
   const band = (W - left - right) / Math.max(rows.length, 1), bar = 22, gap = 2;
@@ -66,9 +67,9 @@ export function ColumnChart({ series, rows, labelLast = true }: { series: string
   </>;
 }
 
-export function StackedBars({ series, rows }: { series: [string, string]; rows: Array<{ label: string; values: [bigint, bigint]; end: string }> }) {
+export function StackedBars({ series, rows, wide = true }: { series: [string, string]; rows: Array<{ label: string; values: [bigint, bigint]; end: string }>; wide?: boolean }) {
   const { bind, view } = useTip();
-  const W = 1000, rowH = 34, bar = 22, left = 120, right = 70, H = rows.length * rowH + 28, plotW = W - left - right;
+  const W = wide ? 1160 : 560, rowH = 34, bar = 22, left = 120, right = 70, H = rows.length * rowH + 28, plotW = W - left - right;
   const max = niceMax(Math.max(0, ...rows.map((row) => Number(row.values[0]) + Number(row.values[1]))));
   return <>
     <Legend items={series.map((item, index) => [item, seriesColors[index]!])} />
@@ -118,7 +119,7 @@ export function StatusBar({ rows }: { rows: Array<{ label: string; count: number
 // One series on an ordinal ramp: darker is older debt.
 export function AgingBars({ rows }: { rows: Array<{ label: string; amount: bigint; color: string }> }) {
   const { bind, view } = useTip();
-  const W = 1000, rowH = 36, bar = 22, left = 170, right = 150, H = rows.length * rowH + 28, plotW = W - left - right;
+  const W = 1160, rowH = 36, bar = 22, left = 170, right = 150, H = rows.length * rowH + 28, plotW = W - left - right;
   const max = niceMax(Math.max(0, ...rows.map((row) => Number(row.amount))));
   return <>
     <svg className="finance-chart" viewBox={`0 0 ${W} ${H}`} role="group">
