@@ -64,24 +64,26 @@ describe("FinanceWorkspace", () => {
     const catalogWithReceivables = {
       groups: [{ id: "group-a", name: "Học tập", status: "ACTIVE" as const }, { id: "group-b", name: "Hoạt động", status: "INACTIVE" as const }],
       receivables: [
-        { id: "receivable-a", groupId: "group-a", code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "1500000", taxCategory: "VAT_5" as const, channel: "SCHOOL" as const, status: "ACTIVE" as const, available: true },
+        { id: "receivable-a", groupId: "group-a", code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "1500000", refundUnitPrice: "0", taxCategory: "VAT_5" as const, channel: "SCHOOL" as const, status: "ACTIVE" as const, available: true },
+        { id: "receivable-c", groupId: "group-a", code: "TA", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", refundUnitPrice: "28000", taxCategory: "NOT_DECLARED" as const, channel: "PERSONAL" as const, status: "ACTIVE" as const, available: true },
         { id: "receivable-b", groupId: "missing-group", code: null, displayName: "Dã ngoại", unitLabel: "lần", defaultUnitPrice: "350000", status: "INACTIVE" as const, available: false },
       ],
     };
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(catalogWithReceivables))));
     render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
     const table = await screen.findByRole("table", { name: "Khoản thu theo trường" });
-    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["#", "Tên khoản thu", "Mã", "Giá / đơn vị (chưa VAT)", "Thuế", "Nhóm khoản thu", "Trạng thái", "Tùy chọn"]);
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["#", "Tên khoản thu", "Mã", "Giá / đơn vị (chưa VAT)", "Giá hoàn trả", "Thuế", "Nhóm khoản thu", "Trạng thái", "Tùy chọn"]);
     const rows = within(table).getAllByRole("row");
-    expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["1", "Học phí", "HP", "1.500.000 VND / tháng", "5%Tài khoản trường", "Học tập", "Đang áp dụng", "..."]);
-    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["2", "Dã ngoại", "-", "350.000 VND / lần", "Không kê khaiTài khoản cá nhân", "-", "Ngừng áp dụng", "..."]);
+    expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["1", "Học phí", "HP", "1.500.000 VND / tháng", "—", "5%Tài khoản trường", "Học tập", "Đang áp dụng", "..."]);
+    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["2", "Tiền ăn", "TA", "35.000 VND / ngày", "28.000 VND / ngày", "Không kê khaiTài khoản cá nhân", "Học tập", "Đang áp dụng", "..."]);
+    expect(within(rows[3]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["3", "Dã ngoại", "-", "350.000 VND / lần", "—", "Không kê khaiTài khoản cá nhân", "-", "Ngừng áp dụng", "..."]);
     expect(table.parentElement?.classList.contains("table-scroll")).toBe(true);
   });
   it("spans all receivable columns for an empty catalog", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(catalog))));
     render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
     const emptyCell = await screen.findByText("Chưa có khoản thu.");
-    expect(emptyCell.getAttribute("colspan")).toBe("8");
+    expect(emptyCell.getAttribute("colspan")).toBe("9");
   });
   it("opens a receivable action menu as an overlay without changing the table row layout", async () => {
     const catalogWithReceivable = { groups: [{ id: "group", name: "Học tập", status: "ACTIVE" as const }], receivables: [{ id: "receivable", groupId: "group", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE" as const, available: true }] };
@@ -153,8 +155,16 @@ describe("FinanceWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Tên khoản thu"), { target: { value: "Tiếng Anh" } });
     fireEvent.change(screen.getByLabelText("Đơn vị tính"), { target: { value: "tháng" } });
     fireEvent.change(screen.getByLabelText("Giá / đơn vị (chưa VAT)"), { target: { value: "600000" } });
+    expect((screen.getByLabelText("Giá hoàn trả / đơn vị (chưa VAT)") as HTMLInputElement).value).toBe("0");
+    fireEvent.change(screen.getByLabelText("Giá hoàn trả / đơn vị (chưa VAT)"), { target: { value: "700000" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables") && options?.method === "POST" && JSON.parse(String(options.body)).taxCategory === "VAT_10")).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables") && options?.method === "POST" && JSON.parse(String(options.body)).taxCategory === "VAT_10" && JSON.parse(String(options.body)).refundUnitPrice === "700000")).toBe(true));
+    fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Học phí" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Đổi giá hoàn trả" }));
+    const refund = await screen.findByRole("dialog", { name: /Đổi giá hoàn trả/ });
+    fireEvent.change(within(refund).getByLabelText("Giá hoàn trả / tháng (chưa VAT)"), { target: { value: "2000000" } });
+    fireEvent.click(within(refund).getByRole("button", { name: "Lưu giá hoàn trả" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables/receivable-a/refund-price") && (options as RequestInit).method === "PUT" && (options as RequestInit).body === JSON.stringify({ refundUnitPrice: "2000000" }))).toBe(true));
     fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Học phí" }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Đổi mức thuế suất" }));
     const dialog = await screen.findByRole("dialog", { name: /Đổi mức thuế suất/ });
@@ -166,7 +176,7 @@ describe("FinanceWorkspace", () => {
     const line = (id: string, name: string, amount: string, extra: Record<string, unknown> = {}) => ({ id, receivableId: `r-${id}`, receivableName: name, unitLabel: "tháng", unitPrice: amount, quantity: "1", amount, grossAmount: amount, discountAmount: "0", netAmount: amount, taxCategory: "NOT_DECLARED", vatRate: null, vatAmount: "0", promotionEvaluation: null, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null, ...extra });
     const base = { status: "DRAFT", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Mầm 4A" } };
     const schoolPart = { ...base, id: "invoice-school", channel: "SCHOOL", total: "1417500", lines: [line("a", "Học phí", "1417500", { grossAmount: "1500000", discountAmount: "150000", netAmount: "1350000", taxCategory: "VAT_5", vatRate: 5, vatAmount: "67500" })] };
-    const personalPart = { ...base, id: "invoice-personal", channel: "PERSONAL", total: "770000", lines: [line("b", "Tiền ăn", "770000")] };
+    const personalPart = { ...base, id: "invoice-personal", channel: "PERSONAL", total: "686000", lines: [line("b", "Tiền ăn", "686000", { unitLabel: "ngày", unitPrice: "35000", quantity: "22", grossAmount: "770000", netAmount: "686000", refundUnitPrice: "28000", deductionQuantity: "3", proposedDeductionQuantity: "3", deductionAmount: "84000", deductionReason: null, deductionSource: { month: "2026-09", days: ["2026-09-04", "2026-09-15", "2026-09-16"], proposedUnitPrice: "28000" } })] };
     const notice = { classDefaultBankAccountId: "bank-an", invoices: [schoolPart, personalPart] };
     const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-school", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Mầm 4A", status: "DRAFT", total: "1417500", channel: "SCHOOL" }, { id: "invoice-personal", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Mầm 4A", status: "DRAFT", total: "770000", channel: "PERSONAL" }] };
     const accounts = [{ id: "bank-school", kind: "SCHOOL", receivingBank: "Vietcombank", accountNumber: "0123456789", accountHolderName: "TRUONG MN" }, { id: "bank-binh", kind: "PERSONAL", receivingBank: "Techcombank", accountNumber: "1903", accountHolderName: "TRAN THI BINH" }, { id: "bank-an", kind: "PERSONAL", receivingBank: "ABBANK", accountNumber: "2088", accountHolderName: "NGUYEN VAN AN" }];
@@ -178,7 +188,18 @@ describe("FinanceWorkspace", () => {
     expect(screen.getByText("Phần 2 · Thu vào tài khoản cá nhân")).toBeTruthy();
     expect(within(first).getByText("67.500 (5%)")).toBeTruthy();
     expect(within(screen.getByRole("table", { name: "Dòng phần 2 do máy chủ tính" })).getByText("—")).toBeTruthy();
-    expect(screen.getByText(/Tổng cần thu do hệ thống xác nhận/).closest("p")!.textContent).toContain("2.187.500 VND");
+    expect(screen.getByText(/Tổng cần thu do hệ thống xác nhận/).closest("p")!.textContent).toContain("2.103.500 VND");
+    const meals = screen.getByRole("table", { name: "Dòng phần 2 do máy chủ tính" });
+    expect(within(meals).getAllByRole("columnheader").map((header) => header.textContent)).toContain("Bớt (VND)");
+    expect(within(meals).getByText("-84.000")).toBeTruthy();
+    expect(within(meals).getByText("3 ngày × 28.000 · nghỉ có phép 09/2026 (04/09, 15/09, 16/09)")).toBeTruthy();
+    fireEvent.click(within(meals).getByRole("button", { name: "Sửa bớt" }));
+    const deduction = await screen.findByRole("dialog", { name: "Sửa phần bớt · Tiền ăn" });
+    expect(deduction.textContent).toContain("Hệ thống đề xuất 3 ngày nghỉ có phép tháng 09/2026: 04/09, 15/09, 16/09.");
+    fireEvent.change(within(deduction).getByLabelText("Số lượng bớt (ngày)"), { target: { value: "2" } });
+    fireEvent.change(within(deduction).getByLabelText("Lý do điều chỉnh"), { target: { value: "Ngày 16/09 có ăn trưa" } });
+    fireEvent.click(within(deduction).getByRole("button", { name: "Lưu phần bớt" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-personal/lines/b/deduction") && (options as RequestInit).method === "PUT" && (options as RequestInit).body === JSON.stringify({ deductionQuantity: "2", refundUnitPrice: "28000", reason: "Ngày 16/09 có ăn trưa" }))).toBe(true));
     const panel = screen.getByRole("complementary", { name: "Rà soát trước khi phát hành" });
     await waitFor(() => expect(within(panel).getByText("Vietcombank · 0123456789 · TRUONG MN")).toBeTruthy());
     await waitFor(() => expect((within(panel).getByLabelText("Tài khoản cá nhân") as HTMLSelectElement).value).toBe("bank-an"));

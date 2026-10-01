@@ -17,6 +17,13 @@ describe('receivable tax', () => {
     expect(taxedLine(3150000n, 'VAT_5')).toEqual({ taxCategorySnapshot: 'VAT_5', vatRateSnapshot: 5, vatAmount: 157500n, amount: 3307500n });
     expect(taxedLine(500n, 'EXEMPT')).toEqual({ taxCategorySnapshot: 'EXEMPT', vatRateSnapshot: null, vatAmount: 0n, amount: 500n });
   });
+  it('negates VAT of the absolute value when a deduction makes the net negative', () => {
+    expect(vatAmount(-11400000n, 5)).toBe(-570000n);
+    expect(vatAmount(-10n, 5)).toBe(-1n); // symmetric with 10 -> 1, not floor(-0.5) = 0
+    expect(vatAmount(-9n, 5)).toBe(0n);
+    expect(vatAmount(-1000n, null)).toBe(0n);
+    expect(taxedLine(-11400000n, 'VAT_5')).toEqual({ taxCategorySnapshot: 'VAT_5', vatRateSnapshot: 5, vatAmount: -570000n, amount: -11970000n });
+  });
   it('stays exact at the maximum safe VND', () => {
     expect(vatAmount(9007199254740991n, 10)).toBe(900719925474099n);
   });

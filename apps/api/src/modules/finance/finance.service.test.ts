@@ -15,6 +15,16 @@ describe('FinanceService validation', () => {
     await expect(service.createGroup('identity', school, 'not-uuid', crypto.randomUUID(), { name: 'Học phí' })).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('proposes Bớt only from approved, uncontradicted leave days of the previous month in the same School', async () => {
+    const findMany = vi.fn().mockResolvedValue([{ id: 'source-1', studentId: 'student', operatingOn: new Date('2026-09-04T00:00:00Z') }]);
+    const service = new FinanceService({} as never, authorization as never) as any;
+    const days = await service.leaveDeductionDays({ leaveDaySource: { findMany } }, 'school', ['student'], '2026-01');
+    // January's run refunds December of the previous year.
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: 'school', studentId: { in: ['student'] }, operatingOn: { gte: new Date('2025-12-01T00:00:00Z'), lt: new Date('2026-01-01T00:00:00Z') }, leaveStatus: { in: ['AUTO_APPROVED', 'APPROVED'] }, exclusions: { none: {} } } }));
+    expect(days.get('student')).toEqual([{ date: '2026-09-04', leaveDaySourceId: 'source-1' }]);
+    expect(service.deductionProposal(28000n, '2026-10', days.get('student'))).toMatchObject({ deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: 28000n, deductionSource: { month: '2026-09', days: ['2026-09-04'], proposedUnitPrice: '28000' } });
+    expect(service.deductionProposal(0n, '2026-10', days.get('student'))).toMatchObject({ deductionQuantity: 0, deductionAmount: 0n, deductionSource: null });
+  });
   it('rejects unsupported public eligibility before an Operation or evidence mutation', async () => {
     const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
     const service = new FinanceService(prisma as never, authorization as never);

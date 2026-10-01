@@ -26,6 +26,7 @@ const routes = {
     "POST /api/app/schools/:schoolId/finance/receivables/:receivableId/lifecycle",
   classDefaultBankAccount: "PUT /api/app/schools/:schoolId/finance/classes/:classId/default-bank-account",
   receivableTax: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/tax-category",
+  receivableRefund: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/refund-price",
   openRun: "POST /api/app/schools/:schoolId/finance/collection-runs",
   template:
     "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/template-lines",
@@ -41,6 +42,7 @@ const routes = {
   addInvoiceLine: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines",
   editInvoiceLine: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
   removeInvoiceLine: "DELETE /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
+  lineDeduction: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId/deduction",
   invoiceCoverage: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/coverage",
   issueInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue",
   prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
@@ -106,9 +108,10 @@ export class FinanceService {
     const grossAmount = lines.reduce((total: bigint, line: any) => total + BigInt(line.grossAmount ?? line.amount), 0n);
     const discountAmount = lines.reduce((total: bigint, line: any) => total + BigInt(line.discountAmount ?? 0), 0n);
     const invoiceVat = lines.reduce((total: bigint, line: any) => total + BigInt(line.vatAmount ?? 0), 0n);
+    const deductionAmount = lines.reduce((total: bigint, line: any) => total + BigInt(line.deductionAmount ?? 0), 0n);
     const sourceKey = String(provenance.coverageReversalId ?? provenance.coverageId ?? provenance.settlementDifferenceId ?? provenance.settlementCarryId ?? provenance.settlementTransferId ?? provenance.debtTransferId ?? provenance.receiptId ?? `${invoice.id}:${type}`);
     const statusSnapshot = typeof provenance.statusSnapshot === "string" ? provenance.statusSnapshot : invoice.status;
-    await tx.financeLedgerEvent.create({ data: { schoolId: invoice.schoolId, type, sourceKey, postedAt, invoiceId: invoice.id, collectionRunId: invoice.collectionRunId, schoolYearId: invoice.schoolYearId, studentId: invoice.studentId, billingMonth: invoice.billingMonth, className: invoice.classNameSnapshot, groupName: lines.map((line: any) => line.receivable?.group?.name).filter(Boolean).sort().join(" | ") || null, statusSnapshot, amount, grossAmount, discountAmount, netAmount: invoice.obligationTotalSnapshot ?? invoice.total, vatAmount: invoiceVat, provenance: { ...provenance, invoiceId: invoice.id, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, collectionRunId: invoice.collectionRunId, billingMonth: invoice.billingMonth, className: invoice.classNameSnapshot, status: statusSnapshot, lines: lines.map((line: any) => ({ id: line.id, kind: line.kind, receivableId: line.receivableId, receivableName: line.receivableNameSnapshot, groupName: line.receivable?.group?.name ?? null, grossAmount: line.grossAmount.toString(), discountAmount: line.discountAmount.toString(), netAmount: line.netAmount.toString(), vatRate: line.vatRateSnapshot ?? null, vatAmount: (line.vatAmount ?? 0n).toString() })) } } });
+    await tx.financeLedgerEvent.create({ data: { schoolId: invoice.schoolId, type, sourceKey, postedAt, invoiceId: invoice.id, collectionRunId: invoice.collectionRunId, schoolYearId: invoice.schoolYearId, studentId: invoice.studentId, billingMonth: invoice.billingMonth, className: invoice.classNameSnapshot, groupName: lines.map((line: any) => line.receivable?.group?.name).filter(Boolean).sort().join(" | ") || null, statusSnapshot, amount, grossAmount, discountAmount, deductionAmount, netAmount: invoice.obligationTotalSnapshot ?? invoice.total, vatAmount: invoiceVat, provenance: { ...provenance, invoiceId: invoice.id, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, collectionRunId: invoice.collectionRunId, billingMonth: invoice.billingMonth, className: invoice.classNameSnapshot, status: statusSnapshot, lines: lines.map((line: any) => ({ id: line.id, kind: line.kind, receivableId: line.receivableId, receivableName: line.receivableNameSnapshot, groupName: line.receivable?.group?.name ?? null, grossAmount: line.grossAmount.toString(), discountAmount: line.discountAmount.toString(), deductionAmount: (line.deductionAmount ?? 0n).toString(), netAmount: line.netAmount.toString(), vatRate: line.vatRateSnapshot ?? null, vatAmount: (line.vatAmount ?? 0n).toString() })) } } });
   }
   private reportDate(value: unknown) {
     if (value == null || value === "") return new Date();
@@ -208,6 +211,17 @@ export class FinanceService {
       );
     return BigInt(value);
   }
+  // Decision 2026-10-01 D1: the refund price may be 0 (not refunded) and may exceed the charged price.
+  private refundPrice(value: unknown, field = "refundUnitPrice") {
+    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 9007199254740991n)
+      throw validation(field, "Giá hoàn trả VND phải là số nguyên không âm an toàn.");
+    return BigInt(value);
+  }
+  private deductionQuantity(value: unknown) {
+    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 2147483647n)
+      throw validation("deductionQuantity", "Số lượng bớt phải là số nguyên không âm.");
+    return Number(value);
+  }
   private quantity(value: unknown) {
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 2147483647n)
       throw validation("quantity", "Số lượng phải là số nguyên dương.");
@@ -263,6 +277,7 @@ export class FinanceService {
       displayName: value.displayName,
       unitLabel: value.unitLabel,
       defaultUnitPrice: value.defaultUnitPrice.toString(),
+      refundUnitPrice: (value.refundUnitPrice ?? 0n).toString(),
       taxCategory: value.taxCategory ?? "NOT_DECLARED",
       channel: taxChannel(value.taxCategory ?? "NOT_DECLARED"),
       status,
@@ -381,6 +396,12 @@ export class FinanceService {
       taxCategory: line.taxCategorySnapshot ?? null,
       vatRate: line.vatRateSnapshot ?? null,
       vatAmount: (line.vatAmount ?? 0n).toString(),
+      refundUnitPrice: (line.refundUnitPriceSnapshot ?? 0n).toString(),
+      deductionQuantity: String(line.deductionQuantity ?? 0),
+      proposedDeductionQuantity: String(line.proposedDeductionQuantity ?? 0),
+      deductionAmount: (line.deductionAmount ?? 0n).toString(),
+      deductionReason: line.deductionReason ?? null,
+      deductionSource: line.deductionSource ?? null,
       promotionEvaluation: issued ? { version: "PROMOTION_EVALUATION_V1", applications: promotionApplicationSnapshot } : line.promotionEvaluationProvenance ?? null,
       promotionApplicationSnapshot,
       overrideReason: line.overrideReason,
@@ -455,10 +476,12 @@ export class FinanceService {
     const total = BigInt(invoice.obligationTotalSnapshot);
     const rows: { label: string; amount: bigint }[] = [];
     const vatByRate = new Map<number, bigint>();
+    const price = (value: string) => new Intl.NumberFormat("vi-VN").format(BigInt(value));
     for (const line of (invoice.obligationLinesSnapshot ?? []) as any[]) {
       const quantity = line.quantity && line.quantity !== "1" ? ` · ${line.quantity} ${line.unitLabel ?? ""}`.trimEnd() : "";
-      rows.push({ label: `${line.receivableName}${quantity}`, amount: BigInt(line.grossAmount ?? line.amount) });
-      if (BigInt(line.discountAmount ?? "0") > 0n) rows.push({ label: `Giảm trừ ưu đãi · ${line.receivableName}`, amount: -BigInt(line.discountAmount) });
+      if (BigInt(line.grossAmount ?? line.amount) !== 0n || BigInt(line.deductionAmount ?? "0") === 0n) rows.push({ label: `${line.receivableName}${quantity}`, amount: BigInt(line.grossAmount ?? line.amount) });
+      if (BigInt(line.discountAmount ?? "0") > 0n) rows.push({ label: `Ưu đãi · ${line.receivableName}`, amount: -BigInt(line.discountAmount) });
+      if (BigInt(line.deductionAmount ?? "0") > 0n) rows.push({ label: `${this.deductionLabel(line.receivableName, line.deductionSource)} · ${line.deductionQuantity} ${line.unitLabel ?? ""} x ${price(line.refundUnitPrice)}`.replace(/ {2,}/g, " "), amount: -BigInt(line.deductionAmount) });
       if (line.vatRate != null && BigInt(line.vatAmount ?? "0") > 0n) vatByRate.set(line.vatRate, (vatByRate.get(line.vatRate) ?? 0n) + BigInt(line.vatAmount));
     }
     for (const [rate, amount] of [...vatByRate].sort((a, b) => a[0] - b[0])) rows.push({ label: `Thuế GTGT ${rate}%`, amount });
@@ -469,6 +492,11 @@ export class FinanceService {
       transferContent: invoice.transferContentSnapshot,
       qrPayload: vietQrPayload({ bin: invoice.receivingBankBinSnapshot, accountNumber: invoice.accountNumberSnapshot, amount: total, content: invoice.transferContentSnapshot }),
     };
+  }
+  // "Bớt Tiền ăn nghỉ có phép 09/2026" names the source month of a leave-day deduction.
+  private deductionLabel(receivableName: string, source: any) {
+    const month = typeof source?.month === "string" ? ` nghỉ có phép ${source.month.slice(5, 7)}/${source.month.slice(0, 4)}` : "";
+    return `Bớt ${receivableName}${month}`;
   }
   private amountDescending = (a: { amount: string; id: string }, b: { amount: string; id: string }) =>
     BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : a.id.localeCompare(b.id);
@@ -1010,8 +1038,10 @@ export class FinanceService {
       // A line is written to the notice part of its receivable's payment channel, created on demand.
       const target = await this.channelDraft(tx, schoolId, invoice, taxChannel(receivable.taxCategory));
       const evaluated = await this.evaluateDraftPromotion(tx, schoolId, target, { receivableId: receivable.id, receivableName: receivable.displayName, amount });
-      const tax = taxedLine(BigInt(evaluated.netAmount), receivable.taxCategory);
-      const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice, quantity: input.quantity, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), netAmount: BigInt(evaluated.netAmount), ...tax, promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason: input.overrideReason, ...source } });
+      const deduction = await this.lineProposal(tx, schoolId, target, receivable);
+      const netAmount = BigInt(evaluated.netAmount) - deduction.deductionAmount;
+      const tax = taxedLine(netAmount, receivable.taxCategory);
+      const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice, quantity: input.quantity, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), ...this.deductionData(deduction), netAmount, ...tax, promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason: input.overrideReason, ...source } });
       const outcome = await this.refreshInvoice(tx, schoolId, target.id); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_ADDED", operation, null, { line: this.lineDto(line), invoice: outcome }); return outcome;
     });
   }
@@ -1028,7 +1058,8 @@ export class FinanceService {
       const source = body?.source === undefined ? { source: existing.source ?? Prisma.DbNull, sourceReason: existing.sourceReason, sourceActorIdentityId: existing.sourceActorIdentityId, sourceMembershipId: existing.sourceMembershipId, sourceRecordedAt: existing.sourceRecordedAt, sourceProvenance: existing.sourceProvenance ?? Prisma.DbNull } : body.source === null ? { source: Prisma.DbNull, sourceReason: null, sourceActorIdentityId: null, sourceMembershipId: null, sourceRecordedAt: null, sourceProvenance: Prisma.DbNull } : await this.source(tx, body, invoice, identityId, actor.membershipId);
       const amount = this.amount(unitPrice, input.quantity);
       const evaluated = await this.evaluateDraftPromotion(tx, schoolId, invoice, { receivableId: existing.receivableId, receivableName: existing.receivableNameSnapshot, amount });
-      const line = await tx.invoiceLine.update({ where: { id: lineId }, data: { quantity: input.quantity, unitPrice, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), netAmount: BigInt(evaluated.netAmount), ...taxedLine(BigInt(evaluated.netAmount), existing.taxCategorySnapshot ?? "NOT_DECLARED"), promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason, ...source } });
+      const netAmount = BigInt(evaluated.netAmount) - BigInt(existing.deductionAmount ?? 0);
+      const line = await tx.invoiceLine.update({ where: { id: lineId }, data: { quantity: input.quantity, unitPrice, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), netAmount, ...taxedLine(netAmount, existing.taxCategorySnapshot ?? "NOT_DECLARED"), promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason, ...source } });
       const outcome = await this.refreshInvoice(tx, schoolId, invoiceId); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_EDITED", operation, this.lineDto(existing), { line: this.lineDto(line), invoice: outcome }); return outcome;
     });
   }
@@ -1039,6 +1070,77 @@ export class FinanceService {
        if (existing.kind === "PRIOR_DEBT") throw new ConflictException({ code: "PRIOR_DEBT_IMMUTABLE", message: "Dòng công nợ kỳ trước không thể xóa." });
       await tx.invoiceLine.delete({ where: { id: lineId } }); const outcome = await this.refreshInvoice(tx, schoolId, invoiceId); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_REMOVED", operation, this.lineDto(existing), outcome); return outcome;
     });
+  }
+  // Decision 2026-10-01 D5: Finance overwrites the proposed "Bớt" with a reason, or resets it to a fresh proposal.
+  async editLineDeduction(identityId: string, schoolId: string, invoiceId: string, lineId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId"); this.identifier(lineId, "lineId");
+    const reset = body?.reset === true;
+    const input = reset ? null : { deductionQuantity: this.deductionQuantity(body?.deductionQuantity), refundUnitPrice: this.refundPrice(body?.refundUnitPrice), reason: this.text(body?.reason, "reason", false, 500) };
+    return this.mutate(actor, identityId, schoolId, routes.lineDeduction, key, operationId, { invoiceId, lineId, reset, deductionQuantity: input?.deductionQuantity ?? null, refundUnitPrice: input?.refundUnitPrice.toString() ?? null, reason: input?.reason ?? null }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId);
+      const invoice = await this.draftInvoice(tx, schoolId, invoiceId);
+      const existing = await tx.invoiceLine.findFirst({ where: { id: lineId, invoiceId, schoolId } });
+      if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
+      if (existing.kind !== "NORMAL") throw new ConflictException({ code: "PRIOR_DEBT_IMMUTABLE", message: "Dòng công nợ kỳ trước không có phần bớt." });
+      let fields: any;
+      if (!input) {
+        const receivable = await tx.receivable.findFirstOrThrow({ where: { id: existing.receivableId, schoolId } });
+        fields = { ...this.deductionData(await this.lineProposal(tx, schoolId, invoice, receivable)), deductionReason: null };
+      } else {
+        const proposedUnitPrice = BigInt((existing.deductionSource as any)?.proposedUnitPrice ?? 0);
+        const differs = input.deductionQuantity !== existing.proposedDeductionQuantity || input.refundUnitPrice !== proposedUnitPrice;
+        if (differs && !input.reason) throw validation("reason", "Nhập lý do khi phần bớt khác số hệ thống đề xuất.");
+        fields = { refundUnitPriceSnapshot: input.refundUnitPrice, deductionQuantity: input.deductionQuantity, deductionAmount: this.amount(input.refundUnitPrice, input.deductionQuantity), deductionReason: differs ? input.reason : null };
+      }
+      const netAmount = BigInt(existing.grossAmount) - BigInt(existing.discountAmount) - BigInt(fields.deductionAmount);
+      const line = await tx.invoiceLine.update({ where: { id: lineId }, data: { ...fields, netAmount, ...taxedLine(netAmount, existing.taxCategorySnapshot ?? "NOT_DECLARED") } });
+      const outcome = await this.refreshInvoice(tx, schoolId, invoiceId);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_DEDUCTION_EDITED", operation, this.lineDto(existing), { line: this.lineDto(line), invoice: outcome }, fields.deductionReason ?? undefined);
+      return outcome;
+    });
+  }
+  // Decision 2026-10-01 D4: the run of month N refunds the approved leave days of month N-1.
+  private previousMonth(billingMonth: string) {
+    const [year, month] = billingMonth.split("-").map(Number);
+    const start = new Date(Date.UTC(year!, month! - 2, 1));
+    return { start, end: new Date(Date.UTC(year!, month! - 1, 1)), billingMonth: start.toISOString().slice(0, 7) };
+  }
+  // Approved leave days of the previous month that attendance has not contradicted with a confirmed PRESENT.
+  // Leave days are issued only on operating days, so Sundays and holidays never appear here.
+  private async leaveDeductionDays(client: any, schoolId: string, studentIds: string[], billingMonth: string) {
+    const result = new Map<string, Array<{ date: string; leaveDaySourceId: string }>>();
+    if (!studentIds.length) return result;
+    const { start, end } = this.previousMonth(billingMonth);
+    const sources = await client.leaveDaySource.findMany({ where: { schoolId, studentId: { in: studentIds }, operatingOn: { gte: start, lt: end }, leaveStatus: { in: ["AUTO_APPROVED", "APPROVED"] }, exclusions: { none: {} } }, select: { id: true, studentId: true, operatingOn: true }, orderBy: [{ studentId: "asc" }, { operatingOn: "asc" }] });
+    for (const source of sources) result.set(source.studentId, [...(result.get(source.studentId) ?? []), { date: source.operatingOn.toISOString().slice(0, 10), leaveDaySourceId: source.id }]);
+    return result;
+  }
+  // A line of a receivable with a refund price always records its proposal, even with no leave days.
+  private deductionProposal(refundUnitPrice: bigint, billingMonth: string, days: Array<{ date: string; leaveDaySourceId: string }>) {
+    const quantity = refundUnitPrice > 0n ? days.length : 0;
+    return {
+      refundUnitPriceSnapshot: refundUnitPrice, deductionQuantity: quantity, proposedDeductionQuantity: quantity, deductionAmount: refundUnitPrice * BigInt(quantity),
+      deductionSource: refundUnitPrice > 0n ? { type: "LEAVE_DAYS_V1", month: this.previousMonth(billingMonth).billingMonth, days: days.map((day) => day.date), leaveDaySourceIds: days.map((day) => day.leaveDaySourceId), proposedQuantity: quantity, proposedUnitPrice: refundUnitPrice.toString() } : null,
+    };
+  }
+  private deductionData(proposal: ReturnType<FinanceService["deductionProposal"]>) {
+    return { ...proposal, deductionSource: proposal.deductionSource ?? Prisma.DbNull };
+  }
+  private async lineProposal(tx: any, schoolId: string, invoice: any, receivable: any) {
+    const days = BigInt(receivable.refundUnitPrice ?? 0) > 0n ? (await this.leaveDeductionDays(tx, schoolId, [invoice.studentId], invoice.billingMonth)).get(invoice.studentId) ?? [] : [];
+    return this.deductionProposal(BigInt(receivable.refundUnitPrice ?? 0), invoice.billingMonth, days);
+  }
+  // Generation context: leave days, receivables refunded on the previous month's issued Invoices, and live refund prices.
+  private async deductionContext(client: any, schoolId: string, billingMonth: string, studentIds: string[], receivableIds: string[]) {
+    const days = await this.leaveDeductionDays(client, schoolId, studentIds, billingMonth);
+    const previous = new Map<string, Set<string>>();
+    if (studentIds.length) {
+      const lines = await client.invoiceLine.findMany({ where: { schoolId, kind: "NORMAL", invoice: { studentId: { in: studentIds }, billingMonth: this.previousMonth(billingMonth).billingMonth, status: { in: ["ISSUED", "CLOSED"] } }, receivable: { refundUnitPrice: { gt: 0n } } }, select: { receivableId: true, invoice: { select: { studentId: true } } } });
+      for (const line of lines) previous.set(line.invoice.studentId, new Set([...(previous.get(line.invoice.studentId) ?? []), line.receivableId]));
+    }
+    const ids = [...new Set([...receivableIds, ...[...previous.values()].flatMap((set) => [...set])])];
+    const receivables = ids.length ? await client.receivable.findMany({ where: { schoolId, id: { in: ids } } }) : [];
+    return { billingMonth, days, previous, receivables: new Map<string, any>(receivables.map((item: any) => [item.id, item])) };
   }
   async createGroup(
     identityId: string,
@@ -1114,6 +1216,7 @@ export class FinanceService {
       displayName: this.text(body?.displayName, "displayName")!,
       unitLabel: this.unitLabel(body?.unitLabel),
       defaultUnitPrice: this.price(body?.defaultUnitPrice),
+      refundUnitPrice: this.refundPrice(body?.refundUnitPrice ?? "0"),
       taxCategory: this.taxCategory(body?.taxCategory ?? "NOT_DECLARED"),
     };
     return this.mutate(
@@ -1123,7 +1226,7 @@ export class FinanceService {
       routes.receivable,
       key,
       operationId,
-      { ...input, defaultUnitPrice: input.defaultUnitPrice.toString() },
+      { ...input, defaultUnitPrice: input.defaultUnitPrice.toString(), refundUnitPrice: input.refundUnitPrice.toString() },
       async (tx, operation) => {
         const group = await tx.receivableGroup.findFirst({
           where: { id: input.groupId, schoolId },
@@ -1243,6 +1346,21 @@ export class FinanceService {
       const updated = await tx.receivable.update({ where: { id: item.id }, data: { taxCategory }, include });
       const outcome = this.receivableDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_TAX_CATEGORY_CHANGED", operation, this.receivableDto(item), outcome);
+      return outcome;
+    });
+  }
+  // Decision 2026-10-01 D1: the refund price only affects DRAFT lines whose deduction is proposed afterwards.
+  async updateReceivableRefundPrice(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
+    const refundUnitPrice = this.refundPrice(body?.refundUnitPrice);
+    return this.mutate(actor, identityId, schoolId, routes.receivableRefund, key, operationId, { receivableId, refundUnitPrice: refundUnitPrice.toString() }, async (tx, operation) => {
+      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } };
+      const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
+      if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
+      if (item.refundUnitPrice === refundUnitPrice) throw validation("refundUnitPrice", "Khoản thu đã có giá hoàn trả này.");
+      const updated = await tx.receivable.update({ where: { id: item.id }, data: { refundUnitPrice }, include });
+      const outcome = this.receivableDto(updated);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_REFUND_PRICE_CHANGED", operation, this.receivableDto(item), outcome);
       return outcome;
     });
   }
@@ -1532,7 +1650,7 @@ export class FinanceService {
     if (dto.status !== "READY") return dto;
     // READY keeps no stored preview; re-derive it read-only exactly as generation will re-evaluate the roster.
     const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, false, true);
-    const preview = await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines);
+    const preview = await this.previewDeductions(this.prisma, schoolId, run, await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines));
     return { ...dto, summary: this.previewSummary(preview) };
   }
   async addableStudents(identityId: string, schoolId: string, runId: string, query: { limit?: string; cursor?: string } = {}) {
@@ -2097,8 +2215,8 @@ export class FinanceService {
             where: { id: line.id },
             data: {
               discountAmount: 0n,
-              netAmount: line.grossAmount,
-              ...taxedLine(line.grossAmount, line.taxCategorySnapshot ?? "NOT_DECLARED"),
+              netAmount: BigInt(line.grossAmount) - BigInt(line.deductionAmount),
+              ...taxedLine(BigInt(line.grossAmount) - BigInt(line.deductionAmount), line.taxCategorySnapshot ?? "NOT_DECLARED"),
               promotionEvaluationProvenance: Prisma.DbNull,
             },
           });
@@ -2118,8 +2236,8 @@ export class FinanceService {
           where: { id: line.id },
           data: {
             discountAmount: BigInt(evaluated.discountAmount),
-            netAmount: BigInt(evaluated.netAmount),
-            ...taxedLine(BigInt(evaluated.netAmount), line.taxCategorySnapshot ?? "NOT_DECLARED"),
+            netAmount: BigInt(evaluated.netAmount) - BigInt(line.deductionAmount),
+            ...taxedLine(BigInt(evaluated.netAmount) - BigInt(line.deductionAmount), line.taxCategorySnapshot ?? "NOT_DECLARED"),
             promotionEvaluationProvenance: evaluated.promotionEvaluation,
           },
         });
@@ -2320,7 +2438,7 @@ export class FinanceService {
     const applications: any[] = [];
     for (const line of calculatedLines) {
       const rechecked = this.evaluatePromotionLine(invoice.studentId, { ...line, amount: line.grossAmount, receivableName: line.receivableNameSnapshot }, facts);
-      const draft = { receivableId: line.receivableId, receivableName: line.receivableNameSnapshot, grossAmount: line.grossAmount.toString(), discountAmount: line.discountAmount.toString(), netAmount: line.netAmount.toString(), promotionEvaluation: line.promotionEvaluationProvenance };
+      const draft = { receivableId: line.receivableId, receivableName: line.receivableNameSnapshot, grossAmount: line.grossAmount.toString(), discountAmount: line.discountAmount.toString(), netAmount: (BigInt(line.netAmount) + BigInt(line.deductionAmount ?? 0)).toString(), promotionEvaluation: line.promotionEvaluationProvenance };
       if (!this.samePromotionEvaluation(draft, rechecked))
         throw new ConflictException({ code: "PROMOTION_REVIEW_REQUIRED", message: "Kết quả ưu đãi đã thay đổi. Hãy rà soát lại hóa đơn trước khi phát hành." });
       applications.push(...rechecked.promotionEvaluation.applications.map((application: any, ordinal: number) => ({ ...application, invoiceLineId: line.id, ordinal })));
@@ -2340,7 +2458,7 @@ export class FinanceService {
       policyId: application.policyId, versionId: application.versionId, targetId: application.targetId, assignmentId: application.assignmentId,
       discountType: application.discountType, discountValue: BigInt(application.discountValue), priority: application.priority,
       stackingMode: application.stackingMode, appliedDiscount: BigInt(application.appliedDiscount),
-      grossAmount: amounts.get(application.invoiceLineId)!.grossAmount, discountAmount: amounts.get(application.invoiceLineId)!.discountAmount, netAmount: amounts.get(application.invoiceLineId)!.netAmount,
+      grossAmount: amounts.get(application.invoiceLineId)!.grossAmount, discountAmount: amounts.get(application.invoiceLineId)!.discountAmount, netAmount: amounts.get(application.invoiceLineId)!.grossAmount - amounts.get(application.invoiceLineId)!.discountAmount,
       versionInterval: application.versionInterval, assignmentInterval: application.assignmentInterval, assignmentReason: application.assignmentReason,
     })) });
   }
@@ -2363,8 +2481,20 @@ export class FinanceService {
         message: "Chỉ có thể xem trước đợt thu nháp.",
       });
     const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, true, true);
-    const preview = await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines);
+    const preview = await this.previewDeductions(this.prisma, schoolId, run, await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines));
     return { ...preview, summary: this.previewSummary(preview) };
+  }
+  // The preview shows the leave-day deduction proposed from current facts; it is not part of the READY
+  // fingerprint because generation re-reads leave days and refund prices at generation time.
+  private async previewDeductions<T extends { eligible: any[] }>(client: any, schoolId: string, run: any, preview: T) {
+    const context = await this.deductionContext(client, schoolId, run.billingMonth, preview.eligible.map((row) => row.studentId), [...new Set<string>(preview.eligible.flatMap((row) => row.lines.map((line: any) => line.receivableId)))]);
+    return { ...preview, eligible: preview.eligible.map((row) => ({ ...row, lines: row.lines.map((line: any) => {
+      const proposal = this.deductionProposal(BigInt(context.receivables.get(line.receivableId)?.refundUnitPrice ?? 0), run.billingMonth, context.days.get(row.studentId) ?? []);
+      if (!proposal.deductionAmount) return { ...line, deductionQuantity: "0", deductionAmount: "0" };
+      const netAmount = BigInt(line.netAmount) - proposal.deductionAmount;
+      const tax = taxedLine(netAmount, line.taxCategory ?? "NOT_DECLARED");
+      return { ...line, deductionQuantity: String(proposal.deductionQuantity), refundUnitPrice: proposal.refundUnitPriceSnapshot.toString(), deductionAmount: proposal.deductionAmount.toString(), netAmount: netAmount.toString(), vatAmount: tax.vatAmount.toString(), amount: tax.amount.toString() };
+    }) })) };
   }
   async readyRun(
     identityId: string,
@@ -2516,9 +2646,10 @@ export class FinanceService {
         const templateLines = currentTemplate.map(({ receivableStatus, receivableGroupStatus, ...line }: any) => line);
         const snapshots = roster.snapshots as any[];
         await tx.collectionRun.update({ where: { id: run.id }, data: { templateSnapshot: templateLines } });
+        const deductions = await this.deductionContext(tx, schoolId, run.billingMonth, snapshots.map((item: any) => item.studentId), templateLines.map((line: any) => line.receivableId));
         const generation = await tx.collectionRunGeneration.create({ data: { schoolId, collectionRunId: run.id, operationId: operation.id, actorIdentityId: identityId, membershipId: actor.membershipId, totalCount: snapshots.length + roster.skips.length, processedCount: roster.skips.length, eligibleCount: 0, skippedCount: roster.skips.length } });
         await tx.collectionRunGenerationItem.createMany({ data: [
-          ...snapshots.map((item: any, ordinal: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal, snapshot: this.invoiceData(schoolId, run, item, templateLines) })),
+          ...snapshots.map((item: any, ordinal: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal, snapshot: this.invoiceData(schoolId, run, item, templateLines, deductions) })),
           ...roster.skips.map((item: any, index: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal: snapshots.length + index, status: "SKIPPED" as const, skip: item })),
         ] });
         return { id: operation.id, status: operation.status, outcome: null, progress: this.generationDto(generation) };
@@ -2645,7 +2776,7 @@ export class FinanceService {
         const candidate = roster.snapshots[0] as any;
         const skipped = [...roster.skips];
         const insertedStudentIds = candidate
-          ? await this.insertInvoices(tx, [this.invoiceData(schoolId, run, candidate, templateLines)])
+          ? await this.insertInvoices(tx, [this.invoiceData(schoolId, run, candidate, templateLines, await this.deductionContext(tx, schoolId, run.billingMonth, [studentId], templateLines.map((line: any) => line.receivableId)))])
          : new Set<string>();
        const createdIds = candidate && insertedStudentIds.has(studentId) ? this.noticeInvoiceIds(await tx.invoice.findMany({ where: { schoolId, collectionRunId: run.id, studentId, revisesInvoiceId: null }, select: { id: true, studentId: true, channel: true } })).get(studentId) ?? [] : [];
        const created = candidate && insertedStudentIds.has(studentId) ? [{ ...candidate, invoiceId: createdIds[0], invoiceIds: createdIds }] : [];
@@ -2692,8 +2823,23 @@ export class FinanceService {
     for (const invoice of [...invoices].sort((a, b) => (a.channel === b.channel ? 0 : a.channel === "SCHOOL" ? -1 : 1))) result.set(invoice.studentId, [...(result.get(invoice.studentId) ?? []), invoice.id]);
     return result;
   }
-  private invoiceData(schoolId: string, run: any, item: any, templateLines: any[]) {
+  private invoiceData(schoolId: string, run: any, item: any, templateLines: any[], context?: Awaited<ReturnType<FinanceService["deductionContext"]>>) {
     const { enrollment, assignment } = item;
+    const days = context?.days.get(item.studentId) ?? [];
+    // Snapshots are JSON: BigInt values are stored as strings and a missing source is omitted.
+    const deduction = (receivableId: string) => {
+      const proposal = this.deductionProposal(BigInt(context?.receivables.get(receivableId)?.refundUnitPrice ?? 0), run.billingMonth, days);
+      return { refundUnitPriceSnapshot: proposal.refundUnitPriceSnapshot.toString(), deductionQuantity: proposal.deductionQuantity, proposedDeductionQuantity: proposal.proposedDeductionQuantity, deductionAmount: proposal.deductionAmount.toString(), ...(proposal.deductionSource ? { deductionSource: proposal.deductionSource } : {}) };
+    };
+    const templateIds = new Set(templateLines.map((line: any) => line.receivableId));
+    // D4: a receivable refunded on last month's Invoice but not charged this month still gets its "Bớt" on a "Thu 0" line.
+    const refundOnly = days.length ? [...(context?.previous.get(item.studentId) ?? [])].filter((id) => !templateIds.has(id) && context?.receivables.get(id)).map((id) => {
+      const receivable = context!.receivables.get(id);
+      const category: TaxCategory = receivable.taxCategory ?? "NOT_DECLARED";
+      const extra = deduction(id);
+      const tax = taxedLine(-BigInt(extra.deductionAmount), category);
+      return { channel: taxChannel(category), schoolId, receivableId: id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice.toString(), unitPrice: receivable.defaultUnitPrice.toString(), quantity: 0, amount: tax.amount.toString(), grossAmount: "0", discountAmount: "0", netAmount: (-BigInt(extra.deductionAmount)).toString(), ...extra, taxCategorySnapshot: category, vatRateSnapshot: tax.vatRateSnapshot, vatAmount: tax.vatAmount.toString(), promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [] } };
+    }).filter((line) => line.deductionQuantity > 0) : [];
     return {
       schoolId, studentId: item.studentId, collectionRunId: run.id, schoolYearId: run.schoolYearId,
       billingMonth: run.billingMonth, rosterAsOf: this.asOf(run.billingMonth),
@@ -2710,9 +2856,11 @@ export class FinanceService {
       lines: templateLines.filter((line: any) => !item.calculatedLines || item.calculatedLines.some((candidate: any) => candidate.receivableId === line.receivableId)).map((line: any) => {
         const calculated = item.calculatedLines?.find((candidate: any) => candidate.receivableId === line.receivableId) ?? this.evaluatePromotionLine(item.studentId, line, []);
         const category: TaxCategory = line.taxCategory ?? "NOT_DECLARED";
-        const tax = taxedLine(BigInt(calculated.netAmount), category);
-        return { channel: taxChannel(category), schoolId, receivableId: line.receivableId, receivableCodeSnapshot: line.receivableCode, receivableNameSnapshot: line.receivableName, unitLabelSnapshot: line.unitLabel, defaultUnitPriceSnapshot: line.defaultUnitPrice, unitPrice: line.defaultUnitPrice, quantity: line.quantity, amount: tax.amount.toString(), grossAmount: calculated.grossAmount, discountAmount: calculated.discountAmount, netAmount: calculated.netAmount, taxCategorySnapshot: category, vatRateSnapshot: tax.vatRateSnapshot, vatAmount: tax.vatAmount.toString(), promotionEvaluationProvenance: calculated.promotionEvaluation };
-      }),
+        const lineDeduction = deduction(line.receivableId);
+        const netAmount = BigInt(calculated.netAmount) - BigInt(lineDeduction.deductionAmount);
+        const tax = taxedLine(netAmount, category);
+        return { channel: taxChannel(category), schoolId, receivableId: line.receivableId, receivableCodeSnapshot: line.receivableCode, receivableNameSnapshot: line.receivableName, unitLabelSnapshot: line.unitLabel, defaultUnitPriceSnapshot: line.defaultUnitPrice, unitPrice: line.defaultUnitPrice, quantity: line.quantity, amount: tax.amount.toString(), grossAmount: calculated.grossAmount, discountAmount: calculated.discountAmount, netAmount: netAmount.toString(), ...lineDeduction, taxCategorySnapshot: category, vatRateSnapshot: tax.vatRateSnapshot, vatAmount: tax.vatAmount.toString(), promotionEvaluationProvenance: calculated.promotionEvaluation };
+      }).concat(refundOnly),
     };
   }
   // One generated Student becomes one Invoice per payment channel that has lines; a Student without

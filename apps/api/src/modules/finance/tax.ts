@@ -17,9 +17,12 @@ export function vatRate(category: TaxCategory): number | null {
   return rates[category];
 }
 
-// VAT is charged on net after discount, per line, rounded half-up to whole VND.
+// VAT is charged on net after discount and deduction, per line, rounded half-up to whole VND.
+// A negative net (deduction larger than the charge) gets the negated VAT of its absolute value.
 export function vatAmount(netAmount: bigint, rate: number | null): bigint {
-  return rate == null ? 0n : (netAmount * BigInt(rate) + 50n) / 100n;
+  if (rate == null) return 0n;
+  if (netAmount < 0n) return -vatAmount(-netAmount, rate);
+  return (netAmount * BigInt(rate) + 50n) / 100n;
 }
 
 export function taxedLine(netAmount: bigint, category: TaxCategory) {

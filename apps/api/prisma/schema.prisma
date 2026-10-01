@@ -1257,6 +1257,12 @@ model InvoiceLine {
   taxCategorySnapshot           ReceivableTaxCategory?
   vatRateSnapshot               Int?
   vatAmount                     BigInt                       @default(0) @db.BigInt
+  refundUnitPriceSnapshot       BigInt                       @default(0) @db.BigInt
+  deductionQuantity             Int                          @default(0)
+  proposedDeductionQuantity     Int                          @default(0)
+  deductionAmount               BigInt                       @default(0) @db.BigInt
+  deductionReason               String?
+  deductionSource               Json?
   promotionEvaluationProvenance Json?
   overrideReason                String?
   source                        Json?
@@ -1344,6 +1350,7 @@ model FinanceLedgerEvent {
   discountAmount  BigInt                 @default(0) @db.BigInt
   netAmount       BigInt                 @default(0) @db.BigInt
   vatAmount       BigInt                 @default(0) @db.BigInt
+  deductionAmount BigInt                 @default(0) @db.BigInt
   provenance      Json
   school          School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
 
@@ -1443,6 +1450,7 @@ model Receivable {
   unitLabel            String
   defaultUnitPrice     BigInt                          @db.BigInt
   taxCategory          ReceivableTaxCategory           @default(NOT_DECLARED)
+  refundUnitPrice      BigInt                          @default(0) @db.BigInt
   createdAt            DateTime                        @default(now()) @db.Timestamptz(3)
   school               School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   group                ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
