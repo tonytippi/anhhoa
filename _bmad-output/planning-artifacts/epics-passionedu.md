@@ -356,7 +356,7 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 
 **Acceptance Criteria:**
 
-**Given** a settlement DRAFT with total below zero (a NORMAL part below zero is refused, amendment A2)
+**Given** a settlement DRAFT with total below zero (a NORMAL part below zero carries its credit instead, amendment A4)
 **Then** issue succeeds without VietQR and the image reads `Trường hoàn lại cho phụ huynh`; a zero total closes at issue.
 
 **Given** an issued negative Invoice
@@ -409,13 +409,13 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 
 **And** every promotion label `Giảm trừ` reads `Ưu đãi`.
 
-### Story 5.32: Giá hoàn không vượt giá thu, chỉ quyết toán được âm
+### Story 5.32: Giá hoàn không vượt giá thu, tiền thừa tháng âm chuyển sang tháng sau
 
 As a Finance Manager,
 I want the refund price capped by the charged price and negative totals limited to settlement Invoices,
-So that a monthly notice never turns into a refund and every refund goes through the final settlement.
+So that a monthly notice never turns into a cash refund and every refund goes through the final settlement.
 
-Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction §9 A1-A3.
+Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction §9 A1, A3, A4.
 
 **Acceptance Criteria:**
 
@@ -426,7 +426,7 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 **Then** the refund unit price never exceeds the line `unitPrice` (override refused, proposal capped), except the `PREPAID_PACKAGE_V1` line; a database CHECK enforces it.
 
 **Given** a NORMAL Invoice part whose total is below zero
-**Then** issue is refused with `INVOICE_TOTAL_NEGATIVE`, the review shows the amount to reduce and keeps `Phát hành` disabled; a database CHECK refuses a non-DRAFT NORMAL Invoice with a negative total.
+**Then** issue closes it with a zero Receipt (`OVERPAYMENT`) and the credit carries into the next monthly DRAFT of the same channel and SchoolYear, or in full into the settlement Invoice if the Student leaves; payout is refused on it.
 
 **And** the standalone coverage refund API and pending-request UI are removed; settlement Invoices are the only refund path.
 

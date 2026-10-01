@@ -561,7 +561,7 @@ export class FinanceService {
     return `${prefix}${String(count + 1).padStart(6, "0")}`;
   }
   private parentObligationDto(invoice: any, outstanding: bigint, effectiveAt: Date) {
-    return { id: invoice.id, studentId: invoice.studentId, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, period: invoice.billingMonth, issuedTotal: BigInt(invoice.obligationTotalSnapshot).toString(), vatTotal: (invoice.lines ?? []).reduce((total: bigint, line: any) => total + BigInt(line.vatAmount ?? 0), 0n).toString(), deductionTotal: (invoice.lines ?? []).reduce((total: bigint, line: any) => total + BigInt(line.deductionAmount ?? 0), 0n).toString(), actualReceipt: invoice.receipt ? BigInt(invoice.receipt.actualAmount).toString() : invoice.settlementTransferTo ? BigInt(invoice.settlementTransferTo.amount).toString() : "0", outcome: invoice.receipt?.outcome ?? (invoice.settlementTransferTo ? "EXACT" : null), outstanding: outstanding.toString(), state: invoice.status, effectiveAt: effectiveAt.toISOString(), paymentInstruction: { receivingBank: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot, transferContent: invoice.transferContentSnapshot } };
+    return { id: invoice.id, studentId: invoice.studentId, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, period: invoice.billingMonth, issuedTotal: BigInt(invoice.obligationTotalSnapshot).toString(), vatTotal: (invoice.lines ?? []).reduce((total: bigint, line: any) => total + BigInt(line.vatAmount ?? 0), 0n).toString(), deductionTotal: (invoice.lines ?? []).reduce((total: bigint, line: any) => total + BigInt(line.deductionAmount ?? 0), 0n).toString(), carriedCredit: invoice.kind !== "SETTLEMENT" && BigInt(invoice.obligationTotalSnapshot) < 0n ? (-BigInt(invoice.obligationTotalSnapshot)).toString() : "0", actualReceipt: invoice.receipt ? BigInt(invoice.receipt.actualAmount).toString() : invoice.settlementTransferTo ? BigInt(invoice.settlementTransferTo.amount).toString() : "0", outcome: invoice.receipt?.outcome ?? (invoice.settlementTransferTo ? "EXACT" : null), outstanding: outstanding.toString(), state: invoice.status, effectiveAt: effectiveAt.toISOString(), paymentInstruction: { receivingBank: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot, transferContent: invoice.transferContentSnapshot } };
   }
   async parentObligations(schoolId: string, studentIds: string[], invoiceId?: string) {
     schoolId = this.school(schoolId);
@@ -766,7 +766,7 @@ export class FinanceService {
       if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (invoice.status !== "ISSUED") throw new ConflictException({ code: "INVOICE_NOT_ISSUED", message: "Chỉ phiếu hoàn tiền đã phát hành mới được ghi nhận đã chi." });
       const obligation = BigInt(invoice.obligationTotalSnapshot);
-      if (obligation >= 0n) throw new ConflictException({ code: "INVOICE_NOT_REFUND", message: "Hóa đơn này thu tiền của phụ huynh; hãy ghi thực nhận." });
+      if (obligation >= 0n || invoice.kind !== "SETTLEMENT") throw new ConflictException({ code: "INVOICE_NOT_REFUND", message: "Chỉ phiếu hoàn tiền quyết toán mới được ghi nhận đã chi." });
       const payout = await tx.invoicePayout.create({ data: { schoolId, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, invoiceId: invoice.id, amount: -obligation, paidOn, method, reference, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation } });
       await this.ledger(tx, invoice, "PAYOUT_POSTED", obligation, { payoutId: payout.id, paidOn: paidOn.toISOString().slice(0, 10), method, reference }, payout.postedAt);
       await tx.invoice.update({ where: { id: invoice.id }, data: { status: "CLOSED" } });
@@ -793,14 +793,14 @@ export class FinanceService {
       const run = await this.lockRun(tx, schoolId, primary.collectionRunId);
       const year = await this.lockYear(tx, schoolId, primary.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
-      // Decision 2026-10-01 D7, amendment A2: a settlement part may be negative (refund notice); any part may be zero (closed at issue).
-      if (!primary.lines.length) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng để phát hành.");
+      // Decision 2026-10-01 D7, amendment A4: a settlement part may be negative (refund notice); a negative monthly part carries its credit.
+      // A settlement part may hold only a carried credit or debt, without lines.
+      const issuable = (part: any) => part.lines.length > 0 || (part.kind === "SETTLEMENT" && BigInt(part.total) !== 0n);
+      if (!issuable(primary)) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng để phát hành.");
       // An empty sibling part (all lines removed) is left as an empty DRAFT, like any other empty DRAFT.
       const siblings = await tx.invoice.findMany({ where: { schoolId, studentId: primary.studentId, collectionRunId: primary.collectionRunId, revisesInvoiceId: null, status: "DRAFT", id: { not: primary.id } }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
-      const parts = [primary, ...siblings.filter((item: any) => item.lines.length)].sort((a: any, b: any) => (a.channel === b.channel ? 0 : a.channel === "SCHOOL" ? -1 : 1));
+      const parts = [primary, ...siblings.filter(issuable)].sort((a: any, b: any) => (a.channel === b.channel ? 0 : a.channel === "SCHOOL" ? -1 : 1));
       for (const part of parts) this.safeIssuedTotal(part.total);
-      // Amendment A2: only a settlement Invoice may be a refund notice.
-      for (const part of parts) if (part.kind !== "SETTLEMENT" && BigInt(part.total) < 0n) throw new ConflictException({ code: "INVOICE_TOTAL_NEGATIVE", message: `Hóa đơn tháng không được âm. Giảm Bớt thêm ${(-BigInt(part.total)).toLocaleString("vi-VN")} đ để phát hành; phần còn lại hoàn khi quyết toán.` });
       const banks = new Map<PaymentChannel, any>();
       for (const part of parts) banks.set(part.channel, await this.issueBankAccount(tx, schoolId, part.channel, personalBankAccountId, part.classIdSnapshot));
       const now = new Date();
@@ -825,6 +825,12 @@ export class FinanceService {
       for (const issued of issuedParts.filter((item: any) => BigInt(item.total) === 0n)) {
         await this.postReceipt(tx, schoolId, issued, 0n);
         await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_CLOSED_AT_ISSUE", operation, { id: issued.id, status: "ISSUED" }, { id: issued.id, status: "CLOSED", total: "0" });
+      }
+      // Amendment A4: a negative monthly part is not paid back; a zero Receipt closes it and its overpayment
+      // difference is carried into the Student's next monthly DRAFT of the same channel and SchoolYear.
+      for (const issued of issuedParts.filter((item: any) => item.kind !== "SETTLEMENT" && BigInt(item.total) < 0n)) {
+        await this.postReceipt(tx, schoolId, issued, 0n);
+        await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_CREDIT_CARRIED_AT_ISSUE", operation, { id: issued.id, status: "ISSUED" }, { id: issued.id, status: "CLOSED", total: issued.total.toString(), carriedCredit: (-BigInt(issued.total)).toString() });
       }
       return this.refreshInvoice(tx, schoolId, primary.id);
     });
@@ -2852,8 +2858,8 @@ export class FinanceService {
         return { channel: taxChannel(receivable.taxCategory), data: { schoolId, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice: receivable.defaultUnitPrice, quantity: 0, grossAmount: 0n, discountAmount: 0n, ...this.deductionData(proposal), netAmount: -proposal.deductionAmount, ...tax, promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [] } } };
       }).filter((line) => line.data.deductionQuantity > 0);
       const packageLines = (await this.packageRefunds(tx, schoolId, studentId, enrollment.endedOn)).map((refund: any) => ({ channel: taxChannel(refund.taxCategory), refund }));
-      const channels = [...new Set<PaymentChannel>([...mealLines, ...packageLines].map((line) => line.channel))].sort((a, b) => (a === b ? 0 : a === "SCHOOL" ? -1 : 1));
-      if (!channels.length) throw new ConflictException({ code: "SETTLEMENT_NOTHING_TO_SETTLE", message: "Không có tiền ăn chưa dùng hay học phí nộp trước cần hoàn cho học sinh này." });
+      const channels = [...new Set<PaymentChannel>([...mealLines, ...packageLines].map((line) => line.channel).concat(await this.pendingCarryChannels(tx, schoolId, studentId, run.schoolYearId, run.billingMonth)))].sort((a, b) => (a === b ? 0 : a === "SCHOOL" ? -1 : 1));
+      if (!channels.length) throw new ConflictException({ code: "SETTLEMENT_NOTHING_TO_SETTLE", message: "Không có tiền ăn chưa dùng, học phí nộp trước hay số dư chuyển kỳ cần quyết toán cho học sinh này." });
       const asOf = this.asOf(run.billingMonth);
       const created: string[] = [];
       for (const channel of channels) {
@@ -2996,6 +3002,11 @@ export class FinanceService {
     return new Set(inserted.map((invoice: { studentId: string }) => invoice.studentId));
   }
   // A difference is money owed to or held in one account, so it only carries within its payment channel.
+  // Channels where a monthly difference of the Student still has an amount not carried yet.
+  private async pendingCarryChannels(tx: any, schoolId: string, studentId: string, schoolYearId: string, billingMonth: string) {
+    const differences = await tx.settlementDifference.findMany({ where: { schoolId, studentId, schoolYearId, invoice: { collectionRun: { type: "MONTHLY", billingMonth: { lt: billingMonth } } } }, include: { carries: { select: { amount: true } }, invoice: { select: { channel: true } } } });
+    return differences.filter((difference: any) => (difference.signedAmount < 0n ? -difference.signedAmount : difference.signedAmount) > difference.carries.reduce((sum: bigint, carry: any) => sum + BigInt(carry.amount), 0n)).map((difference: any) => difference.invoice.channel as PaymentChannel);
+  }
   private async materializeCarries(tx: any, schoolId: string, invoiceId: string, studentId: string, schoolYearId: string, billingMonth: string, channel: PaymentChannel) {
     await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
     const differences = await tx.settlementDifference.findMany({
@@ -3028,7 +3039,8 @@ export class FinanceService {
        const remaining = (difference.signedAmount < 0n ? -difference.signedAmount : difference.signedAmount) - applied;
       if (remaining <= 0n) continue;
        const isShortfall = difference.signedAmount > 0n;
-      const amount = isShortfall ? remaining : (remaining > target.total ? target.total : remaining);
+      // A settlement Invoice refunds a pending credit in full, even below zero.
+      const amount = isShortfall || target.kind === "SETTLEMENT" ? remaining : (remaining > target.total ? target.total : remaining);
       if (amount <= 0n) continue;
        const carry = await tx.settlementCarry.create({ data: { schoolId, studentId, schoolYearId, settlementDifferenceId: difference.id, invoiceId, type: isShortfall ? "SHORTFALL_CARRY" : "OVERPAYMENT_CARRY", amount } });
          await this.ledger(tx, target, "SETTLEMENT_CARRY_POSTED", amount, { settlementDifferenceId: difference.id, settlementCarryId: carry.id, type: isShortfall ? "SHORTFALL_CARRY" : "OVERPAYMENT_CARRY", statusSnapshot: "DRAFT" });

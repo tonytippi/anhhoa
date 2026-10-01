@@ -146,6 +146,16 @@ describe('ParentShell', () => {
     expect(screen.queryByText('Còn phải thanh toán')).toBeNull();
   });
 
+  it('shows a negative monthly obligation as credit deducted next month', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    const item = { id: 'invoice-c', studentId: 'student-a', channel: 'PERSONAL', obligationCode: 'OBL-202610-000040', period: '2026-10', issuedTotal: '-35000', vatTotal: '0', deductionTotal: '105000', carriedCredit: '35000', actualReceipt: '0', outcome: 'OVERPAYMENT', outstanding: '0', state: 'CLOSED', effectiveAt: '2026-10-02T00:00:00.000Z', paymentInstruction: null };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => String(input).endsWith('/obligations/invoice-c') ? Promise.resolve(new Response(JSON.stringify({ data: item }))) : String(input).endsWith('/obligations') ? Promise.resolve(new Response(JSON.stringify({ data: [item] }))) : parentResponse(session, input)));
+    render(<ParentShell />); await screen.findByRole('button', { name: 'Khoản cần thanh toán' }); fireEvent.click(screen.getByRole('button', { name: 'Khoản cần thanh toán' }));
+    fireEvent.click(await screen.findByRole('button', { name: /OBL-202610-000040/ }));
+    expect(await screen.findByText('Tiền thừa trừ vào tháng sau')).toBeTruthy();
+    expect(screen.queryByText('Trường hoàn lại')).toBeNull();
+  });
+
   it('keeps the obligation list when a detail request resolves after returning', async () => {
     const detail = deferred<Response>();
     const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };

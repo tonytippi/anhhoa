@@ -116,7 +116,7 @@ describe('FinanceService validation', () => {
     expect(issued).not.toHaveProperty('debtTransfers');
     const retained = obligations.find((item) => item.id === closed.id)!;
     expect(retained).toMatchObject({ outstanding: '0', actualReceipt: '2100000', outcome: 'EXACT', state: 'CLOSED', effectiveAt: receiptAt.toISOString() });
-    expect(Object.keys(obligations[0]!)).toEqual(['id', 'studentId', 'channel', 'obligationCode', 'period', 'issuedTotal', 'vatTotal', 'deductionTotal', 'actualReceipt', 'outcome', 'outstanding', 'state', 'effectiveAt', 'paymentInstruction']);
+    expect(Object.keys(obligations[0]!)).toEqual(['id', 'studentId', 'channel', 'obligationCode', 'period', 'issuedTotal', 'vatTotal', 'deductionTotal', 'carriedCredit', 'actualReceipt', 'outcome', 'outstanding', 'state', 'effectiveAt', 'paymentInstruction']);
     expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, studentId: { in: [student, closed.studentId] }, status: { in: ['ISSUED', 'CLOSED', 'CANCELLED'] } }) }));
   });
   it('keeps an issued source effective until its revision is issued and retains a closed replacement for unresolved source coverage', async () => {

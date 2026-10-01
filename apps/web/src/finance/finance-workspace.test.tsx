@@ -1366,14 +1366,14 @@ describe("FinanceWorkspace", () => {
     expect(await screen.findByText("Máy chủ không có tài khoản nhận đang hoạt động để phát hành hóa đơn.")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
-  it("blocks issuing a monthly Invoice whose server total is negative and tells how much Bớt to lower", async () => {
+  it("explains that a negative monthly Invoice closes at issue and carries its credit to next month", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "-35000" }] };
     const draft = { id: "invoice-a", kind: "NORMAL", status: "DRAFT", total: "-35000", billingMonth: "2026-10", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Tiền ăn", unitLabel: "ngày", unitPrice: "35000", quantity: "2", amount: "-35000", grossAmount: "70000", discountAmount: "0", refundUnitPrice: "35000", deductionQuantity: "3", deductionAmount: "105000", netAmount: "-35000", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("bank-accounts") ? response({ accounts: [{ id: "bank-active", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(draft) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
-    expect((await screen.findByText("Hóa đơn tháng không được âm. Giảm Bớt thêm 35.000 đ để phát hành; phần còn lại hoàn khi quyết toán.")).getAttribute("role")).toBe("alert");
-    expect((screen.getByRole("button", { name: "Phát hành hóa đơn" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(await screen.findByText("Tổng âm: tiền thừa 35.000 đ không hoàn ngay mà trừ vào hóa đơn tháng sau. Hóa đơn tự đóng khi phát hành.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Phát hành hóa đơn" }) as HTMLButtonElement).disabled).toBe(false);
   });
   it("keeps the issued success visible when the post-issue Finance refresh fails", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };

@@ -167,9 +167,6 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     // 1.000.000 - 22 x 50.000 = -100.000; VAT 5% of a negative net is -5.000.
     expect(await prisma.invoiceLine.findUniqueOrThrow({ where: { id: line.id } })).toMatchObject({ deductionQuantity: 22, proposedDeductionQuantity: 2, deductionAmount: 1100000n, netAmount: -100000n, vatAmount: -5000n, amount: -105000n, deductionReason: "Nghỉ 2 tuần, giảm theo chính sách trường" });
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).total).toBe(-105000n);
-    // A2: a monthly Invoice may hold a negative line but is never issued with a negative total.
-    await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), {})).rejects.toMatchObject({ status: 409, response: { code: "INVOICE_TOTAL_NEGATIVE", message: expect.stringContaining("105.000") } });
-    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).toMatchObject({ status: "DRAFT" });
     // A1: the Bớt unit price never exceeds the line unit price, and the line price never drops below it.
     await expect(edit({ deductionQuantity: "1", refundUnitPrice: "1000001", reason: "Sai" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
     await expect(finance.editInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, uuid(), uuid(), { quantity: "1", unitPrice: "40000", overrideReason: "Giảm giá" })).rejects.toMatchObject({ response: { fieldErrors: { unitPrice: expect.any(String) } } });
@@ -183,6 +180,35 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     // PostgreSQL rejects a deduction that is not refund price x quantity, and a VAT not following the signed rule.
     await expect(prisma.invoiceLine.update({ where: { id: line.id }, data: { deductionAmount: 1n } })).rejects.toThrow();
     await expect(prisma.invoiceLine.update({ where: { id: line.id }, data: { deductionQuantity: 42, deductionAmount: 2100000n, netAmount: -100000n, vatAmount: -4999n, amount: -104999n } })).rejects.toThrow(/InvoiceLine_vat_snapshot/);
+  });
+
+  // Amendment A4: a negative monthly Invoice is not paid back; its credit carries into the next month,
+  // or into the settlement Invoice when the Student leaves.
+  it("closes a negative monthly Invoice at issue and carries its credit to next month or the settlement", async () => {
+    const current = await school();
+    const stays = await student(current, "Nguyễn Minh Anh");
+    const leaves = await student(current, "Trần Gia Bảo");
+    const meals = await receivable(current, "Tiền ăn", "35000", { refundUnitPrice: "35000" });
+    const personal = await account(current, "PERSONAL", "215000002088");
+    for (const pupil of [stays, leaves]) await leave(current, pupil.id, ["2026-09-04", "2026-09-05", "2026-09-07"]);
+    const october = await generatedRun(current, [{ receivableId: meals, quantity: "2" }], "2026-10");
+    const negative = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: october.runId }, orderBy: { studentNameSnapshot: "asc" } });
+    // 2 x 35.000 - 3 x 35.000 = -35.000 for each Student.
+    expect(negative.map((invoice) => invoice.total)).toEqual([-35000n, -35000n]);
+    for (const invoice of negative) await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
+    const closed = await prisma.invoice.findUniqueOrThrow({ where: { id: negative[0]!.id }, include: { receipt: true, settlementDifference: true } });
+    expect(closed).toMatchObject({ status: "CLOSED", obligationTotalSnapshot: -35000n, receipt: { actualAmount: 0n, outcome: "OVERPAYMENT" }, settlementDifference: expect.objectContaining({ signedAmount: -35000n }) });
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "INVOICE_CREDIT_CARRIED_AT_ISSUE" } })).toBe(2);
+    await expect(finance.recordPayout(current.identity.id, current.school.id, closed.id, uuid(), uuid(), { paidOn: "2026-10-12", method: "CASH", reference: "x" })).rejects.toMatchObject({ response: { code: "INVOICE_NOT_ISSUED" } });
+    await expect(prisma.receipt.create({ data: { schoolId: current.school.id, studentId: stays.id, schoolYearId: current.year.id, invoiceId: closed.id, actualAmount: 1n, outcome: "OVERPAYMENT" } })).rejects.toThrow();
+    // The Student who stays: November deducts the credit.
+    await prisma.studentEnrollment.updateMany({ where: { schoolId: current.school.id, studentId: leaves.id }, data: { lifecycle: "WITHDRAWN", endedOn: date("2026-10-20") } });
+    const november = await generatedRun(current, [{ receivableId: meals, quantity: "20" }], "2026-11");
+    const next = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: november.runId, studentId: stays.id }, include: { settlementCarries: true } });
+    expect(next).toMatchObject({ total: 665000n, settlementCarries: [expect.objectContaining({ type: "OVERPAYMENT_CARRY", amount: 35000n })] });
+    // The Student who left: the settlement refunds the uneaten meals from 20/10 (11 days) plus the credit.
+    const created: any = await finance.createSettlement(current.identity.id, current.school.id, november.runId, uuid(), uuid(), { studentId: leaves.id });
+    expect(created.outcome).toMatchObject({ kind: "SETTLEMENT", total: "-420000" });
   });
 
   it("refuses editing the deduction of another School's Invoice", async () => {
