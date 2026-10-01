@@ -69,7 +69,14 @@ assert.doesNotMatch(generation, /href="invoice-detail-review\.html"/);
 assert.match(invoice, /href="invoice-generation\.html#run-generated">Quay lại đợt thu</);
 assert.match(invoice, /data-admin-route="runs"/);
 assert.match(invoice, /Con cán bộ trường · Phiên bản 1/);
-assert.match(invoice, /Giảm trừ ưu đãi/);
+assert.match(invoice, /Ưu đãi · Con cán bộ trường/);
+assert.doesNotMatch(invoice, /Giảm trừ/);
+// Thu/Bớt on the same line: the server proposes leave-day deductions; Finance edits quantity/price with a reason.
+assert.match(invoice, /Thu 22 ngày · 35\.000 đ\/ngày[\s\S]*Bớt<br><small class="muted">3 ngày · 28\.000 đ\/ngày · nghỉ có phép 09\/2026[\s\S]*-84\.000 đ[\s\S]*Tổng phần 2<\/b><b>686\.000 đ/);
+assert.match(invoice, /id="deduction-dialog"/);
+assert.match(invoice, /Dùng lại số đề xuất/);
+assert.match(invoice, /Nhập lý do khi phần bớt khác số hệ thống đề xuất\./);
+assert.equal((invoice.match(/data-edit-deduction data-line=/g) ?? []).length, 2);
 assert.match(invoice, /10% · 150\.000 đ · hệ thống đã áp dụng/);
 assert.match(invoice, /Tổng cần thu do hệ thống xác nhận/);
 assert.match(invoice, /Yêu cầu kiểm tra lại ưu đãi/);
@@ -85,7 +92,7 @@ assert.match(invoice, /Nguyen Minh Anh Mam 4A/);
 assert.match(invoice, /Phần 1 · Thu vào tài khoản trường/);
 assert.match(invoice, /Phần 2 · Thu vào tài khoản cá nhân/);
 assert.match(invoice, /Thuế GTGT 5%[\s\S]*67\.500 đ[\s\S]*Tổng phần 1<\/b><b>1\.417\.500 đ/);
-assert.match(invoice, /id="invoice-total">2\.187\.500 đ</);
+assert.match(invoice, /id="invoice-total">2\.103\.500 đ</);
 assert.match(invoice, /Hệ thống tự dùng tài khoản trường đang hiệu lực; không đổi tại đây\./);
 assert.match(invoice, /<select id="personal-account"[^>]*>[\s\S]*<option value="an-binh" selected>[^<]*\(mặc định lớp Mầm 4A\)<\/option>/);
 assert.match(invoice, /id="issue-invoice"[^>]*>Phát hành phiếu thu</);
@@ -98,8 +105,9 @@ assert.match(paymentImage, /Thông báo học phí tháng 10\/2026/);
 assert.equal((paymentImage.match(/aria-label="Mã VietQR minh họa · Phần [12] · [\d.]+ đ"/g) ?? []).length, 2);
 assert.equal((paymentImage.match(/<dd class="content">Nguyen Minh Anh Mam 4A<\/dd>/g) ?? []).length, 2);
 assert.match(paymentImage, /Phần 1 · Thu vào tài khoản trường<\/h2><span>Mã: OBL-202610-000123[\s\S]*Thuế GTGT 5%<\/td><td class="money">67\.500 đ[\s\S]*Tổng phần 1<\/td><td class="money">1\.417\.500 đ[\s\S]*TRUONG MN ANH HOA/);
-assert.match(paymentImage, /Phần 2 · Thu vào tài khoản cá nhân<\/h2><span>Mã: OBL-202610-000124[\s\S]*Tổng phần 2<\/td><td class="money">770\.000 đ[\s\S]*NGUYEN VAN AN/);
-assert.match(paymentImage, /Tổng cần nộp <small>\(2 lần chuyển khoản\)<\/small><\/td><td class="money">2\.187\.500 đ/);
+assert.match(paymentImage, /Phần 2 · Thu vào tài khoản cá nhân<\/h2><span>Mã: OBL-202610-000124[\s\S]*Bớt nghỉ có phép 09\/2026 · 3 ngày x 28\.000<\/td><td class="money">-84\.000 đ[\s\S]*Tổng phần 2<\/td><td class="money">686\.000 đ[\s\S]*NGUYEN VAN AN/);
+assert.match(paymentImage, /Tổng cần nộp <small>\(2 lần chuyển khoản\)<\/small><\/td><td class="money">2\.103\.500 đ/);
+assert.doesNotMatch(paymentImage, /Giảm trừ/);
 assert.match(paymentImage, /OBL-202610-000123-HS001\.png/);
 assert.doesNotMatch(paymentImage, /reduce\(|parseInt|toLocaleString|Tôi đã chuyển/);
 // Finance reports are a server-result-only Finance workspace with CSV as its sole export.
@@ -133,10 +141,16 @@ assert.match(generation, /Đã tạo 125 hóa đơn nháp; bỏ qua 1 học sinh
 assert.doesNotMatch(generation, /<caption>Hóa đơn nháp đã tạo<\/caption>/);
 assert.match(generation, /id="add-student-dialog"/);
 assert.doesNotMatch(generation, /2\.120\.000/);
-assert.match(generation, /Bé Minh Anh<\/td><td>Mầm 4A<\/td><td class="money">2\.270\.000 đ<\/td><td class="money">150\.000 đ<\/td><td class="money">67\.500 đ<\/td><td class="money">2\.187\.500 đ/);
+assert.match(generation, /Bé Minh Anh<\/td><td>Mầm 4A<\/td><td class="money">2\.270\.000 đ<\/td><td class="money">150\.000 đ<\/td><td class="money">84\.000 đ<\/td><td class="money">67\.500 đ<\/td><td class="money">2\.103\.500 đ/);
+assert.match(generation, /<th class="money">Ưu đãi<\/th><th class="money">Bớt<\/th>/);
+assert.doesNotMatch(generation, /Giảm trừ/);
+// Students who left last month are settled in this run.
+assert.match(generation, /<h2 id="settlement-title">Cần quyết toán<\/h2>/);
+assert.match(generation, /data-create-settlement>Tạo hóa đơn quyết toán</);
+assert.match(generation, /href="invoice-settlement-review\.html\?run=2026-09&amp;student=gia-bao&amp;invoice=settlement-gia-bao"/);
 assert.match(generation, /<thead><tr><th>Học sinh<\/th><th>Lớp<\/th><th>Tài khoản nhận<\/th><th>Trạng thái<\/th>/);
 assert.match(generation, /Bé Minh Anh<\/td><td>Mầm 4A<\/td><td>Tài khoản trường<\/td><td><span class="badge neutral">Nháp<\/span><\/td><td class="money">1\.417\.500 đ/);
-assert.match(generation, /Bé Minh Anh<\/td><td>Mầm 4A<\/td><td>Tài khoản cá nhân<\/td><td><span class="badge neutral">Nháp<\/span><\/td><td class="money">770\.000 đ/);
+assert.match(generation, /Bé Minh Anh<\/td><td>Mầm 4A<\/td><td>Tài khoản cá nhân<\/td><td><span class="badge neutral">Nháp<\/span><\/td><td class="money">686\.000 đ/);
 assert.match(generation, /href="invoice-detail-review\.html\?run=2026-09&amp;student=minh-anh&amp;invoice=draft-minh-anh"/);
 for (const unavailable of ['Đã nhận', 'Còn thiếu', 'Receipt', 'carry', 'thực nhận', 'chênh lệch']) assert.doesNotMatch(generation, new RegExp(unavailable, 'i'));
 
@@ -144,7 +158,9 @@ for (const unavailable of ['Đã nhận', 'Còn thiếu', 'Receipt', 'carry', 't
 assert.match(receivables, /<h1>Khoản thu<\/h1>/);
 assert.match(receivables, /TRƯỜNG ÁNH HOA · NĂM HỌC 2026-2027/);
 assert.match(receivables, /<h2>Danh sách khoản thu<\/h2>/);
-assert.match(receivables, /Đơn giá mặc định \(chưa VAT\)<\/th><th>Thuế<\/th>/);
+assert.match(receivables, /Đơn giá mặc định \(chưa VAT\)<\/th><th class="money">Giá hoàn trả<\/th><th>Thuế<\/th>/);
+assert.match(receivables, /Giá hoàn trả \/ đơn vị \(chưa VAT\)<input type="number" name="refundUnitPrice" min="0" step="1" required inputmode="numeric" value="0"/);
+assert.match(receivables, /35\.000 đ\/ngày<\/td><td class="money">28\.000 đ\/ngày/);
 assert.match(receivables, /Giá \/ đơn vị \(chưa VAT\)/);
 const taxOptions = [...(receivables.match(/<select name="taxCategory"[^>]*>([\s\S]*?)<\/select>/)?.[1] ?? '').matchAll(/<option value="([A-Z_0-9]+)"[^>]*>([^<]+)<\/option>/g)].map(match => `${match[1]}:${match[2]}`);
 assert.deepEqual(taxOptions, ['NOT_DECLARED:Không kê khai nộp thuế', 'EXEMPT:Không chịu thuế', 'VAT_0:Thuế suất 0%', 'VAT_5:Thuế suất 5%', 'VAT_8:Thuế suất 8%', 'VAT_10:Thuế suất 10%']);
@@ -193,7 +209,13 @@ const receiptQueue = await read('admin/receipt-queue.html');
 assert.match(receiptQueue, /<thead><tr><th>Học sinh<\/th><th>Lớp<\/th><th>Tháng<\/th><th>Tài khoản nhận<\/th><th class="money">Còn phải thu<\/th><th>Trạng thái<\/th><th>Tùy chọn<\/th><\/tr><\/thead>/);
 assert.equal((receiptQueue.match(/<td><b>Bé Minh Anh<\/b>/g) ?? []).length, 2);
 assert.match(receiptQueue, /<td>Tài khoản trường<\/td><td class="money">1\.417\.500 đ/);
-assert.match(receiptQueue, /<td>Tài khoản cá nhân<\/td><td class="money">770\.000 đ/);
+assert.match(receiptQueue, /<td>Tài khoản cá nhân<\/td><td class="money">686\.000 đ/);
+// Negative settlement Invoices are closed by an exact recorded payout, not a Receipt.
+assert.match(receiptQueue, /<option>Cần chi hoàn<\/option>/);
+assert.match(receiptQueue, /<td class="money">Hoàn 11\.970\.000 đ<\/td><td><span class="badge warning">Chờ chi hoàn<\/span>/);
+assert.match(receiptQueue, /data-record-payout[^>]*>Ghi nhận đã chi</);
+assert.match(receiptQueue, /id="payout-dialog"/);
+assert.match(receiptQueue, /Chi đúng số tiền này một lần/);
 assert.match(receiptQueue, /<h2 id="receipt-title">Ghi thực nhận cho Bé Minh Anh · Tài khoản trường<\/h2>/);
 assert.match(receiptQueue, /'Ghi thực nhận cho Bé Minh Anh · '\+current/);
 assert.doesNotMatch(receiptQueue, /[pP]hần [12]|2\.120\.000/);
@@ -212,3 +234,19 @@ assert.match(prototype, />Lưu tài khoản thu<\/button>/);
 assert.doesNotMatch(prototype, /Chuyển năm học sẽ sao chép/);
 
 console.log('Rendered mockup contract checks passed (collection-run landing included).');
+
+// Settlement Invoice after withdrawal: no new charges, meal deduction and prepaid package refund; negative total, no VietQR.
+const settlement = await read('admin/invoice-settlement-review.html');
+const refundImage = await read('admin/invoice-refund-image.html');
+assert.match(settlement, /data-admin-route="runs"/);
+assert.match(settlement, /<h1>Hóa đơn quyết toán<\/h1>/);
+assert.match(settlement, /Học phí của tháng nghỉ học không được hoàn/);
+assert.match(settlement, /6\.900\.000 đ x 6 = 41\.400\.000 đ/);
+assert.match(settlement, /<b>-11\.400\.000 đ<\/b>/);
+assert.match(settlement, /16 ngày · 28\.000 đ\/ngày · 2 ngày nghỉ có phép 08\/2026/);
+assert.match(settlement, /id="invoice-total">12\.418\.000 đ</);
+assert.match(settlement, /id="issue-invoice"[^>]*>Phát hành phiếu hoàn tiền</);
+assert.doesNotMatch(settlement, /VietQR minh họa|parseAmount|toLocaleString|reduce\(/);
+assert.match(refundImage, /Phiếu hoàn tiền quyết toán tháng 09\/2026/);
+assert.match(refundImage, /Trường hoàn lại cho phụ huynh <small>\(2 lần chi\)<\/small><\/td><td class="money">12\.418\.000 đ/);
+assert.doesNotMatch(refundImage, /class="qr"|Mã VietQR/);

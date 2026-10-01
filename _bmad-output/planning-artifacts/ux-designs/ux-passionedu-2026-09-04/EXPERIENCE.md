@@ -1,12 +1,13 @@
 ---
 name: PassionEdu
 status: final
-updated: 2026-09-30
+updated: 2026-10-01
 sources:
   - ../../../specs/spec-passionedu/SPEC.md
   - ../../prds/prd-passionedu-2026-09-04/prd.md
   - ../../architecture/architecture-passionedu-2026-09-04/ARCHITECTURE-SPINE.md
   - ../../sprint-change-proposal-2026-09-30-taxed-receivables-and-two-payment-channels.md
+  - ../../sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction.md
 design: DESIGN.md
 ---
 
@@ -26,7 +27,7 @@ Multi-surface web: Admin and Ops are desktop-first responsive PWAs; Teacher and 
 | Danh bộ | School Admin | SchoolYear, Class, Student enrollment, Parent links, Staff assignments. |
 | Chức danh | School Admin | Quản lý Chức danh School-scoped, capability catalog được phép và trạng thái; không tạo quyền tự do hay thay login binding/phân công Lớp. |
 | Cấu hình trường | School Admin | Typed School, fixed workweek/holiday calendar, finance and attendance policy. The finance form has no School-level tax treatment field; tax is set per Receivable. Parent authorization is a server-enforced baseline, not a School setting. |
-| Khoản thu / Giảm trừ / Đợt thu | Finance | Ba destination table-first cho catalog active/inactive, policy/version/Student assignment và CollectionRun. Mỗi list có filter phù hợp, phân trang, cột `Tùy chọn` cuối dòng và modal tạo/thay đổi quan trọng. Form khoản thu có `Giá / đơn vị (chưa VAT)` và select `Mức thuế suất` (`Không kê khai nộp thuế` mặc định, `Không chịu thuế`, `Thuế suất 0%`, `5%`, `8%`, `10%`); hint dưới select nêu `Thu vào tài khoản cá nhân` cho `Không kê khai nộp thuế` và `Thu vào tài khoản trường` cho mọi mức khác. Bảng catalog có cột `Thuế`. Đổi mức thuế có audit và chỉ áp dụng cho dòng tạo/sửa sau đó; browser không gửi rate, VAT hay channel. Review/issue Invoice là deep destination theo Student, không phải sidebar item. |
+| Khoản thu / Ưu đãi / Đợt thu | Finance | Ba destination table-first cho catalog active/inactive, policy/version/Student assignment và CollectionRun. Mỗi list có filter phù hợp, phân trang, cột `Tùy chọn` cuối dòng và modal tạo/thay đổi quan trọng. Form khoản thu có `Giá / đơn vị (chưa VAT)` và select `Mức thuế suất` (`Không kê khai nộp thuế` mặc định, `Không chịu thuế`, `Thuế suất 0%`, `5%`, `8%`, `10%`); hint dưới select nêu `Thu vào tài khoản cá nhân` cho `Không kê khai nộp thuế` và `Thu vào tài khoản trường` cho mọi mức khác. Bảng catalog có cột `Thuế`. Form có `Giá hoàn trả / đơn vị (chưa VAT)` (mặc định 0, có thể lớn hơn giá thu) và bảng có cột `Giá hoàn trả`. Đổi mức thuế có audit và chỉ áp dụng cho dòng tạo/sửa sau đó; browser không gửi rate, VAT hay channel. Review/issue Invoice là deep destination theo Student, không phải sidebar item. |
 | Thu tiền / Công nợ / Báo cáo | Finance | `Thu tiền` là hàng đợi Invoice `ISSUED` table-first theo School context, một dòng mỗi hóa đơn theo tài khoản nhận (Student có hai phần hiện trên hai dòng); Receipt close, settlement carry, promotional coverage, debt, correction and school-scoped report vẫn do API trả về. |
 | Lương & Nhân sự | Payroll-enabled School Admin, Finance Manager Accountant | Employment terms, common payroll policy, machine-code mapping, file timekeeping review, payroll reconciliation, separated approval/payout and correction. “Kế toán” is a persona label for `FINANCE_MANAGER`, not a role. Hidden when the server does not grant Payroll entitlement and the action capability. |
 | Teacher home / Class day | Teacher | Assigned-Class attendance, handover and daily-journal progress for the selected date. |
@@ -82,6 +83,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 | Daily journal editor | Teacher | One current journal per Student/date in an assigned Class. Same-day edits create audited versions. Multi-image upload accepts only JPEG/PNG/WebP up to 10 MB per file; UI does not set Parent-visible state until server confirms. |
 | Daily journal | Parent | Shows only the current authorized text and protected images of one child/date within retention. It never shows Teacher identity, journal versions/audit, Class facts or attendance evidence. |
 | Service, short leave and preservation | School Admin, Finance, Parent | Admin/Finance manage effective-dated service enrollment. Parent creates short leave for an authorized child; School Admin/Finance Manager with capability decides pending late leave and Parent sees only its own result. Only School Admin uses the roster preservation transition after direct agreement; there is no Parent long-leave form or automatic fee/reduction UI. |
+| Thu/Bớt, settlement Invoice and payout (2026-10-01) | Finance | Mỗi dòng khoản thu trên DRAFT hiện `Thu` (số lượng x đơn giá) và `Bớt` (số lượng x giá hoàn trả) cùng dòng; `Bớt` do server đề xuất từ ngày nghỉ có phép tháng trước, hiện ngày đã đếm và nút `Sửa` (số lượng, giá hoàn trả, lý do khi khác đề xuất, `Dùng lại số đề xuất`). Ưu đãi hiển thị nhãn `Ưu đãi`, không dùng `Giảm trừ`. Run detail có mục `Cần quyết toán` cho học sinh nghỉ học tháng trước; `invoice-settlement-review.html` hiện hóa đơn quyết toán theo kênh với `Bớt` tiền ăn và `Hoàn học phí nộp trước` (đã nộp, giá gốc x tháng đã học, đã hoàn trước đó, VAT hoàn), tổng âm hiển thị `Trường hoàn lại cho phụ huynh`, phát hành không có VietQR. Thu tiền có lọc `Cần chi hoàn` và hộp `Ghi nhận đã chi` (số tiền read-only, ngày chi, hình thức, mã giao dịch). Ảnh phiếu hoàn tiền theo `invoice-refund-image.html`. Standalone promotional refund review below is superseded for withdrawal by the settlement Invoice. |
 | Adjustment, carry and promotional refund review | Finance | Shows immutable source, target DRAFT Invoice or no/issued/cancelled target outcome, server-returned negative amount and refund path. A settlement difference shows the closed source Invoice/Receipt, remaining amount and the next-run carry adjustment outcome; Finance cannot alter or manually reapply it. Promotional withdrawal/transfer refund shows coverage fact/Invoice/Receipt, service interval, calendar version, operating days used/remaining, calculated amount and remaining paid-source limit; editable approved amount is non-negative, cannot exceed that limit and needs a reason when overridden. |
 | Suspend/reactivate dialog | Platform Operator | Names School, current status and result of the next-request block. Requires confirmation, uses Operation reconciliation on timeout, and never offers business-data access after completion. |
 | Today card | Parent | One per authorized child. Opens child attendance and daily journal for today. Status text is always explicit; `NOT_RECORDED` is neutral. |
@@ -278,7 +280,7 @@ Operational and management copy is direct, short and Vietnamese-first. Prefer ta
 1. Sau khi Finance catalog duoc cau hinh, Hoa or Minh creates an effective-dated StudentServiceEnrollment cho service do catalog so huu; Parent cannot cancel it directly.
 2. Mai creates a short leave request from child detail; Hoa or Minh only decides a pending late request when the server grants `LEAVE_REQUEST_DECIDE`.
 3. Approval creates a meal-eligibility source only; it does not change future CollectionRun eligibility. Finance opens the immutable source and sees the server-selected next DRAFT target, or an issued/cancelled/no-target outcome.
-4. **Climax:** Minh reviews the immutable leave-day source and, only on an eligible Invoice `DRAFT`, posts the source-linked negative meal adjustment; the original source and outcome remain traceable.
+4. **Climax:** Minh reviews the immutable leave-day source and, only on an eligible Invoice `DRAFT`, posts the source-linked negative meal adjustment; the original source and outcome remain traceable. From 2026-10-01 this is the server-proposed `Bớt` on the next month's meal line, editable with a reason.
 
 5. Bao luu sau thoa thuan truc tiep la action danh bo rieng cua Hoa; UI giai thich rang Finance policy/manual adjustment, khong lifecycle, xu ly bat ky giam hoc phi hoac phi khoi phuc nao.
 6. Failure: there is no eligible DRAFT target. The UI names that outcome and does not invent a manual credit or automatic charge.

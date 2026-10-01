@@ -312,6 +312,103 @@ So that the Parent pays both parts from a banking app.
 
 **And** a unit test decodes both QR payloads; E2E downloads a two-QR image.
 
+### Story 5.26: Giá hoàn trả cho khoản thu
+
+As a Finance Manager,
+I want each receivable to carry a refund price per unit,
+So that excused absences are refunded at the School's rate instead of the charged price.
+
+Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction.
+
+**Acceptance Criteria:**
+
+**Given** a receivable is created or edited
+**When** Finance enters `Giá hoàn trả / đơn vị (chưa VAT)`
+**Then** the API stores an integer `refundUnitPrice >= 0` (it may exceed the charged price), audits the change and applies it only to DRAFT lines generated or refreshed afterwards.
+
+**And** the catalog shows a `Giá hoàn trả` column; existing receivables have `0`.
+
+### Story 5.27: Bớt theo ngày nghỉ có phép trên hóa đơn nháp
+
+As a Finance Manager,
+I want the next month's DRAFT to propose the excused absence days of the previous month,
+So that prepaid meals are deducted at the refund price without manual counting.
+
+Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction D4-D6.
+
+**Acceptance Criteria:**
+
+**Given** generation or refresh of a run for month N
+**Then** every line whose receivable has a refund price gets `Bớt` = the Student's eligible leave days of month N-1 (approved, not excluded by `PRESENT`, operating days), with counted days snapshotted; a receivable with refund price present only on the issued month N-1 Invoice gets a `Thu 0` line.
+
+**Given** Finance overwrites the `Bớt` quantity or refund price with a reason
+**Then** the API recalculates `net = gross - discount - deduction` (may be negative) and signed VAT, audits it and keeps the override on refresh; `Dùng lại số đề xuất` resets it.
+
+**And** issue freezes the deduction snapshot; tests cover tenant isolation, idempotent retry, negative VAT rounding, excluded/non-operating days and snapshot immutability.
+
+### Story 5.28: Hóa đơn âm và ghi nhận đã chi
+
+As a Finance Manager,
+I want to issue a negative Invoice and record that the School paid the parent back,
+So that refunds are settled exactly like receipts.
+
+Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction D7-D8.
+
+**Acceptance Criteria:**
+
+**Given** a DRAFT with total below zero
+**Then** issue succeeds without VietQR and the image reads `Trường hoàn lại cho phụ huynh`; a zero total closes at issue.
+
+**Given** an issued negative Invoice
+**When** Finance records a payout with date, method and reference
+**Then** the amount must equal `abs(total)`, the Invoice closes, the ledger posts `PAYOUT_POSTED` and a retry replays the same Operation; partial payout is refused.
+
+### Story 5.29: Hóa đơn quyết toán và hoàn gói nộp trước
+
+As a Finance Manager,
+I want a settlement Invoice for a Student who left last month,
+So that unused meals and the unused prepaid package are refunded in one final notice.
+
+Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction D9-D10.
+
+**Acceptance Criteria:**
+
+**Given** a Student whose enrollment ended in month N-1
+**Then** the month N run lists them under `Cần quyết toán`, and creation builds per-channel settlement DRAFTs with only `Bớt` lines (leave days plus operating days after the end date), the package refund line and same-channel carries; tuition of the withdrawal month is not refunded.
+
+**Given** an issued prepaid package
+**Then** the refund line is `paid net - list price x started months - prior refunds` plus VAT (12 months at 6.900.000 with 30.000.000 discount, 6 months used: 11.400.000 before VAT); an override needs a reason and stays within the unrefunded paid amount.
+
+**And** issuing the settlement Invoice posts `CoverageReversal` records; the standalone `Hoàn ưu đãi nộp trước` UI is removed.
+
+### Story 5.30: Gói nộp trước sang năm học sau
+
+As a Finance Manager,
+I want a prepaid package to cover consecutive calendar months past the SchoolYear end,
+So that a parent can prepay into the next SchoolYear.
+
+Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction D11.
+
+**Acceptance Criteria:**
+
+**Given** a package starting inside the SchoolYear and ending after it
+**Then** coverage is issued for every calendar month (summer included) and runs of the later SchoolYear skip the covered receivable months by Student, receivable and `billingMonth`.
+
+### Story 5.31: Hiển thị Bớt, hoàn tiền và đổi tên Ưu đãi
+
+As a Finance Manager,
+I want every Finance surface to show the deduction and refunds consistently,
+So that the parent and the accountant read the same numbers.
+
+Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction D3, §4.
+
+**Acceptance Criteria:**
+
+**Given** an Invoice with a deduction or a negative total
+**Then** invoice review, run tables, receipt queue (`Cần chi hoàn`), payment/refund image, Parent obligation and Finance report (`FINANCE_LEDGER_V5`, measures `Bớt (hoàn trả nghỉ)` and `Đã chi hoàn`) follow the approved mockups.
+
+**And** every promotion label `Giảm trừ` reads `Ưu đãi`.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.
@@ -1007,7 +1104,7 @@ So that Finance co du lieu audit-safe cho meal adjustment sau nay ma khong tu su
 **Given** `LeaveRequest` `AUTO_APPROVED`/`APPROVED` co ngay van hanh
 **When** Finance chuan bi tao/issue CollectionRun o Epic 5
 **Then** API tra immutable source fact theo School/Student/day/leave provenance va trang thai eligibility, loai tru ngay co `PRESENT` da xac nhan
-**And** source khong co `receivableId`, amount, Invoice hay CollectionRun lookup; Epic 5 sau khi co Receivable catalog moi map va materialize negative DRAFT adjustment idempotent, luu no-target, issued/voided target hoac retry outcome.
+**And** source khong co `receivableId`, amount, Invoice hay CollectionRun lookup; Epic 5 sau khi co Receivable catalog moi map va materialize negative DRAFT adjustment idempotent, luu no-target, issued/voided target hoac retry outcome. Tu 2026-10-01 adjustment nay la phan `Bớt` tren cung dong khoan thu cua DRAFT thang ke tiep (Story 5.27), khong phai dong am rieng.
 
 **Given** School Admin co `ROSTER_MANAGE` bao luu/resume `StudentEnrollment`
 **When** transition `ENROLLED -> ON_LEAVE` hoac `ON_LEAVE -> ENROLLED` co effective date va reason
