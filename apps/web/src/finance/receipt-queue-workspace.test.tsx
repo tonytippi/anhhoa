@@ -20,6 +20,34 @@ const openReceiptMenu = async () => {
 afterEach(() => { cleanup(); document.querySelectorAll("[data-base-ui-portal]").forEach((portal) => portal.remove()); vi.unstubAllGlobals(); });
 
 describe("ReceiptQueueWorkspace", () => {
+  it("lists a negative Invoice as a refund and records an exact payout instead of a receipt", async () => {
+    const refundRow = { ...row, id: "invoice-r", outstanding: "-448000", direction: "REFUND" as const };
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") return Promise.resolve(response({ status: "COMPLETED", outcome: { id: "invoice-r", student: row.student, status: "CLOSED", receipt: null, carries: [], payout: { amount: "448000", paidOn: "2026-09-12", method: "CASH", reference: "Phiếu chi 12" } } }));
+      if (url.includes("/classes")) return Promise.resolve(response({ classes: [] }));
+      if (url.includes("/receipt-queue/invoice-r")) return Promise.resolve(response({ id: "invoice-r", status: "ISSUED", outstanding: "-448000", direction: "REFUND", student: row.student }));
+      return Promise.resolve(response({ ...queue, invoices: [refundRow] }));
+    });
+    vi.stubGlobal("fetch", fetch); render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await screen.findByText("Hoàn 448.000 VND");
+    expect(screen.getByText("Chờ chi hoàn")).toBeTruthy();
+    await waitFor(() => {
+      if (!screen.queryByRole("menuitem", { name: "Ghi nhận đã chi" })) fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
+      expect(screen.getByRole("menuitem", { name: "Ghi nhận đã chi" })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ghi nhận đã chi" }));
+    const dialog = await screen.findByRole("dialog", { name: "Ghi nhận đã chi cho Bé An" });
+    expect(dialog.textContent).toContain("Số tiền phải chi do hệ thống xác nhận: 448.000 VND.");
+    expect((within(dialog).getByRole("button", { name: "Xác nhận đã chi" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("Ngày chi"), { target: { value: "2026-09-12" } });
+    fireEvent.change(within(dialog).getByLabelText("Hình thức"), { target: { value: "CASH" } });
+    fireEvent.change(within(dialog).getByLabelText("Mã giao dịch hoặc ghi chú"), { target: { value: "Phiếu chi 12" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận đã chi" }));
+    await screen.findByRole("heading", { name: "Đã ghi nhận chi hoàn" });
+    const post = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
+    expect(String(post[0])).toMatch(/\/invoices\/invoice-r\/payout$/);
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ paidOn: "2026-09-12", method: "CASH", reference: "Phiếu chi 12" });
+  });
   it("opens one server-authorized Invoice from an accessible row menu and only offers next after the refreshed queue", async () => {
     const fetch = vi.fn((url: string, options?: RequestInit) => {
       if (options?.method === "POST") return Promise.resolve(response({ status: "COMPLETED", outcome: { ...detail, status: "CLOSED", receipt: { actualAmount: "120000", outcome: "EXACT", difference: null }, carries: [], coverageFacts: [{ billingMonth: "2026-10", issuedAt: "2026-09-20T00:00:00.000Z" }] } }));

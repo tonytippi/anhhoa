@@ -78,7 +78,7 @@ afterEach(async () => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "issuedPromotionApplication", "debtTransfer", "settlementTransfer", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "receivableLifecycleTransition", "receivableGroupLifecycleTransition", "receivable", "receivableGroup", "leaveDaySource", "leaveRequestDay", "leaveRequest", "studentParent", "schoolCalendarVersion", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
+    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "issuedPromotionApplication", "debtTransfer", "settlementTransfer", "invoicePayout", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "receivableLifecycleTransition", "receivableGroupLifecycleTransition", "receivable", "receivableGroup", "leaveDaySource", "leaveRequestDay", "leaveRequest", "studentParent", "schoolCalendarVersion", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
       await (tx as any)[model].deleteMany({ where: { schoolId: { in: ids } } });
     await tx.parentProfile.deleteMany({ where: { id: { in: parentIds } } });
     await tx.school.deleteMany({ where: { id: { in: ids } } });
@@ -182,5 +182,55 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     const { runId } = await generatedRun(foreign, [{ receivableId: meals, quantity: "20" }], "2026-10");
     const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: foreign.school.id, collectionRunId: runId }, include: { lines: true } });
     await expect(finance.editLineDeduction(current.identity.id, current.school.id, invoice.id, invoice.lines[0]!.id, uuid(), uuid(), { deductionQuantity: "1", refundUnitPrice: "1", reason: "x" })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("issues a negative Invoice as a refund notice closed only by one exact payout", async () => {
+    const current = await school();
+    const pupil = await student(current);
+    const meals = await receivable(current, "Tiền ăn", "35000", { refundUnitPrice: "40000" });
+    const personal = await account(current, "PERSONAL", "215000002088");
+    await leave(current, pupil.id, ["2026-09-04", "2026-09-05", "2026-09-07"]);
+    const { runId } = await generatedRun(current, [{ receivableId: meals, quantity: "2" }], "2026-10");
+    const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
+    // 2 x 35.000 - 3 x 40.000 = -50.000: the School owes the parent.
+    expect(invoice.total).toBe(-50000n);
+    await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
+    const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+    expect(issued).toMatchObject({ status: "ISSUED", obligationTotalSnapshot: -50000n });
+    // The image is a refund notice without VietQR.
+    const image = await finance.paymentImage(current.identity.id, current.school.id, invoice.id);
+    expect(image.png.length).toBeGreaterThan(1000);
+    // A Receipt never closes a refund; the payout must be exact and is recorded once.
+    await expect(finance.closeInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { actualAmount: "0" })).rejects.toMatchObject({ response: { code: "INVOICE_REFUND_REQUIRES_PAYOUT" } });
+    const queue = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-10", direction: "REFUND" });
+    expect(queue.invoices).toEqual([expect.objectContaining({ id: invoice.id, outstanding: "-50000", direction: "REFUND" })]);
+    expect((await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-10", direction: "COLLECT" })).invoices).toEqual([]);
+    await expect(finance.recordPayout(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { paidOn: "2026-10-12", method: "CHEQUE", reference: "x" })).rejects.toMatchObject({ response: { fieldErrors: { method: expect.any(String) } } });
+    const key = uuid(), operationId = uuid();
+    const body = { paidOn: "2026-10-12", method: "BANK_TRANSFER", reference: "FT26285123456" };
+    const paid: any = await finance.recordPayout(current.identity.id, current.school.id, invoice.id, key, operationId, body);
+    expect(paid.outcome).toMatchObject({ status: "CLOSED", payout: { amount: "50000", paidOn: "2026-10-12", method: "BANK_TRANSFER", reference: "FT26285123456" } });
+    // Retry with the same key replays the Operation; a second payout is refused.
+    expect((await finance.recordPayout(current.identity.id, current.school.id, invoice.id, key, operationId, body) as any).id).toBe(operationId);
+    await expect(finance.recordPayout(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), body)).rejects.toMatchObject({ response: { code: "INVOICE_NOT_ISSUED" } });
+    expect(await prisma.financeLedgerEvent.findFirst({ where: { schoolId: current.school.id, type: "PAYOUT_POSTED" } })).toMatchObject({ amount: -50000n, invoiceId: invoice.id });
+    await expect(prisma.invoicePayout.updateMany({ where: { invoiceId: invoice.id }, data: { reference: "khác" } })).rejects.toThrow(/immutable/);
+  });
+
+  it("closes a zero-total Invoice at issue and refuses a payout on a positive Invoice", async () => {
+    const current = await school();
+    const pupil = await student(current);
+    const other = await student(current, "Trần Văn B");
+    const meals = await receivable(current, "Tiền ăn", "40000", { refundUnitPrice: "40000" });
+    const personal = await account(current, "PERSONAL", "215000002088");
+    await leave(current, pupil.id, ["2026-09-04", "2026-09-05"]);
+    const { runId } = await generatedRun(current, [{ receivableId: meals, quantity: "2" }], "2026-10");
+    const zero = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: pupil.id } });
+    expect(zero.total).toBe(0n);
+    await finance.issueInvoice(current.identity.id, current.school.id, zero.id, uuid(), uuid(), { personalBankAccountId: personal });
+    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: zero.id }, include: { receipt: true } })).toMatchObject({ status: "CLOSED", receipt: { actualAmount: 0n, outcome: "EXACT" } });
+    const positive = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: other.id } });
+    await finance.issueInvoice(current.identity.id, current.school.id, positive.id, uuid(), uuid(), { personalBankAccountId: personal });
+    await expect(finance.recordPayout(current.identity.id, current.school.id, positive.id, uuid(), uuid(), { paidOn: "2026-10-12", method: "CASH", reference: "Tiền mặt" })).rejects.toMatchObject({ response: { code: "INVOICE_NOT_REFUND" } });
   });
 });

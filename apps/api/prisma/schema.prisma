@@ -76,6 +76,7 @@ model School {
   financeLedgerEvents               FinanceLedgerEvent[]
   financeReportExports              FinanceReportExport[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
+  invoicePayouts                    InvoicePayout[]
 }
 
 enum ClassStatus {
@@ -119,6 +120,8 @@ model SchoolYear {
   closeOperation                Operation?                     @relation("SchoolYearCloseOperation", fields: [schoolId, closeOperationId], references: [schoolId, id], onDelete: Restrict)
   invoicePromotionCoverageFacts InvoicePromotionCoverageFact[]
   studentPromotionalCoverages   StudentPromotionalCoverage[]
+
+  invoicePayouts InvoicePayout[]
 
   @@unique([schoolId, id])
   @@index([schoolId, startsOn])
@@ -417,6 +420,8 @@ model Student {
   photo                           StudentPhoto?
   collectionRunCoverageSelections CollectionRunCoverageSelection[]
   invoicePromotionCoverageFacts   InvoicePromotionCoverageFact[]
+
+  invoicePayouts InvoicePayout[]
 
   @@unique([schoolId, id])
   @@index([schoolId, studentCode])
@@ -966,6 +971,7 @@ model Invoice {
   revisesInvoice                       Invoice?                       @relation("InvoiceRevision", fields: [schoolId, revisesInvoiceId], references: [schoolId, id], onDelete: Restrict)
   replacementInvoices                  Invoice[]                      @relation("InvoiceRevision")
   receipt                              Receipt?
+  payout                               InvoicePayout?
   settlementDifference                 SettlementDifference?
   settlementCarries                    SettlementCarry[]
   settlementTransfersFrom              SettlementTransfer[]           @relation("SettlementTransferSource")
@@ -1329,6 +1335,7 @@ enum FinanceLedgerEventType {
   DEBT_TRANSFER_POSTED
   COVERAGE_ISSUED
   COVERAGE_REVERSAL_POSTED
+  PAYOUT_POSTED
 }
 
 model FinanceLedgerEvent {
@@ -2011,4 +2018,34 @@ model BankAccountLifecycleTransition {
   @@unique([schoolId, bankAccountId, sequence])
   @@index([schoolId, bankAccountId, sequence])
   @@index([schoolId, operationId])
+}
+
+enum PayoutMethod {
+  BANK_TRANSFER
+  CASH
+}
+
+// Decision 2026-10-01: a negative issued Invoice is closed by one exact payout to the parent.
+model InvoicePayout {
+  id              String       @id @default(uuid()) @db.Uuid
+  schoolId        String       @db.Uuid
+  studentId       String       @db.Uuid
+  schoolYearId    String       @db.Uuid
+  invoiceId       String       @db.Uuid
+  amount          BigInt       @db.BigInt
+  paidOn          DateTime     @db.Date
+  method          PayoutMethod
+  reference       String
+  actorIdentityId String       @db.Uuid
+  membershipId    String       @db.Uuid
+  operationId     String       @db.Uuid
+  postedAt        DateTime     @default(now()) @db.Timestamptz(6)
+  school          School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student      @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+  schoolYear      SchoolYear   @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  invoice         Invoice      @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, invoiceId])
+  @@index([schoolId, postedAt])
 }

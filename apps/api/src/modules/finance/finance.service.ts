@@ -48,6 +48,7 @@ const routes = {
   prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
   issueRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue-revision",
   closeInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/receipt",
+  invoicePayout: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/payout",
   debtTransfer: "POST /api/app/schools/:schoolId/finance/debt-transfers",
   coverageReversalPreview: "POST /api/app/schools/:schoolId/finance/coverage-reversals/preview",
   coverageReversal: "POST /api/app/schools/:schoolId/finance/coverage-reversals",
@@ -109,7 +110,7 @@ export class FinanceService {
     const discountAmount = lines.reduce((total: bigint, line: any) => total + BigInt(line.discountAmount ?? 0), 0n);
     const invoiceVat = lines.reduce((total: bigint, line: any) => total + BigInt(line.vatAmount ?? 0), 0n);
     const deductionAmount = lines.reduce((total: bigint, line: any) => total + BigInt(line.deductionAmount ?? 0), 0n);
-    const sourceKey = String(provenance.coverageReversalId ?? provenance.coverageId ?? provenance.settlementDifferenceId ?? provenance.settlementCarryId ?? provenance.settlementTransferId ?? provenance.debtTransferId ?? provenance.receiptId ?? `${invoice.id}:${type}`);
+    const sourceKey = String(provenance.coverageReversalId ?? provenance.coverageId ?? provenance.settlementDifferenceId ?? provenance.settlementCarryId ?? provenance.settlementTransferId ?? provenance.debtTransferId ?? provenance.receiptId ?? provenance.payoutId ?? `${invoice.id}:${type}`);
     const statusSnapshot = typeof provenance.statusSnapshot === "string" ? provenance.statusSnapshot : invoice.status;
     await tx.financeLedgerEvent.create({ data: { schoolId: invoice.schoolId, type, sourceKey, postedAt, invoiceId: invoice.id, collectionRunId: invoice.collectionRunId, schoolYearId: invoice.schoolYearId, studentId: invoice.studentId, billingMonth: invoice.billingMonth, className: invoice.classNameSnapshot, groupName: lines.map((line: any) => line.receivable?.group?.name).filter(Boolean).sort().join(" | ") || null, statusSnapshot, amount, grossAmount, discountAmount, deductionAmount, netAmount: invoice.obligationTotalSnapshot ?? invoice.total, vatAmount: invoiceVat, provenance: { ...provenance, invoiceId: invoice.id, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, collectionRunId: invoice.collectionRunId, billingMonth: invoice.billingMonth, className: invoice.classNameSnapshot, status: statusSnapshot, lines: lines.map((line: any) => ({ id: line.id, kind: line.kind, receivableId: line.receivableId, receivableName: line.receivableNameSnapshot, groupName: line.receivable?.group?.name ?? null, grossAmount: line.grossAmount.toString(), discountAmount: line.discountAmount.toString(), deductionAmount: (line.deductionAmount ?? 0n).toString(), netAmount: line.netAmount.toString(), vatRate: line.vatRateSnapshot ?? null, vatAmount: (line.vatAmount ?? 0n).toString() })) } } });
   }
@@ -248,7 +249,7 @@ export class FinanceService {
     return BigInt(value);
   }
   private safeIssuedTotal(total: bigint) {
-    if (total > 9007199254740991n)
+    if (total > 9007199254740991n || total < -9007199254740991n)
       throw validation("invoiceId", "Tổng nghĩa vụ VND vượt giới hạn nhập thực nhận an toàn.");
   }
   private amount(unitPrice: bigint, quantity: number) {
@@ -420,6 +421,7 @@ export class FinanceService {
       revisesInvoiceId: invoice.revisesInvoiceId ?? null,
       revisionReason: invoice.revisionReason ?? null,
       replacementInvoiceId: invoice.replacementInvoices?.[0]?.id ?? null,
+      payout: invoice.payout ? { amount: invoice.payout.amount.toString(), paidOn: invoice.payout.paidOn.toISOString().slice(0, 10), method: invoice.payout.method, reference: invoice.payout.reference, postedAt: invoice.payout.postedAt.toISOString() } : null,
       receipt: invoice.receipt ? {
         actualAmount: invoice.receipt.actualAmount.toString(), outcome: invoice.receipt.outcome,
         postedAt: invoice.receipt.postedAt.toISOString(),
@@ -447,10 +449,11 @@ export class FinanceService {
     result.paymentImageAvailable = this.paymentImageAvailable(invoice);
     return result;
   }
-  // Finance may hand the Parent a payment image only while the full issued obligation is still owed.
+  // Finance may hand the Parent a payment image only while the full issued obligation is still owed,
+  // or, for a negative Invoice, while the refund has not been paid out yet.
   private paymentImageAvailable(invoice: any) {
-    return invoice.status === "ISSUED" && !invoice.receipt && !invoice.settlementTransferTo && !(invoice.debtTransfersFrom?.length)
-      && Boolean(invoice.receivingBankBinSnapshot) && BigInt(invoice.obligationTotalSnapshot ?? 0) > 0n;
+    return invoice.status === "ISSUED" && !invoice.receipt && !invoice.payout && !invoice.settlementTransferTo && !(invoice.debtTransfersFrom?.length)
+      && Boolean(invoice.receivingBankBinSnapshot) && BigInt(invoice.obligationTotalSnapshot ?? 0) !== 0n;
   }
   // The image covers the whole payment notice: one section per unsettled channel Invoice of the Student in the run.
   async paymentImage(identityId: string, schoolId: string, invoiceId: string) {
@@ -490,7 +493,8 @@ export class FinanceService {
       channel: invoice.channel, obligationCode: invoice.obligationCodeSnapshot, rows, total,
       bankName: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot,
       transferContent: invoice.transferContentSnapshot,
-      qrPayload: vietQrPayload({ bin: invoice.receivingBankBinSnapshot, accountNumber: invoice.accountNumberSnapshot, amount: total, content: invoice.transferContentSnapshot }),
+      // A refund part has no VietQR: the School pays the parent back.
+      qrPayload: total > 0n ? vietQrPayload({ bin: invoice.receivingBankBinSnapshot, accountNumber: invoice.accountNumberSnapshot, amount: total, content: invoice.transferContentSnapshot }) : null,
     };
   }
   // "Bớt Tiền ăn nghỉ có phép 09/2026" names the source month of a leave-day deduction.
@@ -557,14 +561,14 @@ export class FinanceService {
         }
         lineage = lineage.revisesInvoiceId ? byId.get(lineage.revisesInvoiceId) : undefined;
       }
-      let visible = invoice.status === "ISSUED" && outstanding > 0n;
+      let visible = invoice.status === "ISSUED" && outstanding !== 0n;
       if (invoice.status === "CLOSED") {
         const policy = await this.prisma.parentAccessPolicyVersion.findFirst({ where: { schoolId, effectiveFrom: { lte: effectiveAt } }, orderBy: { effectiveFrom: "desc" } });
         const expiresAt = new Date(effectiveAt);
         expiresAt.setUTCMonth(expiresAt.getUTCMonth() + (policy?.closedRetentionMonths ?? 12));
         visible = unresolvedCoverage || unresolvedNormalSettlement || new Date() < expiresAt;
       }
-      if (visible) result.push(this.parentObligationDto(invoice, outstanding > 0n ? outstanding : 0n, effectiveAt));
+      if (visible) result.push(this.parentObligationDto(invoice, invoice.status === "ISSUED" ? outstanding : 0n, effectiveAt));
     }
     return invoiceId ? result[0] ?? null : result;
   }
@@ -594,7 +598,8 @@ export class FinanceService {
     const billingMonth = query?.billingMonth == null || query.billingMonth === "" ? this.currentBillingMonth() : this.month(query.billingMonth);
     const classIdSnapshot = query?.classIdSnapshot ? this.identifier(query.classIdSnapshot, "classIdSnapshot") : null;
     const student = query?.student == null || query.student === "" ? null : this.text(query.student, "student", false, 100);
-    return { schoolYearId, billingMonth, classIdSnapshot, student };
+    const direction = query?.direction == null || query.direction === "" ? null : query.direction === "COLLECT" || query.direction === "REFUND" ? query.direction as "COLLECT" | "REFUND" : (() => { throw validation("direction", "Loại không hợp lệ."); })();
+    return { schoolYearId, billingMonth, classIdSnapshot, student, direction };
   }
   private receiptQueueCursor(value: unknown, filters: ReturnType<FinanceService["receiptQueueFilters"]>) {
     if (value == null || value === "") return null;
@@ -605,7 +610,7 @@ export class FinanceService {
     } catch { throw validation("cursor", "Con trỏ không hợp lệ."); }
   }
   private receiptQueueDto(invoice: any, transferred = 0n) {
-    return { id: invoice.id, channel: invoice.channel ?? "PERSONAL", collectionRunId: invoice.collectionRunId, student: { id: invoice.studentId, code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, class: { id: invoice.classIdSnapshot, name: invoice.classNameSnapshot }, schoolYearId: invoice.schoolYearId, billingMonth: invoice.billingMonth, issuedAt: invoice.issuedAt.toISOString(), outstanding: (BigInt(invoice.obligationTotalSnapshot) - transferred).toString(), status: "ISSUED" as const };
+    return { id: invoice.id, channel: invoice.channel ?? "PERSONAL", collectionRunId: invoice.collectionRunId, student: { id: invoice.studentId, code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, class: { id: invoice.classIdSnapshot, name: invoice.classNameSnapshot }, schoolYearId: invoice.schoolYearId, billingMonth: invoice.billingMonth, issuedAt: invoice.issuedAt.toISOString(), outstanding: (BigInt(invoice.obligationTotalSnapshot) - transferred).toString(), direction: BigInt(invoice.obligationTotalSnapshot) < 0n ? "REFUND" as const : "COLLECT" as const, status: "ISSUED" as const };
   }
   async receiptQueue(identityId: string, schoolId: string, query: any = {}) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
@@ -614,7 +619,7 @@ export class FinanceService {
     const limit = query?.limit == null ? 25 : Number(query.limit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw validation("limit", "Giới hạn phải từ 1 đến 100.");
     const cursor = this.receiptQueueCursor(query?.cursor, filters);
-    const baseWhere: any = { schoolId, status: "ISSUED", billingMonth: filters.billingMonth, ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.classIdSnapshot ? { classIdSnapshot: filters.classIdSnapshot } : {}), ...(filters.student ? { OR: [{ studentCodeSnapshot: { contains: filters.student, mode: "insensitive" } }, { studentNameSnapshot: { contains: filters.student, mode: "insensitive" } }] } : {}) };
+    const baseWhere: any = { schoolId, status: "ISSUED", billingMonth: filters.billingMonth, ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.classIdSnapshot ? { classIdSnapshot: filters.classIdSnapshot } : {}), ...(filters.student ? { OR: [{ studentCodeSnapshot: { contains: filters.student, mode: "insensitive" } }, { studentNameSnapshot: { contains: filters.student, mode: "insensitive" } }] } : {}), ...(filters.direction ? { obligationTotalSnapshot: filters.direction === "REFUND" ? { lt: 0n } : { gte: 0n } } : {}) };
     if (cursor && !await this.prisma.invoice.findFirst({ where: { ...baseWhere, id: cursor.id, issuedAt: cursor.issuedAt }, select: { id: true } })) throw validation("cursor", "Con trỏ không thuộc kết quả hiện tại.");
     const where = { ...baseWhere, ...(cursor ? { AND: [{ OR: [{ issuedAt: { gt: cursor.issuedAt } }, { issuedAt: cursor.issuedAt, id: { gt: cursor.id } }] }] } : {}) };
     const invoices = await this.prisma.invoice.findMany({ where, select: { id: true, studentId: true, collectionRunId: true, channel: true, studentCodeSnapshot: true, studentNameSnapshot: true, classIdSnapshot: true, classNameSnapshot: true, schoolYearId: true, billingMonth: true, issuedAt: true, obligationTotalSnapshot: true }, orderBy: [{ issuedAt: "asc" }, { id: "asc" }], take: limit + 1 });
@@ -628,7 +633,7 @@ export class FinanceService {
     const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId, status: "ISSUED" }, select: { id: true, channel: true, studentCodeSnapshot: true, studentNameSnapshot: true, obligationTotalSnapshot: true } });
     if (!invoice) throw new NotFoundException({ code: "RECEIPT_QUEUE_INVOICE_UNAVAILABLE", message: "Hóa đơn không còn có thể thu tiền." });
     const transferred = await this.prisma.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId: invoice.id }, _sum: { amount: true } });
-    return { id: invoice.id, channel: invoice.channel, student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, outstanding: (BigInt(invoice.obligationTotalSnapshot ?? 0) - BigInt(transferred._sum.amount ?? 0)).toString(), status: "ISSUED" as const };
+    return { id: invoice.id, channel: invoice.channel, student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, outstanding: (BigInt(invoice.obligationTotalSnapshot ?? 0) - BigInt(transferred._sum.amount ?? 0)).toString(), direction: BigInt(invoice.obligationTotalSnapshot ?? 0) < 0n ? "REFUND" as const : "COLLECT" as const, status: "ISSUED" as const };
   }
   async receiptQueueClasses(identityId: string, schoolId: string, query: any = {}) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
@@ -636,7 +641,7 @@ export class FinanceService {
     const values = await this.prisma.invoice.findMany({ where: { schoolId, status: "ISSUED", billingMonth: filters.billingMonth, ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}) }, distinct: ["classIdSnapshot", "classNameSnapshot"], select: { classIdSnapshot: true, classNameSnapshot: true }, orderBy: { classNameSnapshot: "asc" } });
     return { classes: values.map((item) => ({ id: item.classIdSnapshot, name: item.classNameSnapshot })), filters: { schoolYearId: filters.schoolYearId, billingMonth: filters.billingMonth } };
   }
-  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, settlementTransferTo: { include: { sourceReceipt: { select: { postedAt: true } } } }, settlementCarries: { orderBy: { createdAt: "asc" } }, debtTransfersFrom: { select: { targetInvoiceId: true, amount: true, reason: true, createdAt: true } }, debtTransfersTo: { orderBy: { createdAt: "asc" } }, coverageFacts: { include: { issuedCoverage: true }, orderBy: [{ billingMonth: "asc" }, { receivableId: "asc" }] } };
+  private invoiceInclude: any = { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }], include: { promotionApplications: { orderBy: { ordinal: "asc" } } } }, replacementInvoices: { select: { id: true }, take: 1 }, receipt: { include: { difference: true } }, payout: true, settlementTransferTo: { include: { sourceReceipt: { select: { postedAt: true } } } }, settlementCarries: { orderBy: { createdAt: "asc" } }, debtTransfersFrom: { select: { targetInvoiceId: true, amount: true, reason: true, createdAt: true } }, debtTransfersTo: { orderBy: { createdAt: "asc" } }, coverageFacts: { include: { issuedCoverage: true }, orderBy: [{ billingMonth: "asc" }, { receivableId: "asc" }] } };
   async transferDebt(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
     const sourceInvoiceId = this.identifier(body?.sourceInvoiceId, "sourceInvoiceId"); const targetInvoiceId = this.identifier(body?.targetInvoiceId, "targetInvoiceId");
@@ -672,6 +677,17 @@ export class FinanceService {
       const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId } });
       if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
       if (invoice.status !== "ISSUED") throw new ConflictException({ code: "INVOICE_NOT_ISSUED", message: "Chỉ hóa đơn đã phát hành mới được ghi thực nhận." });
+      if (BigInt(invoice.obligationTotalSnapshot) < 0n) throw new ConflictException({ code: "INVOICE_REFUND_REQUIRES_PAYOUT", message: "Phiếu hoàn tiền được đóng bằng ghi nhận đã chi, không ghi thực nhận." });
+      await this.postReceipt(tx, schoolId, invoice, actualAmount);
+      const closed = await tx.invoice.findFirstOrThrow({ where: { id: invoice.id, schoolId }, include: this.invoiceInclude });
+      const result = this.invoiceDto(closed);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_RECEIPT_POSTED", operation, { id: invoice.id, status: "ISSUED" }, result);
+      return result;
+    });
+  }
+  // Posts the Receipt of one locked ISSUED Invoice, its settlement difference and any promotional coverage.
+  private async postReceipt(tx: any, schoolId: string, invoice: any, actualAmount: bigint) {
+    const invoiceId = invoice.id;
       const transferred = await tx.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId: invoice.id }, _sum: { amount: true } });
       const issuedAmount = BigInt(invoice.obligationTotalSnapshot) - BigInt(transferred._sum.amount ?? 0);
       // Canonical difference: unpaid obligation is positive; excess receipt is negative.
@@ -697,9 +713,26 @@ export class FinanceService {
          const coverage = await tx.$queryRaw<Array<{ id: string; issuedAt: Date }>>`INSERT INTO "StudentPromotionalCoverage" ("schoolId", "studentId", "schoolYearId", "receivableId", "billingMonth", "sourceFactId", "sourceInvoiceId", "sourceReceiptId", "policyId", "versionId", "originalPrice", "reduction", "vatRateSnapshot", "vatAmount", "serviceStart", "serviceEnd", "calendarEffectiveFrom", "timezone") VALUES (${schoolId}::uuid, ${fact.studentId}::uuid, ${fact.schoolYearId}::uuid, ${fact.receivableId}::uuid, ${fact.billingMonth}, ${fact.id}::uuid, ${invoice.id}::uuid, ${receipt.id}::uuid, ${fact.policyId}::uuid, ${fact.versionId}::uuid, ${fact.originalPrice}, ${fact.reduction}, ${rate}::integer, ${coverageVat}, ${fact.serviceStart}::date, ${fact.serviceEnd}::date, ${fact.calendarEffectiveFrom}::date, ${fact.timezone}) RETURNING "id", "issuedAt"`;
          await this.ledger(tx, invoice, "COVERAGE_ISSUED", paidNet + coverageVat, { coverageId: coverage[0]!.id, sourceFactId: fact.id, receiptId: receipt.id, receivableId: fact.receivableId, coveredBillingMonth: fact.billingMonth, vatRate: rate, vatAmount: coverageVat.toString() }, coverage[0]!.issuedAt);
        }
+  }
+  // Decision 2026-10-01 D8: the School pays back the whole refund of a negative Invoice in one recorded payout.
+  async recordPayout(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const paidOn = this.date(body?.paidOn, "paidOn")!;
+    const method = body?.method; if (method !== "BANK_TRANSFER" && method !== "CASH") throw validation("method", "Hình thức chi không hợp lệ.");
+    const reference = this.text(body?.reference, "reference", true, 200)!;
+    return this.mutate(actor, identityId, schoolId, routes.invoicePayout, key, operationId, { invoiceId, paidOn: paidOn.toISOString(), method, reference }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId } });
+      if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+      if (invoice.status !== "ISSUED") throw new ConflictException({ code: "INVOICE_NOT_ISSUED", message: "Chỉ phiếu hoàn tiền đã phát hành mới được ghi nhận đã chi." });
+      const obligation = BigInt(invoice.obligationTotalSnapshot);
+      if (obligation >= 0n) throw new ConflictException({ code: "INVOICE_NOT_REFUND", message: "Hóa đơn này thu tiền của phụ huynh; hãy ghi thực nhận." });
+      const payout = await tx.invoicePayout.create({ data: { schoolId, studentId: invoice.studentId, schoolYearId: invoice.schoolYearId, invoiceId: invoice.id, amount: -obligation, paidOn, method, reference, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation } });
+      await this.ledger(tx, invoice, "PAYOUT_POSTED", obligation, { payoutId: payout.id, paidOn: paidOn.toISOString().slice(0, 10), method, reference }, payout.postedAt);
+      await tx.invoice.update({ where: { id: invoice.id }, data: { status: "CLOSED" } });
       const closed = await tx.invoice.findFirstOrThrow({ where: { id: invoice.id, schoolId }, include: this.invoiceInclude });
       const result = this.invoiceDto(closed);
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_RECEIPT_POSTED", operation, { id: invoice.id, status: "ISSUED" }, result);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_PAYOUT_POSTED", operation, { id: invoice.id, status: "ISSUED" }, result, reference);
       return result;
     });
   }
@@ -840,10 +873,11 @@ export class FinanceService {
       const run = await this.lockRun(tx, schoolId, primary.collectionRunId);
       const year = await this.lockYear(tx, schoolId, primary.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
-      if (!primary.lines.length || primary.total <= 0n) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng và tổng VND dương để phát hành.");
-      // An empty sibling part (all lines removed) is left as a zero DRAFT, like any other empty DRAFT.
+      // Decision 2026-10-01 D7: a part may be negative (refund notice) or zero (closed at issue).
+      if (!primary.lines.length) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng để phát hành.");
+      // An empty sibling part (all lines removed) is left as an empty DRAFT, like any other empty DRAFT.
       const siblings = await tx.invoice.findMany({ where: { schoolId, studentId: primary.studentId, collectionRunId: primary.collectionRunId, revisesInvoiceId: null, status: "DRAFT", id: { not: primary.id } }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
-      const parts = [primary, ...siblings.filter((item: any) => item.lines.length && item.total > 0n)].sort((a: any, b: any) => (a.channel === b.channel ? 0 : a.channel === "SCHOOL" ? -1 : 1));
+      const parts = [primary, ...siblings.filter((item: any) => item.lines.length)].sort((a: any, b: any) => (a.channel === b.channel ? 0 : a.channel === "SCHOOL" ? -1 : 1));
       for (const part of parts) this.safeIssuedTotal(part.total);
       const banks = new Map<PaymentChannel, any>();
       for (const part of parts) banks.set(part.channel, await this.issueBankAccount(tx, schoolId, part.channel, personalBankAccountId, part.classIdSnapshot));
@@ -865,6 +899,11 @@ export class FinanceService {
         issuedParts.push(issued);
       }
       for (const issued of issuedParts) await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_ISSUED", operation, { id: issued.id, status: "DRAFT" }, this.invoiceDto(issued));
+      // Nothing is owed either way: a zero part closes at issue with an exact zero Receipt.
+      for (const issued of issuedParts.filter((item: any) => BigInt(item.total) === 0n)) {
+        await this.postReceipt(tx, schoolId, issued, 0n);
+        await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_CLOSED_AT_ISSUE", operation, { id: issued.id, status: "ISSUED" }, { id: issued.id, status: "CLOSED", total: "0" });
+      }
       return this.refreshInvoice(tx, schoolId, primary.id);
     });
   }
