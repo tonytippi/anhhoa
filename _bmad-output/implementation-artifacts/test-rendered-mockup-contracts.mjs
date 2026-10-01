@@ -118,8 +118,15 @@ assert.match(report, /Tệp CSV chứa đúng các dòng và metadata của kế
 for (const filter of ['collectionRun', 'receivableGroup', 'invoiceStatus']) assert.match(report, new RegExp(`name="${filter}"`));
 for (const source of ['finance-source-difference', 'finance-source-coverage', 'finance-source-receipt', 'finance-source-refund', 'finance-source-reversal']) assert.match(report, new RegExp(source));
 assert.match(report, /aria-busy="true"/);
-assert.match(report, /Settlement difference mở[\s\S]*Carry đã materialize[\s\S]*Revision\/hủy/);
-assert.match(report, /Hoàn tiền coverage[\s\S]*Reversal[\s\S]*Tiền\/điều chỉnh có dấu/);
+assert.match(report, /Chênh lệch chờ chuyển kỳ sau[\s\S]*Đã chuyển sang kỳ sau[\s\S]*Hóa đơn thay thế/);
+// Report leads with figures and charts; result metadata is a one-line footnote, not a card.
+assert.doesNotMatch(report, /Kết quả do hệ thống trả về|Phiên bản định nghĩa/);
+assert.match(report, /class="kpis" data-report-summary/);
+assert.match(report, /data-report-charts/);
+for (const kind of ['columns', 'bridge', 'stacked', 'status', 'aging']) assert.match(report, new RegExp(`kind: '${kind}'`));
+assert.match(report, /Xem dạng bảng/);
+assert.match(report, /Số liệu chốt <b data-as-of>/);
+assert.match(report, /Hoàn học phí nộp trước[\s\S]*Đảo phiếu thu[\s\S]*Chi hoàn quyết toán/);
 assert.match(report, /query\(\) !== 'workspace=' \+ current \+ '&fixture=october'/);
 assert.doesNotMatch(report, /PDF|XLSX|Payroll|createObjectURL|Blob\(|toLocaleString|reduce\(|invoice-detail-review/);
 // Finance Admin MVP exposes catalog and CollectionRun destinations only.

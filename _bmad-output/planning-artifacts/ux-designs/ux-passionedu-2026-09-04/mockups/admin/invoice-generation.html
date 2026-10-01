@@ -9,7 +9,7 @@
   <script defer src="admin-shell.js"></script>
 </head>
 <body>
-  <div data-admin-shell data-admin-route="runs" class="finance-page">
+  <div data-admin-shell data-admin-route="runs"><div class="finance-page">
     <section id="run-list" data-run-view>
       <div class="route">
         <div>
@@ -147,7 +147,7 @@
 
     <dialog id="create-dialog"><form method="dialog" class="dialog-body"><h2>Tạo hoặc mở đợt thu</h2><p class="muted">Mỗi tháng có một đợt thu. Máy chủ tạo mới hoặc mở đúng đợt đã có.</p><label class="field">Năm học<select><option>Năm học 2026-2027</option></select></label><label class="field">Tháng thu<input type="month" value="2026-12"></label><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" value="default">Xác nhận tạo hoặc mở</button></div></form></dialog>
     <dialog id="add-student-dialog"><form method="dialog" class="dialog-body"><h2>Thêm học sinh vào đợt đã tạo</h2><p class="muted">Máy chủ tự xác nhận điều kiện và dùng bản chốt khoản thu của đợt.</p><div class="table-wrap"><table><caption>Học sinh có thể yêu cầu thêm</caption><thead><tr><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody><tr><td>AH-130 / Bé Khánh Linh</td><td><button class="btn btn-secondary" value="default">Yêu cầu thêm</button></td></tr></tbody></table></div><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Đóng</button></div></form></dialog>
-  </div>
+  </div></div>
   <script>
     window.addEventListener('DOMContentLoaded', function () {
       var views = [].slice.call(document.querySelectorAll('[data-run-view]'));

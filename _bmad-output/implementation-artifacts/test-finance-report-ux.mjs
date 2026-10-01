@@ -22,15 +22,18 @@ function load(query = '?workspace=overview&fixture=october') {
 const window = load();
 const document = window.document;
 assert.equal(document.querySelector('[data-workspace="overview"]').getAttribute('aria-current'), 'page');
-assert.match(document.querySelector('[data-report-rows]').textContent, /Thu đủ; coverage đã cấp/);
-assert.match(document.querySelector('[data-report-result]').textContent, /Ưu đãi[\s\S]*Bớt \(hoàn trả nghỉ\)[\s\S]*Thuế GTGT[\s\S]*Hoàn tiền coverage[\s\S]*VAT đã hoàn[\s\S]*Đã chi hoàn/);
+assert.match(document.querySelector('[data-report-rows]').textContent, /Mầm 4A[\s\S]*44\.800\.000 đ[\s\S]*86%/);
+assert.match(document.querySelector('[data-report-summary]').textContent, /Phải thu ròng[\s\S]*243\.740\.000 đ[\s\S]*Đã thu[\s\S]*Còn phải thu[\s\S]*Đã chi hoàn/);
+assert.equal(document.querySelectorAll('[data-report-charts] svg.chart').length, 3);
+assert.ok(document.querySelectorAll('[data-report-charts] .mark[tabindex="0"]').length > 10, 'chart marks are focusable for tooltips');
+assert.match(document.querySelector('[data-report-result]').textContent, /Ưu đãi[\s\S]*Bớt \(hoàn trả nghỉ\)[\s\S]*Thuế GTGT[\s\S]*Hoàn học phí nộp trước[\s\S]*VAT đã hoàn/);
 assert.match(document.querySelector('[data-normalized-filter]').textContent, /Tháng thu 10\/2026/);
 assert.equal(document.querySelector('[data-report-export]').hidden, false);
 
 for (const [workspace, required] of [
-  ['runs', /Settlement difference mở[\s\S]*Carry đã materialize[\s\S]*Revision\/hủy[\s\S]*SHORTFALL[\s\S]*bản thay thế; nguồn đã hủy/],
-  ['debt', /Prior debt[\s\S]*Carry chờ kỳ sau[\s\S]*Coverage còn hiệu lực[\s\S]*Hoàn tiền coverage/],
-  ['ledger', /Receipt[\s\S]*\+4\.965\.000 đ[\s\S]*Hoàn tiền coverage[\s\S]*-1\.200\.000 đ[\s\S]*Reversal[\s\S]*-450\.000 đ/]
+  ['runs', /Chênh lệch chờ chuyển kỳ sau[\s\S]*Đã chuyển sang kỳ sau[\s\S]*Đã thu đủ[\s\S]*Thu thiếu[\s\S]*bản thay thế; nguồn đã hủy/],
+  ['debt', /Nợ kỳ trước[\s\S]*Chênh lệch chờ kỳ sau[\s\S]*Gói nộp trước còn hiệu lực[\s\S]*Quá hạn trên 30 ngày/],
+  ['ledger', /Phiếu thu[\s\S]*\+4\.965\.000 đ[\s\S]*Hoàn học phí nộp trước[\s\S]*-1\.200\.000 đ[\s\S]*Đảo phiếu thu[\s\S]*-450\.000 đ/]
 ]) {
   const fixture = load(`?workspace=${workspace}&fixture=october`);
   assert.equal(fixture.document.querySelector(`[data-workspace="${workspace}"]`).getAttribute('aria-current'), 'page');
