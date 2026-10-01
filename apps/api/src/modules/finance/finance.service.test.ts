@@ -55,9 +55,12 @@ describe('FinanceService validation', () => {
   });
   it('aggregates only same-School ledger facts at or before the normalized cutoff', async () => {
     const events = [{ id: 'issued', type: 'INVOICE_ISSUED', postedAt: new Date('2026-09-01T00:00:00.000Z'), amount: 0n, netAmount: 100n, billingMonth: '2026-09', invoiceId: 'invoice', provenance: {} }, { id: 'receipt', type: 'RECEIPT_POSTED', postedAt: new Date('2026-09-02T00:00:00.000Z'), amount: 90n, netAmount: 0n, billingMonth: '2026-09', invoiceId: 'invoice', provenance: {} }];
-    const prisma = { financeLedgerEvent: { findMany: vi.fn().mockResolvedValue(events) } };
-    const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).report('identity', school, 'overview', { asOf: '2026-09-03T00:00:00.000Z', billingMonth: '2026-09' });
-    expect(result).toMatchObject({ timezone: 'Asia/Ho_Chi_Minh', reportDefinitionVersion: 'FINANCE_LEDGER_V4', summary: { netBilled: '100', actualReceipt: '90' } });
+    const prisma = { financeLedgerEvent: { findMany: vi.fn().mockResolvedValue(events) }, invoice: { findMany: vi.fn().mockResolvedValue([{ id: 'invoice', dueOn: new Date('2026-09-01T00:00:00.000Z'), studentId: 'student', studentCodeSnapshot: 'HS1', studentNameSnapshot: 'Bé An', classNameSnapshot: 'Lá 1' }]) } };
+    const school = crypto.randomUUID(); const result: any = await new FinanceService(prisma as never, authorization as never).report('identity', school, 'overview', { asOf: '2026-09-03T00:00:00.000Z', billingMonth: '2026-09' });
+    expect(result).toMatchObject({ timezone: 'Asia/Ho_Chi_Minh', reportDefinitionVersion: 'FINANCE_LEDGER_V5', summary: { netBilled: '100', actualReceipt: '90', deduction: '0', payout: '0' } });
+    // Chart series are server-computed: billed vs collected by month and the open balance aged from its due date.
+    expect(result.charts.byMonth).toEqual([{ billingMonth: '2026-09', netBilled: '100', actualReceipt: '90' }]);
+    expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school, id: { in: ['invoice'] } } }));
     expect(prisma.financeLedgerEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, postedAt: { lte: new Date('2026-09-03T00:00:00.000Z') }, billingMonth: '2026-09' }) }));
   });
   it('rejects ambiguous report cutoffs instead of silently choosing the current time', async () => {
@@ -113,7 +116,7 @@ describe('FinanceService validation', () => {
     expect(issued).not.toHaveProperty('debtTransfers');
     const retained = obligations.find((item) => item.id === closed.id)!;
     expect(retained).toMatchObject({ outstanding: '0', actualReceipt: '2100000', outcome: 'EXACT', state: 'CLOSED', effectiveAt: receiptAt.toISOString() });
-    expect(Object.keys(obligations[0]!)).toEqual(['id', 'studentId', 'channel', 'obligationCode', 'period', 'issuedTotal', 'vatTotal', 'actualReceipt', 'outcome', 'outstanding', 'state', 'effectiveAt', 'paymentInstruction']);
+    expect(Object.keys(obligations[0]!)).toEqual(['id', 'studentId', 'channel', 'obligationCode', 'period', 'issuedTotal', 'vatTotal', 'deductionTotal', 'actualReceipt', 'outcome', 'outstanding', 'state', 'effectiveAt', 'paymentInstruction']);
     expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, studentId: { in: [student, closed.studentId] }, status: { in: ['ISSUED', 'CLOSED', 'CANCELLED'] } }) }));
   });
   it('keeps an issued source effective until its revision is issued and retains a closed replacement for unresolved source coverage', async () => {

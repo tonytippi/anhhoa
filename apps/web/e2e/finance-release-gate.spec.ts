@@ -241,10 +241,11 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   const overviewResponse = await reportResponse;
   expect(overviewResponse.status()).toBe(200);
   expect(overviewResponse.headers()['cache-control']).toBe('private, no-store');
-  await expect(page.getByRole('heading', { name: 'Báo cáo Finance' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Báo cáo tài chính' })).toBeVisible();
   await expect(page.getByRole('tablist', { name: 'Không gian báo cáo' }).getByRole('tab')).toHaveCount(4);
-  await expect(page.getByText(/Chốt tại .*Asia\/Ho_Chi_Minh; FINANCE_LEDGER_V4\./)).toBeVisible();
-  await expect(page.getByText('285.000 VND').first()).toBeVisible();
+  await expect(page.getByText(/Số liệu chốt/)).toBeVisible();
+  await expect(page.getByText(/múi giờ Asia\/Ho_Chi_Minh, phiên bản FINANCE_LEDGER_V5/)).toBeVisible();
+  await expect(page.getByText('285.000 đ').first()).toBeVisible();
 
   const exportResponse = page.waitForResponse((response) =>
     response.url().includes('/finance/reports/overview/exports') &&
@@ -255,7 +256,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     response.request().method() === 'GET',
   );
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Tải CSV từ máy chủ' }).click();
+  await page.getByRole('button', { name: 'Tải CSV' }).click();
   expect((await exportResponse).status()).toBe(201);
   const csvResponse = await downloadResponse;
   expect(csvResponse.status()).toBe(200);

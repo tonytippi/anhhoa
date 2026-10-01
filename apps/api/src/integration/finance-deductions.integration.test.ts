@@ -215,6 +215,12 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     await expect(finance.recordPayout(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), body)).rejects.toMatchObject({ response: { code: "INVOICE_NOT_ISSUED" } });
     expect(await prisma.financeLedgerEvent.findFirst({ where: { schoolId: current.school.id, type: "PAYOUT_POSTED" } })).toMatchObject({ amount: -50000n, invoiceId: invoice.id });
     await expect(prisma.invoicePayout.updateMany({ where: { invoiceId: invoice.id }, data: { reference: "khác" } })).rejects.toThrow(/immutable/);
+    // Report V5: billed deductions and cash paid back are their own measures; nothing is still owed.
+    const report: any = await finance.report(current.identity.id, current.school.id, "overview", {});
+    expect(report).toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V5", summary: { deduction: "120000", payout: "50000", refundOwed: "0", netBilled: "-50000" } });
+    const cash: any = await finance.report(current.identity.id, current.school.id, "cash-adjustments", {});
+    expect(cash.rows.map((row: any) => [row.type, row.amount])).toContainEqual(["PAYOUT_POSTED", "-50000"]);
+    expect(cash.charts.cashByWeek).toEqual([expect.objectContaining({ cashIn: "0", cashOut: "50000" })]);
   });
 
   it("closes a zero-total Invoice at issue and refuses a payout on a positive Invoice", async () => {

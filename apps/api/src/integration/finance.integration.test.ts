@@ -2647,7 +2647,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(events.find((event) => event.type === "RECEIPT_POSTED")?.provenance).toMatchObject({ invoiceId: fixture.invoice.id, lines: expect.any(Array) });
       await expect(prisma.financeLedgerEvent.delete({ where: { id: events[0]!.id } })).rejects.toThrow(/append-only/);
       const beforeReceipt = new Date(events.find((event) => event.type === "RECEIPT_POSTED")!.postedAt.getTime() - 1);
-      await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", { asOf: beforeReceipt.toISOString(), schoolYearId: fixture.current.year.id })).resolves.toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V4", summary: { netBilled: "100", actualReceipt: "0" } });
+      await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", { asOf: beforeReceipt.toISOString(), schoolYearId: fixture.current.year.id })).resolves.toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V5", summary: { netBilled: "100", actualReceipt: "0" } });
       for (const workspace of ["overview", "collection-runs", "outstanding", "cash-adjustments"]) await expect(finance.report(fixture.current.identity.id, fixture.current.school.id, workspace, { billingMonth: "2026-09", className: fixture.current.activeClass.name })).resolves.toMatchObject({ workspace, timezone: "Asia/Ho_Chi_Minh" });
       const key = uuid(); const operationId = uuid(); const exported = await finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", key, operationId, { billingMonth: "2026-09" });
       await expect(finance.requestReportExport(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", key, uuid(), { billingMonth: "2026-09" })).resolves.toEqual(exported);
@@ -2655,7 +2655,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await finance.operation(fixture.current.identity.id, fixture.current.school.id, operationId)).toMatchObject({ id: operationId, status: "COMPLETED", outcome: { exportId: exportOutcome.exportId } });
       expect(await prisma.financeReportExport.count({ where: { schoolId: fixture.current.school.id, operationId } })).toBe(1);
       const downloaded = await finance.downloadReportExport(fixture.current.identity.id, fixture.current.school.id, exportOutcome.exportId);
-      expect(downloaded).toMatchObject({ workspace: "cash-adjustments" }); expect(Buffer.from(downloaded.csv).toString()).toContain("FINANCE_LEDGER_V4");
+      expect(downloaded).toMatchObject({ workspace: "cash-adjustments" }); expect(Buffer.from(downloaded.csv).toString()).toContain("FINANCE_LEDGER_V5");
       expect(await prisma.auditRecord.count({ where: { schoolId: fixture.current.school.id, action: { in: ["FINANCE_REPORT_EXPORT_REQUESTED", "FINANCE_REPORT_EXPORT_DOWNLOADED"] } } })).toBe(2);
       const secondActor = await schoolAdmin(fixture.current);
       await expect(finance.downloadReportExport(secondActor.identity.id, fixture.current.school.id, exportOutcome.exportId)).resolves.toMatchObject({ workspace: "cash-adjustments" });

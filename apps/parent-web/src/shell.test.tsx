@@ -132,6 +132,20 @@ describe('ParentShell', () => {
     second.resolve(new Response(JSON.stringify({ data: { id: 'invoice-b', studentId: 'student-a', obligationCode: 'OBL-202610-000001', period: '2026-10', issuedTotal: '200', actualReceipt: '0', outcome: null, outstanding: '200', state: 'ISSUED', effectiveAt: '2026-10-01T00:00:00.000Z', paymentInstruction: { receivingBank: 'Ngân hàng B', accountNumber: '2', accountHolderName: 'Chủ B', transferContent: 'Nội dung B' } } }))); await screen.findByText('Ngân hàng nhận'); expect(screen.getByText('Ngân hàng B')).toBeTruthy(); first.resolve(new Response(null, { status: 403 })); await new Promise<void>((resolve) => queueMicrotask(resolve)); expect(screen.getByText('OBL-202610-000001')).toBeTruthy(); expect(screen.queryByRole('heading', { name: 'Chọn trường để xem' })).toBeNull();
   });
 
+  it('shows a refund owed by the School without transfer instructions and names the leave deduction', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    const item = { id: 'invoice-r', studentId: 'student-a', channel: 'PERSONAL', obligationCode: 'OBL-202609-000312', period: '2026-09', issuedTotal: '-448000', vatTotal: '0', deductionTotal: '448000', actualReceipt: '0', outcome: null, outstanding: '-448000', state: 'ISSUED', effectiveAt: '2026-09-02T00:00:00.000Z', paymentInstruction: { receivingBank: 'Ngân hàng A', accountNumber: '1', accountHolderName: 'A', transferContent: 'Be An' } };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => String(input).endsWith('/obligations/invoice-r') ? Promise.resolve(new Response(JSON.stringify({ data: item }))) : String(input).endsWith('/obligations') ? Promise.resolve(new Response(JSON.stringify({ data: [item] }))) : parentResponse(session, input)));
+    render(<ParentShell />); await screen.findByRole('button', { name: 'Khoản cần thanh toán' }); fireEvent.click(screen.getByRole('button', { name: 'Khoản cần thanh toán' }));
+    const card = await screen.findByRole('button', { name: /OBL-202609-000312/ });
+    expect(card.textContent).toContain('Trường hoàn lại 448.000');
+    fireEvent.click(card);
+    expect(await screen.findByRole('heading', { name: 'Trường hoàn lại cho phụ huynh' })).toBeTruthy();
+    expect(screen.getByText('Đã bớt 448.000 đ cho ngày nghỉ có phép')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Thông tin chuyển khoản' })).toBeNull();
+    expect(screen.queryByText('Còn phải thanh toán')).toBeNull();
+  });
+
   it('keeps the obligation list when a detail request resolves after returning', async () => {
     const detail = deferred<Response>();
     const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
