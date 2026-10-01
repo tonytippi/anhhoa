@@ -78,7 +78,7 @@ afterEach(async () => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "issuedPromotionApplication", "debtTransfer", "settlementTransfer", "invoicePayout", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "receivableLifecycleTransition", "receivableGroupLifecycleTransition", "receivable", "receivableGroup", "leaveDaySource", "leaveRequestDay", "leaveRequest", "studentParent", "schoolCalendarVersion", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
+    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "issuedPromotionApplication", "debtTransfer", "settlementTransfer", "invoicePayout", "coverageReversal", "studentPromotionalCoverage", "invoicePromotionCoverageFact", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "receivableLifecycleTransition", "receivableGroupLifecycleTransition", "receivable", "studentPromotionAssignment", "promotionPolicyTarget", "promotionPolicyVersion", "promotionPolicy", "receivableGroup", "leaveDaySource", "leaveRequestDay", "leaveRequest", "studentParent", "schoolCalendarVersion", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
       await (tx as any)[model].deleteMany({ where: { schoolId: { in: ids } } });
     await tx.parentProfile.deleteMany({ where: { id: { in: parentIds } } });
     await tx.school.deleteMany({ where: { id: { in: ids } } });
@@ -232,5 +232,92 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     const positive = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: other.id } });
     await finance.issueInvoice(current.identity.id, current.school.id, positive.id, uuid(), uuid(), { personalBankAccountId: personal });
     await expect(finance.recordPayout(current.identity.id, current.school.id, positive.id, uuid(), uuid(), { paidOn: "2026-10-12", method: "CASH", reference: "Tiền mặt" })).rejects.toMatchObject({ response: { code: "INVOICE_NOT_REFUND" } });
+  });
+
+  // The stakeholder example: 6.900.000/month, 12 months prepaid with 30.000.000 off (52.800.000 paid),
+  // withdrawal after 6 started months refunds 52.800.000 - 6.900.000 x 6 = 11.400.000 plus its VAT.
+  it("settles a withdrawn Student with unused meals and the unused prepaid package across the SchoolYear end", async () => {
+    const current = await school();
+    const pupil = await student(current, "Trần Gia Bảo");
+    const stays = await student(current, "Lê Thu An");
+    const tuition = await receivable(current, "Học phí", "6900000", { taxCategory: "VAT_5" });
+    const meals = await receivable(current, "Tiền ăn", "35000", { refundUnitPrice: "28000" });
+    const schoolAccount = await account(current, "SCHOOL", "0123456789");
+    const personal = await account(current, "PERSONAL", "215000002088");
+    const policy: any = await finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { name: "Nộp trước 12 tháng", receivableIds: [tuition], discountType: "FIXED_VND", discountValue: "2500000", priority: "1", stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 12, effectiveFrom: "2026-03-01" });
+    const versionId = policy.outcome.versions[0].id;
+    await finance.activatePromotionVersion(current.identity.id, current.school.id, versionId, uuid(), uuid());
+    const march = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-03");
+    const source = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: march.runId, studentId: pupil.id } });
+    // D11: twelve consecutive months from March reach February 2027, past the SchoolYear end.
+    await finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId });
+    expect(await prisma.invoicePromotionCoverageFact.count({ where: { invoiceId: source.id } })).toBe(12);
+    await finance.issueInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { personalBankAccountId: personal });
+    const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } });
+    await finance.closeInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { actualAmount: issued.obligationTotalSnapshot!.toString() });
+    expect(await prisma.studentPromotionalCoverage.count({ where: { studentId: pupil.id } })).toBe(12);
+    // August: tuition is covered, meals are charged in advance; two excused leave days.
+    const august = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "21" }], "2026-08");
+    const augustMeals = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: august.runId, studentId: pupil.id, channel: "PERSONAL" }, include: { lines: true } });
+    expect(augustMeals.lines.map((line) => line.receivableId)).toEqual([meals]);
+    await finance.issueInvoice(current.identity.id, current.school.id, augustMeals.id, uuid(), uuid(), { personalBankAccountId: personal });
+    await leave(current, pupil.id, ["2026-08-05", "2026-08-06"]);
+    // Last day of school 14/08: endedOn is the first day without enrollment.
+    await prisma.studentEnrollment.updateMany({ where: { schoolId: current.school.id, studentId: pupil.id }, data: { lifecycle: "WITHDRAWN", endedOn: date("2026-08-15") } });
+    const september = await generatedRun(current, [{ receivableId: meals, quantity: "21" }], "2026-09");
+    expect(await prisma.invoice.count({ where: { collectionRunId: september.runId, studentId: pupil.id } })).toBe(0);
+    const listed = await finance.settlements(current.identity.id, current.school.id, september.runId);
+    expect(listed.students).toEqual([expect.objectContaining({ studentId: pupil.id, endedOn: "2026-08-15", lifecycle: "WITHDRAWN", invoices: [] })]);
+    expect(listed.students.some((item: any) => item.studentId === stays.id)).toBe(false);
+    const created: any = await finance.createSettlement(current.identity.id, current.school.id, september.runId, uuid(), uuid(), { studentId: pupil.id });
+    expect(created.outcome).toMatchObject({ kind: "SETTLEMENT", channel: "SCHOOL", total: "-11970000", enrollmentEndedOn: "2026-08-15" });
+    const [schoolPart, personalPart] = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: september.runId, studentId: pupil.id }, include: { lines: true }, orderBy: { channel: "asc" } });
+    expect(schoolPart!.lines).toEqual([expect.objectContaining({ receivableId: tuition, quantity: 0, grossAmount: 0n, deductionQuantity: 1, deductionAmount: 11400000n, netAmount: -11400000n, vatAmount: -570000n, amount: -11970000n })]);
+    expect(schoolPart!.lines[0]!.deductionSource).toMatchObject({ type: "PREPAID_PACKAGE_V1", months: 12, usedMonths: 6, paidNet: "52800000", listPriceUsed: "41400000", priorRefundNet: "0", firstMonth: "2026-03", lastMonth: "2027-02" });
+    // 2 leave days + 14 operating days from 15/08 to 31/08 (Sundays 16, 23, 30 excluded) = 16 x 28.000.
+    expect(personalPart!.lines).toEqual([expect.objectContaining({ receivableId: meals, quantity: 0, deductionQuantity: 16, deductionAmount: 448000n, amount: -448000n })]);
+    expect((personalPart!.lines[0]!.deductionSource as any).afterEndDays).toHaveLength(14);
+    expect(personalPart!.total).toBe(-448000n);
+    await expect(finance.createSettlement(current.identity.id, current.school.id, september.runId, uuid(), uuid(), { studentId: pupil.id })).rejects.toMatchObject({ response: { code: "SETTLEMENT_EXISTS" } });
+    await expect(finance.createSettlement(current.identity.id, current.school.id, september.runId, uuid(), uuid(), { studentId: stays.id })).rejects.toMatchObject({ response: { code: "SETTLEMENT_STUDENT_NOT_ELIGIBLE" } });
+    // An override is capped by the unrefunded paid amount; reset recomputes the package refund.
+    const editPackage = (body: Record<string, unknown>) => finance.editLineDeduction(current.identity.id, current.school.id, schoolPart!.id, schoolPart!.lines[0]!.id, uuid(), uuid(), body);
+    await expect(editPackage({ deductionQuantity: "1", refundUnitPrice: "52800001", reason: "Sai" })).rejects.toMatchObject({ response: { code: "SETTLEMENT_REFUND_EXCEEDS_PAID" } });
+    await editPackage({ deductionQuantity: "1", refundUnitPrice: "12000000", reason: "Thỏa thuận với phụ huynh" });
+    await editPackage({ reset: true });
+    expect(await prisma.invoiceLine.findUniqueOrThrow({ where: { id: schoolPart!.lines[0]!.id } })).toMatchObject({ deductionAmount: 11400000n, deductionReason: null });
+    // Both refund notices issue without VietQR and close by exact payouts.
+    await finance.issueInvoice(current.identity.id, current.school.id, schoolPart!.id, uuid(), uuid(), { personalBankAccountId: personal });
+    expect(await prisma.invoice.findMany({ where: { collectionRunId: september.runId, studentId: pupil.id }, select: { status: true, obligationTotalSnapshot: true, bankAccountIdSnapshot: true }, orderBy: { channel: "asc" } })).toEqual([{ status: "ISSUED", obligationTotalSnapshot: -11970000n, bankAccountIdSnapshot: schoolAccount }, { status: "ISSUED", obligationTotalSnapshot: -448000n, bankAccountIdSnapshot: personal }]);
+    await finance.recordPayout(current.identity.id, current.school.id, schoolPart!.id, uuid(), uuid(), { paidOn: "2026-09-10", method: "BANK_TRANSFER", reference: "FT1" });
+    // A second settlement never refunds the package twice.
+    expect(await (finance as any).packageRefunds(prisma, current.school.id, pupil.id, date("2026-08-15"))).toEqual([]);
+  });
+
+  it("honours prepaid coverage issued in the previous SchoolYear when billing the next one", async () => {
+    const current = await school();
+    const pupil = await student(current);
+    const tuition = await receivable(current, "Học phí", "1000000");
+    const meals = await receivable(current, "Tiền ăn", "35000");
+    const personal = await account(current, "PERSONAL", "215000002088");
+    const policy: any = await finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { name: "Nộp trước 3 tháng", receivableIds: [tuition], discountType: "FIXED_VND", discountValue: "100000", priority: "1", stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 3, effectiveFrom: "2026-11-01" });
+    const versionId = policy.outcome.versions[0].id;
+    await finance.activatePromotionVersion(current.identity.id, current.school.id, versionId, uuid(), uuid());
+    const november = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-11");
+    const source = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: november.runId } });
+    await finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId });
+    await finance.issueInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { personalBankAccountId: personal });
+    await finance.closeInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { actualAmount: (await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } })).obligationTotalSnapshot!.toString() });
+    expect((await prisma.studentPromotionalCoverage.findMany({ where: { studentId: pupil.id }, orderBy: { billingMonth: "asc" } })).map((item) => item.billingMonth)).toEqual(["2026-11", "2026-12", "2027-01"]);
+    // The next SchoolYear: January tuition is already paid, only meals are billed.
+    const next = await prisma.schoolYear.create({ data: { schoolId: current.school.id, name: "2027", startsOn: date("2027-01-01"), endsOn: date("2028-01-01") } });
+    const classroom = await prisma.class.create({ data: { schoolId: current.school.id, schoolYearId: next.id, name: "Chồi 3B" } });
+    const enrollment = await prisma.studentEnrollment.create({ data: { schoolId: current.school.id, studentId: pupil.id, schoolYearId: next.id, classId: classroom.id, lifecycle: "ENROLLED", effectiveFrom: date("2027-01-01"), schoolYearName: next.name, schoolYearStartsOn: next.startsOn, schoolYearEndsOn: next.endsOn, className: classroom.name } });
+    await prisma.enrollmentClassAssignment.create({ data: { schoolId: current.school.id, enrollmentId: enrollment.id, schoolYearId: next.id, classId: classroom.id, effectiveFrom: date("2027-01-01"), reason: "Năm học mới" } });
+    const runId = id(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: next.id, billingMonth: "2027-01" }));
+    let version = (await finance.run(current.identity.id, current.school.id, runId)).version;
+    for (const line of [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "20" }]) version = (await finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { ...line, expectedVersion: version }) as any).outcome.version;
+    const preview: any = await finance.preview(current.identity.id, current.school.id, runId);
+    expect(preview.eligible[0].lines.map((line: any) => line.receivableId)).toEqual([meals]);
   });
 });

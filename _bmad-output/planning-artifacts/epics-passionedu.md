@@ -379,7 +379,7 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 **Given** an issued prepaid package
 **Then** the refund line is `paid net - list price x started months - prior refunds` plus VAT (12 months at 6.900.000 with 30.000.000 discount, 6 months used: 11.400.000 before VAT); an override needs a reason and stays within the unrefunded paid amount.
 
-**And** issuing the settlement Invoice posts `CoverageReversal` records; the standalone `Hoàn ưu đãi nộp trước` UI is removed.
+**And** the package refund is the `Bớt` of a `Thu 0` line (source `PREPAID_PACKAGE_V1`) counted once against legacy reversals and other settlement lines; the standalone `Hoàn ưu đãi nộp trước` UI is removed.
 
 ### Story 5.30: Gói nộp trước sang năm học sau
 

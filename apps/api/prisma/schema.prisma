@@ -942,6 +942,7 @@ model Invoice {
   selectionProvenance                  Json
   status                               InvoiceStatus                  @default(DRAFT)
   channel                              PaymentChannel                 @default(PERSONAL)
+  kind                                 InvoiceKind                    @default(NORMAL)
   total                                BigInt                         @default(0) @db.BigInt
   issuedAt                             DateTime?                      @db.Timestamptz(3)
   obligationCodeSnapshot               String?
@@ -2048,4 +2049,9 @@ model InvoicePayout {
   @@unique([schoolId, id])
   @@unique([schoolId, invoiceId])
   @@index([schoolId, postedAt])
+}
+
+enum InvoiceKind {
+  NORMAL
+  SETTLEMENT
 }

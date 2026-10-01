@@ -39,6 +39,7 @@ const routes = {
     "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/generated-students",
   closeRun:
     "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/close",
+  settlement: "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/settlements",
   addInvoiceLine: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines",
   editInvoiceLine: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
   removeInvoiceLine: "DELETE /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
@@ -415,7 +416,8 @@ export class FinanceService {
   private invoiceDto(invoice: any) {
     const result: any = {
       id: invoice.id, status: invoice.status, total: invoice.total.toString(), billingMonth: invoice.billingMonth,
-      channel: invoice.channel ?? "PERSONAL", collectionRunId: invoice.collectionRunId,
+      channel: invoice.channel ?? "PERSONAL", kind: invoice.kind ?? "NORMAL", collectionRunId: invoice.collectionRunId,
+      enrollmentEndedOn: invoice.enrollmentEndedOnSnapshot?.toISOString().slice(0, 10) ?? null,
       student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot, className: invoice.classNameSnapshot },
       lines: (invoice.lines ?? []).map((line: any) => this.lineDto(line, invoice.status !== "DRAFT")).sort(this.amountDescending),
       revisesInvoiceId: invoice.revisesInvoiceId ?? null,
@@ -1122,7 +1124,11 @@ export class FinanceService {
       if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
       if (existing.kind !== "NORMAL") throw new ConflictException({ code: "PRIOR_DEBT_IMMUTABLE", message: "Dòng công nợ kỳ trước không có phần bớt." });
       let fields: any;
-      if (!input) {
+      const packageSource = (existing.deductionSource as any)?.type === "PREPAID_PACKAGE_V1" ? existing.deductionSource as any : null;
+      if (!input && packageSource) {
+        const refund = (await this.packageRefunds(tx, schoolId, invoice.studentId, invoice.enrollmentEndedOnSnapshot ?? new Date(), invoice.id)).find((item: any) => item.source.packageKey === packageSource.packageKey);
+        fields = refund ? { refundUnitPriceSnapshot: refund.refundNet, deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: refund.refundNet, deductionSource: refund.source, deductionReason: null } : { refundUnitPriceSnapshot: 0n, deductionQuantity: 0, proposedDeductionQuantity: 0, deductionAmount: 0n, deductionReason: null };
+      } else if (!input) {
         const receivable = await tx.receivable.findFirstOrThrow({ where: { id: existing.receivableId, schoolId } });
         fields = { ...this.deductionData(await this.lineProposal(tx, schoolId, invoice, receivable)), deductionReason: null };
       } else {
@@ -1130,6 +1136,7 @@ export class FinanceService {
         const differs = input.deductionQuantity !== existing.proposedDeductionQuantity || input.refundUnitPrice !== proposedUnitPrice;
         if (differs && !input.reason) throw validation("reason", "Nhập lý do khi phần bớt khác số hệ thống đề xuất.");
         fields = { refundUnitPriceSnapshot: input.refundUnitPrice, deductionQuantity: input.deductionQuantity, deductionAmount: this.amount(input.refundUnitPrice, input.deductionQuantity), deductionReason: differs ? input.reason : null };
+        if (packageSource && fields.deductionAmount > BigInt(packageSource.maxRefundNet)) throw new ConflictException({ code: "SETTLEMENT_REFUND_EXCEEDS_PAID", message: "Số hoàn vượt phần học phí nộp trước còn lại chưa hoàn." });
       }
       const netAmount = BigInt(existing.grossAmount) - BigInt(existing.discountAmount) - BigInt(fields.deductionAmount);
       const line = await tx.invoiceLine.update({ where: { id: lineId }, data: { ...fields, netAmount, ...taxedLine(netAmount, existing.taxCategorySnapshot ?? "NOT_DECLARED") } });
@@ -1155,19 +1162,74 @@ export class FinanceService {
     return result;
   }
   // A line of a receivable with a refund price always records its proposal, even with no leave days.
-  private deductionProposal(refundUnitPrice: bigint, billingMonth: string, days: Array<{ date: string; leaveDaySourceId: string }>) {
+  private deductionProposal(refundUnitPrice: bigint, billingMonth: string, days: Array<{ date: string; leaveDaySourceId?: string }>, afterEndDays: string[] = []) {
     const quantity = refundUnitPrice > 0n ? days.length : 0;
     return {
       refundUnitPriceSnapshot: refundUnitPrice, deductionQuantity: quantity, proposedDeductionQuantity: quantity, deductionAmount: refundUnitPrice * BigInt(quantity),
-      deductionSource: refundUnitPrice > 0n ? { type: "LEAVE_DAYS_V1", month: this.previousMonth(billingMonth).billingMonth, days: days.map((day) => day.date), leaveDaySourceIds: days.map((day) => day.leaveDaySourceId), proposedQuantity: quantity, proposedUnitPrice: refundUnitPrice.toString() } : null,
+      deductionSource: refundUnitPrice > 0n ? { type: "LEAVE_DAYS_V1", month: this.previousMonth(billingMonth).billingMonth, days: days.map((day) => day.date), leaveDaySourceIds: days.flatMap((day) => day.leaveDaySourceId ? [day.leaveDaySourceId] : []), ...(afterEndDays.length ? { afterEndDays } : {}), proposedQuantity: quantity, proposedUnitPrice: refundUnitPrice.toString() } : null,
     };
   }
   private deductionData(proposal: ReturnType<FinanceService["deductionProposal"]>) {
     return { ...proposal, deductionSource: proposal.deductionSource ?? Prisma.DbNull };
   }
   private async lineProposal(tx: any, schoolId: string, invoice: any, receivable: any) {
-    const days = BigInt(receivable.refundUnitPrice ?? 0) > 0n ? (await this.leaveDeductionDays(tx, schoolId, [invoice.studentId], invoice.billingMonth)).get(invoice.studentId) ?? [] : [];
-    return this.deductionProposal(BigInt(receivable.refundUnitPrice ?? 0), invoice.billingMonth, days);
+    if (BigInt(receivable.refundUnitPrice ?? 0) <= 0n) return this.deductionProposal(0n, invoice.billingMonth, []);
+    if (invoice.kind === "SETTLEMENT" && invoice.enrollmentEndedOnSnapshot) {
+      const days = await this.settlementDays(tx, schoolId, invoice.studentId, invoice.billingMonth, invoice.enrollmentEndedOnSnapshot);
+      return this.deductionProposal(BigInt(receivable.refundUnitPrice), invoice.billingMonth, days.days, days.afterEndDays);
+    }
+    const days = (await this.leaveDeductionDays(tx, schoolId, [invoice.studentId], invoice.billingMonth)).get(invoice.studentId) ?? [];
+    return this.deductionProposal(BigInt(receivable.refundUnitPrice), invoice.billingMonth, days);
+  }
+  // D9: a settlement refunds the approved leave days of the previous month plus every operating day of
+  // that month from the first day without enrollment (meals paid in advance but not eaten).
+  private async settlementDays(tx: any, schoolId: string, studentId: string, billingMonth: string, endedOn: Date) {
+    const { start, end } = this.previousMonth(billingMonth);
+    const leave = (await this.leaveDeductionDays(tx, schoolId, [studentId], billingMonth)).get(studentId) ?? [];
+    const afterEndDays: string[] = [];
+    if (endedOn < end) {
+      const calendars = await tx.schoolCalendarVersion.findMany({ where: { schoolId, effectiveFrom: { lt: end } }, include: { holidays: true }, orderBy: { effectiveFrom: "desc" } });
+      for (let cursor = new Date(endedOn > start ? endedOn : start); cursor < end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+        const calendar = calendars.find((item: any) => item.effectiveFrom <= cursor);
+        if (!calendar || cursor.getUTCDay() === 0 || calendar.holidays.some((holiday: any) => holiday.startsOn <= cursor && holiday.endsOn >= cursor)) continue;
+        afterEndDays.push(cursor.toISOString().slice(0, 10));
+      }
+    }
+    const byDate = new Map<string, { date: string; leaveDaySourceId?: string }>(afterEndDays.map((date) => [date, { date }]));
+    for (const day of leave) byDate.set(day.date, day);
+    return { days: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)), afterEndDays: afterEndDays.filter((date) => !leave.some((day) => day.date === date)) };
+  }
+  // D10: a prepaid package refunds what was paid minus the list price of every started month (a month counts whole)
+  // minus what was already refunded; the refund carries the VAT of the package's source line.
+  private async packageRefunds(tx: any, schoolId: string, studentId: string, endedOn: Date, excludeInvoiceId?: string) {
+    const coverages = await tx.studentPromotionalCoverage.findMany({ where: { schoolId, studentId }, include: { reversals: true, receivable: true }, orderBy: [{ serviceStart: "asc" }, { id: "asc" }] });
+    const packages = new Map<string, any[]>();
+    for (const coverage of coverages) { const key = `${coverage.sourceInvoiceId}:${coverage.versionId}:${coverage.receivableId}`; packages.set(key, [...(packages.get(key) ?? []), coverage]); }
+    const refunds: any[] = [];
+    for (const [packageKey, months] of packages) {
+      const used = months.filter((month: any) => month.serviceStart < endedOn);
+      const paidNet = months.reduce((sum: bigint, month: any) => sum + BigInt(month.originalPrice) - BigInt(month.reduction), 0n);
+      const listPriceUsed = used.reduce((sum: bigint, month: any) => sum + BigInt(month.originalPrice), 0n);
+      const reversedNet = months.flatMap((month: any) => month.reversals).reduce((sum: bigint, reversal: any) => sum + BigInt(reversal.amount) - BigInt(reversal.vatAmount), 0n);
+      const settled = await tx.invoiceLine.aggregate({ where: { schoolId, kind: "NORMAL", deductionSource: { path: ["packageKey"], equals: packageKey }, invoice: { status: { not: "CANCELLED" }, ...(excludeInvoiceId ? { id: { not: excludeInvoiceId } } : {}) } }, _sum: { deductionAmount: true } });
+      const priorRefundNet = reversedNet + BigInt(settled._sum.deductionAmount ?? 0);
+      const maxRefundNet = paidNet - priorRefundNet;
+      const refundNet = paidNet - listPriceUsed - priorRefundNet;
+      if (refundNet <= 0n) continue;
+      const first = months[0];
+      const sourceLine = await tx.invoiceLine.findFirst({ where: { schoolId, invoiceId: first.sourceInvoiceId, receivableId: first.receivableId, kind: "NORMAL" }, orderBy: { id: "asc" }, select: { taxCategorySnapshot: true } });
+      refunds.push({ receivable: first.receivable, taxCategory: (sourceLine?.taxCategorySnapshot ?? first.receivable.taxCategory) as TaxCategory, refundNet, source: {
+        type: "PREPAID_PACKAGE_V1", packageKey, sourceInvoiceId: first.sourceInvoiceId, versionId: first.versionId, receivableId: first.receivableId,
+        firstMonth: months[0].billingMonth, lastMonth: months.at(-1).billingMonth, months: months.length, usedMonths: used.length,
+        paidNet: paidNet.toString(), listPriceUsed: listPriceUsed.toString(), priorRefundNet: priorRefundNet.toString(), maxRefundNet: maxRefundNet.toString(),
+        coverageIds: months.map((month: any) => month.id), proposedQuantity: 1, proposedUnitPrice: refundNet.toString(),
+      } });
+    }
+    return refunds;
+  }
+  private packageLine(schoolId: string, invoiceId: string, refund: any) {
+    const tax = taxedLine(-BigInt(refund.refundNet), refund.taxCategory);
+    return { schoolId, invoiceId, receivableId: refund.receivable.id, receivableCodeSnapshot: refund.receivable.code, receivableNameSnapshot: refund.receivable.displayName, unitLabelSnapshot: "gói", defaultUnitPriceSnapshot: refund.receivable.defaultUnitPrice, unitPrice: refund.receivable.defaultUnitPrice, quantity: 0, grossAmount: 0n, discountAmount: 0n, refundUnitPriceSnapshot: refund.refundNet, deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: refund.refundNet, deductionSource: refund.source, netAmount: -refund.refundNet, ...tax, promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [] } };
   }
   // Generation context: leave days, receivables refunded on the previous month's issued Invoices, and live refund prices.
   private async deductionContext(client: any, schoolId: string, billingMonth: string, studentIds: string[], receivableIds: string[]) {
@@ -1529,7 +1591,7 @@ export class FinanceService {
     coverageSelections: { select: { studentId: true, versionId: true, billingMonth: true }, orderBy: [{ studentId: "asc" }, { billingMonth: "asc" }, { versionId: "asc" }] },
     templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } } }, orderBy: { id: "asc" } },
     invoices: {
-      select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true, channel: true },
+      select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true, channel: true, kind: true },
       orderBy: [{ studentCodeSnapshot: "asc" }, { channel: "asc" }, { id: "asc" }],
     },
     lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
@@ -1548,7 +1610,7 @@ export class FinanceService {
       invoices: (run.invoices ?? []).map((invoice: any) => ({
         id: invoice.id, studentId: invoice.studentId, studentCode: invoice.studentCodeSnapshot,
         studentName: invoice.studentNameSnapshot, className: invoice.classNameSnapshot,
-        status: invoice.status, total: invoice.total.toString(), channel: invoice.channel ?? "PERSONAL",
+        status: invoice.status, total: invoice.total.toString(), channel: invoice.channel ?? "PERSONAL", kind: invoice.kind ?? "NORMAL",
       })),
       ...(Array.isArray(run.invoices) && ["GENERATED", "CLOSED"].includes(status) ? { summary: this.invoiceSummary(run.invoices) } : {}),
       createdAt: run.createdAt.toISOString(),
@@ -1897,7 +1959,8 @@ export class FinanceService {
         });
     }
     const promotionFacts = (await this.promotionFacts(client, schoolId, asOf, rosterStudentIds, templateLines.map((line) => line.receivableId))).sort((a: any, b: any) => a.studentId.localeCompare(b.studentId) || a.receivableId.localeCompare(b.receivableId) || a.policyId.localeCompare(b.policyId) || a.assignmentId.localeCompare(b.assignmentId));
-    const covered = await client.studentPromotionalCoverage.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, studentId: { in: rosterStudentIds }, billingMonth: run.billingMonth }, select: { studentId: true, receivableId: true } });
+    // D11: coverage issued in an earlier SchoolYear still covers this month.
+    const covered = await client.studentPromotionalCoverage.findMany({ where: { schoolId, studentId: { in: rosterStudentIds }, billingMonth: run.billingMonth }, select: { studentId: true, receivableId: true } });
     const coveredKeys = new Set(covered.map((item: any) => `${item.studentId}:${item.receivableId}`));
     const eligibleRows = eligible.sort((a, b) => a.studentId.localeCompare(b.studentId)).map(({ enrollment, assignment, ...item }) => ({
       ...item,
@@ -2016,10 +2079,8 @@ export class FinanceService {
 
     const facts: any[] = [];
     for (const period of periods) {
-      if (
-        period.serviceStart < year.startsOn ||
-        period.serviceEnd > year.endsOn
-      ) {
+      // D11: a package covers consecutive calendar months and may continue into the next SchoolYear.
+      if (period.serviceStart < year.startsOn) {
         throw new ConflictException({
           code: "COVERAGE_PERIOD_OUT_OF_BOUNDS",
           message: "Kỳ coverage vượt quá giới hạn năm học.",
@@ -2071,7 +2132,8 @@ export class FinanceService {
         });
       }
 
-      const enrollment = await tx.studentEnrollment.findFirst({
+      // Months of a later SchoolYear have no enrollment yet; the current enrollment must cover the rest.
+      const enrollment = period.serviceStart >= year.endsOn ? true : await tx.studentEnrollment.findFirst({
         where: {
           schoolId,
           studentId: invoice.studentId,
@@ -2097,7 +2159,6 @@ export class FinanceService {
           where: {
             schoolId,
             studentId: invoice.studentId,
-            schoolYearId: invoice.schoolYearId,
             receivableId: target.receivableId,
             billingMonth: period.billingMonth,
           },
@@ -2114,7 +2175,6 @@ export class FinanceService {
           where: {
             schoolId,
             studentId: invoice.studentId,
-            schoolYearId: invoice.schoolYearId,
             receivableId: target.receivableId,
             billingMonth: period.billingMonth,
             invoiceId: { not: invoice.id },
@@ -2134,7 +2194,6 @@ export class FinanceService {
             schoolId,
             invoice: {
               studentId: invoice.studentId,
-              schoolYearId: invoice.schoolYearId,
               billingMonth: period.billingMonth,
               id: { not: invoice.id },
               status: { in: ["ISSUED", "CLOSED"] },
@@ -2823,6 +2882,70 @@ export class FinanceService {
          skipped.push({ studentId, studentCode: student.studentCode, fullName: student.fullName, reason: "INVOICE_EXISTS" });
       const outcome = { run: this.runDto(run), created: created.map(({ enrollment, assignment, ...item }: any) => item), skipped };
       await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_GENERATED_STUDENT_ADDED", operation, { runId, studentId }, outcome);
+      return outcome;
+    });
+  }
+  // D9: Students whose enrollment ended during the month before the run. endedOn is the first day without
+  // enrollment, so the last attended day (endedOn - 1) falls in the previous month.
+  private async settlementCandidates(client: any, schoolId: string, run: any) {
+    const { start, end } = this.previousMonth(run.billingMonth);
+    const enrollments = await client.studentEnrollment.findMany({ where: { schoolId, lifecycle: { in: ["WITHDRAWN", "GRADUATED"] }, endedOn: { gt: start, lte: end } }, include: { student: true, classAssignments: { include: { classroom: true }, orderBy: [{ effectiveFrom: "desc" }, { id: "asc" }] } }, orderBy: [{ studentId: "asc" }, { endedOn: "desc" }] });
+    const invoices = enrollments.length ? await client.invoice.findMany({ where: { schoolId, collectionRunId: run.id, studentId: { in: enrollments.map((item: any) => item.studentId) }, revisesInvoiceId: null }, select: { id: true, studentId: true, channel: true, status: true, total: true, kind: true }, orderBy: [{ channel: "asc" }] }) : [];
+    const seen = new Set<string>();
+    return enrollments.filter((enrollment: any) => !seen.has(enrollment.studentId) && seen.add(enrollment.studentId))
+      // A Student still billed normally in this run (re-enrolled) is not settled.
+      .filter((enrollment: any) => !invoices.some((invoice: any) => invoice.studentId === enrollment.studentId && invoice.kind === "NORMAL"))
+      .map((enrollment: any) => ({ enrollment, assignment: enrollment.classAssignments[0] ?? null, invoices: invoices.filter((invoice: any) => invoice.studentId === enrollment.studentId) }));
+  }
+  async settlements(identityId: string, schoolId: string, runId: string) {
+    schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(runId, "runId");
+    const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId } });
+    if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
+    const candidates = await this.settlementCandidates(this.prisma, schoolId, run);
+    return { students: candidates.map(({ enrollment, assignment, invoices }: any) => ({ studentId: enrollment.studentId, studentCode: enrollment.student.studentCode, fullName: enrollment.student.fullName, className: assignment?.classroom?.name ?? enrollment.className ?? null, lifecycle: enrollment.lifecycle, endedOn: enrollment.endedOn.toISOString().slice(0, 10), invoices: invoices.map((invoice: any) => ({ id: invoice.id, channel: invoice.channel, status: invoice.status, total: invoice.total.toString() })) })) };
+  }
+  // D9: one settlement DRAFT per channel holding only refunds; carries of the same channel are applied as usual.
+  async createSettlement(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, "runId");
+    const studentId = this.identifier(body?.studentId, "studentId");
+    return this.mutate(actor, identityId, schoolId, routes.settlement, key, operationId, { runId, studentId }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId);
+      const run = await this.lockRun(tx, schoolId, runId);
+      const year = await this.lockYear(tx, schoolId, run.schoolYearId);
+      if (year.closedAt) throw new ConflictException({ code: "SCHOOL_YEAR_CLOSED", message: "Năm học đã đóng chỉ có thể xem." });
+      if (run.status !== "GENERATED" || run.type !== "MONTHLY") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ tạo hóa đơn quyết toán khi đợt thu đã tạo hóa đơn." });
+      const candidate = (await this.settlementCandidates(tx, schoolId, run)).find((item: any) => item.enrollment.studentId === studentId);
+      if (!candidate) throw new NotFoundException({ code: "SETTLEMENT_STUDENT_NOT_ELIGIBLE", message: "Học sinh không nghỉ học trong tháng trước đợt thu này." });
+      if (candidate.invoices.length) throw new ConflictException({ code: "SETTLEMENT_EXISTS", message: "Học sinh đã có hóa đơn quyết toán trong đợt thu này." });
+      const { enrollment, assignment } = candidate;
+      const days = await this.settlementDays(tx, schoolId, studentId, run.billingMonth, enrollment.endedOn);
+      const context = await this.deductionContext(tx, schoolId, run.billingMonth, [studentId], []);
+      const mealLines = [...(context.previous.get(studentId) ?? [])].map((receivableId) => context.receivables.get(receivableId)).filter(Boolean).map((receivable: any) => {
+        const proposal = this.deductionProposal(BigInt(receivable.refundUnitPrice), run.billingMonth, days.days, days.afterEndDays);
+        const tax = taxedLine(-proposal.deductionAmount, receivable.taxCategory);
+        return { channel: taxChannel(receivable.taxCategory), data: { schoolId, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice: receivable.defaultUnitPrice, quantity: 0, grossAmount: 0n, discountAmount: 0n, ...this.deductionData(proposal), netAmount: -proposal.deductionAmount, ...tax, promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [] } } };
+      }).filter((line) => line.data.deductionQuantity > 0);
+      const packageLines = (await this.packageRefunds(tx, schoolId, studentId, enrollment.endedOn)).map((refund: any) => ({ channel: taxChannel(refund.taxCategory), refund }));
+      const channels = [...new Set<PaymentChannel>([...mealLines, ...packageLines].map((line) => line.channel))].sort((a, b) => (a === b ? 0 : a === "SCHOOL" ? -1 : 1));
+      if (!channels.length) throw new ConflictException({ code: "SETTLEMENT_NOTHING_TO_SETTLE", message: "Không có tiền ăn chưa dùng hay học phí nộp trước cần hoàn cho học sinh này." });
+      const asOf = this.asOf(run.billingMonth);
+      const created: string[] = [];
+      for (const channel of channels) {
+        const invoice = await tx.invoice.create({ data: {
+          schoolId, studentId, collectionRunId: run.id, schoolYearId: run.schoolYearId, billingMonth: run.billingMonth, rosterAsOf: asOf, kind: "SETTLEMENT", channel,
+          studentCodeSnapshot: enrollment.student.studentCode, studentNameSnapshot: enrollment.student.fullName,
+          enrollmentIdSnapshot: enrollment.id, enrollmentLifecycleSnapshot: enrollment.lifecycle, enrollmentEffectiveFromSnapshot: enrollment.effectiveFrom, enrollmentEndedOnSnapshot: enrollment.endedOn,
+          classAssignmentIdSnapshot: assignment?.id ?? null, classAssignmentEffectiveFromSnapshot: assignment?.effectiveFrom ?? null, classAssignmentEffectiveToSnapshot: assignment?.effectiveTo ?? null,
+          classIdSnapshot: assignment?.classId ?? enrollment.classId, classNameSnapshot: assignment?.classroom?.name ?? enrollment.className ?? "",
+          selectionProvenance: { policy: "SETTLEMENT_AFTER_ENROLLMENT_END_V1", runId: run.id, billingMonth: run.billingMonth, enrollmentId: enrollment.id, lifecycle: enrollment.lifecycle, endedOn: enrollment.endedOn.toISOString().slice(0, 10) },
+        } });
+        for (const line of mealLines.filter((item) => item.channel === channel)) await tx.invoiceLine.create({ data: { ...line.data, invoiceId: invoice.id } });
+        for (const line of packageLines.filter((item) => item.channel === channel)) await tx.invoiceLine.create({ data: this.packageLine(schoolId, invoice.id, line.refund) });
+        await this.materializeCarries(tx, schoolId, invoice.id, studentId, run.schoolYearId, run.billingMonth, channel);
+        created.push(invoice.id);
+      }
+      const outcome = await this.refreshInvoice(tx, schoolId, created[0]!);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "SETTLEMENT_INVOICE_CREATED", operation, { runId, studentId, enrollmentId: enrollment.id }, outcome);
       return outcome;
     });
   }
