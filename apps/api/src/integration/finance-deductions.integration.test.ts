@@ -87,20 +87,24 @@ afterEach(async () => {
 afterAll(() => prisma.$disconnect());
 
 describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day deductions", () => {
-  it("stores and audits a refund price that may exceed the charged price", async () => {
+  it("stores and audits a refund price that never exceeds the charged price", async () => {
     const current = await school();
     const meals = await receivable(current, "Tiền ăn", "35000", { refundUnitPrice: "28000" });
     expect((await finance.read(current.identity.id, current.school.id)).receivables[0]).toMatchObject({ id: meals, defaultUnitPrice: "35000", refundUnitPrice: "28000" });
     const tuition = await receivable(current, "Học phí", "100000");
     expect((await finance.read(current.identity.id, current.school.id)).receivables.find((item) => item.id === tuition)).toMatchObject({ refundUnitPrice: "0" });
     await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: current.groupId, displayName: "Sai", unitLabel: "ngày", defaultUnitPrice: "1", refundUnitPrice: "-1" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
-    const changed: any = await finance.updateReceivableRefundPrice(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "50000" });
-    expect(changed.outcome).toMatchObject({ refundUnitPrice: "50000" });
+    // A1: the refund price may equal the charged price (full refund) but never exceed it.
+    await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: current.groupId, displayName: "Sai", unitLabel: "ngày", defaultUnitPrice: "35000", refundUnitPrice: "40000" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.stringContaining("không được vượt") } } });
+    await expect(finance.updateReceivableRefundPrice(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35001" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.stringContaining("không được vượt") } } });
+    const changed: any = await finance.updateReceivableRefundPrice(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35000" });
+    expect(changed.outcome).toMatchObject({ refundUnitPrice: "35000" });
     expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "RECEIVABLE_REFUND_PRICE_CHANGED" } })).toBe(1);
-    await expect(finance.updateReceivableRefundPrice(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "50000" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
+    await expect(finance.updateReceivableRefundPrice(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35000" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
     // The catalog stays append-only apart from the tax category and the refund price.
     await expect(prisma.receivable.update({ where: { id: meals }, data: { defaultUnitPrice: 1n } })).rejects.toThrow(/append-only/);
     await expect(prisma.receivable.update({ where: { id: meals }, data: { refundUnitPrice: -1n } })).rejects.toThrow(/Receivable_refundUnitPrice_nonnegative/);
+    await expect(prisma.receivable.update({ where: { id: meals }, data: { refundUnitPrice: 35001n } })).rejects.toThrow(/Receivable_refundUnitPrice_within_price/);
   });
 
   it("proposes Bớt from last month's approved leave days of the same Student only", async () => {
@@ -163,6 +167,13 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     // 1.000.000 - 22 x 50.000 = -100.000; VAT 5% of a negative net is -5.000.
     expect(await prisma.invoiceLine.findUniqueOrThrow({ where: { id: line.id } })).toMatchObject({ deductionQuantity: 22, proposedDeductionQuantity: 2, deductionAmount: 1100000n, netAmount: -100000n, vatAmount: -5000n, amount: -105000n, deductionReason: "Nghỉ 2 tuần, giảm theo chính sách trường" });
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).total).toBe(-105000n);
+    // A2: a monthly Invoice may hold a negative line but is never issued with a negative total.
+    await expect(finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), {})).rejects.toMatchObject({ status: 409, response: { code: "INVOICE_TOTAL_NEGATIVE", message: expect.stringContaining("105.000") } });
+    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).toMatchObject({ status: "DRAFT" });
+    // A1: the Bớt unit price never exceeds the line unit price, and the line price never drops below it.
+    await expect(edit({ deductionQuantity: "1", refundUnitPrice: "1000001", reason: "Sai" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
+    await expect(finance.editInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, uuid(), uuid(), { quantity: "1", unitPrice: "40000", overrideReason: "Giảm giá" })).rejects.toMatchObject({ response: { fieldErrors: { unitPrice: expect.any(String) } } });
+    await expect(prisma.invoiceLine.update({ where: { id: line.id }, data: { unitPrice: 40000n, grossAmount: 40000n, netAmount: -1060000n, vatAmount: -53000n, amount: -1113000n } })).rejects.toThrow(/InvoiceLine_refund_price_within_price/);
     expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "INVOICE_LINE_DEDUCTION_EDITED" } })).toBe(2);
     // Editing the charged quantity keeps the manual deduction.
     await finance.editInvoiceLine(current.identity.id, current.school.id, invoice.id, line.id, uuid(), uuid(), { quantity: "2" });
@@ -184,43 +195,49 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     await expect(finance.editLineDeduction(current.identity.id, current.school.id, invoice.id, invoice.lines[0]!.id, uuid(), uuid(), { deductionQuantity: "1", refundUnitPrice: "1", reason: "x" })).rejects.toMatchObject({ status: 404 });
   });
 
-  it("issues a negative Invoice as a refund notice closed only by one exact payout", async () => {
+  it("issues a negative settlement Invoice as a refund notice closed only by one exact payout", async () => {
     const current = await school();
     const pupil = await student(current);
-    const meals = await receivable(current, "Tiền ăn", "35000", { refundUnitPrice: "40000" });
+    await student(current, "Lê Thu An");
+    const meals = await receivable(current, "Tiền ăn", "35000", { refundUnitPrice: "28000" });
     const personal = await account(current, "PERSONAL", "215000002088");
+    const september = await generatedRun(current, [{ receivableId: meals, quantity: "2" }], "2026-09");
+    const paidAhead = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: september.runId, studentId: pupil.id } });
+    await finance.issueInvoice(current.identity.id, current.school.id, paidAhead.id, uuid(), uuid(), { personalBankAccountId: personal });
     await leave(current, pupil.id, ["2026-09-04", "2026-09-05", "2026-09-07"]);
-    const { runId } = await generatedRun(current, [{ receivableId: meals, quantity: "2" }], "2026-10");
-    const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
-    // 2 x 35.000 - 3 x 40.000 = -50.000: the School owes the parent.
-    expect(invoice.total).toBe(-50000n);
+    await prisma.studentEnrollment.updateMany({ where: { schoolId: current.school.id, studentId: pupil.id }, data: { lifecycle: "WITHDRAWN", endedOn: date("2026-09-29") } });
+    const { runId } = await generatedRun(current, [{ receivableId: meals, quantity: "21" }], "2026-10");
+    await finance.createSettlement(current.identity.id, current.school.id, runId, uuid(), uuid(), { studentId: pupil.id });
+    const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: pupil.id } });
+    // 3 leave days + 29 and 30/09 after the end date = 5 x 28.000: the School owes the parent.
+    expect(invoice).toMatchObject({ kind: "SETTLEMENT", total: -140000n });
     await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
     const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
-    expect(issued).toMatchObject({ status: "ISSUED", obligationTotalSnapshot: -50000n });
+    expect(issued).toMatchObject({ status: "ISSUED", obligationTotalSnapshot: -140000n });
     // The image is a refund notice without VietQR.
     const image = await finance.paymentImage(current.identity.id, current.school.id, invoice.id);
     expect(image.png.length).toBeGreaterThan(1000);
     // A Receipt never closes a refund; the payout must be exact and is recorded once.
     await expect(finance.closeInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { actualAmount: "0" })).rejects.toMatchObject({ response: { code: "INVOICE_REFUND_REQUIRES_PAYOUT" } });
     const queue = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-10", direction: "REFUND" });
-    expect(queue.invoices).toEqual([expect.objectContaining({ id: invoice.id, outstanding: "-50000", direction: "REFUND" })]);
-    expect((await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-10", direction: "COLLECT" })).invoices).toEqual([]);
+    expect(queue.invoices).toEqual([expect.objectContaining({ id: invoice.id, outstanding: "-140000", direction: "REFUND" })]);
+    expect((await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-10", direction: "COLLECT" })).invoices.some((item: any) => item.id === invoice.id)).toBe(false);
     await expect(finance.recordPayout(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { paidOn: "2026-10-12", method: "CHEQUE", reference: "x" })).rejects.toMatchObject({ response: { fieldErrors: { method: expect.any(String) } } });
     const key = uuid(), operationId = uuid();
     const body = { paidOn: "2026-10-12", method: "BANK_TRANSFER", reference: "FT26285123456" };
     const paid: any = await finance.recordPayout(current.identity.id, current.school.id, invoice.id, key, operationId, body);
-    expect(paid.outcome).toMatchObject({ status: "CLOSED", payout: { amount: "50000", paidOn: "2026-10-12", method: "BANK_TRANSFER", reference: "FT26285123456" } });
+    expect(paid.outcome).toMatchObject({ status: "CLOSED", payout: { amount: "140000", paidOn: "2026-10-12", method: "BANK_TRANSFER", reference: "FT26285123456" } });
     // Retry with the same key replays the Operation; a second payout is refused.
     expect((await finance.recordPayout(current.identity.id, current.school.id, invoice.id, key, operationId, body) as any).id).toBe(operationId);
     await expect(finance.recordPayout(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), body)).rejects.toMatchObject({ response: { code: "INVOICE_NOT_ISSUED" } });
-    expect(await prisma.financeLedgerEvent.findFirst({ where: { schoolId: current.school.id, type: "PAYOUT_POSTED" } })).toMatchObject({ amount: -50000n, invoiceId: invoice.id });
+    expect(await prisma.financeLedgerEvent.findFirst({ where: { schoolId: current.school.id, type: "PAYOUT_POSTED" } })).toMatchObject({ amount: -140000n, invoiceId: invoice.id });
     await expect(prisma.invoicePayout.updateMany({ where: { invoiceId: invoice.id }, data: { reference: "khác" } })).rejects.toThrow(/immutable/);
     // Report V5: billed deductions and cash paid back are their own measures; nothing is still owed.
     const report: any = await finance.report(current.identity.id, current.school.id, "overview", {});
-    expect(report).toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V5", summary: { deduction: "120000", payout: "50000", refundOwed: "0", netBilled: "-50000" } });
+    expect(report).toMatchObject({ reportDefinitionVersion: "FINANCE_LEDGER_V5", summary: { deduction: "140000", payout: "140000", refundOwed: "0", netBilled: "-70000" } });
     const cash: any = await finance.report(current.identity.id, current.school.id, "cash-adjustments", {});
-    expect(cash.rows.map((row: any) => [row.type, row.amount])).toContainEqual(["PAYOUT_POSTED", "-50000"]);
-    expect(cash.charts.cashByWeek).toEqual([expect.objectContaining({ cashIn: "0", cashOut: "50000" })]);
+    expect(cash.rows.map((row: any) => [row.type, row.amount])).toContainEqual(["PAYOUT_POSTED", "-140000"]);
+    expect(cash.charts.cashByWeek).toEqual([expect.objectContaining({ cashIn: "0", cashOut: "140000" })]);
   });
 
   it("closes a zero-total Invoice at issue and refuses a payout on a positive Invoice", async () => {

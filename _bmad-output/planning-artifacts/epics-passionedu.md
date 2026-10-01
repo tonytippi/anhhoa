@@ -324,7 +324,7 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 
 **Given** a receivable is created or edited
 **When** Finance enters `Giá hoàn trả / đơn vị (chưa VAT)`
-**Then** the API stores an integer `refundUnitPrice >= 0` (it may exceed the charged price), audits the change and applies it only to DRAFT lines generated or refreshed afterwards.
+**Then** the API stores an integer `0 <= refundUnitPrice <= defaultUnitPrice` (amendment A1), audits the change and applies it only to DRAFT lines generated or refreshed afterwards.
 
 **And** the catalog shows a `Giá hoàn trả` column; existing receivables have `0`.
 
@@ -356,7 +356,7 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 
 **Acceptance Criteria:**
 
-**Given** a DRAFT with total below zero
+**Given** a settlement DRAFT with total below zero (a NORMAL part below zero is refused, amendment A2)
 **Then** issue succeeds without VietQR and the image reads `Trường hoàn lại cho phụ huynh`; a zero total closes at issue.
 
 **Given** an issued negative Invoice
@@ -379,7 +379,7 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 **Given** an issued prepaid package
 **Then** the refund line is `paid net - list price x started months - prior refunds` plus VAT (12 months at 6.900.000 with 30.000.000 discount, 6 months used: 11.400.000 before VAT); an override needs a reason and stays within the unrefunded paid amount.
 
-**And** the package refund is the `Bớt` of a `Thu 0` line (source `PREPAID_PACKAGE_V1`) counted once against legacy reversals and other settlement lines; the standalone `Hoàn ưu đãi nộp trước` UI is removed.
+**And** the package refund is the `Bớt` of a `Thu 0` line (source `PREPAID_PACKAGE_V1`) counted once against legacy reversals and other settlement lines; the standalone `Hoàn ưu đãi nộp trước` UI and API are removed (amendment A3).
 
 ### Story 5.30: Gói nộp trước sang năm học sau
 
@@ -408,6 +408,27 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 **Then** invoice review, run tables, receipt queue (`Cần chi hoàn`), payment/refund image, Parent obligation and Finance report (`FINANCE_LEDGER_V5`, measures `Bớt (hoàn trả nghỉ)` and `Đã chi hoàn`) follow the approved mockups.
 
 **And** every promotion label `Giảm trừ` reads `Ưu đãi`.
+
+### Story 5.32: Giá hoàn không vượt giá thu, chỉ quyết toán được âm
+
+As a Finance Manager,
+I want the refund price capped by the charged price and negative totals limited to settlement Invoices,
+So that a monthly notice never turns into a refund and every refund goes through the final settlement.
+
+Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-deduction §9 A1-A3.
+
+**Acceptance Criteria:**
+
+**Given** a receivable create, refund price change or default price change
+**Then** the API refuses `refundUnitPrice > defaultUnitPrice` (`REFUND_PRICE_EXCEEDS_PRICE`); equal is allowed.
+
+**Given** a DRAFT line `Bớt` override or proposal
+**Then** the refund unit price never exceeds the line `unitPrice` (override refused, proposal capped), except the `PREPAID_PACKAGE_V1` line; a database CHECK enforces it.
+
+**Given** a NORMAL Invoice part whose total is below zero
+**Then** issue is refused with `INVOICE_TOTAL_NEGATIVE`, the review shows the amount to reduce and keeps `Phát hành` disabled; a database CHECK refuses a non-DRAFT NORMAL Invoice with a negative total.
+
+**And** the standalone coverage refund API and pending-request UI are removed; settlement Invoices are the only refund path.
 
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 

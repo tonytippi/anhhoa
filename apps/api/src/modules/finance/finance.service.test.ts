@@ -25,11 +25,11 @@ describe('FinanceService validation', () => {
     expect(service.deductionProposal(28000n, '2026-10', days.get('student'))).toMatchObject({ deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: 28000n, deductionSource: { month: '2026-09', days: ['2026-09-04'], proposedUnitPrice: '28000' } });
     expect(service.deductionProposal(0n, '2026-10', days.get('student'))).toMatchObject({ deductionQuantity: 0, deductionAmount: 0n, deductionSource: null });
   });
-  it('rejects unsupported public eligibility before an Operation or evidence mutation', async () => {
+  it('rejects a refund price above the charged price before an Operation or catalog mutation', async () => {
     const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
     const service = new FinanceService(prisma as never, authorization as never);
-    const body = { studentId: crypto.randomUUID(), reason: 'TRANSFER_OUT', effectiveOn: '2026-10-10' };
-    await expect(service.createCoverageRefundEligibility('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), body)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
+    const body = { groupId: crypto.randomUUID(), displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: '35000', refundUnitPrice: '35001' };
+    await expect(service.createReceivable('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), body)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { refundUnitPrice: expect.stringContaining('không được vượt') } } });
     expect(prisma.operation.findFirst).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });

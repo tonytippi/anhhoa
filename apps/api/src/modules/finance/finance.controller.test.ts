@@ -155,24 +155,6 @@ describe('FinanceController mutation boundary', () => {
     await expect(controller.transferDebt(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', body)).rejects.toMatchObject({ status: 401 });
     expect(finance.transferDebt).not.toHaveBeenCalled();
   });
-  it('forwards protected coverage reversal preview, post, and distinct approval decision', async () => {
-    const controller = new FinanceController(auth as never, finance as never); const body = { coverageId: 'coverage', effectiveOn: '2026-10-10', reason: 'Rút học' };
-    finance.previewCoverageReversal.mockResolvedValue({ coverageId: 'coverage' }); finance.createCoverageReversal.mockResolvedValue({ id: 'reversal' }); finance.decideCoverageReversal.mockResolvedValue({ id: 'posted' });
-    await expect(controller.previewCoverageReversal(request(valid), 'school', body)).resolves.toEqual({ data: { coverageId: 'coverage' } });
-    await expect(controller.createCoverageReversal(request(valid), 'school', 'key', 'operation', body)).resolves.toEqual({ data: { id: 'reversal' } });
-    await expect(controller.decideCoverageReversal(request(valid), 'school', 'request', 'key', 'operation', { decision: 'APPROVE', reason: 'Đủ điều kiện' })).resolves.toEqual({ data: { id: 'posted' } });
-    expect(finance.createCoverageReversal).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', body);
-    expect(finance.decideCoverageReversal).toHaveBeenCalledWith('actor-id', 'school', 'request', 'key', 'operation', { decision: 'APPROVE', reason: 'Đủ điều kiện' });
-  });
-  it('requires browser mutation proof for immutable coverage refund eligibility evidence', async () => {
-    const controller = new FinanceController(auth as never, finance as never); const body = { studentId: 'student', enrollmentId: 'enrollment', reason: 'WITHDRAWAL', effectiveOn: '2026-10-10' };
-    finance.createCoverageRefundEligibility.mockResolvedValue({ id: 'evidence' });
-    await expect(controller.createCoverageRefundEligibility(request(valid), 'school', 'key', 'operation', body)).resolves.toEqual({ data: { id: 'evidence' } });
-    expect(finance.createCoverageRefundEligibility).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', body);
-    finance.createCoverageRefundEligibility.mockClear();
-    await expect(controller.createCoverageRefundEligibility(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', body)).rejects.toMatchObject({ status: 401 });
-    expect(finance.createCoverageRefundEligibility).not.toHaveBeenCalled();
-  });
   it('rejects receipt close without origin and CSRF proof before reaching Finance', async () => {
     const controller = new FinanceController(auth as never, finance as never); finance.closeInvoice.mockClear();
     await expect(controller.closeInvoice(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'invoice', 'key', 'operation', { actualAmount: '90000' })).rejects.toMatchObject({ status: 401 });

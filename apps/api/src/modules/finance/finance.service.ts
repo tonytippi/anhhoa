@@ -12,7 +12,7 @@ import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
 import { PrismaService } from "../identity/prisma.service.js";
 import { renderPaymentImage } from "./payment-image.js";
-import { includedVat, isTaxCategory, taxChannel, taxedLine, vatAmount, vatRate, type PaymentChannel, type TaxCategory } from "./tax.js";
+import { isTaxCategory, taxChannel, taxedLine, vatAmount, vatRate, type PaymentChannel, type TaxCategory } from "./tax.js";
 import { transferContent, vietQrPayload } from "./vietqr.js";
 
 const uuid =
@@ -51,10 +51,6 @@ const routes = {
   closeInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/receipt",
   invoicePayout: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/payout",
   debtTransfer: "POST /api/app/schools/:schoolId/finance/debt-transfers",
-  coverageReversalPreview: "POST /api/app/schools/:schoolId/finance/coverage-reversals/preview",
-  coverageReversal: "POST /api/app/schools/:schoolId/finance/coverage-reversals",
-  coverageReversalDecision: "POST /api/app/schools/:schoolId/finance/coverage-reversal-requests/:requestId/decision",
-  coverageRefundEligibility: "POST /api/app/schools/:schoolId/finance/coverage-refund-eligibilities",
   reportExport: "POST /api/app/schools/:schoolId/finance/reports/:workspace/exports",
   promotionPolicy: "POST /api/app/schools/:schoolId/finance/promotion-policies",
   promotionActivate: "POST /api/app/schools/:schoolId/finance/promotion-policy-versions/:versionId/activate",
@@ -257,11 +253,14 @@ export class FinanceService {
       );
     return BigInt(value);
   }
-  // Decision 2026-10-01 D1: the refund price may be 0 (not refunded) and may exceed the charged price.
+  // Decision 2026-10-01 D1, amendment A1: the refund price may be 0 (not refunded) and never exceeds the charged price.
   private refundPrice(value: unknown, field = "refundUnitPrice") {
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 9007199254740991n)
       throw validation(field, "Giá hoàn trả VND phải là số nguyên không âm an toàn.");
     return BigInt(value);
+  }
+  private refundWithinPrice(refundUnitPrice: bigint, unitPrice: bigint, field = "refundUnitPrice") {
+    if (refundUnitPrice > unitPrice) throw validation(field, `Giá hoàn trả không được vượt đơn giá thu (${unitPrice.toLocaleString("vi-VN")} đ).`);
   }
   private deductionQuantity(value: unknown) {
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 2147483647n)
@@ -286,11 +285,6 @@ export class FinanceService {
   private debtAmount(value: unknown) {
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 9007199254740991n)
       throw validation("amount", "Số tiền chuyển phải là số nguyên VND dương an toàn.");
-    return BigInt(value);
-  }
-  private reversalAmount(value: unknown, field = "amount") {
-    if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 9007199254740991n)
-      throw validation(field, "Số tiền VND phải là số nguyên an toàn không âm.");
     return BigInt(value);
   }
   private safeIssuedTotal(total: bigint) {
@@ -782,126 +776,6 @@ export class FinanceService {
       return result;
     });
   }
-  async createCoverageRefundEligibility(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
-    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
-    const studentId = this.identifier(body?.studentId, "studentId");
-    const enrollmentId = body?.enrollmentId == null ? null : this.identifier(body.enrollmentId, "enrollmentId");
-    const reason = body?.reason;
-    if (reason !== "WITHDRAWAL") throw validation("reason", "Lý do eligibility chưa có nguồn authoritative được hỗ trợ.");
-    const effectiveOn = this.date(body?.effectiveOn, "effectiveOn")!;
-    if (!enrollmentId) throw validation("enrollmentId", "Withdrawal phải tham chiếu enrollment.");
-    return this.mutate(actor, identityId, schoolId, routes.coverageRefundEligibility, key, operationId, { studentId, enrollmentId, reason, effectiveOn: effectiveOn.toISOString() }, async (tx, operation) => {
-      const student = await tx.student.findFirst({ where: { id: studentId, schoolId } });
-      if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
-      if (enrollmentId) {
-        const enrollment = await tx.studentEnrollment.findFirst({ where: { id: enrollmentId, schoolId, studentId } });
-        if (!enrollment || enrollment.lifecycle !== "WITHDRAWN" || !enrollment.endedOn || enrollment.endedOn.getTime() !== effectiveOn.getTime()) throw new ConflictException({ code: "WITHDRAWAL_ELIGIBILITY_INVALID", message: "Enrollment withdrawal không khớp evidence hiệu lực." });
-      }
-      const evidence = await tx.coverageRefundEligibility.create({ data: { schoolId, studentId, enrollmentId, reason, effectiveOn, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation } });
-      const outcome = { id: evidence.id, studentId, enrollmentId, reason, effectiveOn: effectiveOn.toISOString().slice(0, 10) };
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REFUND_ELIGIBILITY_RECORDED", operation, null, outcome);
-      return outcome;
-    });
-  }
-  private async coveragePreview(tx: any, schoolId: string, coverageId: string, requestedEffectiveOn: Date) {
-    const coverage = await tx.studentPromotionalCoverage.findFirst({ where: { id: coverageId, schoolId }, include: { sourceInvoice: { select: { id: true, studentId: true, schoolYearId: true, status: true, studentNameSnapshot: true, reversalModeSnapshot: true } }, sourceReceipt: true } });
-    if (!coverage) throw new NotFoundException({ code: "COVERAGE_NOT_FOUND", message: "Không tìm thấy coverage đã phát hành." });
-    if (!coverage.sourceInvoice || !["CLOSED", "CANCELLED"].includes(coverage.sourceInvoice.status) || !coverage.sourceReceipt || coverage.sourceReceipt.invoiceId !== coverage.sourceInvoiceId || coverage.sourceReceipt.studentId !== coverage.studentId || coverage.sourceReceipt.schoolYearId !== coverage.schoolYearId || coverage.sourceInvoice.studentId !== coverage.studentId || coverage.sourceInvoice.schoolYearId !== coverage.schoolYearId || coverage.sourceReceipt.outcome !== "EXACT") throw new ConflictException({ code: "COVERAGE_SOURCE_INVALID", message: "Provenance thanh toán coverage không còn hợp lệ." });
-    if (coverage.timezone !== "Asia/Ho_Chi_Minh") throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Snapshot coverage không dùng timezone được hỗ trợ." });
-    const eligibility = await tx.coverageRefundEligibility.findFirst({ where: { schoolId, studentId: coverage.studentId, effectiveOn: requestedEffectiveOn } });
-    if (!eligibility) throw new ConflictException({ code: "COVERAGE_REFUND_ELIGIBILITY_REQUIRED", message: "Cần evidence eligibility hoàn coverage bất biến do máy chủ xác nhận." });
-    const effectiveOn = eligibility.effectiveOn;
-    const calendar = await tx.schoolCalendarVersion.findFirst({ where: { schoolId, effectiveFrom: coverage.calendarEffectiveFrom }, include: { holidays: true } });
-    if (!calendar) throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Không tìm thấy snapshot lịch của coverage." });
-    const operatingDays = (start: Date, end: Date) => {
-      let count = 0;
-      for (let cursor = new Date(start); cursor < end; cursor.setUTCDate(cursor.getUTCDate() + 1))
-        if (cursor.getUTCDay() !== 0 && !calendar.holidays.some((holiday: any) => holiday.startsOn <= cursor && holiday.endsOn >= cursor)) count++;
-      return count;
-    };
-    const denominator = operatingDays(coverage.serviceStart, coverage.serviceEnd);
-    if (denominator <= 0) throw new ConflictException({ code: "COVERAGE_DENOMINATOR_INVALID", message: "Coverage snapshot không có ngày vận hành hợp lệ." });
-    const unusedStart = effectiveOn >= coverage.serviceEnd ? coverage.serviceEnd : effectiveOn < coverage.serviceStart ? coverage.serviceStart : new Date(effectiveOn.getTime() + 86400000);
-    const remainingDays = operatingDays(unusedStart, coverage.serviceEnd);
-    // Decision 2026-09-30 D11: the refund returns the unused net share plus its VAT; the paid source includes the coverage VAT.
-    const paidNet = BigInt(coverage.originalPrice) - BigInt(coverage.reduction);
-    const paidAmount = paidNet + BigInt(coverage.vatAmount ?? 0);
-    const prior = await tx.coverageReversal.aggregate({ where: { schoolId, coverageId }, _sum: { amount: true } });
-    const available = paidAmount - (prior._sum.amount ?? 0n);
-    const calculatedNet = (paidNet * BigInt(remainingDays)) / BigInt(denominator);
-    const calculatedVat = vatAmount(calculatedNet, coverage.vatRateSnapshot ?? null);
-    const calculatedAmount = calculatedNet + calculatedVat;
-    if (remainingDays <= 0 || calculatedAmount <= 0n) throw new ConflictException({ code: "COVERAGE_NOT_REFUNDABLE", message: "Coverage không còn ngày vận hành để hoàn." });
-    return { coverage, eligibility, effectiveOn, denominator, remainingDays, calculatedAmount, calculatedVat, vatRate: coverage.vatRateSnapshot ?? null, available: available < 0n ? 0n : available, paidAmount };
-  }
-  async previewCoverageReversal(identityId: string, schoolId: string, body: any) {
-    schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
-    const coverageId = this.identifier(body?.coverageId, "coverageId"); const effectiveOn = this.date(body?.effectiveOn, "effectiveOn")!;
-    return this.prisma.$transaction(async (tx) => {
-      await this.transactionActor(tx, schoolId, identityId, (await this.actor(identityId, schoolId)).membershipId);
-      const result = await this.coveragePreview(tx, schoolId, coverageId, effectiveOn);
-      return { coverageId, effectiveOn: result.effectiveOn.toISOString().slice(0, 10), denominator: result.denominator, remainingDays: result.remainingDays, calculatedAmount: result.calculatedAmount.toString(), calculatedVatAmount: result.calculatedVat.toString(), vatRate: result.vatRate, availableAmount: result.available.toString(), source: { studentName: result.coverage.sourceInvoice.studentNameSnapshot, reversalMode: result.coverage.sourceInvoice.reversalModeSnapshot, invoiceId: result.coverage.sourceInvoiceId, receiptId: result.coverage.sourceReceiptId, serviceStart: result.coverage.serviceStart.toISOString().slice(0, 10), serviceEnd: result.coverage.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: result.coverage.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: result.coverage.timezone, eligibility: { id: result.eligibility.id, reason: result.eligibility.reason, effectiveOn: result.effectiveOn.toISOString().slice(0, 10) } } };
-    });
-  }
-  async coverageReversalRequests(identityId: string, schoolId: string) {
-    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
-    const decisionEligible = await this.prisma.schoolMembership.count({ where: { id: actor.membershipId, schoolId, status: "ACTIVE", boundStaffProfile: { employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SETTINGS_MANAGE" } } } } } }) > 0;
-    const requests = await this.prisma.coverageReversalRequest.findMany({ where: { schoolId, status: "PENDING" }, include: { coverage: { include: { sourceInvoice: { select: { studentNameSnapshot: true } } } } }, orderBy: { createdAt: "asc" } });
-    return { requests: requests.map((request) => ({ id: request.id, coverageId: request.coverageId, studentName: request.coverage.sourceInvoice.studentNameSnapshot, amount: request.amount.toString(), vatAmount: request.vatAmount.toString(), effectiveOn: request.effectiveOn.toISOString().slice(0, 10), reason: request.reason, canDecide: decisionEligible && request.requestedByMembershipId !== actor.membershipId })) };
-  }
-  async createCoverageReversal(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
-    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);
-    const coverageId = this.identifier(body?.coverageId, "coverageId"); const effectiveOn = this.date(body?.effectiveOn, "effectiveOn")!;
-    const reason = this.text(body?.reason, "reason", true, 500)!; const override = body?.amount == null ? null : this.reversalAmount(body.amount);
-    const confirmation = this.text(body?.confirmation, "confirmation", false, 200);
-    return this.mutate(actor, identityId, schoolId, routes.coverageReversal, key, operationId, { coverageId, effectiveOn: effectiveOn.toISOString(), reason, amount: override?.toString() ?? null, confirmation }, async (tx, operation) => {
-      await tx.$queryRaw`SELECT 1 FROM "StudentPromotionalCoverage" WHERE "id" = ${coverageId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const preview = await this.coveragePreview(tx, schoolId, coverageId, effectiveOn);
-      const amount = override ?? preview.calculatedAmount;
-      if (amount <= 0n) throw validation("amount", "Số tiền hoàn phải lớn hơn 0.");
-      if (amount > preview.available) throw new ConflictException({ code: "COVERAGE_REVERSAL_LIMIT", message: "Số tiền hoàn vượt phần nguồn đã thanh toán còn lại." });
-      if (override !== null && override !== preview.calculatedAmount && !reason) throw validation("reason", "Cần lý do khi override số tiền máy chủ tính.");
-      // The refund amount is VAT-inclusive; its VAT part follows the coverage VAT rate.
-      const refundVat = includedVat(amount, preview.vatRate);
-      const invoice = await tx.invoice.findFirst({ where: { id: preview.coverage.sourceInvoiceId, schoolId } });
-      if (!invoice?.reversalModeSnapshot) throw new ConflictException({ code: "COVERAGE_SNAPSHOT_INVALID", message: "Không có snapshot chính sách reversal." });
-      if (invoice.reversalModeSnapshot === "DIRECT") {
-        if (confirmation !== preview.coverage.sourceInvoice.studentNameSnapshot) throw validation("confirmation", "Cần xác nhận đúng tên học sinh từ dữ liệu máy chủ.");
-        const reversal = await tx.coverageReversal.create({ data: { schoolId, coverageId, amount, vatAmount: refundVat, calculatedAmount: preview.calculatedAmount, overrideReason: override !== null && override !== preview.calculatedAmount ? reason : null, effectiveOn: preview.effectiveOn, reason } });
-        await this.ledger(tx, invoice, "COVERAGE_REVERSAL_POSTED", -amount, { coverageReversalId: reversal.id, coverageId, eligibilityId: preview.eligibility.id, effectiveOn: preview.effectiveOn.toISOString(), calculatedAmount: preview.calculatedAmount.toString(), vatRate: preview.vatRate, vatAmount: refundVat.toString(), reason }, reversal.postedAt);
-        await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_POSTED", operation, null, { id: reversal.id, coverageId, calculatedAmount: preview.calculatedAmount.toString(), approvedAmount: amount.toString(), vatAmount: refundVat.toString(), status: "POSTED" }, reason);
-        return { status: "POSTED", id: reversal.id, amount: amount.toString(), vatAmount: refundVat.toString() };
-      }
-      const request = await tx.coverageReversalRequest.create({ data: { schoolId, coverageId, amount, vatAmount: refundVat, calculatedAmount: preview.calculatedAmount, overrideReason: override !== null && override !== preview.calculatedAmount ? reason : null, effectiveOn: preview.effectiveOn, reason, policyMode: "SCHOOL_ADMIN_APPROVAL", requestedByMembershipId: actor.membershipId } });
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_REQUESTED", operation, null, { id: request.id, coverageId, calculatedAmount: preview.calculatedAmount.toString(), approvedAmount: amount.toString(), vatAmount: refundVat.toString(), status: "PENDING" }, reason);
-      return { status: "PENDING", id: request.id, amount: amount.toString(), vatAmount: refundVat.toString() };
-    });
-  }
-  async decideCoverageReversal(identityId: string, schoolId: string, requestId: string, key: string, operationId: string, body: any) {
-    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(requestId, "requestId");
-    const decision = body?.decision; if (!["APPROVE", "REFUSE"].includes(decision)) throw validation("decision", "Quyết định không hợp lệ.");
-    const reason = this.text(body?.reason, "reason", true, 500)!;
-    return this.mutate(actor, identityId, schoolId, routes.coverageReversalDecision, key, operationId, { requestId, decision, reason }, async (tx, operation) => {
-      const request = await tx.coverageReversalRequest.findFirst({ where: { id: requestId, schoolId } });
-      if (!request || request.status !== "PENDING" || request.requestedByMembershipId === actor.membershipId) throw new ConflictException({ code: "COVERAGE_REVERSAL_DECISION_DENIED", message: "Yêu cầu không còn có thể quyết định." });
-      const approver = await tx.schoolMembership.findFirst({ where: { id: actor.membershipId, schoolId, status: "ACTIVE", boundStaffProfile: { employmentStatus: "ACTIVE", primaryPosition: { status: "ACTIVE", grants: { some: { capability: "SETTINGS_MANAGE" } } } } } });
-      if (!approver) throw new UnauthorizedException({ code: "SCHOOL_ADMIN_APPROVAL_REQUIRED", message: "Cần quyền School Admin để quyết định." });
-      await tx.$queryRaw`SELECT 1 FROM "CoverageReversalRequest" WHERE "id" = ${requestId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const lockedRequest = await tx.coverageReversalRequest.findFirst({ where: { id: requestId, schoolId } });
-      if (!lockedRequest || lockedRequest.status !== "PENDING" || lockedRequest.requestedByMembershipId === actor.membershipId) throw new ConflictException({ code: "COVERAGE_REVERSAL_DECISION_DENIED", message: "Yêu cầu không còn có thể quyết định." });
-      if (decision === "REFUSE") { await tx.coverageReversalRequest.update({ where: { id: request.id }, data: { status: "REFUSED", decidedByMembershipId: actor.membershipId, decidedAt: new Date(), refusalReason: reason } }); await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_REFUSED", operation, { id: request.id, status: "PENDING" }, { id: request.id, status: "REFUSED", calculatedAmount: request.calculatedAmount.toString(), approvedAmount: request.amount.toString() }, reason); return { status: "REFUSED", id: request.id }; }
-      await tx.$queryRaw`SELECT 1 FROM "StudentPromotionalCoverage" WHERE "id" = ${request.coverageId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const preview = await this.coveragePreview(tx, schoolId, request.coverageId, request.effectiveOn);
-      if (request.amount > preview.available) throw new ConflictException({ code: "COVERAGE_REVERSAL_LIMIT", message: "Số tiền hoàn không còn trong giới hạn nguồn." });
-      if (request.amount <= 0n || preview.remainingDays <= 0) throw new ConflictException({ code: "COVERAGE_NOT_REFUNDABLE", message: "Coverage không còn phần hợp lệ để hoàn." });
-      const reversal = await tx.coverageReversal.create({ data: { schoolId, coverageId: request.coverageId, requestId: request.id, amount: request.amount, vatAmount: request.vatAmount, calculatedAmount: request.calculatedAmount, overrideReason: request.overrideReason, effectiveOn: request.effectiveOn, reason: request.reason } });
-      const invoice = await tx.invoice.findFirstOrThrow({ where: { id: preview.coverage.sourceInvoiceId, schoolId } });
-      await this.ledger(tx, invoice, "COVERAGE_REVERSAL_POSTED", -BigInt(request.amount), { coverageReversalId: reversal.id, coverageId: request.coverageId, requestId: request.id, effectiveOn: request.effectiveOn.toISOString(), calculatedAmount: request.calculatedAmount.toString(), vatRate: preview.vatRate, vatAmount: request.vatAmount.toString(), reason: request.reason }, reversal.postedAt);
-      await tx.coverageReversalRequest.update({ where: { id: request.id }, data: { status: "POSTED", decidedByMembershipId: actor.membershipId, decidedAt: new Date() } });
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "COVERAGE_REVERSAL_APPROVED_AND_POSTED", operation, { id: request.id, status: "PENDING" }, { id: reversal.id, requestId: request.id, calculatedAmount: request.calculatedAmount.toString(), approvedAmount: request.amount.toString(), vatAmount: request.vatAmount.toString(), status: "POSTED" }, reason);
-      return { status: "POSTED", id: reversal.id, requestId: request.id, amount: request.amount.toString(), vatAmount: request.vatAmount.toString() };
-    });
-  }
   // Issue works on the payment notice: every DRAFT part of the Student in the run is issued in this Operation,
   // the SCHOOL part into the single active School account and the PERSONAL part into the chosen or Class default account.
   async issueInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
@@ -919,12 +793,14 @@ export class FinanceService {
       const run = await this.lockRun(tx, schoolId, primary.collectionRunId);
       const year = await this.lockYear(tx, schoolId, primary.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
-      // Decision 2026-10-01 D7: a part may be negative (refund notice) or zero (closed at issue).
+      // Decision 2026-10-01 D7, amendment A2: a settlement part may be negative (refund notice); any part may be zero (closed at issue).
       if (!primary.lines.length) throw validation("invoiceId", "Hóa đơn cần ít nhất một dòng để phát hành.");
       // An empty sibling part (all lines removed) is left as an empty DRAFT, like any other empty DRAFT.
       const siblings = await tx.invoice.findMany({ where: { schoolId, studentId: primary.studentId, collectionRunId: primary.collectionRunId, revisesInvoiceId: null, status: "DRAFT", id: { not: primary.id } }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
       const parts = [primary, ...siblings.filter((item: any) => item.lines.length)].sort((a: any, b: any) => (a.channel === b.channel ? 0 : a.channel === "SCHOOL" ? -1 : 1));
       for (const part of parts) this.safeIssuedTotal(part.total);
+      // Amendment A2: only a settlement Invoice may be a refund notice.
+      for (const part of parts) if (part.kind !== "SETTLEMENT" && BigInt(part.total) < 0n) throw new ConflictException({ code: "INVOICE_TOTAL_NEGATIVE", message: `Hóa đơn tháng không được âm. Giảm Bớt thêm ${(-BigInt(part.total)).toLocaleString("vi-VN")} đ để phát hành; phần còn lại hoàn khi quyết toán.` });
       const banks = new Map<PaymentChannel, any>();
       for (const part of parts) banks.set(part.channel, await this.issueBankAccount(tx, schoolId, part.channel, personalBankAccountId, part.classIdSnapshot));
       const now = new Date();
@@ -1123,7 +999,7 @@ export class FinanceService {
       // A line is written to the notice part of its receivable's payment channel, created on demand.
       const target = await this.channelDraft(tx, schoolId, invoice, taxChannel(receivable.taxCategory));
       const evaluated = await this.evaluateDraftPromotion(tx, schoolId, target, { receivableId: receivable.id, receivableName: receivable.displayName, amount });
-      const deduction = await this.lineProposal(tx, schoolId, target, receivable);
+      const deduction = await this.lineProposal(tx, schoolId, target, receivable, unitPrice);
       const netAmount = BigInt(evaluated.netAmount) - deduction.deductionAmount;
       const tax = taxedLine(netAmount, receivable.taxCategory);
       const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice, quantity: input.quantity, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), ...this.deductionData(deduction), netAmount, ...tax, promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason: input.overrideReason, ...source } });
@@ -1139,6 +1015,7 @@ export class FinanceService {
        if (!existing) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
        if (existing.kind === "PRIOR_DEBT") throw new ConflictException({ code: "PRIOR_DEBT_IMMUTABLE", message: "Dòng công nợ kỳ trước không thể sửa." });
       const unitPrice = input.unitPrice ?? existing.unitPrice;
+      if ((existing.deductionSource as any)?.type !== "PREPAID_PACKAGE_V1" && BigInt(existing.refundUnitPriceSnapshot ?? 0) > BigInt(unitPrice)) throw validation("unitPrice", "Đơn giá thu không được thấp hơn giá hoàn trả của phần bớt; hãy sửa phần bớt trước.");
       const overrideReason = input.unitPrice == null ? existing.overrideReason : input.overrideReason;
       const source = body?.source === undefined ? { source: existing.source ?? Prisma.DbNull, sourceReason: existing.sourceReason, sourceActorIdentityId: existing.sourceActorIdentityId, sourceMembershipId: existing.sourceMembershipId, sourceRecordedAt: existing.sourceRecordedAt, sourceProvenance: existing.sourceProvenance ?? Prisma.DbNull } : body.source === null ? { source: Prisma.DbNull, sourceReason: null, sourceActorIdentityId: null, sourceMembershipId: null, sourceRecordedAt: null, sourceProvenance: Prisma.DbNull } : await this.source(tx, body, invoice, identityId, actor.membershipId);
       const amount = this.amount(unitPrice, input.quantity);
@@ -1174,11 +1051,12 @@ export class FinanceService {
         fields = refund ? { refundUnitPriceSnapshot: refund.refundNet, deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: refund.refundNet, deductionSource: refund.source, deductionReason: null } : { refundUnitPriceSnapshot: 0n, deductionQuantity: 0, proposedDeductionQuantity: 0, deductionAmount: 0n, deductionReason: null };
       } else if (!input) {
         const receivable = await tx.receivable.findFirstOrThrow({ where: { id: existing.receivableId, schoolId } });
-        fields = { ...this.deductionData(await this.lineProposal(tx, schoolId, invoice, receivable)), deductionReason: null };
+        fields = { ...this.deductionData(await this.lineProposal(tx, schoolId, invoice, receivable, BigInt(existing.unitPrice))), deductionReason: null };
       } else {
         const proposedUnitPrice = BigInt((existing.deductionSource as any)?.proposedUnitPrice ?? 0);
         const differs = input.deductionQuantity !== existing.proposedDeductionQuantity || input.refundUnitPrice !== proposedUnitPrice;
         if (differs && !input.reason) throw validation("reason", "Nhập lý do khi phần bớt khác số hệ thống đề xuất.");
+        if (!packageSource) this.refundWithinPrice(input.refundUnitPrice, BigInt(existing.unitPrice));
         fields = { refundUnitPriceSnapshot: input.refundUnitPrice, deductionQuantity: input.deductionQuantity, deductionAmount: this.amount(input.refundUnitPrice, input.deductionQuantity), deductionReason: differs ? input.reason : null };
         if (packageSource && fields.deductionAmount > BigInt(packageSource.maxRefundNet)) throw new ConflictException({ code: "SETTLEMENT_REFUND_EXCEEDS_PAID", message: "Số hoàn vượt phần học phí nộp trước còn lại chưa hoàn." });
       }
@@ -1216,14 +1094,16 @@ export class FinanceService {
   private deductionData(proposal: ReturnType<FinanceService["deductionProposal"]>) {
     return { ...proposal, deductionSource: proposal.deductionSource ?? Prisma.DbNull };
   }
-  private async lineProposal(tx: any, schoolId: string, invoice: any, receivable: any) {
-    if (BigInt(receivable.refundUnitPrice ?? 0) <= 0n) return this.deductionProposal(0n, invoice.billingMonth, []);
+  // A1: a line charged below the catalog price proposes its refund at most at the line unit price.
+  private async lineProposal(tx: any, schoolId: string, invoice: any, receivable: any, unitPrice: bigint) {
+    const refund = BigInt(receivable.refundUnitPrice ?? 0) < unitPrice ? BigInt(receivable.refundUnitPrice ?? 0) : unitPrice;
+    if (refund <= 0n) return this.deductionProposal(0n, invoice.billingMonth, []);
     if (invoice.kind === "SETTLEMENT" && invoice.enrollmentEndedOnSnapshot) {
       const days = await this.settlementDays(tx, schoolId, invoice.studentId, invoice.billingMonth, invoice.enrollmentEndedOnSnapshot);
-      return this.deductionProposal(BigInt(receivable.refundUnitPrice), invoice.billingMonth, days.days, days.afterEndDays);
+      return this.deductionProposal(refund, invoice.billingMonth, days.days, days.afterEndDays);
     }
     const days = (await this.leaveDeductionDays(tx, schoolId, [invoice.studentId], invoice.billingMonth)).get(invoice.studentId) ?? [];
-    return this.deductionProposal(BigInt(receivable.refundUnitPrice), invoice.billingMonth, days);
+    return this.deductionProposal(refund, invoice.billingMonth, days);
   }
   // D9: a settlement refunds the approved leave days of the previous month plus every operating day of
   // that month from the first day without enrollment (meals paid in advance but not eaten).
@@ -1364,6 +1244,7 @@ export class FinanceService {
       refundUnitPrice: this.refundPrice(body?.refundUnitPrice ?? "0"),
       taxCategory: this.taxCategory(body?.taxCategory ?? "NOT_DECLARED"),
     };
+    this.refundWithinPrice(input.refundUnitPrice, input.defaultUnitPrice);
     return this.mutate(
       actor,
       identityId,
@@ -1503,6 +1384,7 @@ export class FinanceService {
       const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (item.refundUnitPrice === refundUnitPrice) throw validation("refundUnitPrice", "Khoản thu đã có giá hoàn trả này.");
+      this.refundWithinPrice(refundUnitPrice, item.defaultUnitPrice);
       const updated = await tx.receivable.update({ where: { id: item.id }, data: { refundUnitPrice }, include });
       const outcome = this.receivableDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_REFUND_PRICE_CHANGED", operation, this.receivableDto(item), outcome);

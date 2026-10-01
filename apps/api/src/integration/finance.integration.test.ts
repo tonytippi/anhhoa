@@ -2439,54 +2439,6 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(nextInvoice.lines).toEqual([expect.objectContaining({ receivableId: fixture.otherReceivableId, amount: 25n })]);
     });
 
-    it("calculates reversal only from the coverage calendar snapshot with excluded effective day and floor VND", async () => {
-      const fixture = await coverageFixture();
-      const eligibilityOperationId = uuid();
-      await prisma.operation.create({ data: { id: eligibilityOperationId, schoolId: fixture.current.school.id, membershipId: fixture.current.membership.id, actorIdentityId: fixture.current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: fixture.current.membership.id, route: "fixture-eligibility-calendar", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
-      await prisma.coverageRefundEligibility.create({ data: { schoolId: fixture.current.school.id, studentId: fixture.student.student.id, reason: "TRANSFER_OUT", effectiveOn: date("2026-10-10"), actorIdentityId: fixture.current.identity.id, membershipId: fixture.current.membership.id, operationId: eligibilityOperationId } });
-      const calendarVersionId = (await prisma.schoolCalendarVersion.findFirstOrThrow({ where: { schoolId: fixture.current.school.id } })).id;
-      await prisma.$transaction(async (tx) => { await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica"); await tx.schoolCalendarHoliday.create({ data: { schoolId: fixture.current.school.id, calendarVersionId, name: "Nghỉ", startsOn: date("2026-10-05"), endsOn: date("2026-10-05") } }); });
-      const coverage = await closeCoverage(fixture);
-      const preview = await finance.previewCoverageReversal(fixture.current.identity.id, fixture.current.school.id, { coverageId: coverage.id, effectiveOn: "2026-10-10" });
-       expect(preview).toMatchObject({ denominator: 26, remainingDays: 18, calculatedAmount: "62", availableAmount: "90", source: { invoiceId: fixture.invoice.id, receiptId: coverage.sourceReceiptId, timezone: "Asia/Ho_Chi_Minh", eligibility: { reason: "TRANSFER_OUT", effectiveOn: "2026-10-10" } } });
-      await prisma.$transaction(async (tx) => { await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica"); await tx.studentPromotionalCoverage.update({ where: { id: coverage.id }, data: { serviceStart: date("2026-10-04"), serviceEnd: date("2026-10-05") } }); });
-       await expect(finance.previewCoverageReversal(fixture.current.identity.id, fixture.current.school.id, { coverageId: coverage.id, effectiveOn: "2026-10-04" })).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_REFUND_ELIGIBILITY_REQUIRED" } });
-    });
-
-    it("caps direct reversal under replay and concurrent posts", async () => {
-      const fixture = await coverageFixture(); const coverage = await closeCoverage(fixture);
-      const key = uuid(); const first = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, key, uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Rút học", amount: "50", confirmation: fixture.student.student.fullName });
-      await expect(finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, key, uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Rút học", amount: "50", confirmation: fixture.student.student.fullName })).resolves.toEqual(first);
-      const attempts = await Promise.allSettled([finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Còn lại", amount: "40", confirmation: fixture.student.student.fullName }), finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Vượt", amount: "41", confirmation: fixture.student.student.fullName })]);
-      expect(attempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-      expect(await prisma.coverageReversal.aggregate({ where: { schoolId: fixture.current.school.id, coverageId: coverage.id }, _sum: { amount: true } })).toMatchObject({ _sum: { amount: 90n } });
-    });
-
-    it("refunds the unused share with its VAT and reports billed and refunded VAT", async () => {
-      const fixture = await coverageFixture("DIRECT", "VAT_10"); const coverage = await closeCoverage(fixture);
-      // Paid source per covered month: net 100 - 10 = 90 plus 10% VAT 9.
-      expect(coverage).toMatchObject({ vatRateSnapshot: 10, vatAmount: 9n });
-      const preview = await finance.previewCoverageReversal(fixture.current.identity.id, fixture.current.school.id, { coverageId: coverage.id, effectiveOn: "2026-10-01" });
-      const net = (90n * BigInt(preview.remainingDays)) / BigInt(preview.denominator); const vat = (net * 10n + 50n) / 100n;
-      expect(preview).toMatchObject({ vatRate: 10, calculatedAmount: (net + vat).toString(), calculatedVatAmount: vat.toString(), availableAmount: "99" });
-      const posted = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Rút học", confirmation: fixture.student.student.fullName });
-      expect(posted).toMatchObject({ status: "COMPLETED", outcome: { status: "POSTED", amount: (net + vat).toString(), vatAmount: vat.toString() } });
-      // An overridden amount is VAT-inclusive; the remaining paid source including VAT caps it.
-      const rest = 99n - net - vat;
-      await expect(finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Vượt", amount: (rest + 1n).toString(), confirmation: fixture.student.student.fullName })).rejects.toMatchObject({ response: { code: "COVERAGE_REVERSAL_LIMIT" } });
-      const last = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Phần còn lại", amount: rest.toString(), confirmation: fixture.student.student.fullName });
-      const restVat = rest - (rest * 200n + 110n) / 220n;
-      expect(last).toMatchObject({ outcome: { amount: rest.toString(), vatAmount: restVat.toString() } });
-      await expect(prisma.coverageReversal.create({ data: { schoolId: fixture.current.school.id, coverageId: coverage.id, amount: 1n, vatAmount: 1n, calculatedAmount: 1n, effectiveOn: date("2026-10-01"), reason: "VAT sai" } })).rejects.toThrow();
-      const invoiceVat = (await prisma.invoiceLine.aggregate({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id }, _sum: { vatAmount: true } }))._sum.vatAmount!;
-      expect(invoiceVat).toBe(10n);
-      const report = await finance.report(fixture.current.identity.id, fixture.current.school.id, "overview", {});
-      expect(report.summary).toMatchObject({ vat: "10", refundVat: (vat + restVat).toString(), refund: "99" });
-      expect(report.rows).toEqual([expect.objectContaining({ type: "INVOICE_ISSUED", vatAmount: "10", netAmount: "110" })]);
-      const cash = await finance.report(fixture.current.identity.id, fixture.current.school.id, "cash-adjustments", {});
-      expect(cash.rows.filter((row: any) => row.type === "COVERAGE_ISSUED").map((row: any) => [row.amount, row.vatAmount])).toEqual([["99", "9"], ["99", "9"]]);
-    });
-
     it("serializes concurrent direct reversal inserts at the PostgreSQL coverage lock", async () => {
       const fixture = await coverageFixture(); const coverage = await closeCoverage(fixture);
       const attempts = await Promise.allSettled([
@@ -2498,22 +2450,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.coverageReversal.aggregate({ where: { schoolId: fixture.current.school.id, coverageId: coverage.id }, _sum: { amount: true } })).toMatchObject({ _sum: { amount: 50n } });
     });
 
-    it("requires a distinct School Admin to approve or refuse reversal requests", async () => {
-      const fixture = await coverageFixture("SCHOOL_ADMIN_APPROVAL"); const coverage = await closeCoverage(fixture); const body = { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Rút học", amount: "10" };
-      const requested = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), body);
-      const requestId = (requested.outcome as any).id;
-      await expect(finance.decideCoverageReversal(fixture.current.identity.id, fixture.current.school.id, requestId, uuid(), uuid(), { decision: "APPROVE", reason: "Tự duyệt" })).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_REVERSAL_DECISION_DENIED" } });
-      const admin = await schoolAdmin(fixture.current);
-      await expect(finance.decideCoverageReversal(admin.identity.id, fixture.current.school.id, requestId, uuid(), uuid(), { decision: "APPROVE", reason: "Duyệt" })).resolves.toMatchObject({ outcome: { status: "POSTED", requestId } });
-      const refused = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { ...body, amount: "1", reason: "Không còn dùng" });
-      await expect(finance.decideCoverageReversal(admin.identity.id, fixture.current.school.id, (refused.outcome as any).id, uuid(), uuid(), { decision: "REFUSE", reason: "Thiếu chứng từ" })).resolves.toMatchObject({ outcome: { status: "REFUSED" } });
-    });
-
     it("rejects cross-School reversal graph and preserves append-only reversal records", async () => {
       const fixture = await coverageFixture(); const coverage = await closeCoverage(fixture); const foreign = await coverageFixture(); const foreignCoverage = await closeCoverage(foreign);
       await expect(prisma.coverageReversal.create({ data: { schoolId: fixture.current.school.id, coverageId: foreignCoverage.id, amount: 1n, calculatedAmount: 1n, effectiveOn: date("2026-10-01"), reason: "Cross school" } })).rejects.toThrow();
-      const posted = await finance.createCoverageReversal(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { coverageId: coverage.id, effectiveOn: "2026-10-01", reason: "Hoàn", amount: "1", confirmation: fixture.student.student.fullName });
-      await expect(prisma.coverageReversal.update({ where: { id: (posted.outcome as any).id }, data: { amount: 0n } })).rejects.toThrow(/append-only/);
+      const posted = await prisma.coverageReversal.create({ data: { schoolId: fixture.current.school.id, coverageId: coverage.id, amount: 1n, calculatedAmount: 1n, effectiveOn: date("2026-10-01"), reason: "Hoàn" } });
+      await expect(prisma.coverageReversal.update({ where: { id: posted.id }, data: { amount: 0n } })).rejects.toThrow(/append-only/);
     });
 
     it("creates immutable settlement transfer when correcting a CLOSED receipt-backed Invoice", async () => {
@@ -2625,18 +2566,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.invoiceLine.count({ where: { schoolId: fixture.current.school.id, kind: "PRIOR_DEBT" } })).toBe(0);
       expect(await prisma.invoice.findUniqueOrThrow({ where: { id: fixture.invoice.id } })).toMatchObject({ schoolYearId: fixture.current.year.id, status: "ISSUED" });
     });
-    it("rejects corrupted reversal source provenance before preview", async () => {
-      const fixture = await coverageFixture(); const coverage = await closeCoverage(fixture);
-      await prisma.$transaction(async (tx) => { await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica"); await tx.receipt.update({ where: { id: coverage.sourceReceiptId }, data: { outcome: "SHORTFALL" } }); });
-      await expect(finance.previewCoverageReversal(fixture.current.identity.id, fixture.current.school.id, { coverageId: coverage.id, effectiveOn: "2026-10-10" })).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_SOURCE_INVALID" } });
-    });
-    it("rejects direct reversal request bypass, aggregate cap, and request deletion without adding facts", async () => {
+    it("rejects direct reversal request bypass and aggregate cap without adding facts", async () => {
       const direct = await coverageFixture(); const coverage = await closeCoverage(direct);
       await expect(prisma.coverageReversalRequest.create({ data: { schoolId: direct.current.school.id, coverageId: coverage.id, amount: 1n, calculatedAmount: 1n, effectiveOn: date("2026-10-01"), reason: "Bypass", policyMode: "SCHOOL_ADMIN_APPROVAL", requestedByMembershipId: direct.current.membership.id } })).rejects.toThrow(/positive exact paid source snapshot/);
       await expect(prisma.coverageReversal.create({ data: { schoolId: direct.current.school.id, coverageId: coverage.id, amount: 91n, calculatedAmount: 91n, effectiveOn: date("2026-10-01"), reason: "Over cap" } })).rejects.toThrow(/exceeds/);
       expect(await prisma.coverageReversal.count({ where: { schoolId: direct.current.school.id } })).toBe(0);
-      const approval = await coverageFixture("SCHOOL_ADMIN_APPROVAL"); const approvalCoverage = await closeCoverage(approval); const requested = await finance.createCoverageReversal(approval.current.identity.id, approval.current.school.id, uuid(), uuid(), { coverageId: approvalCoverage.id, effectiveOn: "2026-10-01", reason: "Chờ duyệt", amount: "1" });
-      await expect(prisma.coverageReversalRequest.delete({ where: { id: (requested.outcome as any).id } })).rejects.toThrow(/append-only/);
     });
     it("projects immutable report cutoffs, four workspaces, export audit, expiry, tenant and revoked denial", async () => {
       const fixture = await issueFixture("100");

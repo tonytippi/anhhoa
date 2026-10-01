@@ -33,7 +33,7 @@ describe('Finance Story 6.6 release evidence', () => {
     for (const evidence of [
       /posts immutable exact, shortfall, and overpayment receipts once, then carries a shortfall only into the next monthly DRAFT/,
       /closes a coverage Invoice exactly once and atomically issues immutable paid coverage with replay/,
-      /caps direct reversal under replay and concurrent posts/,
+      /serializes concurrent direct reversal inserts at the PostgreSQL coverage lock/,
       /rejects cross-School reversal graph and preserves append-only reversal records/,
       /moves bounded same-scope outstanding debt append-only, replays safely, and settles the target through actual receipt/,
       /projects immutable report cutoffs, four workspaces, export audit, expiry, tenant and revoked denial/,
