@@ -296,6 +296,29 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     await expect(rename(a1, { name: "Không quyền", reason: "x" })).rejects.toMatchObject({ status: 403 });
   });
 
+  it("serializes competing commands: one concurrent membership add, class creation and rename wins, the rest get controlled 4xx", async () => {
+    const s = await setup();
+    const classId = id(await createClass(s, "Tiếng Anh A1"));
+    const [x] = s.students as [string];
+    // Two Finance sessions add the same Student to the same class at once.
+    const adds = await Promise.allSettled([add(s, classId, [x]), add(s, classId, [x], { reason: "Đăng ký khác" })]);
+    expect(adds.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const lost = adds.find((result) => result.status === "rejected") as PromiseRejectedResult;
+    expect(lost.reason).toMatchObject({ status: 409, response: { code: "EXTRACURRICULAR_MEMBERSHIP_OVERLAP" } });
+    expect(await prisma.extracurricularMembership.count({ where: { schoolId: s.school.id, enrollmentId: x } })).toBe(1);
+    // Two classes with the same name in one SchoolYear: one is created.
+    const creates = await Promise.allSettled([createClass(s, "Vẽ chung", s.drawing), createClass(s, "Vẽ chung", s.drawing)]);
+    expect(creates.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect((creates.find((result) => result.status === "rejected") as PromiseRejectedResult).reason).toMatchObject({ status: 400, response: { fieldErrors: { name: expect.any(String) } } });
+    expect(await prisma.extracurricularClass.count({ where: { schoolId: s.school.id, name: "Vẽ chung" } })).toBe(1);
+    // Two renames to the same free name at once.
+    const second = id(await createClass(s, "Tiếng Anh A2"));
+    const renames = await Promise.allSettled([classId, second].map((target) => finance.renameExtracurricularClass(s.identity.id, s.school.id, target, uuid(), uuid(), { name: "Tiếng Anh nâng cao", reason: "Đổi tên" })));
+    expect(renames.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect((renames.find((result) => result.status === "rejected") as PromiseRejectedResult).reason).toMatchObject({ status: 400 });
+    expect(await prisma.extracurricularClass.count({ where: { schoolId: s.school.id, name: "Tiếng Anh nâng cao" } })).toBe(1);
+  });
+
   it("replays a bulk add by key, rejects a changed body and re-authorizes, and refuses foreign Schools without leaking facts", async () => {
     const s = await setup();
     const foreign = await setup("Foreign");

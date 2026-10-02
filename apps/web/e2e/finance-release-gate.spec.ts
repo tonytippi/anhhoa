@@ -82,6 +82,33 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await endDialog.getByRole('button', { name: 'Kết thúc tham gia' }).click();
   await expect(endDialog).toBeHidden();
   await expect(members.getByRole('row', { name: /Bé Bình/ })).toContainText('15/11/2026');
+  // Bé An leaves mid-month (single end); Bé Bình moves A1 -> A2 on 16/11 through a second class that shares the same receivable.
+  await members.getByRole('checkbox', { name: 'Chọn Bé An' }).check();
+  await page.getByRole('button', { name: 'Kết thúc' }).click();
+  await endDialog.getByLabel('Ngày kết thúc').fill('2026-11-20');
+  await endDialog.getByLabel('Lý do').fill('Nghỉ giữa tháng');
+  await endDialog.getByRole('button', { name: 'Kết thúc tham gia' }).click();
+  await expect(endDialog).toBeHidden();
+  await expect(members.getByRole('row', { name: /Bé An/ })).toContainText('20/11/2026');
+  await page.getByRole('link', { name: 'Lớp ngoại khóa', exact: true }).click();
+  await page.getByRole('button', { name: 'Thêm lớp ngoại khóa' }).click();
+  const secondClassDialog = page.getByRole('dialog', { name: 'Thêm lớp ngoại khóa' });
+  await secondClassDialog.getByLabel('Tên lớp').fill('Tiếng Anh A2 (T3-T5)');
+  await secondClassDialog.getByLabel('Khoản thu').selectOption({ label: 'Tiếng Anh Release 1 · 600.000 đ/tháng' });
+  await expect(secondClassDialog.getByText('Dùng chung với: Tiếng Anh A1 (T2-T4).')).toBeVisible();
+  await secondClassDialog.getByRole('button', { name: 'Lưu lớp ngoại khóa' }).click();
+  await expect(secondClassDialog).toBeHidden();
+  await page.getByRole('row', { name: /^Tiếng Anh A2 \(T3-T5\)/ }).getByRole('link', { name: 'Xem thành viên' }).click();
+  await page.getByRole('button', { name: 'Thêm học sinh' }).click();
+  const moveDialog = page.getByRole('dialog', { name: /^Thêm học sinh/ });
+  await moveDialog.getByRole('checkbox', { name: 'Chọn Bé Bình' }).check();
+  await moveDialog.getByLabel('Hiệu lực từ').fill('2026-11-16');
+  await moveDialog.getByLabel('Lý do').fill('Chuyển từ Tiếng Anh A1');
+  await moveDialog.getByRole('button', { name: 'Thêm học sinh đã chọn' }).click();
+  await expect(moveDialog).toBeHidden();
+  await page.getByLabel('Trạng thái').selectOption('ALL');
+  await page.getByRole('button', { name: 'Áp dụng' }).click();
+  await expect(page.getByRole('table', { name: /^Thành viên/ }).getByRole('row', { name: /Bé Bình/ })).toContainText('16/11/2026');
   await page.getByRole('button', { name: 'Tài chính' }).click();
   const receivablesNavigation = page.getByRole('button', { name: 'Khoản thu' });
   await expect(receivablesNavigation).toBeVisible();
@@ -93,7 +120,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await expect(receivablesToolbar.getByLabel('Nhóm').locator('option')).toHaveText(['Tất cả nhóm', 'Khoản thu cố định', 'Khoản thu linh hoạt', 'Ngoại khóa']);
   await expect(page.getByRole('button', { name: 'Thêm khoản thu' })).toBeInViewport();
   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 1');
-  await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('gắn 1 lớp ngoại khóa');
+  await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('gắn 2 lớp ngoại khóa');
   await page.getByRole('button', { name: 'Ưu đãi' }).click();
   await expect(page.getByRole('heading', { name: 'Ưu đãi', level: 1 })).toBeVisible();
   await expect(page.getByRole('form', { name: 'Điều khiển danh sách ưu đãi' }).getByRole('button', { name: 'Thêm chính sách' })).toBeInViewport();
@@ -362,10 +389,14 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Cố định' })).toBeVisible();
   await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Linh hoạt · Lớp chính thức: Mầm Release 1' })).toBeVisible();
   await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Ngoại khóa · Tiếng Anh A1 (T2-T4)' })).toBeVisible();
-  // Bé Bình left the class on 15/11: the extracurricular line is flagged and can be adjusted with a reason.
+  // Bé An left on 20/11: flagged as joining/leaving mid-month.
+  await expect(novReview.getByText('Vào/nghỉ giữa tháng')).toBeVisible();
+  // Bé Bình moved A1 -> A2 within the month: one merged line, flagged as a class change, adjustable with a reason.
   await novReview.getByRole('button', { name: 'Học sinh tiếp theo' }).click();
   const novSecond = page.getByRole('region', { name: /Rà soát hóa đơn RG1-2/ });
-  await expect(novSecond.getByText('Vào/nghỉ giữa tháng')).toBeVisible();
+  await expect(novSecond.getByTitle('Nguồn').filter({ hasText: 'Ngoại khóa · Tiếng Anh A1 (T2-T4) → Tiếng Anh A2 (T3-T5)' })).toBeVisible();
+  await expect(novSecond.getByText('Chuyển lớp trong tháng')).toBeVisible();
+  await expect(novSecond.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' }).getByRole('row').filter({ hasText: 'Tiếng Anh Release 1' })).toHaveCount(1);
   await novSecond.getByRole('button', { name: 'Điều chỉnh' }).click();
   const adjust = page.getByRole('dialog', { name: /Điều chỉnh dòng · Tiếng Anh Release 1/ });
   await adjust.getByLabel('Đơn giá (VND)').fill('300000');
