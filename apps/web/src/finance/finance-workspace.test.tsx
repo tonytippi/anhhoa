@@ -178,7 +178,7 @@ describe("FinanceWorkspace", () => {
   it("reviews and issues a two-part payment notice with the School account and the Class default personal account", async () => {
     const line = (id: string, name: string, amount: string, extra: Record<string, unknown> = {}) => ({ id, receivableId: `r-${id}`, receivableName: name, unitLabel: "tháng", unitPrice: amount, quantity: "1", amount, grossAmount: amount, discountAmount: "0", netAmount: amount, taxCategory: "NOT_DECLARED", vatRate: null, vatAmount: "0", promotionEvaluation: null, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null, ...extra });
     const base = { status: "DRAFT", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Mầm 4A" } };
-    const schoolPart = { ...base, id: "invoice-school", channel: "SCHOOL", total: "1417500", lines: [line("a", "Học phí", "1417500", { grossAmount: "1500000", discountAmount: "150000", netAmount: "1350000", taxCategory: "VAT_5", vatRate: 5, vatAmount: "67500" })] };
+    const schoolPart = { ...base, id: "invoice-school", channel: "SCHOOL", total: "1417500", noticeTotal: "2103500", lines: [line("a", "Học phí", "1417500", { grossAmount: "1500000", discountAmount: "150000", netAmount: "1350000", taxCategory: "VAT_5", vatRate: 5, vatAmount: "67500" })] };
     const personalPart = { ...base, id: "invoice-personal", channel: "PERSONAL", total: "686000", lines: [line("b", "Tiền ăn", "686000", { unitLabel: "ngày", unitPrice: "35000", quantity: "22", grossAmount: "770000", netAmount: "686000", refundUnitPrice: "28000", deductionQuantity: "3", proposedDeductionQuantity: "3", deductionAmount: "84000", deductionReason: null, deductionSource: { month: "2026-09", days: ["2026-09-04", "2026-09-15", "2026-09-16"], proposedUnitPrice: "28000" } })] };
     const notice = { classDefaultBankAccountId: "bank-an", invoices: [schoolPart, personalPart] };
     const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-school", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Mầm 4A", status: "DRAFT", total: "1417500", channel: "SCHOOL" }, { id: "invoice-personal", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Mầm 4A", status: "DRAFT", total: "770000", channel: "PERSONAL" }] };
@@ -215,9 +215,22 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận phát hành" }));
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-school/issue") && (options as RequestInit).body === JSON.stringify({ personalBankAccountId: "bank-binh" }))).toBe(true));
   });
+  it("renders the payment total and the settlement total exactly as the server returned them, never summing parts", async () => {
+    const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "5" }] };
+    // The part values deliberately disagree with the server totals: the browser must show the server's figures.
+    const issued = { id: "invoice-a", status: "ISSUED", paymentTotal: "-120000", total: "5", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], paymentImageAvailable: true, student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [], issue: { obligationCode: "OBL-1", obligationTotal: "5", dueOn: "2026-10-10", bankAccount: { id: "bank", receivingBank: "Vietcombank", bankBin: "970436", accountNumber: "1", accountHolderName: "TRUONG A" }, transferContent: "Be An", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
+    const partA = { ...issued, channel: "SCHOOL" };
+    const partB = { ...issued, id: "invoice-b", channel: "PERSONAL", total: "7", issue: { ...issued.issue, obligationCode: "OBL-2", obligationTotal: "7" } };
+    const notice = { ...partA, notice: { classDefaultBankAccountId: null, invoices: [partA, partB] } };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.endsWith("/payment-image") ? new Response("{}", { status: 500 }) : url.endsWith("/invoices/invoice-a") ? response(notice) : url.endsWith(`/collection-runs/${run.id}`) ? response(routedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [routedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-a" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} />);
+    const payment = await screen.findByRole("complementary", { name: "Thanh toán" });
+    expect(within(payment).getByText("Trường hoàn lại cho phụ huynh")).toBeTruthy();
+    expect(within(payment).getByText("Hoàn 120.000 VND")).toBeTruthy();
+  });
   it("offers the server payment image only for an unsettled issued Invoice and saves the returned PNG", async () => {
     const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "1350000" }] };
-    const issued = { id: "invoice-a", status: "ISSUED", total: "1350000", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], paymentImageAvailable: true, student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [], issue: { obligationCode: "OBL-202610-000123", obligationTotal: "1350000", dueOn: "2026-10-10", bankAccount: { id: "bank", receivingBank: "Vietcombank", bankBin: "970436", accountNumber: "1020888999", accountHolderName: "TRUONG A" }, transferContent: "Be An La 1", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
+    const issued = { id: "invoice-a", status: "ISSUED", paymentTotal: "1350000", total: "1350000", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], paymentImageAvailable: true, student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [], issue: { obligationCode: "OBL-202610-000123", obligationTotal: "1350000", dueOn: "2026-10-10", bankAccount: { id: "bank", receivingBank: "Vietcombank", bankBin: "970436", accountNumber: "1020888999", accountHolderName: "TRUONG A" }, transferContent: "Be An La 1", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
     let current: Record<string, unknown> = issued;
     let imageStatus = 500;
     const fetch = vi.fn((url: string) => Promise.resolve(url.endsWith("/payment-image") ? new Response(imageStatus === 200 ? new Blob(["png"], { type: "image/png" }) : "{}", { status: imageStatus, headers: { "content-disposition": 'attachment; filename="OBL-202610-000123-HS001.png"' } }) : url.endsWith("/invoices/invoice-a") ? response(current) : url.endsWith(`/collection-runs/${run.id}`) ? response(routedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [routedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog)));
@@ -547,8 +560,12 @@ describe("FinanceWorkspace", () => {
     const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method ? response({ status: "COMPLETED", outcome: { id: "r1" } }) : response({ groups: [], receivables })));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
-    fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Dã ngoại" }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Chỉnh sửa" }));
+    const trigger = await screen.findByRole("button", { name: "Tùy chọn cho Dã ngoại" });
+    await waitFor(() => {
+      if (!screen.queryByRole("menuitem", { name: "Chỉnh sửa" })) fireEvent.keyDown(trigger, { key: "ArrowDown" });
+      expect(screen.getByRole("menuitem", { name: "Chỉnh sửa" })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Chỉnh sửa" }));
     const dialog = await screen.findByRole("dialog", { name: "Chỉnh sửa · Dã ngoại" });
     fireEvent.change(within(dialog).getByLabelText("Giá / đơn vị (chưa VAT)"), { target: { value: "400000" } });
     fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "   " } });
@@ -1566,7 +1583,7 @@ describe("FinanceWorkspace", () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "CLOSED", total: "90" }] };
     let settled = false;
     const settlement = { id: "invoice-s", kind: "SETTLEMENT", channel: "SCHOOL", status: "DRAFT", total: "-11970000", billingMonth: "2026-09", enrollmentEndedOn: "2026-08-15", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], student: { code: "HS063", name: "Bé Gia Bảo", className: "Chồi 3B" }, lines: [{ id: "line-p", kind: "NORMAL", receivableId: "tuition", receivableName: "Học phí", unitLabel: "gói", unitPrice: "6900000", quantity: "0", amount: "-11970000", grossAmount: "0", discountAmount: "0", netAmount: "-11400000", taxCategory: "VAT_5", vatRate: 5, vatAmount: "-570000", refundUnitPrice: "11400000", deductionQuantity: "1", proposedDeductionQuantity: "1", deductionAmount: "11400000", deductionReason: null, deductionSource: { type: "PREPAID_PACKAGE_V1", months: 12, usedMonths: 6, firstMonth: "2026-03", lastMonth: "2027-02", paidNet: "52800000", listPriceUsed: "41400000", priorRefundNet: "0" }, promotionEvaluation: { applications: [] }, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
-    const students = () => [{ studentId: "student-s", studentCode: "HS063", fullName: "Bé Gia Bảo", className: "Chồi 3B", lifecycle: "WITHDRAWN", endedOn: "2026-08-15", invoices: settled ? [{ id: "invoice-s", channel: "SCHOOL", status: "DRAFT", total: "-11970000" }] : [] }];
+    const students = () => [{ studentId: "student-s", studentCode: "HS063", fullName: "Bé Gia Bảo", className: "Chồi 3B", lifecycle: "WITHDRAWN", endedOn: "2026-08-15", invoiceTotal: settled ? "-11970000" : "0", invoices: settled ? [{ id: "invoice-s", channel: "SCHOOL", status: "DRAFT", total: "-11970000" }] : [] }];
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/settlements") ? (settled = true, response({ status: "COMPLETED", outcome: settlement })) : url.endsWith("/settlements") ? response({ students: students() }) : url.endsWith("/invoices/invoice-s") ? response({ ...settlement, notice: { classDefaultBankAccountId: null, invoices: [settlement] } }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
@@ -1702,6 +1719,7 @@ describe("FinanceWorkspace", () => {
           billingMonth: "2026-10",
           originalPrice: "100",
           reduction: "10",
+          netPrice: "90",
           serviceStart: "2026-10-01",
           serviceEnd: "2026-11-01",
           calendarEffectiveFrom: "2026-01-01",

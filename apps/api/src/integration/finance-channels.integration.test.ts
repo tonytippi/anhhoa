@@ -147,6 +147,10 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     expect(after.map((invoice) => [invoice.channel, invoice.status, invoice.bankAccountIdSnapshot, invoice.obligationTotalSnapshot])).toEqual([["SCHOOL", "ISSUED", schoolAccount, 3500000n], ["PERSONAL", "ISSUED", personalAccount, 770000n]]);
     expect(new Set(after.map((invoice) => invoice.obligationCodeSnapshot)).size).toBe(2);
     expect(schoolPart!.id).toBe(after[0]!.id);
+    // The payment total is owned by the API: the issued, unsettled parts of the notice added up on the server (no client sum).
+    const detail: any = await finance.invoice(current.identity.id, current.school.id, schoolPart!.id);
+    expect(detail.paymentTotal).toBe("4270000");
+    expect(detail.notice.invoices.map((part: any) => part.issue.obligationTotal)).toEqual(["3500000", "770000"]);
     // A second active School account is refused.
     await expect(account(current, "SCHOOL", "999")).rejects.toMatchObject({ response: { code: "SCHOOL_BANK_ACCOUNT_EXISTS" } });
     // The image has one section per unsettled part; after a receipt only the other part remains.

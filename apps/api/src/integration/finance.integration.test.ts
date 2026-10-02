@@ -1124,6 +1124,43 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await setExclusion(x, runId, x.a1, false);
     });
 
+    it("serialises concurrent exclusion commands on one DRAFT run and class: one final state, one row, a controlled loser, audit and Operation cardinality", async () => {
+      const x = await extraFixture();
+      const student = await enrolled(x.current);
+      await x.join(x.ve, [student.enrollment.id]);
+      const runId = await x.openFreshRun();
+      const school = x.current.school.id;
+      const exclusionRoute = "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/extracurricular-classes/:classId/exclusion";
+      const rows = () => prisma.collectionRunExtracurricularExclusion.findMany({ where: { collectionRunId: runId, extracurricularClassId: x.ve } });
+      const audits = (action: string) => prisma.auditRecord.count({ where: { schoolId: school, action } });
+      const operations = () => prisma.operation.count({ where: { schoolId: school, route: exclusionRoute } });
+      const race = async (commands: boolean[]) => {
+        const expectedVersion = await runVersion(x, runId);
+        return Promise.allSettled(commands.map((excluded) => finance.setRunExtracurricularExclusion(x.current.identity.id, school, runId, x.ve, uuid(), uuid(), { excluded, expectedVersion })));
+      };
+      const loserIsControlled = (result: PromiseSettledResult<unknown>) => expect(result).toMatchObject({ status: "rejected", reason: { status: 409, response: { code: "COLLECTION_RUN_VERSION_CONFLICT" } } });
+
+      // exclude / exclude
+      const twice = await race([true, true]);
+      expect(twice.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      loserIsControlled(twice.find((result) => result.status === "rejected")!);
+      expect(await rows()).toHaveLength(1);
+      expect(await audits("COLLECTION_RUN_EXTRACURRICULAR_CLASS_EXCLUDED")).toBe(1);
+      expect(await operations()).toBe(1);
+
+      // exclude / restore against an excluded class: only the restore can succeed, so the exclude loses with a 400/409 and no row is duplicated
+      const mixed = await race([false, true]);
+      expect(mixed.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const loser: any = (mixed.find((result) => result.status === "rejected") as PromiseRejectedResult).reason;
+      expect([400, 409]).toContain(loser.status);
+      const finalRows = await rows();
+      expect(finalRows.length).toBeLessThanOrEqual(1);
+      expect(finalRows.length === 1).toBe((await finance.runExtracurricularClasses(x.current.identity.id, school, runId) as any).classes.find((item: any) => item.id === x.ve).excluded);
+      expect(await audits("COLLECTION_RUN_EXTRACURRICULAR_CLASS_EXCLUDED") + await audits("COLLECTION_RUN_EXTRACURRICULAR_CLASS_RESTORED")).toBe(2);
+      expect(await operations()).toBe(2);
+      expect(await prisma.operation.count({ where: { schoolId: school, route: exclusionRoute, status: { not: "COMPLETED" } } })).toBe(0);
+    });
+
     it("blocks READY on membership and receivable changes after the preview, refuses exclusions after DRAFT, and keeps tenants apart", async () => {
       const x = await extraFixture();
       const foreign = await extraFixture();

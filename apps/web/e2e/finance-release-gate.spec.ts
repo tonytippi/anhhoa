@@ -401,9 +401,18 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   const adjust = page.getByRole('dialog', { name: /Điều chỉnh dòng · Tiếng Anh Release 1/ });
   await adjust.getByLabel('Đơn giá (VND)').fill('300000');
   await adjust.getByLabel('Lý do điều chỉnh').fill('Nghỉ lớp 15/11, thu nửa tháng');
+  const dotted = (value: string) => value.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const adjustedResponse = page.waitForResponse((response) => /\/finance\/invoices\/[^/]+\/lines\/[^/]+$/.test(response.url()) && response.request().method() === 'PUT');
   await adjust.getByRole('button', { name: 'Lưu điều chỉnh' }).click();
+  const adjustedBody = await (await adjustedResponse).json();
+  const adjustedInvoice = adjustedBody.data.outcome ?? adjustedBody.data;
+  const serverTotal = String(adjustedInvoice.total);
+  expect(serverTotal).toMatch(/^\d+$/);
+  expect(adjustedInvoice.lines.find((line: { receivableName: string }) => line.receivableName === 'Tiếng Anh Release 1').unitPrice).toBe('300000');
   await expect(adjust).toBeHidden();
   await expect(novSecond.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('300.000');
+  // The refreshed invoice total is the server figure from the PUT, rendered verbatim in the payment part.
+  await expect(novSecond.locator('.finance-payment-total').first()).toContainText(`${dotted(serverTotal)} `);
 
    await page.setViewportSize({ width: 1280, height: 900 });
      await page.getByRole('button', { name: 'Về trang chủ PassionEdu' }).click();

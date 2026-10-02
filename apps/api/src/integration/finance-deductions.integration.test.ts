@@ -317,10 +317,15 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     const september = await generatedRun(current, [{ receivableId: meals, quantity: "21" }], "2026-09");
     expect(await prisma.invoice.count({ where: { collectionRunId: september.runId, studentId: pupil.id } })).toBe(0);
     const listed = await finance.settlements(current.identity.id, current.school.id, september.runId);
-    expect(listed.students).toEqual([expect.objectContaining({ studentId: pupil.id, endedOn: "2026-08-15", lifecycle: "WITHDRAWN", invoices: [] })]);
+    expect(listed.students).toEqual([expect.objectContaining({ studentId: pupil.id, endedOn: "2026-08-15", lifecycle: "WITHDRAWN", invoiceTotal: "0", invoices: [] })]);
     expect(listed.students.some((item: any) => item.studentId === stays.id)).toBe(false);
     const created: any = await finance.createSettlement(current.identity.id, current.school.id, september.runId, uuid(), uuid(), { studentId: pupil.id });
     expect(created.outcome).toMatchObject({ kind: "SETTLEMENT", channel: "SCHOOL", total: "-11970000", enrollmentEndedOn: "2026-08-15" });
+    // The settlement total per Student is summed by the API across the Student's settlement Invoices.
+    const afterSettlement = await finance.settlements(current.identity.id, current.school.id, september.runId);
+    const settledPupil: any = afterSettlement.students.find((item: any) => item.studentId === pupil.id);
+    expect(settledPupil.invoiceTotal).toBe(settledPupil.invoices.reduce((sum: bigint, item: any) => sum + BigInt(item.total), 0n).toString());
+    expect(BigInt(settledPupil.invoiceTotal)).toBeLessThan(0n);
     const [schoolPart, personalPart] = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: september.runId, studentId: pupil.id }, include: { lines: true }, orderBy: { channel: "asc" } });
     expect(schoolPart!.lines).toEqual([expect.objectContaining({ receivableId: tuition, quantity: 0, grossAmount: 0n, deductionQuantity: 1, deductionAmount: 11400000n, netAmount: -11400000n, vatAmount: -570000n, amount: -11970000n })]);
     expect(schoolPart!.lines[0]!.deductionSource).toMatchObject({ type: "PREPAID_PACKAGE_V1", months: 12, usedMonths: 6, paidNet: "52800000", listPriceUsed: "41400000", priorRefundNet: "0", firstMonth: "2026-03", lastMonth: "2027-02" });

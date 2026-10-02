@@ -38,7 +38,7 @@ deferred: []
 - `apps/api/src/integration/extracurricular-classes.integration.test.ts` -- lớp, lifecycle, membership, overlap, interval, provenance kết thúc, concurrency, rename.
 - `apps/api/src/integration/receivable-group-kinds.integration.test.ts` -- replay migration chuẩn hoá nhóm trên dữ liệu legacy.
 - `apps/api/src/integration/ops.provision.integration.test.ts`, `bootstrap.integration.test.ts` -- provisioning/seed tạo đúng ba nhóm typed.
-- `apps/api/src/integration/finance-release-scope.integration.test.ts` -- gate tĩnh: evidence bắt buộc, E2E bắt buộc, không client VND/Parent/Teacher, không đổi Class/staff authorization.
+- `apps/api/src/integration/finance-release-scope.integration.test.ts` -- kiểm tra cấu trúc tĩnh (không client VND, không Parent/Teacher, không đổi Class/staff authorization). Bằng chứng release là lần chạy `pnpm test:release-gate`, không phải việc ghim tên test.
 - `apps/web/e2e/finance-release-gate.spec.ts` -- Admin flow end-to-end.
 - `apps/web/src/finance/*.test.tsx` -- UI contract: server values, dialog, reconcile, stale response.
 
@@ -65,7 +65,7 @@ deferred: []
 | Loại / khôi phục lớp khỏi run | `finance.integration` › lists extracurricular classes… (exclude/restore, audit, replay, stale); › blocks READY… (chỉ DRAFT, trigger DB) |
 | Fingerprint stale khi membership/Receivable/scope đổi | `finance.integration` › blocks READY on membership and receivable changes after the preview…; › resolves class scope… (scope); › makes READY wait for an in-flight membership change and then sees it |
 | Idempotency | `extracurricular-classes` › replays a bulk add by key…; › creates classes… (replay + conflict); › renames a class… ; `finance.integration` › seeds a new run… (replay open run), › generates extracurricular lines… (addGeneratedStudent replay) |
-| Concurrency | `finance.integration` › makes READY wait for an in-flight membership change…; kind race hai chiều; refund/price race; `extracurricular-classes` › serializes class creation against receivable deactivation…; › serializes competing commands: one concurrent membership add, class creation and rename wins… |
+| Concurrency | `finance.integration` › serialises concurrent exclusion commands on one DRAFT run and class (exclude/exclude, exclude/restore: một trạng thái cuối, một row, loser 409/400 có kiểm soát, audit và Operation đúng số lượng); › makes READY wait for an in-flight membership change…; kind race hai chiều; refund/price race; `extracurricular-classes` › serializes class creation against receivable deactivation…; › serializes competing commands: one concurrent membership add, class creation and rename wins… |
 | Provenance snapshot bất biến | `finance.integration` › generates extracurricular lines with immutable provenance, applies promotions, never rewrites after GENERATED, and adds a Student from live memberships and the snapshot; › resolves class scope… (TEMPLATE_FIXED / TEMPLATE_FLEXIBLE + trigger immutable) |
 | Promotion trên khoản ngoại khóa; Student thêm sau GENERATED | `finance.integration` › generates extracurricular lines with immutable provenance… |
 | Capability FINANCE_MANAGE | `extracurricular-classes` › replays a bulk add by key… (403 sau khi bỏ capability); `finance.controller.test` (origin/CSRF, header idempotency cho mọi route mới) |
@@ -82,17 +82,18 @@ deferred: []
 | Thêm khoản linh hoạt theo một lớp | `Thêm khoản thu` → `Lớp chính thức` → `Mầm Release 1`; bảng hiện `Lớp chính thức: Mầm Release 1` |
 | Preview theo dòng | `Tạm tính theo dòng khoản thu`: học phí 300.000, dã ngoại 100.000, Tiếng Anh 1.200.000; tạm tính theo lớp 1.200.000 đ |
 | Generate và rà soát | Badge `Cố định` / `Linh hoạt · Lớp chính thức: Mầm Release 1` / `Ngoại khóa · Tiếng Anh A1 (T2-T4) → Tiếng Anh A2 (T3-T5)`; đúng một dòng Tiếng Anh cho Bình |
-| Điều chỉnh một Student | `Điều chỉnh` → Đơn giá + Lý do bắt buộc → `Lưu điều chỉnh`; tổng do server tính lại |
+| Điều chỉnh một Student | `Điều chỉnh` → Đơn giá + Lý do bắt buộc → `Lưu điều chỉnh`; assert tổng trong response PUT của server và tổng hiển thị sau refresh |
 | Chỉ hiện server value | Mọi số trong flow đến từ API; gate tĩnh bên dưới cấm tính VND ở browser |
 
 Web unit (UI contract): `extracurricular-classes-workspace.test.tsx` (danh sách/chi tiết, dialog tạo/thêm/kết thúc/ngừng, reconcile theo Operation + resend cùng key, response cũ, đổi tên), `finance-workspace.test.tsx` (template theo loại/phạm vi, modal, xác nhận bỏ, preview theo dòng, section lớp trong đợt, badge/cờ, Điều chỉnh, reconcile hoàn tất, response cũ).
 
-### AC 3 - Gate tĩnh (`finance-release-scope.integration.test.ts`, describe Story 5.37)
+### AC 3 - Kiểm tra cấu trúc tĩnh (`finance-release-scope.integration.test.ts`, describe Story 5.37)
+
+Bằng chứng release là kết quả `pnpm test:release-gate` (PostgreSQL + web + E2E); không có kiểm tra tĩnh nào ghim tên test hay token E2E.
 
 | Điều kiện | Kiểm tra |
 | --- | --- |
-| Evidence PostgreSQL và E2E không bị xoá | Regex trên tên test/bước E2E bắt buộc ở bảng trên |
-| Không client-calculated VND | `finance-workspace.tsx`, `extracurricular-classes-workspace.tsx`: không `BigInt(a) op BigInt(b)`, không `reduce` trên BigInt, không nhân `defaultUnitPrice`, không `Math.round/floor/ceil` |
+| Không client-calculated VND | Mọi file `apps/web/src/finance/*.tsx` (không phải test): mọi `BigInt(` phải nằm trong allowlist hiển thị đã duyệt (định dạng `vnd`, kiểm tra dấu `< 0n`, `(-BigInt(x)).toString()` của một số server); không `reduce` cộng, không nhân `defaultUnitPrice`, không `Math.round/floor/ceil`. Tổng thanh toán/thông báo/quyết toán/giá ròng độ phủ đều do API trả (`paymentTotal`, `noticeTotal`, `invoiceTotal`, `netPrice`). Biểu đồ báo cáo (`reports-*`) được miễn vì chỉ tính kích thước mark, không hiển thị tiền |
 | Không phụ thuộc Parent/Teacher | Không import module/đường dẫn parent hoặc teacher ở web finance, `finance.service.ts`, `finance.controller.ts` |
 | Không đổi `Class`/staff authorization | `finance.service.ts` không ghi `class`, `enrollmentClassAssignment`, `staffClassAssignment`, `staffProfile`, `schoolPosition`, `positionCapabilityGrant` và không đọc `staffClassAssignment` (ngoại lệ có chủ đích có sẵn: `setClassDefaultBankAccount` chỉ đặt tài khoản nhận mặc định của lớp, dữ liệu Finance); aggregate mới không có relation tới staff authorization; không migration nào từ 2026-10-02 `ALTER`/trigger lên `Class`, `EnrollmentClassAssignment`, `StaffClassAssignment`, `StaffProfile`, `SchoolPosition`, `PositionCapabilityGrant` |
 
@@ -100,7 +101,7 @@ Web unit (UI contract): `extracurricular-classes-workspace.test.tsx` (danh sách
 
 - Parent projection lớp ngoại khóa, giáo viên ngoại khóa, lịch/điểm danh buổi ngoại khóa, ChargeRule đầy đủ, tự prorate: ngoài phạm vi theo proposal 2026-10-02 §1/§3.3, không có hành vi để kiểm thử.
 - `ON_LEAVE` và các lifecycle enrollment khác bị từ chối khi thêm membership: có test từ chối; billing eligibility vẫn do run quyết định (Story 5.36).
-- Concurrency của hai lệnh loại/khôi phục lớp cùng lúc không có test riêng: dùng chung `mutate` (khoá School) và kiểm tra version run như template mutation đã được gate ở Story 5.11.
+- Actor provenance của `CollectionRunExtracurricularExclusion` (`actorIdentityId` + `membershipId` là hai khoá ngoại riêng, không composite `(schoolId, membershipId, actorIdentityId)`): nhất quán với convention provenance hiện có — không bảng nào trong repo ràng buộc composite này — nên không thêm ràng buộc riêng.
 
 ## Verification
 

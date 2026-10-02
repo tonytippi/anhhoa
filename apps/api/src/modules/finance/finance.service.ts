@@ -509,7 +509,7 @@ export class FinanceService {
         postedAt: invoice.settlementTransferTo.sourceReceipt.postedAt.toISOString(),
       } : null,
       carries: (invoice.settlementCarries ?? []).map((carry: any) => ({ type: carry.type, amount: carry.amount.toString(), sourceDifferenceId: carry.settlementDifferenceId })),
-      coverageFacts: (invoice.coverageFacts ?? []).map((fact: any) => ({ coverageId: fact.issuedCoverage?.id ?? null, receivableId: fact.receivableId, billingMonth: fact.billingMonth, policyId: fact.policyId, versionId: fact.versionId, originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), serviceStart: fact.serviceStart.toISOString().slice(0, 10), serviceEnd: fact.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: fact.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: fact.timezone, issuedAt: fact.issuedCoverage?.issuedAt?.toISOString() ?? null })),
+      coverageFacts: (invoice.coverageFacts ?? []).map((fact: any) => ({ coverageId: fact.issuedCoverage?.id ?? null, receivableId: fact.receivableId, billingMonth: fact.billingMonth, policyId: fact.policyId, versionId: fact.versionId, originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), netPrice: (BigInt(fact.originalPrice) - BigInt(fact.reduction)).toString(), serviceStart: fact.serviceStart.toISOString().slice(0, 10), serviceEnd: fact.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: fact.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: fact.timezone, issuedAt: fact.issuedCoverage?.issuedAt?.toISOString() ?? null })),
     };
     if (["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status)) result.issue = {
       issuedAt: invoice.issuedAt.toISOString(), obligationCode: invoice.obligationCodeSnapshot ?? null, obligationTotal: invoice.obligationTotalSnapshot.toString(),
@@ -659,7 +659,11 @@ export class FinanceService {
   private async invoiceWithNotice(client: any, invoice: any) {
     const parts = await client.invoice.findMany({ where: { schoolId: invoice.schoolId, studentId: invoice.studentId, collectionRunId: invoice.collectionRunId, status: { not: "CANCELLED" } }, include: this.invoiceInclude, orderBy: [{ channel: "asc" }, { createdAt: "asc" }] });
     const classroom = await client.class?.findFirst({ where: { id: invoice.classIdSnapshot, schoolId: invoice.schoolId }, select: { defaultBankAccountId: true } });
-    return { ...this.invoiceDto(invoice), notice: { classDefaultBankAccountId: classroom?.defaultBankAccountId ?? null, invoices: parts.map((part: any) => this.invoiceDto(part)) } };
+    // Server-owned totals of the notice (the browser never adds money): every live part, and the issued, still-unsettled parts the Parent is asked to pay.
+    const live = (parts.length ? parts : [invoice]).filter((part: any) => part.id !== invoice.revisesInvoiceId && !(part.revisesInvoiceId && part.status === "DRAFT" && part.id !== invoice.id));
+    const noticeTotal = live.reduce((total: bigint, part: any) => total + BigInt(part.total), 0n).toString();
+    const paymentTotal = live.filter((part: any) => this.paymentImageAvailable(part) && part.issuedAt).reduce((total: bigint, part: any) => total + BigInt(part.obligationTotalSnapshot ?? 0), 0n).toString();
+    return { ...this.invoiceDto(invoice), paymentTotal, noticeTotal, notice: { classDefaultBankAccountId: classroom?.defaultBankAccountId ?? null, invoices: parts.map((part: any) => this.invoiceDto(part)) } };
   }
   private currentBillingMonth(now = new Date()) {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).formatToParts(now);
@@ -3449,7 +3453,7 @@ export class FinanceService {
     const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId } });
     if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
     const candidates = await this.settlementCandidates(this.prisma, schoolId, run);
-    return { students: candidates.map(({ enrollment, assignment, invoices }: any) => ({ studentId: enrollment.studentId, studentCode: enrollment.student.studentCode, fullName: enrollment.student.fullName, className: assignment?.classroom?.name ?? enrollment.className ?? null, lifecycle: enrollment.lifecycle, endedOn: enrollment.endedOn.toISOString().slice(0, 10), invoices: invoices.map((invoice: any) => ({ id: invoice.id, channel: invoice.channel, status: invoice.status, total: invoice.total.toString() })) })) };
+    return { students: candidates.map(({ enrollment, assignment, invoices }: any) => ({ studentId: enrollment.studentId, studentCode: enrollment.student.studentCode, fullName: enrollment.student.fullName, className: assignment?.classroom?.name ?? enrollment.className ?? null, lifecycle: enrollment.lifecycle, endedOn: enrollment.endedOn.toISOString().slice(0, 10), invoiceTotal: invoices.reduce((total: bigint, invoice: any) => total + BigInt(invoice.total), 0n).toString(), invoices: invoices.map((invoice: any) => ({ id: invoice.id, channel: invoice.channel, status: invoice.status, total: invoice.total.toString() })) })) };
   }
   // D9: one settlement DRAFT per channel holding only refunds; carries of the same channel are applied as usual.
   async createSettlement(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
