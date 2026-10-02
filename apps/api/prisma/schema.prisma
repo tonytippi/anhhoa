@@ -593,18 +593,19 @@ enum OperationStatus {
 }
 
 model UserIdentity {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  emailNormalized       String                 @unique
-  googleSubject         String?                @unique
-  createdAt             DateTime               @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime               @updatedAt @db.Timestamptz(3)
-  memberships           SchoolMembership[]
-  audits                AuditRecord[]
-  debtTransfers         DebtTransfer[]
-  operations            Operation[]
-  platformGrant         PlatformOperatorGrant?
-  initiallyOwnedSchools School[]               @relation("InitialSchoolOwner")
-  parentProfile         ParentProfile?
+  id                           String                                  @id @default(uuid()) @db.Uuid
+  emailNormalized              String                                  @unique
+  googleSubject                String?                                 @unique
+  createdAt                    DateTime                                @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime                                @updatedAt @db.Timestamptz(3)
+  memberships                  SchoolMembership[]
+  runExtracurricularExclusions CollectionRunExtracurricularExclusion[]
+  audits                       AuditRecord[]
+  debtTransfers                DebtTransfer[]
+  operations                   Operation[]
+  platformGrant                PlatformOperatorGrant?
+  initiallyOwnedSchools        School[]                                @relation("InitialSchoolOwner")
+  parentProfile                ParentProfile?
 }
 
 enum StudentParentStatus {
@@ -697,6 +698,7 @@ model SchoolMembership {
   bankAccountLifecycleTransitions     BankAccountLifecycleTransition[]
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
+  runExtracurricularExclusions        CollectionRunExtracurricularExclusion[]
   extracurricularClassTransitions     ExtracurricularClassLifecycleTransition[]
   extracurricularMembershipsCreated   ExtracurricularMembership[]               @relation("ExtracurricularMembershipCreatedBy")
   extracurricularMembershipsEnded     ExtracurricularMembership[]               @relation("ExtracurricularMembershipEndedBy")
@@ -757,6 +759,7 @@ model Operation {
   bankAccountLifecycleTransitions     BankAccountLifecycleTransition[]          @relation("BankAccountLifecycleOperation")
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
+  runExtracurricularExclusions        CollectionRunExtracurricularExclusion[]
   extracurricularClassTransitions     ExtracurricularClassLifecycleTransition[]
   extracurricularMembershipsCreated   ExtracurricularMembership[]               @relation("ExtracurricularMembershipCreateOperation")
   extracurricularMembershipsEnded     ExtracurricularMembership[]               @relation("ExtracurricularMembershipEndOperation")
@@ -2214,6 +2217,9 @@ model CollectionRunExtracurricularExclusion {
   createdAt              DateTime             @default(now()) @db.Timestamptz(3)
   collectionRun          CollectionRun        @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
   extracurricularClass   ExtracurricularClass @relation(fields: [schoolId, extracurricularClassId], references: [schoolId, id], onDelete: Restrict)
+  actorIdentity          UserIdentity         @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
+  membership             SchoolMembership     @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation              Operation            @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, collectionRunId, extracurricularClassId])
   @@index([schoolId, extracurricularClassId])

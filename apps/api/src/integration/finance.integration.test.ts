@@ -1158,6 +1158,18 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       for (const classId of [foreign.a1, uuid()]) await expect(finance.setRunExtracurricularExclusion(x.current.identity.id, x.current.school.id, second, classId, uuid(), uuid(), { excluded: true, expectedVersion: 1 })).rejects.toMatchObject({ status: 404, response: { code: "EXTRACURRICULAR_CLASS_NOT_FOUND" } });
       await expect(finance.setRunExtracurricularExclusion(foreign.current.identity.id, foreign.current.school.id, second, x.a1, uuid(), uuid(), { excluded: true, expectedVersion: 1 })).rejects.toMatchObject({ status: 404 });
       await expect(prisma.collectionRunExtracurricularExclusion.create({ data: { schoolId: x.current.school.id, collectionRunId: second, extracurricularClassId: foreign.a1, actorIdentityId: x.current.identity.id, membershipId: x.current.membership.id, operationId: (await prisma.operation.findFirstOrThrow({ where: { schoolId: x.current.school.id } })).id } })).rejects.toThrow();
+      // Provenance is keyed like every other aggregate: another School's membership or Operation, or an unknown identity, cannot be referenced.
+      const ownOperation = (await prisma.operation.findFirstOrThrow({ where: { schoolId: x.current.school.id } })).id;
+      const foreignOperation = (await prisma.operation.findFirstOrThrow({ where: { schoolId: foreign.current.school.id } })).id;
+      const base = { schoolId: x.current.school.id, collectionRunId: second, extracurricularClassId: x.a1, actorIdentityId: x.current.identity.id, membershipId: x.current.membership.id, operationId: ownOperation };
+      const insert = (data: object) => prisma.collectionRunExtracurricularExclusion.create({ data: { ...base, ...data } });
+      await expect(insert({ membershipId: foreign.current.membership.id })).rejects.toThrow(/foreign key|ExtracurricularExclusion_membership_fkey/i);
+      await expect(insert({ operationId: foreignOperation })).rejects.toThrow(/foreign key|ExtracurricularExclusion_operation_fkey/i);
+      await expect(insert({ actorIdentityId: uuid() })).rejects.toThrow(/foreign key|ExtracurricularExclusion_actor_fkey/i);
+      expect(await prisma.collectionRunExtracurricularExclusion.count({ where: { collectionRunId: second } })).toBe(0);
+      // Positive control: the same row with own-School provenance is accepted (and removed again).
+      const row = await insert({});
+      await prisma.collectionRunExtracurricularExclusion.delete({ where: { id: row.id } });
     });
 
     it("generates extracurricular lines with immutable provenance, applies promotions, never rewrites after GENERATED, and adds a Student from live memberships and the snapshot", async () => {

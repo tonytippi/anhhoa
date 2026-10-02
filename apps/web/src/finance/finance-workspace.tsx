@@ -312,6 +312,9 @@ export function FinanceWorkspace({
   const templateDialogRef = useRef<HTMLDivElement>(null);
   // Scope-picker requests: a response is applied only for the latest request of the current dialog instance, run and School.
   const scopeRequest = useRef({ token: 0, instance: 0 });
+  // What a command does once it succeeds; an uncertain command that later reconciles to COMPLETED runs the very same completion.
+  const completion = useRef<((outcome: unknown) => Promise<void>) | undefined>(undefined);
+  const runClassesRequest = useRef(0);
   const removalDialogRef = useRef<HTMLDivElement>(null);
   const [receivable, setReceivable] = useState({
     kind: "" as ReceivableKind | "",
@@ -527,7 +530,10 @@ export function FinanceWorkspace({
           setCloseConfirmationMonth("");
         }
         try { await load(); } catch { setMessage("Thao tác đã hoàn tất; chưa thể tải lại dữ liệu mới nhất."); }
-      } else setMessage("Thao tác không thành công.");
+        const done = completion.current;
+        completion.current = undefined;
+        if (done) await done(result.outcome);
+      } else { completion.current = undefined; setMessage("Thao tác không thành công."); }
     } catch {
       if (
         activeSchool.current === operation.schoolId &&
@@ -740,7 +746,9 @@ export function FinanceWorkspace({
     setScopeOptions(undefined);
   }, [Boolean(templateDialog)]);
   useEffect(() => {
-    if (run?.status === "DRAFT") void loadRunClasses(run.id); else setRunClasses(undefined);
+    runClassesRequest.current += 1;
+    setRunClasses(undefined);
+    if (run?.status === "DRAFT") void loadRunClasses(run.id);
   }, [run?.id, run?.status]);
   useEffect(() => {
     if (templateDialog && templateDialog.lineId === undefined) templateDialogRef.current?.querySelector<HTMLElement>("select")?.focus();
@@ -838,6 +846,7 @@ export function FinanceWorkspace({
         return undefined;
       }
       if (!response.ok) {
+        completion.current = undefined;
         const error = (
           (await response.json()) as {
             error?: { code?: string; message?: string; fieldErrors?: Record<string, string> };
@@ -947,17 +956,35 @@ export function FinanceWorkspace({
     if (outcome) { closeManagedDialog(() => setTemplateRemoval(undefined)); chooseRun(outcome as Run); setPreview(undefined); await load(); }
   };
   const loadRunClasses = async (runId: string) => {
-    try { const data = await get<{ classes: RunExtracurricularClass[] }>(`/api/app/schools/${schoolId}/finance/collection-runs/${runId}/extracurricular-classes`); if (activeSchool.current === schoolId) setRunClasses(data.classes); } catch { /* the section keeps its last result */ }
+    const token = ++runClassesRequest.current;
+    try {
+      const data = await get<{ classes: RunExtracurricularClass[] }>(`/api/app/schools/${schoolId}/finance/collection-runs/${runId}/extracurricular-classes`);
+      if (activeSchool.current === schoolId && runRef.current === runId && runClassesRequest.current === token) setRunClasses(data.classes);
+    } catch { /* the section keeps its last result */ }
+  };
+  const completeClassExclusion = async (outcome: unknown) => {
+    closeManagedDialog(() => setClassExclusion(undefined));
+    chooseRun(outcome as Run);
+    setPreview(undefined);
+    await loadRunClasses((outcome as Run).id);
+    await load();
   };
   const saveClassExclusion = async (event: FormEvent) => {
     event.preventDefault(); if (!run || !classExclusion) return;
+    completion.current = completeClassExclusion;
     const outcome = await command(`${templateBase()}/extracurricular-classes/${classExclusion.id}/exclusion`, "PUT", { excluded: classExclusion.excluded, ...(classExclusion.reason.trim() ? { reason: classExclusion.reason.trim() } : {}), expectedVersion: run.version }, "run");
-    if (outcome) { closeManagedDialog(() => setClassExclusion(undefined)); chooseRun(outcome as Run); setPreview(undefined); await loadRunClasses(run.id); await load(); }
+    if (outcome) { completion.current = undefined; await completeClassExclusion(outcome); }
+  };
+  const completeAdjustLine = async (outcome: unknown) => {
+    closeManagedDialog(() => setAdjustLine(undefined));
+    await applyNoticeOutcome(outcome as Invoice);
+    setInvoiceQueue(undefined);
   };
   const saveAdjustLine = async (event: FormEvent) => {
     event.preventDefault(); if (!adjustLine) return;
+    completion.current = completeAdjustLine;
     const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${adjustLine.invoiceId}/lines/${adjustLine.lineId}`, "PUT", { quantity: adjustLine.quantity, unitPrice: adjustLine.unitPrice, overrideReason: adjustLine.reason }, "invoice");
-    if (outcome) { closeManagedDialog(() => setAdjustLine(undefined)); await applyNoticeOutcome(outcome as Invoice); setInvoiceQueue(undefined); }
+    if (outcome) { completion.current = undefined; await completeAdjustLine(outcome); }
   };
   const loadPreview = async () => {
     if (!run) return;

@@ -2074,6 +2074,62 @@ describe("FinanceWorkspace", () => {
       expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({ excluded: false, expectedVersion: 3 });
     });
 
+    it("keeps the run-class table of the run that is open when responses arrive out of order", async () => {
+      const runA = { ...draftRun, id: "run-a", billingMonth: "2026-09" };
+      const runB = { ...draftRun, id: "run-b", billingMonth: "2026-10" };
+      const waiting: Record<string, (value: Response) => void> = {};
+      const fetch = vi.fn((url: string) => {
+        if (String(url).includes("/extracurricular-classes")) return new Promise<Response>((resolve) => { waiting[String(url).includes("run-a") ? "a" : "b"] = resolve; });
+        if (String(url).includes("collection-run-candidates")) return Promise.resolve(response(candidates));
+        if (String(url).includes("collection-runs")) return Promise.resolve(response({ runs: [runB, runA] }));
+        return Promise.resolve(response({ groups: [], receivables: [] }));
+      });
+      vi.stubGlobal("fetch", fetch);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+      const openMonth = async (month: string) => {
+        await waitFor(() => {
+          if (!screen.queryByRole("menuitem", { name: "Mở chi tiết" })) fireEvent.keyDown(screen.getByRole("button", { name: `Tùy chọn cho đợt thu ${month}` }), { key: "ArrowDown" });
+          expect(screen.getByRole("menuitem", { name: "Mở chi tiết" })).toBeTruthy();
+        });
+        fireEvent.click(screen.getByRole("menuitem", { name: "Mở chi tiết" }));
+      };
+      await openMonth("2026-09");
+      await waitFor(() => expect(waiting.a).toBeTruthy());
+      await openMonth("2026-10");
+      await waitFor(() => expect(waiting.b).toBeTruthy());
+      // The table is cleared on the run change, so run A's classes can never show under run B.
+      expect(screen.queryByText("Tiếng Anh A1 (T2-T4)")).toBeNull();
+      waiting.b!(response({ classes: [{ ...classes[0]!, id: "b1", name: "Lớp của đợt B" }] }));
+      expect(await screen.findByText("Lớp của đợt B")).toBeTruthy();
+      waiting.a!(response({ classes }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(screen.queryByText("Tiếng Anh A1 (T2-T4)")).toBeNull();
+      expect(screen.getByText("Lớp của đợt B")).toBeTruthy();
+      expect(screen.getByRole("table", { name: /Lớp ngoại khóa tính vào đợt thu tháng 10\/2026/ })).toBeTruthy();
+    });
+
+    it("completes an exclusion that reconciles to COMPLETED exactly like a direct success, without a second mutation", async () => {
+      let reconciled = false;
+      const fetch = route((url, init) => (String(url).includes("/operations/") ? (reconciled = true, response({ status: "COMPLETED", outcome: { ...draftRun, version: 3 } })) : init?.method === "PUT" ? new Response(null, { status: 503 }) : undefined));
+      await renderRun(fetch);
+      fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
+      await screen.findByRole("table", { name: "Tạm tính theo dòng khoản thu" });
+      const classListCalls = () => fetch.mock.calls.filter(([url]) => String(url).endsWith("/extracurricular-classes")).length;
+      const before = classListCalls();
+      fireEvent.click(screen.getByRole("button", { name: "Loại khỏi đợt này Tiếng Anh A1 (T2-T4)" }));
+      const dialog = screen.getByRole("dialog", { name: "Loại Tiếng Anh A1 (T2-T4) khỏi đợt này" });
+      fireEvent.change(within(dialog).getByLabelText("Lý do (không bắt buộc)"), { target: { value: "Lớp nghỉ" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Loại khỏi đợt này" }));
+      await waitFor(() => expect(reconciled).toBe(true));
+      // Same completion as a direct success: dialog closed, preview dropped, classes and run refreshed.
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(screen.queryByRole("table", { name: "Tạm tính theo dòng khoản thu" })).toBeNull();
+      await waitFor(() => expect(classListCalls()).toBeGreaterThan(before));
+      expect(fetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT")).toHaveLength(1);
+      const operationId = ((fetch.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")![1] as RequestInit).headers as Record<string, string>)["x-operation-id"];
+      expect(fetch.mock.calls.some(([url]) => String(url).endsWith(`/operations/${operationId}`))).toBe(true);
+    });
+
     it("shows extracurricular source badges with flags and lets Finance adjust a flagged line with a required reason", async () => {
       const generatedRun = { ...run, status: "GENERATED", invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "600000" }] };
       const lines = [
@@ -2111,6 +2167,28 @@ describe("FinanceWorkspace", () => {
       const put = fetch.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")!;
       expect(String(put[0]).endsWith("/invoices/invoice-a/lines/line-en")).toBe(true);
       expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({ quantity: "1", unitPrice: "300000", overrideReason: "Vào lớp giữa tháng" });
+    });
+
+    it("completes a flagged-line adjustment that reconciles to COMPLETED like a direct success, without a second mutation", async () => {
+      const generatedRun = { ...run, status: "GENERATED", invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "600000" }] };
+      const line = { id: "line-en", receivableId: "english", receivableName: "Tiếng Anh bản ngữ", sourceBadge: { kind: "EXTRACURRICULAR", label: "Ngoại khóa · Tiếng Anh A1", flags: [{ code: "MID_MONTH", label: "Vào/nghỉ giữa tháng" }], detail: "vào lớp từ 14/10/2026" }, unitLabel: "tháng", unitPrice: "600000", quantity: "1", amount: "600000", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null };
+      const draft = { id: "invoice-a", status: "DRAFT", total: "600000", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [line] };
+      const adjusted = { ...draft, total: "300000", lines: [{ ...line, unitPrice: "300000", amount: "300000", overrideReason: "Vào lớp giữa tháng" }] };
+      let reconciled = false;
+      const fetch = vi.fn((url: string, init?: RequestInit) => Promise.resolve(String(url).includes("/operations/") ? (reconciled = true, response({ status: "COMPLETED", outcome: adjusted })) : init?.method === "PUT" ? new Response(null, { status: 503 }) : String(url).includes("/invoices/") ? response(reconciled ? adjusted : draft) : String(url).includes("collection-run-candidates") ? response(candidates) : String(url).includes("collection-runs") ? response({ runs: [generatedRun] }) : response({ groups: [], receivables: [] })));
+      vi.stubGlobal("fetch", fetch);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+      await openRun();
+      fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Điều chỉnh" }));
+      const dialog = screen.getByRole("dialog", { name: "Điều chỉnh dòng · Tiếng Anh bản ngữ" });
+      fireEvent.change(within(dialog).getByLabelText("Đơn giá (VND)"), { target: { value: "300000" } });
+      fireEvent.change(within(dialog).getByLabelText("Lý do điều chỉnh"), { target: { value: "Vào lớp giữa tháng" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu điều chỉnh" }));
+      await waitFor(() => expect(reconciled).toBe(true));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(await screen.findAllByText("300.000")).not.toHaveLength(0);
+      expect(fetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT")).toHaveLength(1);
     });
   });
 });
