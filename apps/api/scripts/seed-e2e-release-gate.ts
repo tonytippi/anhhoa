@@ -611,20 +611,14 @@ try {
             sequence: 1,
           },
         });
-        const group = await tx.receivableGroup.create({
-          data: { schoolId: school.id, name: `Nhóm Release ${index + 1}` },
+        await tx.receivableGroup.createMany({
+          data: [
+            { schoolId: school.id, kind: "FIXED", name: "Khoản thu cố định" },
+            { schoolId: school.id, kind: "FLEXIBLE", name: "Khoản thu linh hoạt" },
+            { schoolId: school.id, kind: "EXTRACURRICULAR", name: "Ngoại khóa" },
+          ],
         });
-        await tx.receivableGroupLifecycleTransition.create({
-          data: {
-            schoolId: school.id,
-            receivableGroupId: group.id,
-            status: "ACTIVE",
-            actorIdentityId: admin.id,
-            membershipId: adminMembershipId,
-            operationId: operation.id,
-            sequence: 1,
-          },
-        });
+        const group = await tx.receivableGroup.findFirstOrThrow({ where: { schoolId: school.id, kind: "FIXED" } });
         const receivable = await tx.receivable.create({
           data: {
             schoolId: school.id,

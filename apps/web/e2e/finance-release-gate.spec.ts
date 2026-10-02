@@ -56,8 +56,9 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await expect(page.getByRole('heading', { name: 'Khoản thu', level: 1 })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   const receivablesToolbar = page.getByRole('form', { name: 'Điều khiển danh sách khoản thu' });
-  await expect(receivablesToolbar.getByRole('button', { name: 'Quản lý nhóm' })).toBeInViewport();
-  await expect(receivablesToolbar.getByRole('button', { name: 'Thêm khoản thu' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Quản lý nhóm' })).toHaveCount(0);
+  await expect(receivablesToolbar.getByLabel('Nhóm').locator('option')).toHaveText(['Tất cả nhóm', 'Khoản thu cố định', 'Khoản thu linh hoạt', 'Ngoại khóa']);
+  await expect(page.getByRole('button', { name: 'Thêm khoản thu' })).toBeInViewport();
   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('Học phí Release 1');
   await page.getByRole('button', { name: 'Ưu đãi' }).click();
   await expect(page.getByRole('heading', { name: 'Ưu đãi', level: 1 })).toBeVisible();

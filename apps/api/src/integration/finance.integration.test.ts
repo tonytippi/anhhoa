@@ -72,17 +72,19 @@ async function graph() {
   return { school, identity, membership, position };
 }
 
-async function group(
-  input: Awaited<ReturnType<typeof graph>>,
-  name = "Học phí",
-) {
-  return finance.createGroup(
-    input.identity.id,
-    input.school.id,
-    uuid(),
-    uuid(),
-    { name },
-  );
+type GroupKind = "FIXED" | "FLEXIBLE" | "EXTRACURRICULAR";
+// Schools created by graph() bypass provisioning, so give them the three typed groups first.
+async function group(input: Awaited<ReturnType<typeof graph>>, kind: GroupKind = "FIXED") {
+  await prisma.receivableGroup.createMany({
+    data: [
+      { schoolId: input.school.id, kind: "FIXED", name: "Khoản thu cố định" },
+      { schoolId: input.school.id, kind: "FLEXIBLE", name: "Khoản thu linh hoạt" },
+      { schoolId: input.school.id, kind: "EXTRACURRICULAR", name: "Ngoại khóa" },
+    ],
+    skipDuplicates: true,
+  });
+  const found = await prisma.receivableGroup.findFirstOrThrow({ where: { schoolId: input.school.id, kind } });
+  return { id: found.id, outcome: { id: found.id } };
 }
 
 async function roster(input: Awaited<ReturnType<typeof graph>>) {
@@ -174,7 +176,7 @@ async function open(
   const runId = outcomeId(opened);
   if (!await prisma.collectionRunTemplateLine.count({ where: { schoolId: input.school.id, collectionRunId: runId } })) {
     try {
-      const groupId = outcomeId(await group(input, `T${uuid().slice(0, 8)}`));
+      const groupId = outcomeId(await group(input));
       const receivableId = outcomeId(await finance.createReceivable(input.identity.id, input.school.id, uuid(), uuid(), { groupId, displayName: "Khoản thu mẫu", unitLabel: "lần", defaultUnitPrice: "1" }));
       await prisma.collectionRunTemplateLine.create({ data: { schoolId: input.school.id, collectionRunId: runId, receivableId, quantity: 1 } });
     } catch (error) {
@@ -243,7 +245,7 @@ async function coverageFixture(reversalMode: "DIRECT" | "SCHOOL_ADMIN_APPROVAL" 
   const current = await roster(await graph());
   const student = await enrolled(current);
   await prisma.schoolCalendarVersion.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), actorIdentityId: current.identity.id, membershipId: current.membership.id } });
-  const groupId = outcomeId(await group(current, "Coverage"));
+  const groupId = outcomeId(await group(current));
   const coveredReceivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Học phí coverage", unitLabel: "tháng", defaultUnitPrice: "100", ...(taxCategory ? { taxCategory } : {}) }));
   const otherReceivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Tiền ăn bình thường", unitLabel: "tháng", defaultUnitPrice: "25" }));
   const versionId = await promotion(current, student.student.id, coveredReceivableId, { name: "Nộp trước", discountType: "FIXED_VND", discountValue: "10", priority: "1", stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 2 });
@@ -396,15 +398,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
        expect(
          await prisma.operation.findUniqueOrThrow({ where: { id: created.id } }),
        ).toMatchObject({ schoolId: current.school.id, status: "COMPLETED" });
-       const groupTransition = await prisma.receivableGroupLifecycleTransition.findUniqueOrThrow({
-         where: { schoolId_receivableGroupId_sequence: { schoolId: current.school.id, receivableGroupId: groupId, sequence: 1 } },
-       });
-       expect(groupTransition).toMatchObject({
-         actorIdentityId: current.identity.id,
-         membershipId: current.membership.id,
-         operationId: createdGroup.id,
-         status: "ACTIVE",
-       });
+       expect(await prisma.receivableGroup.findMany({ where: { schoolId: current.school.id }, orderBy: { kind: "asc" }, select: { kind: true, name: true } })).toEqual([
+         { kind: "FIXED", name: "Khoản thu cố định" },
+         { kind: "FLEXIBLE", name: "Khoản thu linh hoạt" },
+         { kind: "EXTRACURRICULAR", name: "Ngoại khóa" },
+       ]);
        expect(
          await prisma.auditRecord.findFirstOrThrow({
           where: { schoolId: current.school.id, action: "RECEIVABLE_CREATED" },
@@ -419,25 +417,23 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(
         finance.read(current.identity.id, current.school.id),
       ).resolves.toMatchObject({
-        groups: [{ id: groupId, status: "ACTIVE" }],
+        groups: expect.arrayContaining([{ id: groupId, name: "Khoản thu cố định", kind: "FIXED", createdAt: expect.any(String) }]),
         receivables: [
-          { id: receivableId, available: true, defaultUnitPrice: "123456789" },
+          { id: receivableId, available: true, kind: "FIXED", kindLocked: false, defaultUnitPrice: "123456789" },
         ],
       });
     });
 
     it("creates only active same-School multi-target promotion policies and atomically assigns valid Students", async () => {
       const current = await roster(await graph()); const foreign = await roster(await graph());
-      const activeGroupId = outcomeId(await group(current, "Ưu đãi"));
+      const activeGroupId = outcomeId(await group(current));
       const activeOne = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: activeGroupId, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100" }));
       const activeTwo = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: activeGroupId, displayName: "Tiền ăn", unitLabel: "tháng", defaultUnitPrice: "50" }));
-      const inactiveGroupId = outcomeId(await group(current, "Ngừng"));
+      const inactiveGroupId = outcomeId(await group(current, "FLEXIBLE"));
       const inactiveReceivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: inactiveGroupId, displayName: "Xe đưa đón", unitLabel: "tháng", defaultUnitPrice: "20" }));
       await finance.transitionReceivable(current.identity.id, current.school.id, inactiveReceivableId, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng" });
       const foreignGroupId = outcomeId(await group(foreign)); const foreignReceivableId = outcomeId(await finance.createReceivable(foreign.identity.id, foreign.school.id, uuid(), uuid(), { groupId: foreignGroupId, displayName: "Ngoại trường", unitLabel: "tháng", defaultUnitPrice: "10" }));
       const policyInput = { name: "Con cán bộ", receivableIds: [activeOne, activeTwo], discountType: "PERCENTAGE", discountValue: "10", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "2026-09-01" };
-      await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { ...policyInput, receivableIds: [activeOne, inactiveReceivableId] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
-      await finance.transitionGroup(current.identity.id, current.school.id, inactiveGroupId, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng nhóm" });
       await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { ...policyInput, receivableIds: [activeOne, inactiveReceivableId] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
       await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { ...policyInput, receivableIds: [activeOne, foreignReceivableId] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
        const key = uuid(); const operationId = uuid(); const created = await finance.createPromotionPolicy(current.identity.id, current.school.id, key, operationId, policyInput);
@@ -477,7 +473,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
     it("evaluates and persists PostgreSQL promotion calculations with deterministic ordering, exclusivity, caps, and provenance", async () => {
       const current = await roster(await graph());
       const student = await enrolled(current);
-      const groupId = outcomeId(await group(current, "Evaluator"));
+      const groupId = outcomeId(await group(current));
       const create = (code: string, price: string) => finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, code, displayName: code, unitLabel: "lần", defaultUnitPrice: price });
       const orderedId = outcomeId(await create("ORDERED", "100"));
       const exclusiveId = outcomeId(await create("EXCLUSIVE", "100"));
@@ -510,7 +506,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("rejects relevant promotion fact changes as PREVIEW_STALE before READY or generate writes", async () => {
       const current = await roster(await graph()); const student = await enrolled(current);
-      const groupId = outcomeId(await group(current, "Promotion stale"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Khoản", unitLabel: "lần", defaultUnitPrice: "100" }));
       const versionId = await promotion(current, student.student.id, receivableId, { name: "Stale 1", discountType: "FIXED_VND", discountValue: "10", priority: "1", stackingMode: "STACKABLE" });
       const runId = outcomeId(await open(current));
@@ -532,7 +528,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("persists the staged promotion calculation when the worker runs after live policy facts change", async () => {
       const current = await roster(await graph()); const student = await enrolled(current);
-      const groupId = outcomeId(await group(current, "Staged promotion"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Khoản", unitLabel: "lần", defaultUnitPrice: "100" }));
       const versionId = await promotion(current, student.student.id, receivableId, { name: "Staged", discountType: "FIXED_VND", discountValue: "25", priority: "1", stackingMode: "STACKABLE" });
       const runId = outcomeId(await open(current));
@@ -559,7 +555,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("uses policy ID as the equal-type and equal-priority tie-break in preview and persisted provenance", async () => {
       const current = await roster(await graph()); const student = await enrolled(current);
-      const groupId = outcomeId(await group(current, "Tie break"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Khoản", unitLabel: "lần", defaultUnitPrice: "100" }));
       await promotion(current, student.student.id, receivableId, { name: "Tie A", discountType: "PERCENTAGE", discountValue: "10", priority: "1", stackingMode: "STACKABLE" });
       await promotion(current, student.student.id, receivableId, { name: "Tie B", discountType: "PERCENTAGE", discountValue: "10", priority: "1", stackingMode: "STACKABLE" });
@@ -576,7 +572,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("closes a generated run whose DRAFT invoices are all zero-net", async () => {
       const current = await roster(await graph()); const student = await enrolled(current);
-      const groupId = outcomeId(await group(current, "Zero net"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Khoản", unitLabel: "lần", defaultUnitPrice: "100" }));
       await promotion(current, student.student.id, receivableId, { name: "Miễn toàn bộ", discountType: "FIXED_VND", discountValue: "100", priority: "1", stackingMode: "STACKABLE" });
       const runId = outcomeId(await open(current)); const template = await finance.run(current.identity.id, current.school.id, runId);
@@ -589,7 +585,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("serializes School-scoped promotion mutation and READY evaluation with the same transaction advisory lock", async () => {
       const current = await roster(await graph()); await enrolled(current);
-      const groupId = outcomeId(await group(current, "Promotion lock"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Khoản", unitLabel: "lần", defaultUnitPrice: "100" }));
       const runId = outcomeId(await open(current)); const template = await finance.run(current.identity.id, current.school.id, runId);
       await finance.removeTemplateLine(current.identity.id, current.school.id, runId, template.templateLines[0]!.id, uuid(), uuid(), { expectedVersion: template.version });
@@ -683,70 +679,73 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       ).rejects.toMatchObject({ code: "P2003" });
     });
 
-    it("retains inactive catalog history while making it unavailable for new template lines", async () => {
+    it("keeps exactly three typed groups per School and refuses to create, rename, retype or remove one", async () => {
       const current = await graph();
-      const createdGroup = await group(current);
-      const groupId = (createdGroup.outcome as { id: string }).id;
-      const created = await finance.createReceivable(
-        current.identity.id,
-        current.school.id,
-        uuid(),
-        uuid(),
-        {
-          groupId,
-          code: "ACTIVITY",
-          displayName: "Ngoại khóa",
-          unitLabel: "tháng",
-          defaultUnitPrice: "50000",
-        },
-      );
-      const receivableId = (created.outcome as { id: string }).id;
-      await finance.transitionGroup(
-        current.identity.id,
-        current.school.id,
-        groupId,
-        uuid(),
-        uuid(),
-        { status: "INACTIVE", reason: "Ngừng áp dụng" },
-      );
+      const foreign = await graph();
+      await group(current);
+      await group(foreign);
+      const groups = await prisma.receivableGroup.findMany({ where: { schoolId: current.school.id }, orderBy: { kind: "asc" } });
+      expect(groups.map((item) => item.kind)).toEqual(["FIXED", "FLEXIBLE", "EXTRACURRICULAR"]);
+      const service = finance as unknown as Record<string, unknown>;
+      expect(service.createGroup).toBeUndefined();
+      expect(service.transitionGroup).toBeUndefined();
+      await expect(prisma.receivableGroup.create({ data: { schoolId: current.school.id, kind: "FIXED", name: "Khoản thu cố định" } })).rejects.toThrow();
+      await expect(prisma.receivableGroup.create({ data: { schoolId: current.school.id, kind: "FLEXIBLE", name: "Nhóm tự tạo" } })).rejects.toThrow();
+      await expect(prisma.receivableGroup.update({ where: { id: groups[0]!.id }, data: { name: "Đổi tên" } })).rejects.toThrow(/fixed/);
+      await expect(prisma.receivableGroup.update({ where: { id: groups[0]!.id }, data: { kind: "FLEXIBLE" } })).rejects.toThrow();
+      await expect(prisma.receivableGroup.delete({ where: { id: groups[0]!.id } })).rejects.toThrow(/fixed/);
+      expect(await prisma.receivableGroup.count({ where: { schoolId: current.school.id } })).toBe(3);
+    });
 
-      await expect(
-        finance.read(current.identity.id, current.school.id),
-      ).resolves.toMatchObject({
-        groups: [{ id: groupId, status: "INACTIVE" }],
-        receivables: [{ id: receivableId, status: "ACTIVE", available: false }],
-      });
-      await expect(
-        finance.createReceivable(
-          current.identity.id,
-          current.school.id,
-          uuid(),
-          uuid(),
-          {
-            groupId,
-            code: "NEW",
-            displayName: "Không được chọn",
-            unitLabel: "lần",
-            defaultUnitPrice: "1",
-          },
-        ),
-      ).rejects.toMatchObject({
-        status: 400,
-        response: { fieldErrors: { groupId: expect.any(String) } },
-      });
-      expect(
-        await prisma.receivableGroupLifecycleTransition.count({
-          where: { schoolId: current.school.id, receivableGroupId: groupId },
-        }),
-      ).toBe(2);
+    it("creates a Receivable by kind in the selected School and rejects unknown kinds and foreign or mismatched groups", async () => {
+      const current = await graph();
+      const foreign = await graph();
+      const fixedId = outcomeId(await group(current, "FIXED"));
+      const flexibleId = outcomeId(await group(current, "FLEXIBLE"));
+      const foreignFixedId = outcomeId(await group(foreign, "FIXED"));
+      const base = { unitLabel: "lần", defaultUnitPrice: "1000" };
+      const byKind = await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { ...base, kind: "EXTRACURRICULAR", displayName: "Tiếng Anh" });
+      expect(byKind.outcome).toMatchObject({ kind: "EXTRACURRICULAR", kindLocked: false });
+      const byGroup = await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { ...base, groupId: flexibleId, displayName: "Dã ngoại" });
+      expect(byGroup.outcome).toMatchObject({ kind: "FLEXIBLE", groupId: flexibleId });
+      await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { ...base, kind: "CUSTOM", displayName: "X" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { kind: expect.any(String) } } });
+      await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { ...base, displayName: "X" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { kind: expect.any(String) } } });
+      await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { ...base, kind: "FIXED", groupId: flexibleId, displayName: "X" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { groupId: expect.any(String) } } });
+      await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { ...base, groupId: foreignFixedId, displayName: "X" })).rejects.toMatchObject({ status: 404, response: { code: "RECEIVABLE_GROUP_NOT_FOUND" } });
+      expect(await prisma.receivable.count({ where: { schoolId: current.school.id } })).toBe(2);
+      expect(await prisma.receivable.count({ where: { schoolId: foreign.school.id } })).toBe(0);
+      expect(fixedId).not.toBe(flexibleId);
+    });
+
+    it("changes the kind of an unused Receivable with audit and refuses once an Invoice line or template line uses it", async () => {
+      const current = await roster(await graph());
+      const foreign = await roster(await graph());
+      await group(current);
+      await group(foreign);
+      const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { kind: "FIXED", displayName: "Phí", unitLabel: "lần", defaultUnitPrice: "100" }));
+      const foreignReceivableId = outcomeId(await finance.createReceivable(foreign.identity.id, foreign.school.id, uuid(), uuid(), { kind: "FIXED", displayName: "Phí foreign", unitLabel: "lần", defaultUnitPrice: "100" }));
+      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, foreignReceivableId, uuid(), uuid(), { kind: "FLEXIBLE" })).rejects.toMatchObject({ status: 404, response: { code: "RECEIVABLE_NOT_FOUND" } });
+      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FIXED" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { kind: expect.any(String) } } });
+      const changed = await finance.updateReceivableKind(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "EXTRACURRICULAR" });
+      expect(changed.outcome).toMatchObject({ id: receivableId, kind: "EXTRACURRICULAR", kindLocked: false });
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId }, include: { group: true } })).toMatchObject({ group: { schoolId: current.school.id, kind: "EXTRACURRICULAR" } });
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "RECEIVABLE_KIND_CHANGED" } })).toMatchObject({ provenance: { operationId: changed.id, oldValue: { kind: "FIXED" }, newValue: { kind: "EXTRACURRICULAR" } } });
+
+      const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
+      await finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId, quantity: "1", expectedVersion: 1 });
+      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FLEXIBLE" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      await expect(prisma.receivable.update({ where: { id: receivableId }, data: { groupId: outcomeId(await group(current, "FLEXIBLE")) } })).rejects.toThrow(/kind cannot change/);
+      expect((await finance.read(current.identity.id, current.school.id)).receivables).toEqual([expect.objectContaining({ id: receivableId, kind: "EXTRACURRICULAR", kindLocked: true })]);
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId } })).toMatchObject({ groupId: expect.any(String) });
     });
 
     it("replays same-key outcomes, rejects changed fingerprints, and re-authorizes revoked access", async () => {
       const current = await graph();
       const key = uuid();
       const operationId = uuid();
-      const body = { name: "Dịch vụ" };
-      const first = await finance.createGroup(
+      await group(current);
+      const body = { kind: "FIXED", displayName: "Dịch vụ", unitLabel: "lần", defaultUnitPrice: "100" };
+      const first = await finance.createReceivable(
         current.identity.id,
         current.school.id,
         key,
@@ -754,7 +753,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         body,
       );
       expect(
-        await finance.createGroup(
+        await finance.createReceivable(
           current.identity.id,
           current.school.id,
           key,
@@ -763,17 +762,17 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         ),
       ).toEqual(first);
       expect(
-        await prisma.receivableGroup.count({
+        await prisma.receivable.count({
           where: { schoolId: current.school.id },
         }),
       ).toBe(1);
       await expect(
-        finance.createGroup(
+        finance.createReceivable(
           current.identity.id,
           current.school.id,
           key,
           uuid(),
-          { name: "Khác" },
+          { ...body, displayName: "Khác" },
         ),
       ).rejects.toMatchObject({
         status: 409,
@@ -801,7 +800,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         response: { code: "CAPABILITY_DENIED" },
       });
       await expect(
-        finance.createGroup(
+        finance.createReceivable(
           current.identity.id,
           current.school.id,
           key,
@@ -1242,7 +1241,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const current = await roster(await graph()); const foreign = await roster(await graph());
       const first = await enrolled(current);
       const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
-      const groupId = outcomeId(await group(current, "Bữa ăn"));
+      const groupId = outcomeId(await group(current));
       const mealId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000" }));
       const key = uuid(); const operationId = uuid();
       const saved = await finance.saveTemplateLine(current.identity.id, current.school.id, runId, key, operationId, { receivableId: mealId, quantity: "22", expectedVersion: 1 });
@@ -1297,7 +1296,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("invalidates a DRAFT preview when live template catalog price or lifecycle facts change", async () => {
       const current = await roster(await graph());
-      const groupId = outcomeId(await group(current, "Khoản thu mẫu"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(
         current.identity.id,
         current.school.id,
@@ -1373,7 +1372,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
     it("rejects generate when READY template catalog facts no longer match the confirmed preview", async () => {
       const current = await roster(await graph());
       await enrolled(current);
-      const groupId = outcomeId(await group(current, "Catalog READY"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(
         current.identity.id,
         current.school.id,
@@ -1434,7 +1433,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
     it("rejects generate when a template receivable becomes inactive after READY", async () => {
       const current = await roster(await graph());
       await enrolled(current);
-      const groupId = outcomeId(await group(current, "Lifecycle READY"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(
         current.identity.id,
         current.school.id,
@@ -1468,63 +1467,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       })).toBe(0);
     });
 
-    it("invalidates a DRAFT preview when an owning ReceivableGroup lifecycle changes", async () => {
-      const current = await roster(await graph());
-      const groupId = outcomeId(await group(current, "Nhóm khoản thu mẫu"));
-      const receivableId = outcomeId(await finance.createReceivable(
-        current.identity.id,
-        current.school.id,
-        uuid(),
-        uuid(),
-        {
-          groupId,
-          code: "GROUP_LIFECYCLE",
-          displayName: "Khoản thu theo nhóm",
-          unitLabel: "lần",
-          defaultUnitPrice: "35000",
-        },
-      ));
-      const runId = outcomeId(await finance.openRun(
-        current.identity.id,
-        current.school.id,
-        uuid(),
-        uuid(),
-        { schoolYearId: current.year.id, billingMonth: "2026-09" },
-      ));
-      await finance.saveTemplateLine(
-        current.identity.id,
-        current.school.id,
-        runId,
-        uuid(),
-        uuid(),
-        { receivableId, quantity: "1", expectedVersion: 1 },
-      );
-      const preview = await finance.preview(current.identity.id, current.school.id, runId);
-      await finance.transitionGroup(
-        current.identity.id,
-        current.school.id,
-        groupId,
-        uuid(),
-        uuid(),
-        { status: "INACTIVE", reason: "Ngừng nhóm khoản thu" },
-      );
-      await expect(finance.readyRun(
-        current.identity.id,
-        current.school.id,
-        runId,
-        uuid(),
-        uuid(),
-        { previewFingerprint: preview.fingerprint },
-      )).rejects.toMatchObject({
-        status: 409,
-        response: { code: "PREVIEW_STALE" },
-      });
-      expect((await finance.run(current.identity.id, current.school.id, runId)).status).toBe("DRAFT");
-    });
-
     it("returns template lines by descending server-calculated amount with an ID tie-breaker", async () => {
       const current = await roster(await graph());
-      const groupId = outcomeId(await group(current, "Thứ tự template"));
+      const groupId = outcomeId(await group(current));
       const create = (code: string, price: string) => finance.createReceivable(
         current.identity.id,
         current.school.id,
@@ -2040,7 +1985,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
 
     it("rechecks calculated promotion facts before Issue and persists only immutable issued applications", async () => {
       const current = await roster(await graph()); const student = await enrolled(current);
-      const groupId = outcomeId(await group(current, "Issue promotion"));
+      const groupId = outcomeId(await group(current));
       const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId, displayName: "Khoản", unitLabel: "lần", defaultUnitPrice: "100" }));
       const versionId = await promotion(current, student.student.id, receivableId, { name: "Issue snapshot", discountType: "FIXED_VND", discountValue: "25", priority: "1", stackingMode: "STACKABLE" });
       const runId = outcomeId(await open(current)); const template = await finance.run(current.identity.id, current.school.id, runId);
@@ -2608,7 +2553,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
     it("projects only matching immutable invoice lines for a group and marks whole-invoice cash unallocated", async () => {
       const fixture = await issueFixture("100");
       const primary = await prisma.receivable.findFirstOrThrow({ where: { id: fixture.receivableId, schoolId: fixture.current.school.id }, include: { group: true } });
-      const secondaryGroupId = outcomeId(await group(fixture.current, "Nhóm phụ"));
+      const secondaryGroupId = outcomeId(await group(fixture.current, "FLEXIBLE"));
       const secondaryReceivableId = outcomeId(await finance.createReceivable(fixture.current.identity.id, fixture.current.school.id, uuid(), uuid(), { groupId: secondaryGroupId, displayName: "Khoản phụ", unitLabel: "lần", defaultUnitPrice: "50" }));
       await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { receivableId: secondaryReceivableId, quantity: "1" });
       await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });

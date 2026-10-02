@@ -3,7 +3,7 @@ import { PrismaService } from '../identity/prisma.service.js';
 import { auditData } from '../common/audit.js';
 import { requestFingerprint } from '../common/mutation-protection.js';
 import { isOperationIdempotencyCollision } from '../common/operation-idempotency.js';
-import { defaultReceivableGroupNames, provisionDefaultReceivableGroupsFingerprint, provisionDefaultReceivableGroupsRoute } from '../finance/default-receivable-groups.js';
+import { defaultReceivableGroupNames, defaultReceivableGroups, provisionDefaultReceivableGroupsFingerprint, provisionDefaultReceivableGroupsRoute } from '../finance/default-receivable-groups.js';
 
 type ProvisionInput = { name?: unknown; slug?: unknown; ownerEmail?: unknown; studentCodePrefix?: unknown };
 const email = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -45,11 +45,8 @@ export class OpsService {
          const financePosition = positions[2]!;
           await tx.positionCapabilityGrant.createMany({ data: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE', 'OPERATIONAL_QUEUE_READ'].map((capability) => ({ schoolId: school.id, positionId: financePosition.id, capability })) });
         await tx.staffProfile.create({ data: { schoolId: school.id, fullName: ownerEmail, email: ownerEmail, phone: 'Chưa cập nhật', dateOfBirth: new Date('1900-01-01T00:00:00.000Z'), gender: 'Chưa cập nhật', address: 'Chưa cập nhật', primaryPositionId: ownerPosition.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
-        const defaultGroupOperation = await tx.operation.create({ data: { schoolId: school.id, actorType: 'PLATFORM_OPERATOR_GRANT', actorReference: grant.id, platformOperatorGrantId: grant.id, actorIdentityId: identityId, route: provisionDefaultReceivableGroupsRoute, idempotencyKey: operationId, fingerprint: requestFingerprint(provisionDefaultReceivableGroupsFingerprint(school.id, operationId)), status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
-        for (const name of defaultReceivableGroupNames) {
-          const group = await tx.receivableGroup.create({ data: { schoolId: school.id, name } });
-          await tx.receivableGroupLifecycleTransition.create({ data: { schoolId: school.id, receivableGroupId: group.id, status: 'ACTIVE', actorIdentityId: identityId, operationId: defaultGroupOperation.id, sequence: 1 } });
-        }
+        await tx.operation.create({ data: { schoolId: school.id, actorType: 'PLATFORM_OPERATOR_GRANT', actorReference: grant.id, platformOperatorGrantId: grant.id, actorIdentityId: identityId, route: provisionDefaultReceivableGroupsRoute, idempotencyKey: operationId, fingerprint: requestFingerprint(provisionDefaultReceivableGroupsFingerprint(school.id, operationId)), status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
+        await tx.receivableGroup.createMany({ data: defaultReceivableGroups.map(({ kind, name }) => ({ schoolId: school.id, kind, name })) });
         await tx.auditRecord.create({ data: auditData(school.id, { identityId, type: 'PLATFORM_OPERATOR_GRANT', reference: grant.id }, 'SCHOOL_PROVISIONED', { platformOperatorGrantId: grant.id, operationId }) });
        return { schoolId: school.id, status: school.status, studentCodePrefix: school.studentCodePrefix };
     });

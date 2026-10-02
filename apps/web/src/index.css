@@ -1536,10 +1536,69 @@ tbody tr:last-child td {
 }
 .finance-list-toolbar .primary-action { justify-self: stretch; }
 .finance-list-actions .primary-action { flex: 1 1 150px; }
-.finance-group-dialog {
-  width: min(680px, calc(100vw - 32px));
+.dialog.dialog-wide {
+  width: min(820px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
-  overflow: auto;
+  overflow-y: auto;
+}
+.dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  align-items: start;
+}
+.dialog-grid > * { min-width: 0; }
+.dialog-grid .full { grid-column: 1 / -1; }
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.chip-group legend {
+  width: 100%;
+  padding: 0;
+  margin-bottom: 6px;
+  color: #4f5249;
+  font-size: 14px;
+  font-weight: 600;
+}
+.dialog .chip-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid #e4e2d8;
+  border-radius: 999px;
+  background: #fff;
+  color: #24261f;
+  cursor: pointer;
+}
+.dialog .chip-group input { width: auto; margin: 0; }
+.dialog .chip-group label:has(input:checked) { border-color: #277e48; background: #eef6f1; }
+.chip-group:disabled label { cursor: not-allowed; opacity: 0.7; }
+.finance-catalog-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.finance-catalog-heading p { margin: 0; }
+.finance-guide { margin-top: 20px; color: #4f5249; }
+.finance-guide summary { cursor: pointer; font-weight: 700; color: #24261f; }
+@media (max-width: 720px) {
+  .dialog-grid { grid-template-columns: 1fr; }
 }
 .school-context-workspace > section > form.roster-list-filters,
 .roster-list-filters {

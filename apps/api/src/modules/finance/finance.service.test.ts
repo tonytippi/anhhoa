@@ -12,7 +12,7 @@ describe('FinanceService validation', () => {
     await expect(service.createReceivable('identity', school, crypto.randomUUID(), crypto.randomUUID(), { groupId: 'not-uuid', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { groupId: expect.any(String) } } });
     await expect(service.createReceivable('identity', school, crypto.randomUUID(), crypto.randomUUID(), { groupId: crypto.randomUUID(), displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1.5' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { defaultUnitPrice: expect.any(String) } } });
     for (const unitLabel of ['1', '12', ' 3 ', '-']) await expect(service.createReceivable('identity', school, crypto.randomUUID(), crypto.randomUUID(), { groupId: crypto.randomUUID(), displayName: 'Học phí', unitLabel, defaultUnitPrice: '100' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { unitLabel: 'Đơn vị tính phải là chữ, ví dụ: tháng, ngày, buổi.' } } });
-    await expect(service.createGroup('identity', school, 'not-uuid', crypto.randomUUID(), { name: 'Học phí' })).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
+    await expect(service.createReceivable('identity', school, 'not-uuid', crypto.randomUUID(), { kind: 'FIXED', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000' })).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
   it('proposes Bớt only from approved, uncontradicted leave days of the previous month in the same School', async () => {
@@ -25,6 +25,20 @@ describe('FinanceService validation', () => {
     expect(service.deductionProposal(28000n, '2026-10', days.get('student'))).toMatchObject({ deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: 28000n, deductionSource: { month: '2026-09', days: ['2026-09-04'], proposedUnitPrice: '28000' } });
     expect(service.deductionProposal(0n, '2026-10', days.get('student'))).toMatchObject({ deductionQuantity: 0, deductionAmount: 0n, deductionSource: null });
   });
+  it('refuses a kind outside the three fixed kinds and requires a kind or group before writes', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const base = { displayName: 'Phí', unitLabel: 'lần', defaultUnitPrice: '1000' };
+    await expect(service.createReceivable('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { ...base, kind: 'CUSTOM' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { kind: expect.any(String) } } });
+    await expect(service.createReceivable('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), base)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { kind: expect.any(String) } } });
+    await expect(service.updateReceivableKind('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { kind: 'NOPE' })).rejects.toMatchObject({ status: 400 });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('has no API to create, rename or change the lifecycle of a group', () => {
+    const service = new FinanceService({} as never, authorization as never) as any;
+    expect(service.createGroup).toBeUndefined();
+    expect(service.transitionGroup).toBeUndefined();
+  });
   it('rejects a refund price above the charged price before an Operation or catalog mutation', async () => {
     const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
     const service = new FinanceService(prisma as never, authorization as never);
@@ -34,9 +48,10 @@ describe('FinanceService validation', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
   it('serializes BigInt VND as a safe JSON integer string and scopes catalog reads by School', async () => {
-    const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([{ id: 'group', name: 'Học phí', createdAt: new Date('2026-01-01T00:00:00Z'), lifecycleTransitions: [{ status: 'ACTIVE' }] }]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'item', groupId: 'group', code: null, displayName: 'Tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, createdAt: new Date('2026-01-01T00:00:00Z'), lifecycleTransitions: [{ status: 'ACTIVE' }] }]) } };
+    const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([{ id: 'group', name: 'Học phí', createdAt: new Date('2026-01-01T00:00:00Z'), kind: 'FIXED' }]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'item', groupId: 'group', code: null, displayName: 'Tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, createdAt: new Date('2026-01-01T00:00:00Z'), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FIXED' } }]) }, invoiceLine: { groupBy: vi.fn().mockResolvedValue([]) }, collectionRunTemplateLine: { groupBy: vi.fn().mockResolvedValue([]) } };
     const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).read('identity', school);
-    expect(result).toMatchObject({ groups: [{ status: 'ACTIVE' }], receivables: [{ defaultUnitPrice: '500000', status: 'ACTIVE' }] });
+    expect(result).toMatchObject({ groups: [{ kind: 'FIXED' }], receivables: [{ defaultUnitPrice: '500000', status: 'ACTIVE', kind: 'FIXED', kindLocked: false, available: true }] });
+    expect(result.groups[0]).not.toHaveProperty('status');
     expect(prisma.receivableGroup.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
     expect(prisma.receivable.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
   });
@@ -49,9 +64,13 @@ describe('FinanceService validation', () => {
     expect(result).toMatchObject({ status: 'GENERATED', summary: { invoiceCount: 3, issuedCount: 2, invoiceTotal: '9007199255025993' } });
     expect(prisma.collectionRun.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: run.id, schoolId: school } }));
   });
-  it('marks an active Receivable unavailable when its Group is inactive', async () => {
-    const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'item', groupId: 'group', code: null, displayName: 'Tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { lifecycleTransitions: [{ status: 'INACTIVE' }] } }]) } };
-    await expect(new FinanceService(prisma as never, authorization as never).read('identity', crypto.randomUUID())).resolves.toMatchObject({ receivables: [{ status: 'ACTIVE', available: false }] });
+  it('locks the kind of a Receivable used on an Invoice line or a collection template line', async () => {
+    const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'invoiced', groupId: 'group', code: null, displayName: 'A', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FIXED' } }, { id: 'templated', groupId: 'group', code: null, displayName: 'B', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FLEXIBLE' } }, { id: 'unused', groupId: 'group', code: null, displayName: 'C', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'INACTIVE' }], group: { kind: 'FLEXIBLE' } }]) }, invoiceLine: { groupBy: vi.fn().mockResolvedValue([{ receivableId: 'invoiced' }]) }, collectionRunTemplateLine: { groupBy: vi.fn().mockResolvedValue([{ receivableId: 'templated' }]) } };
+    const school = crypto.randomUUID();
+    const result: any = await new FinanceService(prisma as never, authorization as never).read('identity', school);
+    expect(result.receivables.map((item: any) => [item.id, item.kindLocked])).toEqual([['invoiced', true], ['templated', true], ['unused', false]]);
+    expect(prisma.invoiceLine.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school }) }));
+    expect(prisma.collectionRunTemplateLine.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
   });
   it('aggregates only same-School ledger facts at or before the normalized cutoff', async () => {
     const events = [{ id: 'issued', type: 'INVOICE_ISSUED', postedAt: new Date('2026-09-01T00:00:00.000Z'), amount: 0n, netAmount: 100n, billingMonth: '2026-09', invoiceId: 'invoice', provenance: {} }, { id: 'receipt', type: 'RECEIPT_POSTED', postedAt: new Date('2026-09-02T00:00:00.000Z'), amount: 90n, netAmount: 0n, billingMonth: '2026-09', invoiceId: 'invoice', provenance: {} }];
@@ -70,11 +89,11 @@ describe('FinanceService validation', () => {
   it('replays an existing idempotent result and rejects an operation ID collision', async () => {
     const operation = { id: crypto.randomUUID(), fingerprint: expect.any(String), status: 'COMPLETED', outcome: { id: 'group' } };
     const prisma = { operation: { findFirst: vi.fn().mockResolvedValueOnce({ ...operation, fingerprint: undefined }).mockResolvedValueOnce(null) }, $transaction: vi.fn() };
-    const key = crypto.randomUUID(); const input = { name: 'Học phí' };
+    const key = crypto.randomUUID(); const body = { kind: 'FIXED', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000' }; const input = { kind: 'FIXED', groupId: null, code: null, displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000', refundUnitPrice: '0', taxCategory: 'NOT_DECLARED' };
     prisma.operation.findFirst.mockReset().mockResolvedValueOnce({ ...operation, fingerprint: JSON.stringify(input) });
     const { requestFingerprint } = await import('../common/mutation-protection.js');
     prisma.operation.findFirst.mockReset().mockResolvedValueOnce({ ...operation, fingerprint: requestFingerprint(input) });
-    await expect(new FinanceService(prisma as never, authorization as never).createGroup('identity', crypto.randomUUID(), key, crypto.randomUUID(), input)).resolves.toMatchObject({ id: operation.id, outcome: { id: 'group' } });
+    await expect(new FinanceService(prisma as never, authorization as never).createReceivable('identity', crypto.randomUUID(), key, crypto.randomUUID(), body)).resolves.toMatchObject({ id: operation.id, outcome: { id: 'group' } });
   });
   it('returns issued BIGINT snapshots as JSON-safe strings without using live account data', async () => {
     const issuedAt = new Date('2026-09-21T00:00:00.000Z');

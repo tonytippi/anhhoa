@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { assertDevelopmentEnvironment as assertDevelopment } from '../scripts/development-environment.js';
-import { defaultReceivableGroupNames, developmentSeedDefaultReceivableGroupsFingerprint, developmentSeedDefaultReceivableGroupsKey, developmentSeedDefaultReceivableGroupsRoute } from '../src/modules/finance/default-receivable-groups.js';
+import { defaultReceivableGroupNames, defaultReceivableGroups, developmentSeedDefaultReceivableGroupsFingerprint, developmentSeedDefaultReceivableGroupsKey, developmentSeedDefaultReceivableGroupsRoute } from '../src/modules/finance/default-receivable-groups.js';
 
 const peakLand = {
   name: 'Mầm Non Giáo dục Đỉnh Cao - PeakLand Preschool',
@@ -330,17 +330,14 @@ export async function seed(): Promise<void> {
         },
       });
       const defaultGroupOperations = await tx.operation.findMany({ where: { schoolId: school.id, route: developmentSeedDefaultReceivableGroupsRoute, idempotencyKey: developmentSeedDefaultReceivableGroupsKey } });
-      const defaultGroups = await tx.receivableGroup.findMany({ where: { schoolId: school.id, name: { in: [...defaultReceivableGroupNames] } }, include: { lifecycleTransitions: true } });
+      const defaultGroups = await tx.receivableGroup.findMany({ where: { schoolId: school.id } });
       if (defaultGroupOperations.length === 0 && defaultGroups.length === 0) {
-        const defaultGroupOperation = await tx.operation.create({ data: { schoolId: school.id, membershipId: membership.id, actorIdentityId: owner.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membership.id, route: developmentSeedDefaultReceivableGroupsRoute, fingerprint: developmentSeedDefaultReceivableGroupsFingerprint, idempotencyKey: developmentSeedDefaultReceivableGroupsKey, status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
-        for (const name of defaultReceivableGroupNames) {
-          const group = await tx.receivableGroup.create({ data: { schoolId: school.id, name } });
-          await tx.receivableGroupLifecycleTransition.create({ data: { schoolId: school.id, receivableGroupId: group.id, status: 'ACTIVE', actorIdentityId: owner.id, membershipId: membership.id, operationId: defaultGroupOperation.id, sequence: 1 } });
-        }
+        await tx.operation.create({ data: { schoolId: school.id, membershipId: membership.id, actorIdentityId: owner.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membership.id, route: developmentSeedDefaultReceivableGroupsRoute, fingerprint: developmentSeedDefaultReceivableGroupsFingerprint, idempotencyKey: developmentSeedDefaultReceivableGroupsKey, status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
+        await tx.receivableGroup.createMany({ data: defaultReceivableGroups.map(({ kind, name }) => ({ schoolId: school.id, kind, name })) });
       } else {
         const [defaultGroupOperation] = defaultGroupOperations;
         const validOperation = defaultGroupOperations.length === 1 && defaultGroupOperation?.actorType === 'SCHOOL_MEMBERSHIP' && defaultGroupOperation.actorReference === membership.id && defaultGroupOperation.membershipId === membership.id && defaultGroupOperation.actorIdentityId === owner.id && defaultGroupOperation.fingerprint === developmentSeedDefaultReceivableGroupsFingerprint;
-        const validGroups = defaultGroups.length === defaultReceivableGroupNames.length && defaultReceivableGroupNames.every((name) => defaultGroups.some((group) => group.name === name && group.lifecycleTransitions.length === 1 && group.lifecycleTransitions[0]?.previousStatus === null && group.lifecycleTransitions[0]?.status === 'ACTIVE' && group.lifecycleTransitions[0]?.actorIdentityId === owner.id && group.lifecycleTransitions[0]?.membershipId === membership.id && group.lifecycleTransitions[0]?.operationId === defaultGroupOperation?.id && group.lifecycleTransitions[0]?.sequence === 1));
+        const validGroups = defaultGroups.length === defaultReceivableGroups.length && defaultReceivableGroups.every(({ kind, name }) => defaultGroups.some((group) => group.kind === kind && group.name === name));
         if (!validOperation || !validGroups || !defaultGroupOperation) throw new Error('Nhóm khoản thu mặc định PeakLand không đúng provenance; hãy reset development database trước khi seed lại.');
         if (defaultGroupOperation.status === 'PENDING') {
           await tx.operation.update({ where: { id: defaultGroupOperation.id }, data: { status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
@@ -456,14 +453,14 @@ const financeSeedAccounts = [
   { key: 'binh', kind: 'PERSONAL', receivingBank: 'Techcombank', bankBin: '970407', accountNumber: '19036677889900', accountHolderName: 'TRAN THI BINH' },
 ] as const;
 const financeSeedReceivables = [
-  { code: 'HP', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: 3500000n, taxCategory: 'EXEMPT', group: 'Khoản thu chung' },
+  { code: 'HP', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: 3500000n, taxCategory: 'EXEMPT', group: 'Khoản thu cố định' },
   // Excused leave days are refunded at 28.000 đ/ngày on the next month's Invoice (decision 2026-10-01).
-  { code: 'AN', displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 35000n, refundUnitPrice: 28000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu chung' },
+  { code: 'AN', displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 35000n, refundUnitPrice: 28000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
   { code: 'TA', displayName: 'Tiếng Anh bản ngữ', unitLabel: 'tháng', defaultUnitPrice: 600000n, taxCategory: 'VAT_10', group: 'Ngoại khóa' },
   { code: 'NK', displayName: 'Năng khiếu vẽ', unitLabel: 'tháng', defaultUnitPrice: 450000n, taxCategory: 'VAT_8', group: 'Ngoại khóa' },
-  { code: 'XE', displayName: 'Xe đưa đón', unitLabel: 'tháng', defaultUnitPrice: 800000n, taxCategory: 'VAT_5', group: 'Khoản thu chung' },
-  { code: 'DP', displayName: 'Đồng phục', unitLabel: 'bộ', defaultUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu đột xuất' },
-  { code: 'CSVC', displayName: 'Cơ sở vật chất', unitLabel: 'năm', defaultUnitPrice: 1200000n, taxCategory: 'VAT_0', group: 'Khoản thu đột xuất' },
+  { code: 'XE', displayName: 'Xe đưa đón', unitLabel: 'tháng', defaultUnitPrice: 800000n, taxCategory: 'VAT_5', group: 'Khoản thu cố định' },
+  { code: 'DP', displayName: 'Đồng phục', unitLabel: 'bộ', defaultUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'CSVC', displayName: 'Cơ sở vật chất', unitLabel: 'năm', defaultUnitPrice: 1200000n, taxCategory: 'VAT_0', group: 'Khoản thu linh hoạt' },
 ] as const;
 
 async function seedFinanceFixtures(tx: any, input: { schoolId: string; membershipId: string; ownerId: string; classrooms: Array<{ id: string; defaultBankAccountId: string | null }> }) {

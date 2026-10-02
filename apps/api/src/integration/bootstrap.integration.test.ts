@@ -53,9 +53,9 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
         },
       });
       expect(membership.boundStaffProfile?.primaryPosition.grants.some((grant) => grant.capability === 'SCHOOL_CONTEXT_READ')).toBe(true);
-      expect(school.receivableGroups.map((group) => group.name)).toEqual(['Khoản thu chung', 'Khoản thu đột xuất', 'Ngoại khóa']);
+      expect(school.receivableGroups.map((group) => [group.kind, group.name])).toEqual([['FIXED', 'Khoản thu cố định'], ['FLEXIBLE', 'Khoản thu linh hoạt'], ['EXTRACURRICULAR', 'Ngoại khóa']]);
       expect(school.initialOwnerIdentity).not.toBeNull();
-      expect(school.receivableGroups.flatMap((group) => group.lifecycleTransitions)).toEqual(expect.arrayContaining(school.receivableGroups.map((group) => expect.objectContaining({ schoolId: school.id, receivableGroupId: group.id, previousStatus: null, status: 'ACTIVE', actorIdentityId: school.initialOwnerIdentity!.id, membershipId: membership.id, sequence: 1 }))));
+      expect(school.receivableGroups.flatMap((group) => group.lifecycleTransitions)).toHaveLength(0);
     } finally {
       await prisma.$disconnect();
     }
@@ -131,7 +131,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
       expect(await prisma.staffCodeRegistry.count({ where: { schoolId: school.id } })).toBe(31);
       expect(await prisma.staffClassAssignment.count({ where: { schoolId: school.id, schoolYearId: school.schoolYears[0]!.id } })).toBe(28);
        expect(await prisma.receivableGroup.count({ where: { schoolId: school.id } })).toBe(3);
-       expect(await prisma.receivableGroupLifecycleTransition.count({ where: { schoolId: school.id } })).toBe(3);
+       expect(await prisma.receivableGroupLifecycleTransition.count({ where: { schoolId: school.id } })).toBe(0);
        const defaultGroupsAfter = await prisma.receivableGroup.findMany({
          where: { schoolId: school.id },
          include: { lifecycleTransitions: true },

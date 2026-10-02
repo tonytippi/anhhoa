@@ -1435,10 +1435,18 @@ model CollectionRunSelection {
   @@index([schoolId, collectionRunId])
 }
 
+// Decision 2026-10-02: every School has exactly three fixed groups; the kind is typed and never inferred from the name.
+enum ReceivableGroupKind {
+  FIXED
+  FLEXIBLE
+  EXTRACURRICULAR
+}
+
 model ReceivableGroup {
   id                   String                               @id @default(uuid()) @db.Uuid
   schoolId             String                               @db.Uuid
   name                 String
+  kind                 ReceivableGroupKind
   createdAt            DateTime                             @default(now()) @db.Timestamptz(3)
   school               School                               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   receivables          Receivable[]
@@ -1446,6 +1454,7 @@ model ReceivableGroup {
 
   @@unique([schoolId, id])
   @@unique([schoolId, name])
+  @@unique([schoolId, kind])
   @@index([schoolId, createdAt])
 }
 

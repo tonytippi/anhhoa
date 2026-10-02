@@ -2,10 +2,20 @@ import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState 
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 import { PaymentImagePanel } from "./payment-image-panel";
 
-type Group = { id: string; name: string; status: "ACTIVE" | "INACTIVE" | null };
+// Decision 2026-10-02: every School has the same three fixed groups; the API owns the kind and its lock.
+type ReceivableKind = "FIXED" | "FLEXIBLE" | "EXTRACURRICULAR";
+type Group = { id: string; name: string; kind: ReceivableKind };
+const receivableKinds: Array<{ kind: ReceivableKind; label: string; hint: string }> = [
+  { kind: "FIXED", label: "Khoản thu cố định", hint: "Tự thêm vào mỗi đợt thu cho toàn bộ học sinh; sửa số lượng trong đợt khi cần." },
+  { kind: "FLEXIBLE", label: "Khoản thu linh hoạt", hint: "Thêm vào đợt thu khi cần, chọn phạm vi: toàn bộ, lớp chính thức hoặc học sinh cụ thể." },
+  { kind: "EXTRACURRICULAR", label: "Ngoại khóa", hint: "Thu theo lớp ngoại khóa; gắn khoản thu vào lớp ở trang Lớp ngoại khóa." },
+];
+const kindLabel = (kind: ReceivableKind | null | undefined) => receivableKinds.find((item) => item.kind === kind)?.label ?? "";
 type Receivable = {
   id: string;
   groupId: string;
+  kind?: ReceivableKind | null;
+  kindLocked?: boolean;
   code: string | null;
   displayName: string;
   unitLabel: string;
@@ -107,7 +117,7 @@ type GenerationProgress = {
 };
 type OperationResult = { status: string; outcome?: unknown; progress?: GenerationProgress | null };
 type Lifecycle = {
-  kind: "receivable-groups" | "receivables";
+  kind: "receivables";
   id: string;
   name: string;
   next: "ACTIVE" | "INACTIVE";
@@ -276,9 +286,8 @@ export function FinanceWorkspace({
   const [runDialog, setRunDialog] = useState(false);
   const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[] }>();
   const [template, setTemplate] = useState({ receivableId: "", quantity: "" });
-  const [group, setGroup] = useState({ name: "" });
   const [receivable, setReceivable] = useState({
-    groupId: "",
+    kind: "" as ReceivableKind | "",
     code: "",
     displayName: "",
     unitLabel: "",
@@ -291,7 +300,10 @@ export function FinanceWorkspace({
   const [settlements, setSettlements] = useState<{ runId: string; students: Settlement[] }>();
   const [deductionEdit, setDeductionEdit] = useState<{ invoiceId: string; lineId: string; name: string; unitLabel: string; proposal: string; packageRefund: boolean; deductionQuantity: string; refundUnitPrice: string; reason: string }>();
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
-  const [catalogDialog, setCatalogDialog] = useState<"group" | "group-form" | "receivable">();
+  const [catalogDialog, setCatalogDialog] = useState<"receivable" | "receivable-kind">();
+  const [kindEdit, setKindEdit] = useState<{ id: string; name: string; kind: ReceivableKind; locked: boolean }>();
+  const [catalogFilter, setCatalogFilter] = useState({ search: "", kind: "", status: "" });
+  const [catalogFilterApplied, setCatalogFilterApplied] = useState({ search: "", kind: "", status: "" });
   const [promotionDialog, setPromotionDialog] = useState<"policy" | "assignment">();
   const [promotionTransition, setPromotionTransition] = useState<{
     id: string;
@@ -300,8 +312,8 @@ export function FinanceWorkspace({
   }>();
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [scope, setScope] = useState<"group" | "receivable" | "invoice" | "lifecycle" | "promotion" | "run">(
-    "group",
+  const [scope, setScope] = useState<"receivable" | "invoice" | "lifecycle" | "promotion" | "run">(
+    "receivable",
   );
   const [pending, setPending] = useState<Pending>();
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress>();
@@ -340,7 +352,7 @@ export function FinanceWorkspace({
   const activeAssignment = (item: PromotionPolicy["versions"][number]["assignments"][number]) => item.isCurrent;
   const promotionVersions = promotionPolicies.flatMap((policy) => (policy.versions ?? []).map((version) => ({ policy, version })));
   const currentAssignments = promotionVersions.flatMap(({ policy, version }) => (version.assignments ?? []).filter(activeAssignment).map((item) => ({ policy, version, item })));
-  const resetReceivable = () => setReceivable({ groupId: "", code: "", displayName: "", unitLabel: "", defaultUnitPrice: "", refundUnitPrice: "0", taxCategory: "NOT_DECLARED" });
+  const resetReceivable = () => setReceivable({ kind: "", code: "", displayName: "", unitLabel: "", defaultUnitPrice: "", refundUnitPrice: "0", taxCategory: "NOT_DECLARED" });
   const resetPromotion = () => setPromotion(defaultPromotion());
 
   const get = async <T,>(path: string, mutation = false) => {
@@ -566,8 +578,8 @@ export function FinanceWorkspace({
     setRunDialog(false);
     setInvoiceQueue(undefined);
     setTemplate({ receivableId: "", quantity: "" });
-    setGroup({ name: "" });
     resetReceivable();
+    setKindEdit(undefined);
     setLifecycle(undefined);
     setCatalogDialog(undefined);
     setPromotionDialog(undefined);
@@ -622,8 +634,7 @@ export function FinanceWorkspace({
   const dirty = Boolean(
     open.schoolYearId ||
     open.billingMonth ||
-    group.name ||
-    receivable.groupId ||
+    receivable.kind ||
     receivable.code ||
     receivable.displayName ||
     receivable.unitLabel ||
@@ -938,18 +949,11 @@ export function FinanceWorkspace({
       try { await load(); } catch { setMessage("Đợt thu đã đóng; chưa thể tải lại dữ liệu mới nhất."); }
     }
   };
-  const saveGroup = async (event: FormEvent) => {
+  const saveKind = async (event: FormEvent) => {
     event.preventDefault();
-    if (
-      await command(
-        `/api/app/schools/${schoolId}/finance/receivable-groups`,
-        "POST",
-        group,
-        "group",
-      )
-    ) {
-      setGroup({ name: "" });
-      closeManagedDialog(() => setCatalogDialog("group"));
+    if (!kindEdit || kindEdit.locked) return;
+    if (await command(`/api/app/schools/${schoolId}/finance/receivables/${kindEdit.id}/kind`, "PUT", { kind: kindEdit.kind }, "receivable")) {
+      closeManagedDialog(() => { setCatalogDialog(undefined); setKindEdit(undefined); });
       await load();
     }
   };
@@ -1201,7 +1205,13 @@ export function FinanceWorkspace({
   const reviewInvoice = (id: string) => { if (onOpenInvoice && run) onOpenInvoice(run.id, id); else void openInvoice(id, run); };
   const previousInvoiceId = invoiceQueueIndex > 0 ? invoiceQueue!.ids[invoiceQueueIndex - 1] : undefined;
   const nextInvoiceId = invoiceQueueIndex >= 0 && invoiceQueueIndex < invoiceQueue!.ids.length - 1 ? invoiceQueue!.ids[invoiceQueueIndex + 1] : undefined;
-  const receivableGroupNames = new Map((catalog?.groups ?? []).map((group) => [group.id, group.name]));
+  const catalogRows = (catalog?.receivables ?? []).filter((item) => {
+    const search = catalogFilterApplied.search.trim().toLocaleLowerCase("vi");
+    if (search && !`${item.displayName} ${item.code ?? ""}`.toLocaleLowerCase("vi").includes(search)) return false;
+    if (catalogFilterApplied.kind && item.kind !== catalogFilterApplied.kind) return false;
+    if (catalogFilterApplied.status && (catalogFilterApplied.status === "ACTIVE") !== item.available) return false;
+    return true;
+  });
 
   return (
     <section className="finance-workspace" aria-labelledby={invoiceRouteActive ? "invoice-review-title" : runId ? "run-detail-title" : "finance-title"} onKeyDownCapture={(event) => {
@@ -1225,53 +1235,65 @@ export function FinanceWorkspace({
         {currentAssignments.length > 0 && <table><caption>Học sinh đang áp dụng ưu đãi</caption><thead><tr><th>Học sinh</th><th>Chính sách</th><th>Áp dụng từ</th><th>Lý do</th><th>Tùy chọn</th></tr></thead><tbody>{currentAssignments.map(({ policy, version, item }) => <tr key={item.id}><td>{item.studentCode} / {item.studentName}</td><td>{policy.name} / Phiên bản {version.version}</td><td>{item.effectiveFrom}</td><td>{item.reason}</td><td><AnchoredActionMenu label={`Tùy chọn cho ${item.studentName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setEndingAssignment({ id: item.id, effectiveTo: "", reason: "" }); }}>Kết thúc áp dụng</AnchoredActionMenuItem></AnchoredActionMenu></td></tr>)}</tbody></table>}
       </section>}
       {page === "receivables" && <section>
-        <form className="finance-list-toolbar" aria-label="Điều khiển danh sách khoản thu" onSubmit={(event) => event.preventDefault()}>
-          <div className="finance-list-actions">
-            <button type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setGroup({ name: "" }); openManagedDialog(event.currentTarget, () => setCatalogDialog("group")); }}>Quản lý nhóm</button>
-            <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetReceivable(); openManagedDialog(event.currentTarget, () => setCatalogDialog("receivable")); }}>Thêm khoản thu</button>
-          </div>
+        <div className="finance-catalog-heading">
+          <p className="muted">Danh mục khoản thu cho hóa đơn nháp. Giá và trạng thái do hệ thống xác nhận.</p>
+          <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); resetReceivable(); openManagedDialog(event.currentTarget, () => setCatalogDialog("receivable")); }}>Thêm khoản thu</button>
+        </div>
+        <h2>Danh sách khoản thu</h2>
+        <p className="muted">Khoản ngừng áp dụng vẫn được giữ để đối soát lịch sử.</p>
+        <form className="finance-list-toolbar" aria-label="Điều khiển danh sách khoản thu" onSubmit={(event) => { event.preventDefault(); setCatalogFilterApplied(catalogFilter); }}>
+          <label>Tìm kiếm<input placeholder="Tên hoặc mã khoản thu" value={catalogFilter.search} onChange={(event) => setCatalogFilter({ ...catalogFilter, search: event.target.value })} /></label>
+          <label>Nhóm<select value={catalogFilter.kind} onChange={(event) => setCatalogFilter({ ...catalogFilter, kind: event.target.value })}><option value="">Tất cả nhóm</option>{receivableKinds.map((item) => <option key={item.kind} value={item.kind}>{item.label}</option>)}</select></label>
+          <label>Trạng thái<select value={catalogFilter.status} onChange={(event) => setCatalogFilter({ ...catalogFilter, status: event.target.value })}><option value="">Tất cả trạng thái</option><option value="ACTIVE">Đang áp dụng</option><option value="INACTIVE">Ngừng áp dụng</option></select></label>
+          <button type="submit">Lọc</button>
         </form>
         <div className="table-scroll">
           <table>
             <caption>Khoản thu theo trường</caption>
             <thead>
               <tr>
-                <th aria-label="Số thứ tự">#</th>
-                <th>Tên khoản thu</th>
+                <th>Khoản thu</th>
                 <th>Mã</th>
-                <th className="money">Giá / đơn vị (chưa VAT)</th>
+                <th className="money">Đơn giá mặc định (chưa VAT)</th>
                 <th className="money">Giá hoàn trả</th>
                 <th>Thuế</th>
-                <th>Nhóm khoản thu</th>
                 <th>Trạng thái</th>
                 <th>Tùy chọn</th>
               </tr>
             </thead>
             <tbody>
-              {catalog?.receivables?.length ? (
-                catalog.receivables.map((item, index) => (
+              {catalogRows.length ? (
+                catalogRows.map((item) => (
                   <tr key={item.id}>
-                    <td>{index + 1}</td>
-                    <td>{item.displayName}</td>
+                    <td><b>{item.displayName}</b><br /><small className="muted">{kindLabel(item.kind)}{item.unitLabel !== "tháng" ? ` · đơn vị ${item.unitLabel}` : ""}</small></td>
                     <td>{item.code ?? "-"}</td>
                     <td className="money">{vnd(item.defaultUnitPrice)} VND / {item.unitLabel}</td>
                     <td className="money">{BigInt(item.refundUnitPrice ?? "0") > 0n ? `${vnd(item.refundUnitPrice!)} VND / ${item.unitLabel}` : "—"}</td>
                     <td>{taxShortLabel[item.taxCategory ?? "NOT_DECLARED"]}<br /><small className="muted">{channelAccountLabel(item.channel)}</small></td>
-                    <td>{receivableGroupNames.get(item.groupId) ?? "-"}</td>
                     <td>{item.available ? "Đang áp dụng" : "Ngừng áp dụng"}</td>
-                    <td><AnchoredActionMenu label={`Tùy chọn cho ${item.displayName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setTaxChange({ id: item.id, name: item.displayName, taxCategory: item.taxCategory ?? "NOT_DECLARED" }); }}>Đổi mức thuế suất</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setRefundChange({ id: item.id, name: item.displayName, unitLabel: item.unitLabel, refundUnitPrice: item.refundUnitPrice ?? "0" }); }}>Đổi giá hoàn trả</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td>
+                    <td><AnchoredActionMenu label={`Tùy chọn cho ${item.displayName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); if (item.kind) setKindEdit({ id: item.id, name: item.displayName, kind: item.kind, locked: Boolean(item.kindLocked) }); setCatalogDialog("receivable-kind"); }}>Chỉnh sửa</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setTaxChange({ id: item.id, name: item.displayName, taxCategory: item.taxCategory ?? "NOT_DECLARED" }); }}>Đổi mức thuế suất</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setRefundChange({ id: item.id, name: item.displayName, unitLabel: item.unitLabel, refundUnitPrice: item.refundUnitPrice ?? "0" }); }}>Đổi giá hoàn trả</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={9}>
-                    {catalog ? "Chưa có khoản thu." : "Đang tải khoản thu."}
+                  <td colSpan={7}>
+                    {catalog ? (catalog.receivables?.length ? "Không có khoản thu khớp bộ lọc." : "Chưa có khoản thu.") : "Đang tải khoản thu."}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        <details className="finance-guide">
+          <summary>Hướng dẫn</summary>
+          <p>Mỗi Trường có đúng ba nhóm khoản thu, không thêm, đổi tên hoặc ngừng nhóm.</p>
+          <ul>
+            <li><b>Khoản thu cố định</b>: tự thêm vào mỗi đợt thu, áp dụng cho toàn bộ học sinh.</li>
+            <li><b>Khoản thu linh hoạt</b>: thêm vào đợt thu khi cần, chọn phạm vi áp dụng.</li>
+            <li><b>Ngoại khóa</b>: thu theo thành viên của lớp ngoại khóa.</li>
+          </ul>
+          <p>Khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa không đổi được nhóm.</p>
+        </details>
       </section>}
       {page === "collection-runs" && (!runId || !onOpenRun) && <section>
         <form className="finance-list-toolbar" aria-label="Điều khiển danh sách đợt thu" onSubmit={(event) => event.preventDefault()}>
@@ -1821,19 +1843,43 @@ export function FinanceWorkspace({
       )}
       {catalogDialog === "receivable" && (
         <div className="dialog-backdrop">
-          <div ref={catalogDialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="finance-receivable-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), resetReceivable)}>
+          <div ref={catalogDialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="finance-receivable-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), resetReceivable)}>
             <form onSubmit={saveReceivable}>
-              <h3 id="finance-receivable-title">Thêm khoản thu</h3><p>Khoản thu mới chỉ dùng được sau khi máy chủ xác nhận trong đúng Trường.</p>
-              <label>Nhóm<select value={receivable.groupId} onChange={(event) => setReceivable({ ...receivable, groupId: event.target.value })} {...field("receivable", "groupId")}><option value="">Chọn nhóm</option>{(catalog?.groups ?? []).filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <label>Mã khoản thu<input value={receivable.code} onChange={(event) => setReceivable({ ...receivable, code: event.target.value })} /></label>
-              <label>Tên khoản thu<input value={receivable.displayName} onChange={(event) => setReceivable({ ...receivable, displayName: event.target.value })} {...field("receivable", "displayName")} /></label>
-              <label>Đơn vị tính<input placeholder="Ví dụ: tháng, ngày, buổi" value={receivable.unitLabel} onChange={(event) => setReceivable({ ...receivable, unitLabel: event.target.value })} {...field("receivable", "unitLabel")} /></label>
-              <label>Giá / đơn vị (chưa VAT)<input inputMode="numeric" value={receivable.defaultUnitPrice} onChange={(event) => setReceivable({ ...receivable, defaultUnitPrice: event.target.value })} {...field("receivable", "defaultUnitPrice")} /></label>
-              <label>Giá hoàn trả / đơn vị (chưa VAT)<input inputMode="numeric" value={receivable.refundUnitPrice} onChange={(event) => setReceivable({ ...receivable, refundUnitPrice: event.target.value })} aria-describedby="receivable-refund-hint" {...field("receivable", "refundUnitPrice")} /></label><small className="muted" id="receivable-refund-hint">Số tiền trả lại cho mỗi đơn vị nghỉ có phép của tháng trước, không vượt giá thu. Để 0 nếu không hoàn trả.</small>
-              <label>Mức thuế suất<select value={receivable.taxCategory} onChange={(event) => setReceivable({ ...receivable, taxCategory: event.target.value as TaxCategory })} aria-describedby="receivable-tax-channel-hint">{taxCategoryOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><small className="muted" id="receivable-tax-channel-hint">{taxChannelHint(receivable.taxCategory)}</small>
-              <p className="muted">Hệ thống tính thuế GTGT trên số tiền sau ưu đãi và phần bớt, chuyển khoản thu vào đúng tài khoản; đổi mức thuế hoặc giá hoàn trả chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó.</p>
+              <h3 id="finance-receivable-title">Thêm khoản thu</h3><p className="muted">Khoản thu mới chỉ dùng được sau khi máy chủ xác nhận trong đúng Trường.</p>
+              <div className="dialog-grid">
+                <label>Tên khoản thu<input placeholder="Ví dụ: Phí hoạt động" value={receivable.displayName} onChange={(event) => setReceivable({ ...receivable, displayName: event.target.value })} {...field("receivable", "displayName")} /></label>
+                <label>Mã khoản thu<input placeholder="Không bắt buộc" value={receivable.code} onChange={(event) => setReceivable({ ...receivable, code: event.target.value })} /></label>
+                <fieldset className="chip-group full" aria-describedby="receivable-kind-hint">
+                  <legend>Nhóm khoản thu</legend>
+                  {receivableKinds.map((item) => <label key={item.kind}><input type="radio" name="receivable-kind" value={item.kind} checked={receivable.kind === item.kind} onChange={() => setReceivable({ ...receivable, kind: item.kind })} />{item.label}</label>)}
+                </fieldset>
+                <small className="muted full" id="receivable-kind-hint">{receivableKinds.find((item) => item.kind === receivable.kind)?.hint ?? "Chọn một trong ba nhóm cố định của Trường."}</small>
+                <label>Giá / đơn vị (chưa VAT)<input inputMode="numeric" placeholder="Ví dụ: 350000" value={receivable.defaultUnitPrice} onChange={(event) => setReceivable({ ...receivable, defaultUnitPrice: event.target.value })} {...field("receivable", "defaultUnitPrice")} /></label>
+                <div><label>Giá hoàn trả / đơn vị (chưa VAT)<input inputMode="numeric" value={receivable.refundUnitPrice} onChange={(event) => setReceivable({ ...receivable, refundUnitPrice: event.target.value })} aria-describedby="receivable-refund-hint" {...field("receivable", "refundUnitPrice")} /></label><small className="muted" id="receivable-refund-hint">Số tiền trả lại cho mỗi đơn vị nghỉ có phép của tháng trước, không vượt giá thu. Để 0 nếu không hoàn trả.</small></div>
+                <label>Đơn vị tính<input placeholder="Ví dụ: tháng, ngày, buổi" value={receivable.unitLabel} onChange={(event) => setReceivable({ ...receivable, unitLabel: event.target.value })} {...field("receivable", "unitLabel")} /></label>
+                <div><label>Mức thuế suất<select value={receivable.taxCategory} onChange={(event) => setReceivable({ ...receivable, taxCategory: event.target.value as TaxCategory })} aria-describedby="receivable-tax-channel-hint">{taxCategoryOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><small className="muted" id="receivable-tax-channel-hint">{taxChannelHint(receivable.taxCategory)}</small></div>
+                <p className="muted full">Hệ thống tính thuế GTGT trên số tiền sau ưu đãi và phần bớt, chuyển khoản thu vào đúng tài khoản; đổi mức thuế hoặc giá hoàn trả chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó.</p>
+              </div>
               {scope === "receivable" && Object.entries(errors).map(([name, error]) => <small key={name} id={`receivable-${name}-error`}>{error}</small>)}
-              <button disabled={Boolean(pending)}>Lưu khoản thu</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), resetReceivable)}>Hủy</button>
+              <div className="dialog-actions"><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), resetReceivable)}>Hủy</button><button className="primary-action" disabled={Boolean(pending)}>Lưu khoản thu</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+      {catalogDialog === "receivable-kind" && kindEdit && (
+        <div className="dialog-backdrop">
+          <div ref={catalogDialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="finance-receivable-kind-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), () => setKindEdit(undefined))}>
+            <form onSubmit={saveKind}>
+              <h3 id="finance-receivable-kind-title">Chỉnh sửa · {kindEdit.name}</h3><p className="muted">Thay đổi chỉ áp dụng sau khi máy chủ xác nhận trong đúng Trường.</p>
+              <div className="dialog-grid">
+                <fieldset className="chip-group full" disabled={kindEdit.locked} aria-describedby="receivable-kind-edit-hint">
+                  <legend>Nhóm khoản thu</legend>
+                  {receivableKinds.map((item) => <label key={item.kind}><input type="radio" name="receivable-kind-edit" value={item.kind} checked={kindEdit.kind === item.kind} onChange={() => setKindEdit({ ...kindEdit, kind: item.kind })} />{item.label}</label>)}
+                </fieldset>
+                <small className="muted full" id="receivable-kind-edit-hint">{kindEdit.locked ? "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa." : receivableKinds.find((item) => item.kind === kindEdit.kind)?.hint}</small>
+              </div>
+              {scope === "receivable" && Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
+              <div className="dialog-actions"><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setKindEdit(undefined))}>Hủy</button><button className="primary-action" disabled={Boolean(pending) || kindEdit.locked}>Lưu thay đổi</button></div>
             </form>
           </div>
         </div>
@@ -1877,23 +1923,6 @@ export function FinanceWorkspace({
               {scope === "invoice" && Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
               <button type="button" disabled={Boolean(pending)} onClick={() => void saveDeduction(true)}>Dùng lại số đề xuất</button><button disabled={Boolean(pending)}>Lưu phần bớt</button><button type="button" disabled={Boolean(pending)} onClick={() => closeManagedDialog(() => setDeductionEdit(undefined))}>Hủy</button>
             </form>
-          </div>
-        </div>
-      )}
-      {catalogDialog === "group" && (
-        <div className="dialog-backdrop">
-          <div ref={catalogDialogRef} className="dialog finance-group-dialog" role="dialog" aria-modal="true" aria-labelledby="finance-group-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>
-            <h3 id="finance-group-title">Quản lý nhóm khoản thu</h3><p>Nhóm đang dùng trong lịch sử không bị xóa.</p>
-            <button type="button" className="primary-action" disabled={Boolean(pending)} onClick={(event) => { setErrors({}); setGroup({ name: "" }); openManagedDialog(event.currentTarget, () => setCatalogDialog("group-form")); }}>Thêm nhóm</button>
-            <table><caption>Nhóm khoản thu theo Trường</caption><thead><tr><th>Tên</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead><tbody>{catalog?.groups?.length ? catalog.groups.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.status === "ACTIVE" ? "Đang áp dụng" : "Ngừng áp dụng"}</td><td><AnchoredActionMenu label={`Tùy chọn cho ${item.name}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setCatalogDialog(undefined); setLifecycle({ kind: "receivable-groups", id: item.id, name: item.name, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td></tr>) : <tr><td colSpan={3}>{catalog ? "Chưa có nhóm khoản thu." : "Đang tải nhóm khoản thu."}</td></tr>}</tbody></table>
-            <button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setGroup({ name: "" }))}>Đóng</button>
-          </div>
-        </div>
-      )}
-      {catalogDialog === "group-form" && (
-        <div className="dialog-backdrop">
-          <div ref={catalogDialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="finance-new-group-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog("group"), () => setGroup({ name: "" }))}>
-            <form onSubmit={saveGroup}><h3 id="finance-new-group-title">Thêm nhóm khoản thu</h3><label>Tên nhóm<input value={group.name} onChange={(event) => setGroup({ name: event.target.value })} {...field("group", "name")} /></label>{scope === "group" && errors.name && <small id="group-name-error">{errors.name}</small>}<button disabled={Boolean(pending)}>Lưu nhóm</button><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog("group"), () => setGroup({ name: "" }))}>Hủy</button></form>
           </div>
         </div>
       )}

@@ -1,4 +1,10 @@
-export const defaultReceivableGroupNames = ['Khoản thu chung', 'Khoản thu đột xuất', 'Ngoại khóa'] as const;
+// Decision 2026-10-02: every School has exactly these three typed groups; the kind is never inferred from the name.
+export const defaultReceivableGroups = [
+  { kind: 'FIXED', name: 'Khoản thu cố định' },
+  { kind: 'FLEXIBLE', name: 'Khoản thu linh hoạt' },
+  { kind: 'EXTRACURRICULAR', name: 'Ngoại khóa' },
+] as const;
+export const defaultReceivableGroupNames = defaultReceivableGroups.map((group) => group.name);
 
 export const provisionDefaultReceivableGroupsRoute = 'POST /api/ops/schools/default-receivable-groups';
 export const developmentSeedDefaultReceivableGroupsRoute = 'development-seed/default-receivable-groups';

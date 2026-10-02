@@ -17,14 +17,13 @@ import { transferContent, vietQrPayload } from "./vietqr.js";
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const receivableGroupKinds = ["FIXED", "FLEXIBLE", "EXTRACURRICULAR"] as const;
 const routes = {
-  group: "POST /api/app/schools/:schoolId/finance/receivable-groups",
   receivable: "POST /api/app/schools/:schoolId/finance/receivables",
-  groupLifecycle:
-    "POST /api/app/schools/:schoolId/finance/receivable-groups/:groupId/lifecycle",
   receivableLifecycle:
     "POST /api/app/schools/:schoolId/finance/receivables/:receivableId/lifecycle",
   classDefaultBankAccount: "PUT /api/app/schools/:schoolId/finance/classes/:classId/default-bank-account",
+  receivableKind: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/kind",
   receivableTax: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/tax-category",
   receivableRefund: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/refund-price",
   openRun: "POST /api/app/schools/:schoolId/finance/collection-runs",
@@ -297,22 +296,22 @@ export class FinanceService {
       throw validation("quantity", "Số lượng và đơn giá vượt giới hạn VND.");
     return amount;
   }
+  // Decision 2026-10-02: the three groups are typed and fixed; they have no lifecycle.
   private groupDto(value: any) {
-    const status = value.lifecycleTransitions?.[0]?.status ?? null;
     return {
       id: value.id,
       name: value.name,
-      status,
+      kind: value.kind,
       createdAt: value.createdAt.toISOString(),
     };
   }
   private receivableDto(value: any) {
     const status = value.lifecycleTransitions?.[0]?.status ?? null;
-    const groupStatus =
-      value.group?.lifecycleTransitions?.[0]?.status ?? "ACTIVE";
     return {
       id: value.id,
       groupId: value.groupId,
+      kind: value.group?.kind ?? null,
+      kindLocked: Boolean(value.kindLocked),
       code: value.code,
       displayName: value.displayName,
       unitLabel: value.unitLabel,
@@ -321,38 +320,32 @@ export class FinanceService {
       taxCategory: value.taxCategory ?? "NOT_DECLARED",
       channel: taxChannel(value.taxCategory ?? "NOT_DECLARED"),
       status,
-      available: status === "ACTIVE" && groupStatus === "ACTIVE",
+      available: status === "ACTIVE",
       createdAt: value.createdAt.toISOString(),
     };
   }
   async read(identityId: string, schoolId: string) {
     schoolId = this.school(schoolId);
     await this.actor(identityId, schoolId);
-    const [groups, receivables, schoolYears] = await Promise.all([
-      this.prisma.receivableGroup.findMany({
-        where: { schoolId },
-        include: {
-          lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
-        },
-        orderBy: { name: "asc" },
-      }),
+    const [groups, receivables, schoolYears, invoiceUse, templateUse] = await Promise.all([
+      this.prisma.receivableGroup.findMany({ where: { schoolId }, orderBy: { kind: "asc" } }),
       this.prisma.receivable.findMany({
         where: { schoolId },
         include: {
           lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
-          group: {
-            include: {
-              lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
-            },
-          },
+          group: true,
         },
         orderBy: { displayName: "asc" },
       }),
       this.prisma.schoolYear?.findMany({ where: { schoolId }, orderBy: { startsOn: "desc" } }) ?? Promise.resolve([]),
+      this.prisma.invoiceLine.groupBy({ by: ["receivableId"], where: { schoolId, receivableId: { not: null } } }),
+      this.prisma.collectionRunTemplateLine.groupBy({ by: ["receivableId"], where: { schoolId } }),
     ]);
+    // A Receivable used on an Invoice or collection template keeps its kind (decision 2026-10-02 §3.1).
+    const locked = new Set<string>([...invoiceUse, ...templateUse].map((use) => use.receivableId as string));
     return {
       groups: groups.map((item) => this.groupDto(item)),
-      receivables: receivables.map((item) => this.receivableDto(item)),
+      receivables: receivables.map((item) => this.receivableDto({ ...item, kindLocked: locked.has(item.id) })),
       schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString(), endsOn: year.endsOn.toISOString(), closedAt: year.closedAt?.toISOString() ?? null })),
     };
   }
@@ -998,9 +991,9 @@ export class FinanceService {
     return this.mutate(actor, identityId, schoolId, routes.addInvoiceLine, key, operationId, { invoiceId, ...input, unitPrice: input.unitPrice?.toString() ?? null, source: body?.source ?? null, sourceReason: body?.sourceReason ?? null }, async (tx, operation) => {
       await this.promotionLock(tx, schoolId);
       const invoice = await this.draftInvoice(tx, schoolId, invoiceId);
-      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } });
+      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } });
       if (!receivable) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
-      if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu đã ngừng áp dụng.");
+      if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu đã ngừng áp dụng.");
       const unitPrice = input.unitPrice ?? receivable.defaultUnitPrice; const amount = this.amount(unitPrice, input.quantity); const source = await this.source(tx, body, invoice, identityId, actor.membershipId);
       // A line is written to the notice part of its receivable's payment channel, created on demand.
       const target = await this.channelDraft(tx, schoolId, invoice, taxChannel(receivable.taxCategory));
@@ -1173,64 +1166,24 @@ export class FinanceService {
     const receivables = ids.length ? await client.receivable.findMany({ where: { schoolId, id: { in: ids } } }) : [];
     return { billingMonth, days, previous, receivables: new Map<string, any>(receivables.map((item: any) => [item.id, item])) };
   }
-  async createGroup(
-    identityId: string,
-    schoolId: string,
-    key: string,
-    operationId: string,
-    body: any,
-  ) {
-    schoolId = this.school(schoolId);
-    const actor = await this.actor(identityId, schoolId);
-    const input = { name: this.text(body?.name, "name")! };
-    return this.mutate(
-      actor,
-      identityId,
-      schoolId,
-      routes.group,
-      key,
-      operationId,
-      input,
-      async (tx, operation) => {
-        try {
-          const group = await tx.receivableGroup.create({
-            data: { schoolId, name: input.name },
-          });
-          const transition = await tx.receivableGroupLifecycleTransition.create(
-            {
-              data: {
-                schoolId,
-                receivableGroupId: group.id,
-                status: "ACTIVE",
-                actorIdentityId: identityId,
-                membershipId: actor.membershipId,
-                operationId: operation,
-                sequence: 1,
-              },
-            },
-          );
-          const outcome = this.groupDto({
-            ...group,
-            lifecycleTransitions: [transition],
-          });
-          await this.audit(
-            tx,
-            schoolId,
-            identityId,
-            actor.membershipId,
-            "RECEIVABLE_GROUP_CREATED",
-            operation,
-            null,
-            outcome,
-          );
-          return outcome;
-        } catch (error) {
-          if ((error as any)?.code === "P2002")
-            throw validation("name", "Tên nhóm đã tồn tại trong trường.");
-          throw error;
-        }
-      },
-    );
+  // Decision 2026-10-02: the Receivable picks one of the three fixed kinds; the server resolves that School's group.
+  private async resolveGroup(tx: any, schoolId: string, input: { kind: string | null; groupId: string | null }) {
+    const group = await tx.receivableGroup.findFirst({ where: input.kind ? { schoolId, kind: input.kind } : { schoolId, id: input.groupId } });
+    if (!group)
+      throw new NotFoundException({
+        code: "RECEIVABLE_GROUP_NOT_FOUND",
+        message: "Không tìm thấy nhóm khoản thu.",
+      });
+    if (input.kind && input.groupId && group.id !== input.groupId) throw validation("groupId", "Nhóm khoản thu không khớp loại đã chọn.");
+    return group;
+  }
+  private groupKind(value: unknown, required: boolean) {
+    if (value == null || value === "") {
+      if (required) throw validation("kind", "Chọn một trong ba nhóm khoản thu.");
+      return null;
+    }
+    if (typeof value !== "string" || !receivableGroupKinds.includes(value as any)) throw validation("kind", "Nhóm khoản thu phải là cố định, linh hoạt hoặc ngoại khóa.");
+    return value;
   }
   async createReceivable(
     identityId: string,
@@ -1241,8 +1194,9 @@ export class FinanceService {
   ) {
     schoolId = this.school(schoolId);
     const actor = await this.actor(identityId, schoolId);
+    const kind = this.groupKind(body?.kind, !body?.groupId);
+    const groupId = body?.groupId == null || body.groupId === "" ? null : this.identifier(body.groupId, "groupId");
     const input = {
-      groupId: this.identifier(body?.groupId, "groupId"),
       code: this.text(body?.code, "code", false, 50),
       displayName: this.text(body?.displayName, "displayName")!,
       unitLabel: this.unitLabel(body?.unitLabel),
@@ -1258,24 +1212,12 @@ export class FinanceService {
       routes.receivable,
       key,
       operationId,
-      { ...input, defaultUnitPrice: input.defaultUnitPrice.toString(), refundUnitPrice: input.refundUnitPrice.toString() },
+      { kind, groupId, ...input, defaultUnitPrice: input.defaultUnitPrice.toString(), refundUnitPrice: input.refundUnitPrice.toString() },
       async (tx, operation) => {
-        const group = await tx.receivableGroup.findFirst({
-          where: { id: input.groupId, schoolId },
-          include: {
-            lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
-          },
-        });
-        if (!group)
-          throw new NotFoundException({
-            code: "RECEIVABLE_GROUP_NOT_FOUND",
-            message: "Không tìm thấy nhóm khoản thu.",
-          });
-        if (group.lifecycleTransitions[0]?.status !== "ACTIVE")
-          throw validation("groupId", "Nhóm khoản thu đã ngừng áp dụng.");
+        const group = await this.resolveGroup(tx, schoolId, { kind, groupId });
         try {
           const item = await tx.receivable.create({
-            data: { schoolId, ...input },
+            data: { schoolId, groupId: group.id, ...input },
           });
           const transition = await tx.receivableLifecycleTransition.create({
             data: {
@@ -1312,24 +1254,6 @@ export class FinanceService {
       },
     );
   }
-  async transitionGroup(
-    identityId: string,
-    schoolId: string,
-    id: string,
-    key: string,
-    operationId: string,
-    body: any,
-  ) {
-    return this.transition(
-      "group",
-      identityId,
-      this.school(schoolId),
-      id,
-      key,
-      operationId,
-      body,
-    );
-  }
   async transitionReceivable(
     identityId: string,
     schoolId: string,
@@ -1338,15 +1262,86 @@ export class FinanceService {
     operationId: string,
     body: any,
   ) {
-    return this.transition(
-      "receivable",
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(id, "receivableId");
+    const status = body?.status;
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    if (!["ACTIVE", "INACTIVE"].includes(status))
+      throw validation("status", "Trạng thái không hợp lệ.");
+    return this.mutate(
+      actor,
       identityId,
-      this.school(schoolId),
-      id,
+      schoolId,
+      routes.receivableLifecycle,
       key,
       operationId,
-      body,
+      { id, status, reason },
+      async (tx, operation) => {
+        const item = await tx.receivable.findFirst({
+          where: { id, schoolId },
+          include: {
+            lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
+            group: true,
+          },
+        });
+        if (!item)
+          throw new NotFoundException({
+            code: "RECEIVABLE_NOT_FOUND",
+            message: "Không tìm thấy catalog khoản thu.",
+          });
+        const prior = item.lifecycleTransitions[0];
+        if (!prior || prior.status === status)
+          throw validation("status", "Bản ghi đã ở trạng thái này.");
+        const transition = await tx.receivableLifecycleTransition.create({
+          data: {
+            schoolId,
+            receivableId: id,
+            previousStatus: prior.status,
+            status,
+            reason,
+            actorIdentityId: identityId,
+            membershipId: actor.membershipId,
+            operationId: operation,
+            sequence: prior.sequence + 1,
+          },
+        });
+        const outcome = this.receivableDto({ ...item, lifecycleTransitions: [transition] });
+        await this.audit(
+          tx,
+          schoolId,
+          identityId,
+          actor.membershipId,
+          "RECEIVABLE_LIFECYCLE_CHANGED",
+          operation,
+          this.receivableDto(item),
+          outcome,
+        );
+        return outcome;
+      },
     );
+  }
+  // Decision 2026-10-02 §3.1: a Receivable keeps its kind once an InvoiceLine or collection template line uses it.
+  async updateReceivableKind(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
+    const kind = this.groupKind(body?.kind, true);
+    return this.mutate(actor, identityId, schoolId, routes.receivableKind, key, operationId, { receivableId, kind }, async (tx, operation) => {
+      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
+      await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
+      if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
+      if (item.group.kind === kind) throw validation("kind", "Khoản thu đã thuộc nhóm này.");
+      const [invoiceLines, templateLines] = await Promise.all([
+        tx.invoiceLine.count({ where: { schoolId, receivableId: item.id } }),
+        tx.collectionRunTemplateLine.count({ where: { schoolId, receivableId: item.id } }),
+      ]);
+      if (invoiceLines + templateLines > 0) throw new ConflictException({ code: "RECEIVABLE_KIND_LOCKED", message: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc đợt thu." });
+      const group = await this.resolveGroup(tx, schoolId, { kind, groupId: null });
+      const updated = await tx.receivable.update({ where: { id: item.id }, data: { groupId: group.id }, include });
+      const outcome = this.receivableDto(updated);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_KIND_CHANGED", operation, this.receivableDto(item), outcome);
+      return outcome;
+    });
   }
   // A Class may name one active PERSONAL account that issue pre-selects for its untaxed notice parts.
   async setClassDefaultBankAccount(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
@@ -1371,7 +1366,7 @@ export class FinanceService {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
     const taxCategory = this.taxCategory(body?.taxCategory);
     return this.mutate(actor, identityId, schoolId, routes.receivableTax, key, operationId, { receivableId, taxCategory }, async (tx, operation) => {
-      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } };
+      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
       const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (item.taxCategory === taxCategory) throw validation("taxCategory", "Khoản thu đã có mức thuế suất này.");
@@ -1386,7 +1381,7 @@ export class FinanceService {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
     const refundUnitPrice = this.refundPrice(body?.refundUnitPrice);
     return this.mutate(actor, identityId, schoolId, routes.receivableRefund, key, operationId, { receivableId, refundUnitPrice: refundUnitPrice.toString() }, async (tx, operation) => {
-      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } };
+      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
       const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (item.refundUnitPrice === refundUnitPrice) throw validation("refundUnitPrice", "Khoản thu đã có giá hoàn trả này.");
@@ -1464,8 +1459,8 @@ export class FinanceService {
     if (input.effectiveTo && input.effectiveFrom >= input.effectiveTo) throw validation("effectiveTo", "Ngày kết thúc phải sau ngày bắt đầu.");
     return this.mutate(actor, identityId, schoolId, routes.promotionPolicy, key, operationId, { ...input, discountValue: input.discountValue.toString(), effectiveFrom: input.effectiveFrom.toISOString(), effectiveTo: input.effectiveTo?.toISOString() ?? null }, async (tx, operation) => {
       await this.promotionLock(tx, schoolId);
-      const receivables = await tx.receivable.findMany({ where: { schoolId, id: { in: input.receivableIds } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } });
-      if (receivables.length !== input.receivableIds.length || receivables.some((receivable: any) => receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE")) throw validation("receivableIds", "Khoản thu và nhóm khoản thu phải đang áp dụng.");
+      const receivables = await tx.receivable.findMany({ where: { schoolId, id: { in: input.receivableIds } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } });
+      if (receivables.length !== input.receivableIds.length || receivables.some((receivable: any) => receivable.lifecycleTransitions[0]?.status !== "ACTIVE")) throw validation("receivableIds", "Khoản thu phải đang áp dụng.");
       const policy = input.policyId ? await tx.promotionPolicy.findFirst({ where: { id: input.policyId, schoolId } }) : await tx.promotionPolicy.create({ data: { schoolId, name: input.name } });
       if (!policy) throw new NotFoundException({ code: "PROMOTION_POLICY_NOT_FOUND", message: "Không tìm thấy chính sách ưu đãi." });
       if (input.policyId && policy.name !== input.name) throw validation("name", "Tên chính sách không thể đổi khi tạo phiên bản mới.");
@@ -1521,7 +1516,7 @@ export class FinanceService {
   }
   private runInclude: any = {
     coverageSelections: { select: { studentId: true, versionId: true, billingMonth: true }, orderBy: [{ studentId: "asc" }, { billingMonth: "asc" }, { versionId: "asc" }] },
-    templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } } }, orderBy: { id: "asc" } },
+    templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } } }, orderBy: { id: "asc" } },
     invoices: {
       select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true, channel: true, kind: true },
       orderBy: [{ studentCodeSnapshot: "asc" }, { channel: "asc" }, { id: "asc" }],
@@ -1577,16 +1572,15 @@ export class FinanceService {
     await tx.$queryRaw`SELECT 1 FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid FOR UPDATE`;
     await tx.$queryRaw`SELECT 1 FROM "Receivable" AS r JOIN "ReceivableGroup" AS g ON g."id" = r."groupId" AND g."schoolId" = r."schoolId" WHERE r."schoolId" = ${schoolId}::uuid AND r."id" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid) FOR UPDATE OF r, g`;
     await tx.$queryRaw`SELECT 1 FROM "ReceivableLifecycleTransition" WHERE "schoolId" = ${schoolId}::uuid AND "receivableId" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid) FOR UPDATE`;
-    await tx.$queryRaw`SELECT 1 FROM "ReceivableGroupLifecycleTransition" WHERE "schoolId" = ${schoolId}::uuid AND "receivableGroupId" IN (SELECT r."groupId" FROM "Receivable" r WHERE r."schoolId" = ${schoolId}::uuid AND r."id" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid)) FOR UPDATE`;
     const lines = await tx.collectionRunTemplateLine.findMany({
       where: { schoolId, collectionRunId: run.id },
-      include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } } },
+      include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } } },
       orderBy: { id: "asc" },
     });
     if (!lines.length) throw validation("template", "Đợt thu phải có ít nhất một khoản thu mẫu.");
     return lines.map((line: any) => {
       const receivable = line.receivable;
-      if (validateActive && (receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE")) throw validation("receivableId", "Khoản thu mẫu đã ngừng áp dụng.");
+      if (validateActive && (receivable.lifecycleTransitions[0]?.status !== "ACTIVE")) throw validation("receivableId", "Khoản thu mẫu đã ngừng áp dụng.");
       const amount = this.amount(receivable.defaultUnitPrice, line.quantity);
       return {
         templateLineId: line.id,
@@ -1598,13 +1592,7 @@ export class FinanceService {
         quantity: line.quantity,
         amount: amount.toString(),
         taxCategory: receivable.taxCategory,
-        ...(includeLifecycleFacts
-          ? {
-              receivableStatus: receivable.lifecycleTransitions[0]?.status ?? null,
-              receivableGroupStatus:
-                receivable.group.lifecycleTransitions[0]?.status ?? null,
-            }
-          : {}),
+        ...(includeLifecycleFacts ? { receivableStatus: receivable.lifecycleTransitions[0]?.status ?? null } : {}),
       };
     }).sort((a: any, b: any) => this.amountDescending({ ...a, id: a.templateLineId }, { ...b, id: b.templateLineId }));
   }
@@ -1616,8 +1604,8 @@ export class FinanceService {
       const run = await this.lockRun(tx, schoolId, runId);
       if (run.status !== "DRAFT") throw new ConflictException({ code: "COLLECTION_RUN_NOT_DRAFT", message: "Chỉ được sửa khoản thu mẫu khi đợt thu ở trạng thái nháp." });
       if (run.version !== input.expectedVersion) throw new ConflictException({ code: "COLLECTION_RUN_VERSION_CONFLICT", message: "Đợt thu đã thay đổi. Hãy tải lại trước khi sửa khoản thu mẫu." });
-      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } } });
-      if (!receivable || receivable.lifecycleTransitions[0]?.status !== "ACTIVE" || receivable.group.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu không còn áp dụng.");
+      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } });
+      if (!receivable || receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu không còn áp dụng.");
       const line = await tx.collectionRunTemplateLine.upsert({ where: { schoolId_collectionRunId_receivableId: { schoolId, collectionRunId: run.id, receivableId: receivable.id } }, create: { schoolId, collectionRunId: run.id, receivableId: receivable.id, quantity: input.quantity }, update: { quantity: input.quantity }, include: { receivable: true } });
       const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude });
       const outcome = this.runDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_TEMPLATE_SAVED", operation, null, { line: this.templateLineDto(line), run: outcome }); return outcome;
@@ -2673,7 +2661,7 @@ export class FinanceService {
             message: "Bản xem trước đã cũ. Hãy tải lại trước khi tiếp tục.",
           });
         // One authoritative roster read supplies both eligibility and immutable snapshots.
-        const templateLines = currentTemplate.map(({ receivableStatus, receivableGroupStatus, ...line }: any) => line);
+        const templateLines = currentTemplate.map(({ receivableStatus, ...line }: any) => line);
         const snapshots = roster.snapshots as any[];
         await tx.collectionRun.update({ where: { id: run.id }, data: { templateSnapshot: templateLines } });
         const deductions = await this.deductionContext(tx, schoolId, run.billingMonth, snapshots.map((item: any) => item.studentId), templateLines.map((line: any) => line.receivableId));
@@ -3070,121 +3058,6 @@ export class FinanceService {
         message: "Không tìm thấy đợt thu.",
       });
     return run;
-  }
-  private async transition(
-    kind: "group" | "receivable",
-    identityId: string,
-    schoolId: string,
-    id: string,
-    key: string,
-    operationId: string,
-    body: any,
-  ) {
-    const actor = await this.actor(identityId, schoolId);
-    this.identifier(id, kind === "group" ? "groupId" : "receivableId");
-    const status = body?.status;
-    const reason = this.text(body?.reason, "reason", true, 500)!;
-    if (!["ACTIVE", "INACTIVE"].includes(status))
-      throw validation("status", "Trạng thái không hợp lệ.");
-    const route =
-      kind === "group" ? routes.groupLifecycle : routes.receivableLifecycle;
-    return this.mutate(
-      actor,
-      identityId,
-      schoolId,
-      route,
-      key,
-      operationId,
-      { id, status, reason },
-      async (tx, operation) => {
-        const model = kind === "group" ? tx.receivableGroup : tx.receivable;
-        const transitionModel =
-          kind === "group"
-            ? tx.receivableGroupLifecycleTransition
-            : tx.receivableLifecycleTransition;
-        const include =
-          kind === "group"
-            ? {
-                lifecycleTransitions: {
-                  orderBy: { sequence: "desc" },
-                  take: 1,
-                },
-              }
-            : {
-                lifecycleTransitions: {
-                  orderBy: { sequence: "desc" },
-                  take: 1,
-                },
-                group: {
-                  include: {
-                    lifecycleTransitions: {
-                      orderBy: { sequence: "desc" },
-                      take: 1,
-                    },
-                  },
-                },
-              };
-        const item = await model.findFirst({
-          where: { id, schoolId },
-          include,
-        });
-        if (!item)
-          throw new NotFoundException({
-            code:
-              kind === "group"
-                ? "RECEIVABLE_GROUP_NOT_FOUND"
-                : "RECEIVABLE_NOT_FOUND",
-            message: "Không tìm thấy catalog khoản thu.",
-          });
-        const prior = item.lifecycleTransitions[0];
-        if (!prior || prior.status === status)
-          throw validation("status", "Bản ghi đã ở trạng thái này.");
-        if (
-          kind === "receivable" &&
-          status === "ACTIVE" &&
-          item.group.lifecycleTransitions[0]?.status !== "ACTIVE"
-        )
-          throw validation(
-            "status",
-            "Không thể kích hoạt khoản thu khi nhóm đã ngừng áp dụng.",
-          );
-        const transition = await transitionModel.create({
-          data: {
-            schoolId,
-            [kind === "group" ? "receivableGroupId" : "receivableId"]: id,
-            previousStatus: prior.status,
-            status,
-            reason,
-            actorIdentityId: identityId,
-            membershipId: actor.membershipId,
-            operationId: operation,
-            sequence: prior.sequence + 1,
-          },
-        });
-        const oldValue =
-          kind === "group" ? this.groupDto(item) : this.receivableDto(item);
-        const outcome =
-          kind === "group"
-            ? this.groupDto({ ...item, lifecycleTransitions: [transition] })
-            : this.receivableDto({
-                ...item,
-                lifecycleTransitions: [transition],
-              });
-        await this.audit(
-          tx,
-          schoolId,
-          identityId,
-          actor.membershipId,
-          kind === "group"
-            ? "RECEIVABLE_GROUP_LIFECYCLE_CHANGED"
-            : "RECEIVABLE_LIFECYCLE_CHANGED",
-          operation,
-          oldValue,
-          outcome,
-        );
-        return outcome;
-      },
-    );
   }
   private async audit(
     tx: any,
