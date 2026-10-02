@@ -1511,6 +1511,7 @@ export class FinanceService {
       where: { schoolId, enrollmentId: { in: memberships.map((item) => item.enrollmentId) }, extracurricularClassId: { not: found.id }, extracurricularClass: { receivableId: found.receivableId } },
       include: { extracurricularClass: { select: { name: true } } },
     });
+    const sharedClasses = await this.prisma.extracurricularClass.findMany({ where: { schoolId, schoolYearId: found.schoolYearId, receivableId: found.receivableId, id: { not: found.id } }, select: { name: true }, orderBy: { name: "asc" } });
     const isCurrent = (item: any) => item.effectiveFrom <= today && (!item.effectiveTo || item.effectiveTo > today);
     const isCounted = (item: any) => item.effectiveFrom < monthEnd && (!item.effectiveTo || item.effectiveTo > monthStart);
     const flags = (item: any) => (isCounted(item) ? [...(item.effectiveFrom > monthStart ? ["JOINED_IN_MONTH"] : []), ...(item.effectiveTo && item.effectiveTo < monthEnd ? ["LEFT_IN_MONTH"] : [])] : []);
@@ -1544,7 +1545,7 @@ export class FinanceService {
     });
     const officialClasses = [...new Map(rowsAll.filter((row) => row.officialClassId).map((row) => [row.officialClassId!, row.officialClassName ?? ""])).entries()].map(([id, name]) => ({ id, name }));
     return {
-      class: this.extracurricularClassDto(found, { receivableName: found.receivable.displayName, unitLabel: found.receivable.unitLabel, defaultUnitPrice: found.receivable.defaultUnitPrice.toString(), schoolYearName: found.schoolYear.name }),
+      class: this.extracurricularClassDto(found, { receivableName: found.receivable.displayName, unitLabel: found.receivable.unitLabel, defaultUnitPrice: found.receivable.defaultUnitPrice.toString(), schoolYearName: found.schoolYear.name, sharedWith: sharedClasses.map((other) => other.name) }),
       month: { month, current: rowsAll.filter((row) => row.current).length, counted: rowsAll.filter((row) => row.counted).length, midMonth: rowsAll.filter((row) => row.flags.length > 0).length },
       officialClasses,
       total: matching.length,

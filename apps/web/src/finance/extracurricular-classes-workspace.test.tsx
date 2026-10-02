@@ -1,0 +1,191 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ExtracurricularClassesWorkspace } from "./extracurricular-classes-workspace";
+
+const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
+const klass = (overrides = {}) => ({ id: "class-a1", schoolYearId: "year", name: "Tiếng Anh A1 (T2-T4)", receivableId: "english", status: "ACTIVE", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", sharedWith: ["Tiếng Anh A2 (T3-T5)"], currentMembers: 18, ...overrides });
+const list = { schoolYears: [{ id: "year", name: "2026-2027", startsOn: "2026-08-01", endsOn: "2027-08-01", closedAt: null }], classes: [klass(), klass({ id: "class-a2", name: "Tiếng Anh A2 (T3-T5)", sharedWith: ["Tiếng Anh A1 (T2-T4)"], currentMembers: 15 }), klass({ id: "draw", name: "Vẽ thiếu nhi", receivableId: "drawing", receivableName: "Năng khiếu vẽ", defaultUnitPrice: "400000", sharedWith: [], currentMembers: 12, status: "INACTIVE" })], receivables: [{ id: "english", displayName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", status: "ACTIVE", sharedWith: ["Tiếng Anh A1 (T2-T4)", "Tiếng Anh A2 (T3-T5)"] }, { id: "drawing", displayName: "Năng khiếu vẽ", unitLabel: "tháng", defaultUnitPrice: "400000", status: "ACTIVE", sharedWith: [] }, { id: "old", displayName: "Võ cũ", unitLabel: "tháng", defaultUnitPrice: "1", status: "INACTIVE", sharedWith: [] }] };
+const member = (overrides = {}) => ({ id: "m1", enrollmentId: "e1", studentCode: "AH-121", fullName: "Bé Tuấn Huy", officialClassId: "c1", officialClassName: "Chồi 3B", effectiveFrom: "2026-09-01", effectiveTo: null, open: true, state: "ACTIVE", flags: [], transferNote: null, ...overrides });
+const detail = (overrides = {}) => ({ class: { ...klass(), schoolYearName: "2026-2027" }, month: { month: "2026-10", current: 2, counted: 4, midMonth: 2 }, officialClasses: [{ id: "c1", name: "Chồi 3B" }], total: 4, members: [member(), member({ id: "m2", enrollmentId: "e2", studentCode: "AH-104", fullName: "Bé Minh Anh", effectiveTo: "2026-10-15", open: false, flags: ["LEFT_IN_MONTH"], transferNote: "Chuyển sang Tiếng Anh A2 (T3-T5) từ 16/10/2026" }), member({ id: "m3", enrollmentId: "e3", studentCode: "AH-133", fullName: "Bé An Nhiên", effectiveFrom: "2026-10-14", flags: ["JOINED_IN_MONTH"] }), member({ id: "m4", enrollmentId: "e4", studentCode: "AH-090", fullName: "Bé Khôi Nguyên", effectiveTo: "2026-09-30", open: false, state: "ENDED" })], ...overrides });
+const candidates = { officialClasses: [{ id: "c1", name: "Chồi 3B" }], candidates: [{ enrollmentId: "e10", studentCode: "AH-140", fullName: "Bé Bảo Châu", officialClassName: "Chồi 3B", member: false }, { enrollmentId: "e11", studentCode: "AH-056", fullName: "Bé Gia Hân", officialClassName: "Chồi 3B", member: true }] };
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+const props = (search = "", extra = {}) => ({ schoolId: "school-a", schoolName: "Trường Ánh Hoa", search, onSearchChange: vi.fn(), denied: vi.fn(), ...extra });
+const route = (handlers: Record<string, (url: string, options?: RequestInit) => unknown>) => vi.fn((url: string, options?: RequestInit) => {
+  const key = Object.keys(handlers).find((item) => String(url).includes(item));
+  return Promise.resolve(key ? handlers[key]!(String(url), options) : response({}));
+});
+
+describe("ExtracurricularClassesWorkspace", () => {
+  it("lists classes with shared receivable, current members and status, and filters through the server", async () => {
+    const fetch = route({ "extracurricular-classes": () => response(list) });
+    vi.stubGlobal("fetch", fetch);
+    const properties = props();
+    render(<ExtracurricularClassesWorkspace {...properties} />);
+    expect(await screen.findByRole("heading", { name: "Lớp ngoại khóa · Trường Ánh Hoa", level: 1 })).toBeTruthy();
+    const table = screen.getByRole("table", { name: /Lớp ngoại khóa · Trường Ánh Hoa/ });
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Lớp ngoại khóa", "Khoản thu", "Học sinh hiện tại", "Trạng thái", "Tùy chọn"]);
+    const rows = within(table).getAllByRole("row");
+    expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Tiếng Anh A1 (T2-T4)", "Tiếng Anh bản ngữ · 600.000 đ/thángDùng chung với Tiếng Anh A2 (T3-T5)", "18 học sinh", "Đang hoạt động", "Xem thành viên"]);
+    expect(within(rows[3]!).getAllByRole("cell")[3]!.textContent).toBe("Ngừng hoạt động");
+    expect(screen.getByText("Hướng dẫn").closest("details")!.open).toBe(false);
+    fireEvent.change(screen.getByLabelText("Trạng thái"), { target: { value: "ACTIVE" } });
+    fireEvent.change(screen.getByLabelText("Tìm kiếm"), { target: { value: "anh" } });
+    fireEvent.click(screen.getByRole("button", { name: "Áp dụng" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("status=ACTIVE") && String(url).includes("q=anh"))).toBe(true));
+    fireEvent.click(within(rows[1]!).getByRole("link", { name: "Xem thành viên" }));
+    expect(properties.onSearchChange).toHaveBeenCalledWith("?class=class-a1");
+  });
+
+  it("creates a class from an active EXTRACURRICULAR receivable with an idempotent server command", async () => {
+    const fetch = route({ "extracurricular-classes": (_url, options) => (options?.method === "POST" ? response({ status: "COMPLETED", outcome: { id: "new" } }) : response(list)) });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    const trigger = await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Thêm lớp ngoại khóa" });
+    expect(dialog.classList.contains("dialog-wide")).toBe(true);
+    expect(document.activeElement).toBe(within(dialog).getByLabelText("Tên lớp"));
+    const receivable = within(dialog).getByLabelText("Khoản thu") as HTMLSelectElement;
+    expect(Array.from(receivable.options).map((option) => option.textContent)).toEqual(["Chọn khoản thu Ngoại khóa", "Tiếng Anh bản ngữ · 600.000 đ/tháng", "Năng khiếu vẽ · 400.000 đ/tháng"]);
+    fireEvent.change(receivable, { target: { value: "english" } });
+    expect(within(dialog).getByText("Dùng chung với: Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5).")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Tiếng Anh A3" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const post = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ name: "Tiếng Anh A3", schoolYearId: "year", receivableId: "english" });
+    const headers = (post[1] as RequestInit).headers as Record<string, string>;
+    expect(headers["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(headers["x-operation-id"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("shows server validation inside the create dialog without closing it", async () => {
+    vi.stubGlobal("fetch", route({ "extracurricular-classes": (_url, options) => (options?.method === "POST" ? new Response(JSON.stringify({ error: { message: "Tên lớp ngoại khóa đã tồn tại trong năm học.", fieldErrors: { name: "Tên lớp ngoại khóa đã tồn tại trong năm học." } } }), { status: 400 }) : response(list)) }));
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm lớp ngoại khóa" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
+    expect((await within(dialog).findAllByText("Tên lớp ngoại khóa đã tồn tại trong năm học.")).length).toBeGreaterThan(0);
+    expect(within(dialog).getByLabelText("Tên lớp").getAttribute("aria-invalid")).toBe("true");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows the class detail with month counts, mid-month flags and transfer notes", async () => {
+    const fetch = route({ "extracurricular-classes/class-a1": () => response(detail()) });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props("?class=class-a1")} />);
+    expect(await screen.findByRole("heading", { name: "Tiếng Anh A1 (T2-T4) · Trường Ánh Hoa", level: 1 })).toBeTruthy();
+    expect(screen.getByText("Tháng 10/2026")).toBeTruthy();
+    expect(screen.getByText(/Tính trong tháng:/).parentElement!.textContent).toBe("Tính trong tháng: 4 học sinh · 2 vào/nghỉ trong tháng");
+    expect(screen.getByText(/Dùng chung với Tiếng Anh A2 \(T3-T5\)\./)).toBeTruthy();
+    const table = screen.getByRole("table", { name: /Thành viên Tiếng Anh A1/ });
+    const text = (name: string) => within(within(table).getByText(name).closest("tr")!).getAllByRole("cell").map((cell) => cell.textContent);
+    expect(text("Bé Minh Anh")).toEqual(["", "AH-104", "Bé Minh AnhChuyển sang Tiếng Anh A2 (T3-T5) từ 16/10/2026", "Chồi 3B", "01/09/2026", "15/10/2026", "Kết thúc trong tháng"]);
+    expect(text("Bé An Nhiên")[6]).toBe("Vào giữa tháng");
+    expect(text("Bé Tuấn Huy")[6]).toBe("Đang tham gia");
+    expect(text("Bé Khôi Nguyên")[6]).toBe("Đã kết thúc");
+    expect(screen.getByRole("button", { name: "Kết thúc" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("checkbox", { name: "Chọn Bé Khôi Nguyên" })).toBeNull();
+    expect(screen.getByText("Hướng dẫn").closest("details")!.open).toBe(false);
+    expect(screen.getByText("Thông tin đối soát").closest("details")!.open).toBe(false);
+    fireEvent.change(screen.getByLabelText("Trạng thái"), { target: { value: "ALL" } });
+    fireEvent.click(screen.getByRole("button", { name: "Áp dụng" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("status=ALL"))).toBe(true));
+  });
+
+  it("adds Students in bulk from an official class picker with one shared reason", async () => {
+    const fetch = route({
+      "/candidates": () => response(candidates),
+      "extracurricular-classes/class-a1": (_url, options) => (options?.method === "POST" ? response({ status: "COMPLETED", outcome: {} }) : response(detail())),
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props("?class=class-a1")} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm học sinh" }));
+    const dialog = await screen.findByRole("dialog", { name: "Thêm học sinh · Tiếng Anh A1 (T2-T4)" });
+    await within(dialog).findByText("Bé Bảo Châu");
+    expect(within(dialog).getByRole("checkbox", { name: "Chọn Bé Gia Hân" })).toHaveProperty("disabled", true);
+    expect(within(dialog).getByText("Đã thuộc lớp này")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Thêm học sinh đã chọn" }));
+    expect(await within(dialog).findByText("Chọn ít nhất một học sinh trước khi thêm.")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("Lớp chính thức"), { target: { value: "c1" } });
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("/candidates") && String(url).includes("officialClassId=c1"))).toBe(true));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Chọn tất cả học sinh có thể thêm" }));
+    expect(within(dialog).getByText("Đã chọn 1 học sinh.")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("Hiệu lực từ"), { target: { value: "2026-10-01" } });
+    fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Đăng ký học kỳ 1" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Thêm học sinh đã chọn" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const post = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
+    expect(String(post[0]).endsWith("/extracurricular-classes/class-a1/memberships")).toBe(true);
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ enrollmentIds: ["e10"], effectiveFrom: "2026-10-01", reason: "Đăng ký học kỳ 1" });
+  });
+
+  it("ends selected memberships in bulk and keeps the dialog open with the server overlap message on refusal", async () => {
+    let refuse = true;
+    const fetch = route({ "extracurricular-classes/class-a1": (_url, options) => (options?.method === "POST" ? (refuse ? new Response(JSON.stringify({ error: { message: "Thành viên đã có ngày kết thúc: AH-104.", fieldErrors: {} } }), { status: 409 }) : response({ status: "COMPLETED", outcome: {} })) : response(detail())) });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props("?class=class-a1")} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Chọn Bé Tuấn Huy" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Chọn Bé An Nhiên" }));
+    expect(screen.getByText("Đã chọn 2 học sinh.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Kết thúc" }));
+    const dialog = await screen.findByRole("dialog", { name: "Kết thúc tham gia · Tiếng Anh A1 (T2-T4)" });
+    expect(within(dialog).getByText("Kết thúc tham gia cho 2 học sinh đã chọn với cùng ngày kết thúc và lý do.")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("Ngày kết thúc"), { target: { value: "2026-10-31" } });
+    fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Phụ huynh xin nghỉ" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Kết thúc tham gia" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Thành viên đã có ngày kết thúc: AH-104.");
+    expect(screen.getByRole("dialog", { name: /Kết thúc tham gia/ })).toBeTruthy();
+    refuse = false;
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Kết thúc tham gia" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const posts = fetch.mock.calls.filter(([, options]) => (options as RequestInit | undefined)?.method === "POST");
+    expect(posts.every(([url]) => String(url).endsWith("/memberships/end"))).toBe(true);
+    expect(JSON.parse(String((posts.at(-1)![1] as RequestInit).body))).toEqual({ membershipIds: ["m1", "m3"], effectiveTo: "2026-10-31", reason: "Phụ huynh xin nghỉ" });
+    expect(new Set(posts.map(([, options]) => ((options as RequestInit).headers as Record<string, string>)["x-operation-id"])).size).toBe(2);
+  });
+
+  it("deactivates a class with a reason and disables membership actions while inactive", async () => {
+    const fetch = route({ "extracurricular-classes/class-a1": (_url, options) => (options?.method === "POST" ? response({ status: "COMPLETED", outcome: {} }) : response(detail())) });
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<ExtracurricularClassesWorkspace {...props("?class=class-a1")} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ngừng hoạt động" }));
+    const dialog = screen.getByRole("dialog", { name: "Ngừng hoạt động Tiếng Anh A1 (T2-T4)" });
+    expect(within(dialog).getByText("Lớp sẽ không được tính vào đợt thu mới. Thành viên và lịch sử vẫn được giữ để đối soát.")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Hết khóa" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ngừng hoạt động" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const post = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
+    expect(String(post[0]).endsWith("/extracurricular-classes/class-a1/lifecycle")).toBe(true);
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ status: "INACTIVE", reason: "Hết khóa" });
+    view.unmount();
+    vi.stubGlobal("fetch", route({ "extracurricular-classes/class-a1": () => response(detail({ class: { ...klass({ status: "INACTIVE" }), schoolYearName: "2026-2027" } })) }));
+    render(<ExtracurricularClassesWorkspace {...props("?class=class-a1")} />);
+    expect(await screen.findByRole("button", { name: "Kích hoạt lại" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Thêm học sinh" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("checkbox", { name: "Chọn Bé Tuấn Huy" })).toHaveProperty("disabled", true);
+  });
+
+  it("reconciles an uncertain command by Operation id before reporting success", async () => {
+    let polls = 0;
+    const fetch = route({
+      "/operations/": () => (++polls < 2 ? response({ status: "PENDING" }) : response({ status: "COMPLETED", outcome: {} })),
+      "extracurricular-classes": (_url, options) => (options?.method === "POST" ? new Response(null, { status: 503 }) : response(list)),
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "drawing" } });
+    fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Vẽ 2" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4000 });
+    const post = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
+    const operationId = ((post[1] as RequestInit).headers as Record<string, string>)["x-operation-id"];
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith(`/finance/operations/${operationId}`))).toBe(true);
+    expect(fetch.mock.calls.filter(([, options]) => (options as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+  });
+});

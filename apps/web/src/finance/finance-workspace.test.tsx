@@ -513,6 +513,22 @@ describe("FinanceWorkspace", () => {
     expect(JSON.parse(String((puts[0]![1] as RequestInit).body))).toEqual({ displayName: "Dã ngoại thu", unitLabel: "lần", defaultUnitPrice: "400000", reason: "Tăng chi phí xe" });
     expect((puts[1]![1] as RequestInit).body).toBe(JSON.stringify({ kind: "FIXED" }));
   });
+  it("shows how many extracurricular classes a receivable serves and links to them from its row menu", async () => {
+    const receivables = [
+      { id: "english", groupId: "g3", kind: "EXTRACURRICULAR", kindLocked: true, extracurricularClassCount: 2, code: "NK-TA", displayName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", status: "ACTIVE", available: true },
+      { id: "fee", groupId: "g1", kind: "FIXED", kindLocked: false, extracurricularClassCount: 0, code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true },
+    ];
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response({ groups: [], receivables }))));
+    const open = vi.fn();
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} onOpenExtracurricularClasses={open} />);
+    expect((await screen.findByText("Tiếng Anh bản ngữ")).closest("td")!.textContent).toBe("Tiếng Anh bản ngữNgoại khóa · gắn 2 lớp ngoại khóa");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Học phí" }), { key: "ArrowDown" });
+    expect(screen.queryByRole("menuitem", { name: "Xem lớp ngoại khóa" })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Tiếng Anh bản ngữ" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Xem lớp ngoại khóa" }));
+    expect(open).toHaveBeenCalled();
+  });
   it("autofocuses managed catalog, policy, assignment, and transition dialogs", async () => {
     const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
     const groups = [{ id: "group", name: "Khoản thu cố định", kind: "FIXED" as const }];
