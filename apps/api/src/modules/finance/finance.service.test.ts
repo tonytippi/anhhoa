@@ -82,6 +82,23 @@ describe('FinanceService validation', () => {
     expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school, id: { in: ['invoice'] } } }));
     expect(prisma.financeLedgerEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school, postedAt: { lte: new Date('2026-09-03T00:00:00.000Z') }, billingMonth: '2026-09' }) }));
   });
+  it('matches report group filters through the Receivable current group, falling back to the snapshot name without a receivableId', async () => {
+    const rid = { tuition: crypto.randomUUID(), uniform: crypto.randomUUID() };
+    const line = (receivableId: string | null, groupName: string, gross: string) => ({ id: crypto.randomUUID(), kind: receivableId ? 'NORMAL' : 'PRIOR_DEBT', receivableId, groupName, grossAmount: gross, discountAmount: '0', deductionAmount: '0', netAmount: gross, vatAmount: '0' });
+    // Legacy snapshot names: "Khoản thu chung" (renamed to FIXED) and a former custom group "Đồng phục" (now FLEXIBLE); PRIOR_DEBT has no Receivable.
+    const events = [{ id: 'issued', type: 'INVOICE_ISSUED', postedAt: new Date('2026-09-01T00:00:00.000Z'), amount: 0n, netAmount: 600n, grossAmount: 600n, billingMonth: '2026-09', invoiceId: 'invoice', groupName: 'Khoản thu chung | Đồng phục', provenance: { lines: [line(rid.tuition, 'Khoản thu chung', '100'), line(rid.uniform, 'Đồng phục', '200'), line(null, 'Nợ kỳ trước', '300')] } }];
+    const prisma = { financeLedgerEvent: { findMany: vi.fn().mockResolvedValue(events) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: rid.tuition, group: { name: 'Khoản thu cố định' } }, { id: rid.uniform, group: { name: 'Khoản thu linh hoạt' } }]) }, invoice: { findMany: vi.fn().mockResolvedValue([{ id: 'invoice', dueOn: new Date('2026-09-01T00:00:00.000Z'), studentId: 'student', studentCodeSnapshot: 'HS1', studentNameSnapshot: 'Bé An', classNameSnapshot: 'Lá 1' }]) } };
+    const school = crypto.randomUUID(); const service = new FinanceService(prisma as never, authorization as never);
+    const report = (groupName: string): Promise<any> => service.report('identity', school, 'overview', { asOf: '2026-09-03T00:00:00.000Z', groupName });
+    expect((await report('Khoản thu cố định')).summary).toMatchObject({ gross: '100' });
+    expect((await report('Khoản thu linh hoạt')).summary).toMatchObject({ gross: '200' });
+    expect((await report('Khoản thu chung')).summary).toMatchObject({ gross: '0' });
+    expect((await report('Đồng phục')).summary).toMatchObject({ gross: '0' });
+    expect((await report('Nợ kỳ trước')).summary).toMatchObject({ gross: '300' });
+    expect(prisma.receivable.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school, id: { in: [rid.tuition, rid.uniform] } } }));
+    // The snapshot columns stay untouched: the row still shows the name recorded at posting time.
+    expect((await report('Khoản thu cố định')).rows[0]).toMatchObject({ groupName: 'Khoản thu chung | Đồng phục' });
+  });
   it('rejects ambiguous report cutoffs instead of silently choosing the current time', async () => {
     const service = new FinanceService({} as never, authorization as never);
     await expect(service.report('identity', crypto.randomUUID(), 'overview', { asOf: '2026-09-03T00:00' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { asOf: expect.any(String) } } });

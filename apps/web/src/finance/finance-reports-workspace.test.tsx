@@ -122,16 +122,17 @@ describe("FinanceReportsWorkspace", () => {
       Promise.resolve(
         options?.method === "POST"
           ? response({}, 409)
-          : response(report({ filters: { schoolYearId: null, billingMonth: "2026-09", runId: null, className: "Lá 1", groupName: "Học phí", status: "ISSUED" } })),
+          : response(report({ filters: { schoolYearId: null, billingMonth: "2026-09", runId: null, className: "Lá 1", groupName: "Khoản thu cố định", status: "ISSUED" } })),
       ),
     );
     vi.stubGlobal("fetch", fetch);
     render(<FinanceReportsWorkspace {...props()} />);
     await screen.findByRole("button", { name: "Tải CSV" });
-    fireEvent.change(screen.getByLabelText("Nhóm khoản thu"), { target: { value: "Học phí" } });
+    expect(Array.from((screen.getByLabelText("Nhóm khoản thu") as HTMLSelectElement).options).map((option) => option.textContent)).toEqual(["Tất cả nhóm", "Khoản thu cố định", "Khoản thu linh hoạt", "Ngoại khóa"]);
+    fireEvent.change(screen.getByLabelText("Nhóm khoản thu"), { target: { value: "Khoản thu cố định" } });
     fireEvent.change(screen.getByLabelText("Lớp"), { target: { value: "Lá 1" } });
     fireEvent.click(screen.getByRole("button", { name: "Xem số liệu" }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/app/schools/school-a/finance/reports/overview?className=L%C3%A1+1&groupName=H%E1%BB%8Dc+ph%C3%AD", { credentials: "include" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/app/schools/school-a/finance/reports/overview?className=L%C3%A1+1&groupName=Kho%E1%BA%A3n+thu+c%E1%BB%91+%C4%91%E1%BB%8Bnh", { credentials: "include" }));
     fireEvent.keyDown(screen.getByRole("tab", { name: "Tổng quan" }), { key: "ArrowRight" });
     await waitFor(() => expect(screen.getByRole("tab", { name: "Đối soát đợt thu" })).toHaveProperty("tabIndex", 0));
     fireEvent.click(await screen.findByRole("button", { name: "Tải CSV" }));

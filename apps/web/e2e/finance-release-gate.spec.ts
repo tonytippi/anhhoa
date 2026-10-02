@@ -182,8 +182,13 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(secondInvoiceReview.getByRole('complementary', { name: 'Thanh toán' })).toContainText('Tổng cần nộp150.000 VND');
     await page.getByRole('button', { name: 'Thu tiền' }).click();
     await expect(page.getByRole('heading', { name: 'Thu tiền' })).toBeVisible();
-    // The seed already holds an issued 2026-09 Invoice; the queue defaults to the current month.
+    // The queue defaults to the current month, so select each month explicitly instead of depending on today's date.
     const receiptQueue = page.getByRole('table', { name: 'Hóa đơn chờ thu' });
+    const septemberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('billingMonth=2026-09'));
+    await page.getByLabel('Tháng thu').fill('2026-09');
+    await page.getByRole('button', { name: 'Lọc' }).click();
+    expect((await septemberQueue).status()).toBe(200);
+    // The seed already holds an issued 2026-09 Invoice.
     await expect(receiptQueue).toContainText('2026-09');
     const octoberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('billingMonth=2026-10'));
     await page.getByLabel('Tháng thu').fill('2026-10');
