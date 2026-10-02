@@ -101,6 +101,48 @@ describe('FinanceService validation', () => {
     expect(service.inScope({ scope: { type: 'STUDENTS', students: [{ id: student }] } }, { studentId: crypto.randomUUID() })).toBe(false);
     expect(service.inScope({}, { studentId: student })).toBe(true);
   });
+  it('merges classes sharing a receivable into one line with MID_MONTH or CLASS_CHANGE flags and ignores excluded or inactive-receivable classes', () => {
+    const service = new FinanceService({} as never, authorization as never) as any;
+    const receivable = { name: 'Tiếng Anh', code: 'TA', unitLabel: 'tháng', defaultUnitPrice: '600', taxCategory: 'NOT_DECLARED' };
+    const cls = (id: string, name: string, members: Array<[string, string, string | null]>, extra: object = {}) => ({ id, name, receivableId: 'english', excluded: false, receivableActive: true, receivable, members: members.map(([enrollmentId, from, to]) => ({ enrollmentId, from, to })), ...extra });
+    const resolution = { classes: [
+      cls('a1', 'A1', [['full', '2026-09-01', null], ['moved', '2026-09-01', '2026-09-16'], ['joins', '2026-09-14', null], ['leaves', '2026-09-01', '2026-09-20'], ['excludedOnly', '2026-09-01', null]]),
+      cls('a2', 'A2', [['moved', '2026-09-16', null]]),
+      cls('gone', 'Gone', [['excludedOnly', '2026-09-01', null]], { excluded: true }),
+      cls('inactive', 'Inactive receivable', [['full', '2026-09-01', null]], { receivableActive: false, receivableId: 'other' }),
+    ] };
+    const lines = (enrollmentId: string) => service.extracurricularLines(resolution, enrollmentId, '2026-09');
+    expect(lines('full')).toHaveLength(1);
+    expect(lines('full')[0]).toMatchObject({ kind: 'EXTRACURRICULAR', receivableId: 'english', quantity: 1, amount: '600', defaultUnitPrice: '600', templateLineId: null, extracurricular: { flags: [], classes: [{ id: 'a1', effectiveFrom: '2026-09-01', effectiveTo: null }] } });
+    expect(lines('moved')).toHaveLength(1);
+    expect(lines('moved')[0].extracurricular).toEqual({ flags: ['CLASS_CHANGE'], classes: [{ id: 'a1', name: 'A1', effectiveFrom: '2026-09-01', effectiveTo: '2026-09-15' }, { id: 'a2', name: 'A2', effectiveFrom: '2026-09-16', effectiveTo: null }] });
+    expect(lines('joins')[0].extracurricular.flags).toEqual(['MID_MONTH']);
+    expect(lines('leaves')[0].extracurricular.flags).toEqual(['MID_MONTH']);
+    expect(lines('excludedOnly').map((line: any) => line.extracurricular.classes.map((item: any) => item.id))).toEqual([['a1']]);
+    expect(lines('nobody')).toEqual([]);
+    // A class that is excluded or whose receivable is inactive contributes nothing to the fingerprint members either.
+    const facts = service.resolutionFacts(resolution);
+    expect(facts.find((item: any) => item.id === 'gone').members).toEqual([]);
+    expect(facts.find((item: any) => item.id === 'inactive').members).toEqual([]);
+    expect(facts.find((item: any) => item.id === 'a1').members).toContainEqual(['full', '2026-09-01', null]);
+  });
+
+  it('describes extracurricular provenance for the review badge and validates exclusion input before writes', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never) as any;
+    expect(service.sourceDto({ sourceKind: 'EXTRACURRICULAR', sourceDetail: { flags: ['MID_MONTH'], classes: [{ name: 'Vẽ', effectiveFrom: '2026-10-14', effectiveTo: null }] } })).toEqual({ kind: 'EXTRACURRICULAR', label: 'Ngoại khóa · Vẽ', flags: [{ code: 'MID_MONTH', label: 'Vào/nghỉ giữa tháng' }], detail: 'vào lớp từ 14/10/2026' });
+    expect(service.sourceDto({ sourceKind: 'EXTRACURRICULAR', sourceDetail: { flags: ['CLASS_CHANGE'], classes: [{ name: 'A1', effectiveFrom: '2026-10-01', effectiveTo: '2026-10-15' }, { name: 'A2', effectiveFrom: '2026-10-16', effectiveTo: null }] } })).toMatchObject({ label: 'Ngoại khóa · A1 → A2', flags: [{ code: 'CLASS_CHANGE', label: 'Chuyển lớp trong tháng' }], detail: 'A1 đến 15/10, A2 từ 16/10 · gộp một dòng, không thu trùng' });
+    expect(service.sourceDto({ sourceKind: 'EXTRACURRICULAR', sourceDetail: { flags: [], classes: [{ name: 'A1', effectiveFrom: '2026-10-01', effectiveTo: null }] } })).toMatchObject({ flags: [], detail: '' });
+    expect(service.sourceDto({ sourceKind: 'TEMPLATE_FIXED' })).toMatchObject({ label: 'Cố định' });
+    expect(service.sourceDto({})).toBeNull();
+    const school = crypto.randomUUID(); const run = crypto.randomUUID(); const cls = crypto.randomUUID();
+    const set = (body: object, key: string = crypto.randomUUID()) => service.setRunExtracurricularExclusion('identity', school, run, cls, key, crypto.randomUUID(), { excluded: true, expectedVersion: 1, ...body });
+    await expect(set({ excluded: 'yes' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { excluded: expect.any(String) } } });
+    await expect(set({ expectedVersion: 0 })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { expectedVersion: expect.any(String) } } });
+    await expect(set({ reason: 'x'.repeat(501) })).rejects.toMatchObject({ status: 400 });
+    await expect(set({}, 'bad')).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
   it('has no API to create, rename or change the lifecycle of a group', () => {
     const service = new FinanceService({} as never, authorization as never) as any;
     expect(service.createGroup).toBeUndefined();

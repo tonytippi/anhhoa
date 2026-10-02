@@ -991,7 +991,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.addInvoiceLine(f.current.identity.id, f.current.school.id, invoiceId, uuid(), uuid(), { receivableId: f.uniform, quantity: "1" });
       const added = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: f.current.school.id, invoiceId, receivableId: f.uniform } });
       expect(added.sourceKind).toBe("MANUAL");
-      expect(((await finance.invoice(f.current.identity.id, f.current.school.id, invoiceId)) as any).lines.find((line: any) => line.receivableId === f.uniform).sourceBadge).toEqual({ kind: "MANUAL", label: "Sửa tay" });
+      expect(((await finance.invoice(f.current.identity.id, f.current.school.id, invoiceId)) as any).lines.find((line: any) => line.receivableId === f.uniform).sourceBadge).toEqual({ kind: "MANUAL", label: "Sửa tay", flags: [], detail: "" });
     });
 
     it("skips eligible Students with no applicable line as NO_APPLICABLE_LINES and refuses generate only when nobody gets a line", async () => {
@@ -1038,6 +1038,202 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const key = uuid();
       const first = await finance.addGeneratedStudent(f.current.identity.id, f.current.school.id, second, key, uuid(), { studentId: lateB.student.id });
       expect(await finance.addGeneratedStudent(f.current.identity.id, f.current.school.id, second, key, uuid(), { studentId: lateB.student.id })).toEqual(first);
+    });
+
+    // ---- Story 5.36: extracurricular lines from classes --------------------------------------------------------------------------
+    async function extraFixture() {
+      const current = await roster(await graph());
+      await group(current);
+      const mk = async (kind: "FIXED" | "FLEXIBLE" | "EXTRACURRICULAR", displayName: string, price: string) => outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { kind, displayName, unitLabel: "tháng", defaultUnitPrice: price }));
+      const fee = await mk("FIXED", "Học phí tháng", "1000");
+      const english = await mk("EXTRACURRICULAR", "Tiếng Anh bản ngữ", "600");
+      const drawing = await mk("EXTRACURRICULAR", "Năng khiếu vẽ", "400");
+      const newClass = async (name: string, receivableId: string) => outcomeId(await finance.createExtracurricularClass(current.identity.id, current.school.id, uuid(), uuid(), { name, schoolYearId: current.year.id, receivableId }));
+      const a1 = await newClass("Tiếng Anh A1", english);
+      const a2 = await newClass("Tiếng Anh A2", english);
+      const ve = await newClass("Vẽ thiếu nhi", drawing);
+      const join = (classId: string, enrollmentIds: string[], effectiveFrom = "2026-09-01", effectiveTo?: string) => finance.addExtracurricularMemberships(current.identity.id, current.school.id, classId, uuid(), uuid(), { enrollmentIds, effectiveFrom, ...(effectiveTo ? { effectiveTo } : {}), reason: "Đăng ký" });
+      const openFreshRun = async (keepFee = false) => {
+        const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
+        if (!keepFee) await finance.removeTemplateLine(current.identity.id, current.school.id, runId, (await finance.run(current.identity.id, current.school.id, runId)).templateLines[0]!.id, uuid(), uuid(), { expectedVersion: (await finance.run(current.identity.id, current.school.id, runId)).version });
+        return runId;
+      };
+      return { current, fee, english, drawing, a1, a2, ve, join, openFreshRun };
+    }
+    const previewOf = (x: Awaited<ReturnType<typeof extraFixture>>, runId: string) => finance.preview(x.current.identity.id, x.current.school.id, runId);
+    const linesByStudent = (preview: any, studentId: string) => (preview.eligible.find((row: any) => row.studentId === studentId)?.lines ?? []) as any[];
+    const runVersion = async (x: Awaited<ReturnType<typeof extraFixture>>, runId: string) => (await finance.run(x.current.identity.id, x.current.school.id, runId)).version;
+    const setExclusion = async (x: Awaited<ReturnType<typeof extraFixture>>, runId: string, classId: string, excluded: boolean, reason?: string, key = uuid()) => finance.setRunExtracurricularExclusion(x.current.identity.id, x.current.school.id, runId, classId, key, uuid(), { excluded, ...(reason ? { reason } : {}), expectedVersion: await runVersion(x, runId) });
+
+    it("lists extracurricular classes with month members and bills merged lines with MID_MONTH and CLASS_CHANGE flags, ignoring memberships outside the month and ineligible Students", async () => {
+      const x = await extraFixture();
+      const s1 = await enrolled(x.current); const s2 = await enrolled(x.current); const s3 = await enrolled(x.current); const s4 = await enrolled(x.current); const s5 = await enrolled(x.current);
+      const ineligible = await enrolled(x.current, { assignment: false });
+      await x.join(x.a1, [s1.enrollment.id]);
+      await x.join(x.a1, [s2.enrollment.id], "2026-09-14");
+      await x.join(x.a1, [s3.enrollment.id], "2026-09-01", "2026-09-15");
+      await x.join(x.a2, [s3.enrollment.id], "2026-09-16");
+      await x.join(x.a1, [s4.enrollment.id], "2026-08-01", "2026-08-31");
+      await x.join(x.ve, [s5.enrollment.id]);
+      await x.join(x.a1, [ineligible.enrollment.id]);
+      const runId = await x.openFreshRun();
+      const list: any = await finance.runExtracurricularClasses(x.current.identity.id, x.current.school.id, runId);
+      const byName = Object.fromEntries(list.classes.map((item: any) => [item.name, item]));
+      expect(byName["Tiếng Anh A1"]).toMatchObject({ memberCount: 4, transferredCount: 0, excluded: false, receivableName: "Tiếng Anh bản ngữ", defaultUnitPrice: "600", receivableActive: true });
+      expect(byName["Tiếng Anh A2"]).toMatchObject({ memberCount: 1, transferredCount: 1 });
+      expect(byName["Vẽ thiếu nhi"]).toMatchObject({ memberCount: 1, transferredCount: 0 });
+      const preview: any = await previewOf(x, runId);
+      // s1, s2, s3 (merged once), s5 are billed; s4 (August only) and the Student without a class are not; nobody has a template line.
+      expect(preview.eligible.map((row: any) => row.studentId).sort()).toEqual([s1.student.id, s2.student.id, s3.student.id, s5.student.id].sort());
+      expect(preview.skips.filter((skip: any) => skip.reason === "NO_APPLICABLE_LINES").map((skip: any) => skip.studentId)).toEqual([s4.student.id]);
+      expect(preview.skips.find((skip: any) => skip.studentId === ineligible.student.id)).toMatchObject({ reason: "NO_CLASS_ASSIGNMENT" });
+      const line = (studentId: string) => linesByStudent(preview, studentId)[0];
+      expect(line(s1.student.id)).toMatchObject({ kind: "EXTRACURRICULAR", receivableId: x.english, grossAmount: "600", extracurricular: { flags: [], classes: [{ name: "Tiếng Anh A1" }] } });
+      expect(line(s2.student.id).extracurricular).toMatchObject({ flags: ["MID_MONTH"], classes: [{ name: "Tiếng Anh A1", effectiveFrom: "2026-09-14" }] });
+      expect(linesByStudent(preview, s3.student.id)).toHaveLength(1);
+      expect(line(s3.student.id).extracurricular).toMatchObject({ flags: ["CLASS_CHANGE"], classes: [{ name: "Tiếng Anh A1", effectiveTo: "2026-09-15" }, { name: "Tiếng Anh A2", effectiveFrom: "2026-09-16" }] });
+      const summaries = Object.fromEntries(preview.lineSummaries.filter((item: any) => item.kind === "EXTRACURRICULAR").map((item: any) => [item.receivableName, item]));
+      expect(summaries["Tiếng Anh bản ngữ"]).toMatchObject({ studentCount: 3, subtotal: "1800", scope: { label: "Tiếng Anh A1, Tiếng Anh A2" }, note: "1 HS chuyển lớp tính một lần", templateLineId: null });
+      expect(summaries["Năng khiếu vẽ"]).toMatchObject({ studentCount: 1, subtotal: "400" });
+      expect(preview.lineTotal).toBe("2200");
+      expect(Object.fromEntries(preview.extracurricularClasses.map((item: any) => [item.id, item]))).toMatchObject({ [x.a1]: { billedStudents: 3, subtotal: "1800" }, [x.a2]: { billedStudents: 0, subtotal: "0" }, [x.ve]: { billedStudents: 1, subtotal: "400" } });
+
+      // Excluding a whole class (DRAFT only) removes its members' lines, goes stale, restores, and is audited and idempotent.
+      const stale = preview.fingerprint;
+      const key = uuid();
+      const excluded = await setExclusion(x, runId, x.ve, true, "Lớp nghỉ cả tháng", key);
+      expect(excluded.outcome).toMatchObject({ id: runId });
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: x.current.school.id, action: "COLLECTION_RUN_EXTRACURRICULAR_CLASS_EXCLUDED" } })).toMatchObject({ reason: "Lớp nghỉ cả tháng", provenance: { newValue: { classId: x.ve, className: "Vẽ thiếu nhi", excluded: true } } });
+      expect(await finance.setRunExtracurricularExclusion(x.current.identity.id, x.current.school.id, runId, x.ve, key, uuid(), { excluded: true, reason: "Lớp nghỉ cả tháng", expectedVersion: (excluded.outcome as any).version - 1 })).toEqual(excluded);
+      await expect(finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: stale })).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      const afterExclude: any = await previewOf(x, runId);
+      expect(afterExclude.eligible.map((row: any) => row.studentId)).not.toContain(s5.student.id);
+      expect(afterExclude.skips.find((skip: any) => skip.studentId === s5.student.id)).toMatchObject({ reason: "NO_APPLICABLE_LINES" });
+      expect(afterExclude.lineSummaries.find((item: any) => item.receivableName === "Năng khiếu vẽ")).toBeUndefined();
+      expect((await finance.runExtracurricularClasses(x.current.identity.id, x.current.school.id, runId) as any).classes.find((item: any) => item.id === x.ve).excluded).toBe(true);
+      await expect(setExclusion(x, runId, x.ve, true)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { excluded: expect.any(String) } } });
+      await setExclusion(x, runId, x.ve, false);
+      await expect(setExclusion(x, runId, x.ve, false)).rejects.toMatchObject({ status: 400 });
+      expect((await previewOf(x, runId) as any).eligible.map((row: any) => row.studentId)).toContain(s5.student.id);
+      await expect(finance.setRunExtracurricularExclusion(x.current.identity.id, x.current.school.id, runId, x.ve, uuid(), uuid(), { excluded: true, expectedVersion: 1 })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_VERSION_CONFLICT" } });
+      // Excluding the first class of a merged pair re-attributes the merged Student to the remaining class.
+      await setExclusion(x, runId, x.a1, true);
+      const onlyA2: any = await previewOf(x, runId);
+      expect(linesByStudent(onlyA2, s3.student.id)[0].extracurricular).toMatchObject({ flags: ["MID_MONTH"], classes: [{ name: "Tiếng Anh A2" }] });
+      expect(onlyA2.eligible.map((row: any) => row.studentId).sort()).toEqual([s3.student.id, s5.student.id].sort());
+      await setExclusion(x, runId, x.a1, false);
+    });
+
+    it("blocks READY on membership and receivable changes after the preview, refuses exclusions after DRAFT, and keeps tenants apart", async () => {
+      const x = await extraFixture();
+      const foreign = await extraFixture();
+      const s1 = await enrolled(x.current); const s2 = await enrolled(x.current);
+      await x.join(x.a1, [s1.enrollment.id]);
+      const runId = await x.openFreshRun();
+      let preview: any = await previewOf(x, runId);
+      // A membership added after the preview makes it stale.
+      await x.join(x.a1, [s2.enrollment.id]);
+      await expect(finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      preview = await previewOf(x, runId);
+      // So does an ended membership and a receivable price edit.
+      const open = await prisma.extracurricularMembership.findFirstOrThrow({ where: { schoolId: x.current.school.id, enrollmentId: s2.enrollment.id } });
+      await finance.endExtracurricularMemberships(x.current.identity.id, x.current.school.id, x.a1, uuid(), uuid(), { membershipIds: [open.id], effectiveTo: "2026-09-20", reason: "Nghỉ" });
+      await expect(finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      preview = await previewOf(x, runId);
+      await finance.updateReceivable(x.current.identity.id, x.current.school.id, x.english, uuid(), uuid(), { displayName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "700", reason: "Tăng giá" });
+      await expect(finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      preview = await previewOf(x, runId);
+      expect(linesByStudent(preview, s1.student.id)[0]).toMatchObject({ grossAmount: "700" });
+      await finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
+      // After READY no exclusion can change (API and database); a membership change now blocks generate.
+      await expect(setExclusion(x, runId, x.a1, true)).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_NOT_DRAFT" } });
+      await expect(prisma.collectionRunExtracurricularExclusion.create({ data: { schoolId: x.current.school.id, collectionRunId: runId, extracurricularClassId: x.a1, actorIdentityId: x.current.identity.id, membershipId: x.current.membership.id, operationId: (await prisma.operation.findFirstOrThrow({ where: { schoolId: x.current.school.id } })).id } })).rejects.toThrow(/DRAFT/);
+      await x.join(x.a2, [s1.enrollment.id], "2026-09-10");
+      await expect(finance.generateRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid())).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      expect(await prisma.invoice.count({ where: { schoolId: x.current.school.id, collectionRunId: runId } })).toBe(0);
+      // Tenants: a foreign actor and a foreign class are indistinguishable from missing ones.
+      const foreignRun = await foreign.openFreshRun();
+      await expect(finance.runExtracurricularClasses(x.current.identity.id, x.current.school.id, foreignRun)).rejects.toMatchObject({ status: 404, response: { code: "COLLECTION_RUN_NOT_FOUND" } });
+      const second = outcomeId(await finance.openRun(x.current.identity.id, x.current.school.id, uuid(), uuid(), { schoolYearId: x.current.year.id, billingMonth: "2026-10" }));
+      for (const classId of [foreign.a1, uuid()]) await expect(finance.setRunExtracurricularExclusion(x.current.identity.id, x.current.school.id, second, classId, uuid(), uuid(), { excluded: true, expectedVersion: 1 })).rejects.toMatchObject({ status: 404, response: { code: "EXTRACURRICULAR_CLASS_NOT_FOUND" } });
+      await expect(finance.setRunExtracurricularExclusion(foreign.current.identity.id, foreign.current.school.id, second, x.a1, uuid(), uuid(), { excluded: true, expectedVersion: 1 })).rejects.toMatchObject({ status: 404 });
+      await expect(prisma.collectionRunExtracurricularExclusion.create({ data: { schoolId: x.current.school.id, collectionRunId: second, extracurricularClassId: foreign.a1, actorIdentityId: x.current.identity.id, membershipId: x.current.membership.id, operationId: (await prisma.operation.findFirstOrThrow({ where: { schoolId: x.current.school.id } })).id } })).rejects.toThrow();
+    });
+
+    it("generates extracurricular lines with immutable provenance, applies promotions, never rewrites after GENERATED, and adds a Student from live memberships and the snapshot", async () => {
+      const x = await extraFixture();
+      const s1 = await enrolled(x.current); const s2 = await enrolled(x.current); const s3 = await enrolled(x.current); const s5 = await enrolled(x.current);
+      await x.join(x.a1, [s1.enrollment.id]);
+      await x.join(x.a1, [s2.enrollment.id], "2026-09-14");
+      await x.join(x.a1, [s3.enrollment.id], "2026-09-01", "2026-09-15");
+      await x.join(x.a2, [s3.enrollment.id], "2026-09-16");
+      await x.join(x.ve, [s5.enrollment.id]);
+      await promotion(x.current, s1.student.id, x.english, { name: "Giảm tiếng Anh", discountType: "FIXED_VND", discountValue: "100", priority: "1", stackingMode: "STACKABLE" });
+      const runId = await x.openFreshRun(true);
+      await setExclusion(x, runId, x.ve, true, "Lớp nghỉ");
+      const preview: any = await previewOf(x, runId);
+      await finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
+      expect((await generate(x.current, runId)).status).toBe("COMPLETED");
+      const detailOf = async (studentId: string) => (await prisma.invoiceLine.findMany({ where: { schoolId: x.current.school.id, invoice: { collectionRunId: runId, studentId } }, orderBy: { receivableNameSnapshot: "asc" } }));
+      // s1: fee + discounted English line; s5 is in the excluded class so only the fixed fee remains.
+      const l1 = await detailOf(s1.student.id);
+      expect(l1.map((line) => [line.receivableNameSnapshot, line.sourceKind])).toEqual([["Học phí tháng", "TEMPLATE_FIXED"], ["Tiếng Anh bản ngữ", "EXTRACURRICULAR"]].sort((a, b) => (a[0]! < b[0]! ? -1 : 1)));
+      const eng = l1.find((line) => line.sourceKind === "EXTRACURRICULAR")!;
+      expect(eng).toMatchObject({ quantity: 1, unitPrice: 600n, defaultUnitPriceSnapshot: 600n, grossAmount: 600n, discountAmount: 100n, netAmount: 500n, sourceDetail: { receivableId: x.english, flags: [], classes: [{ id: x.a1, name: "Tiếng Anh A1", effectiveFrom: "2026-09-01", effectiveTo: null }] } });
+      const l3 = (await detailOf(s3.student.id)).filter((line) => line.sourceKind === "EXTRACURRICULAR");
+      expect(l3).toHaveLength(1);
+      expect(l3[0]!.sourceDetail).toMatchObject({ flags: ["CLASS_CHANGE"], classes: [{ id: x.a1, effectiveTo: "2026-09-15" }, { id: x.a2, effectiveFrom: "2026-09-16" }] });
+      expect((await detailOf(s2.student.id)).find((line) => line.sourceKind === "EXTRACURRICULAR")!.sourceDetail).toMatchObject({ flags: ["MID_MONTH"] });
+      expect((await detailOf(s5.student.id)).map((line) => line.sourceKind)).toEqual(["TEMPLATE_FIXED"]);
+      // Immutable provenance; review badges and flags come from the server.
+      await expect(prisma.invoiceLine.update({ where: { id: eng.id }, data: { sourceKind: "MANUAL" } })).rejects.toThrow(/immutable/);
+      const invoice3 = (await prisma.invoice.findFirstOrThrow({ where: { schoolId: x.current.school.id, collectionRunId: runId, studentId: s3.student.id } })).id;
+      const badge = ((await finance.invoice(x.current.identity.id, x.current.school.id, invoice3)) as any).lines.find((line: any) => line.sourceKind === "EXTRACURRICULAR").sourceBadge;
+      expect(badge).toMatchObject({ kind: "EXTRACURRICULAR", label: "Ngoại khóa · Tiếng Anh A1 → Tiếng Anh A2", flags: [{ code: "CLASS_CHANGE", label: "Chuyển lớp trong tháng" }] });
+      expect(badge.detail).toContain("Tiếng Anh A1 đến 15/09");
+      expect(badge.detail).toContain("Tiếng Anh A2 từ 16/09");
+      const snapshot: any = (await prisma.collectionRun.findUniqueOrThrow({ where: { id: runId } })).extracurricularSnapshot;
+      expect(snapshot.classes.map((item: any) => [item.name, item.excluded]).sort()).toEqual([["Tiếng Anh A1", false], ["Tiếng Anh A2", false], ["Vẽ thiếu nhi", true]]);
+      // GENERATED is never rewritten: later membership and price changes leave every Invoice line as generated.
+      const before = await prisma.invoiceLine.findMany({ where: { schoolId: x.current.school.id, invoice: { collectionRunId: runId } }, orderBy: { id: "asc" } });
+      await x.join(x.a2, [s2.enrollment.id], "2026-09-20");
+      await finance.updateReceivable(x.current.identity.id, x.current.school.id, x.english, uuid(), uuid(), { displayName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "900", reason: "Tăng giá" });
+      expect(await prisma.invoiceLine.findMany({ where: { schoolId: x.current.school.id, invoice: { collectionRunId: runId } }, orderBy: { id: "asc" } })).toEqual(before);
+
+      // A Student added later: memberships are read now for the snapshotted, non-excluded classes; price comes from the snapshot.
+      const late = await enrolled(x.current);
+      await x.join(x.a2, [late.enrollment.id], "2026-09-10");
+      await x.join(x.ve, [late.enrollment.id]);
+      const lateClass = outcomeId(await finance.createExtracurricularClass(x.current.identity.id, x.current.school.id, uuid(), uuid(), { name: "Lớp mới sau đợt", schoolYearId: x.current.year.id, receivableId: x.drawing }));
+      await x.join(lateClass, [late.enrollment.id]);
+      const key = uuid();
+      const added: any = await finance.addGeneratedStudent(x.current.identity.id, x.current.school.id, runId, key, uuid(), { studentId: late.student.id });
+      expect(added.outcome.created).toHaveLength(1);
+      const lines = await detailOf(late.student.id);
+      expect(lines.map((line) => line.sourceKind).sort()).toEqual(["EXTRACURRICULAR", "TEMPLATE_FIXED"]);
+      expect(lines.find((line) => line.sourceKind === "EXTRACURRICULAR")).toMatchObject({ receivableNameSnapshot: "Tiếng Anh bản ngữ", unitPrice: 600n, sourceDetail: { flags: ["MID_MONTH"], classes: [{ id: x.a2, name: "Tiếng Anh A2", effectiveFrom: "2026-09-10" }] } });
+      expect(await finance.addGeneratedStudent(x.current.identity.id, x.current.school.id, runId, key, uuid(), { studentId: late.student.id })).toEqual(added);
+      expect(await prisma.invoice.count({ where: { schoolId: x.current.school.id, collectionRunId: runId, studentId: late.student.id } })).toBe(1);
+    });
+
+    it("makes READY wait for an in-flight membership change and then sees it", async () => {
+      const x = await extraFixture();
+      const s1 = await enrolled(x.current); const s2 = await enrolled(x.current);
+      await x.join(x.a1, [s1.enrollment.id]);
+      const runId = await x.openFreshRun();
+      const preview: any = await previewOf(x, runId);
+      const operation = await prisma.operation.findFirstOrThrow({ where: { schoolId: x.current.school.id } });
+      // A membership add in flight: class locked FOR UPDATE, membership row uncommitted.
+      const adding = await holding(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${x.a1}::uuid AND "schoolId" = ${x.current.school.id}::uuid FOR UPDATE`;
+        await tx.extracurricularMembership.create({ data: { schoolId: x.current.school.id, schoolYearId: x.current.year.id, extracurricularClassId: x.a1, enrollmentId: s2.enrollment.id, effectiveFrom: date("2026-09-01"), reason: "Đăng ký", actorIdentityId: x.current.identity.id, createdByMembershipId: x.current.membership.id, createOperationId: operation.id } });
+      });
+      await expect(blockedUntil(() => finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint }), adding.release)).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      await adding.done;
+      expect((await finance.run(x.current.identity.id, x.current.school.id, runId)).status).toBe("DRAFT");
+      const fresh: any = await previewOf(x, runId);
+      expect(fresh.eligible.map((row: any) => row.studentId).sort()).toEqual([s1.student.id, s2.student.id].sort());
+      await finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: fresh.fingerprint });
     });
 
     it("edits name, unit and price with audit and replay, refuses price below the refund price and foreign Schools, and keeps Invoice line snapshots", async () => {

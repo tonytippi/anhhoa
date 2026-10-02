@@ -77,11 +77,11 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await members.getByRole('checkbox', { name: 'Chọn Bé Bình' }).check();
   await page.getByRole('button', { name: 'Kết thúc' }).click();
   const endDialog = page.getByRole('dialog', { name: /^Kết thúc tham gia/ });
-  await endDialog.getByLabel('Ngày kết thúc').fill('2026-09-30');
+  await endDialog.getByLabel('Ngày kết thúc').fill('2026-11-15');
   await endDialog.getByLabel('Lý do').fill('Phụ huynh xin nghỉ');
   await endDialog.getByRole('button', { name: 'Kết thúc tham gia' }).click();
   await expect(endDialog).toBeHidden();
-  await expect(members.getByRole('row', { name: /Bé Bình/ })).toContainText('30/09/2026');
+  await expect(members.getByRole('row', { name: /Bé Bình/ })).toContainText('15/11/2026');
   await page.getByRole('button', { name: 'Tài chính' }).click();
   const receivablesNavigation = page.getByRole('button', { name: 'Khoản thu' });
   await expect(receivablesNavigation).toBeVisible();
@@ -119,6 +119,19 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(page).toHaveURL(/\/schools\/[^/]+\/collection-runs$/);
    await expect(page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' })).toBeVisible();
    await openRun(page, '2026-10');
+  // Story 5.36: the October run lists the class with its members; leave it out of this run (the existing amounts below are fixed-line only).
+  const octClasses = page.getByRole('table', { name: /Lớp ngoại khóa tính vào đợt thu tháng 10\/2026/ });
+  await expect(octClasses.getByRole('row').filter({ hasText: 'Tiếng Anh A1 (T2-T4)' })).toContainText('Tính trong đợt');
+  await page.getByRole('button', { name: 'Loại khỏi đợt này Tiếng Anh A1 (T2-T4)' }).click();
+  await page.getByRole('dialog', { name: 'Loại Tiếng Anh A1 (T2-T4) khỏi đợt này' }).getByLabel('Lý do (không bắt buộc)').fill('Chưa thu ngoại khóa tháng 10');
+  await page.getByRole('dialog').getByRole('button', { name: 'Loại khỏi đợt này' }).click();
+  await expect(octClasses.getByRole('row').filter({ hasText: 'Tiếng Anh A1 (T2-T4)' })).toContainText('Loại khỏi đợt này');
+  await page.getByRole('button', { name: 'Khôi phục Tiếng Anh A1 (T2-T4)' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Khôi phục' }).click();
+  await expect(octClasses.getByRole('row').filter({ hasText: 'Tiếng Anh A1 (T2-T4)' })).toContainText('Tính trong đợt');
+  await page.getByRole('button', { name: 'Loại khỏi đợt này Tiếng Anh A1 (T2-T4)' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Loại khỏi đợt này' }).click();
+  await expect(octClasses.getByRole('row').filter({ hasText: 'Tiếng Anh A1 (T2-T4)' })).toContainText('Loại khỏi đợt này');
   // Story 5.35: opening the run already put the ACTIVE FIXED receivable in the template, for everyone.
   const templateTable = page.getByRole('table', { name: 'Khoản thu mẫu của đợt' });
   const feeRow = templateTable.getByRole('row').filter({ hasText: 'Học phí Release 1' });
@@ -337,6 +350,8 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   const perLine = page.getByRole('table', { name: 'Tạm tính theo dòng khoản thu' });
   await expect(perLine.getByRole('row').filter({ hasText: 'Phí dã ngoại Release 1' })).toContainText('100.000');
   await expect(perLine.getByRole('row').filter({ hasText: 'Học phí Release 1' })).toContainText('300.000');
+  await expect(perLine.getByRole('row').filter({ hasText: 'Tiếng Anh Release 1' })).toContainText('1.200.000');
+  await expect(page.getByRole('table', { name: /Lớp ngoại khóa tính vào đợt thu tháng 11\/2026/ }).getByRole('row').filter({ hasText: 'Tiếng Anh A1 (T2-T4)' })).toContainText('1.200.000 đ');
   await page.getByRole('button', { name: 'Xác nhận xem trước và chuyển sẵn sàng' }).click();
   await page.getByRole('button', { name: 'Tạo hóa đơn nháp' }).click();
   await page.getByRole('dialog').getByRole('textbox').fill('2026-11');
@@ -346,6 +361,18 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   const novReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-1/ });
   await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Cố định' })).toBeVisible();
   await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Linh hoạt · Lớp chính thức: Mầm Release 1' })).toBeVisible();
+  await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Ngoại khóa · Tiếng Anh A1 (T2-T4)' })).toBeVisible();
+  // Bé Bình left the class on 15/11: the extracurricular line is flagged and can be adjusted with a reason.
+  await novReview.getByRole('button', { name: 'Học sinh tiếp theo' }).click();
+  const novSecond = page.getByRole('region', { name: /Rà soát hóa đơn RG1-2/ });
+  await expect(novSecond.getByText('Vào/nghỉ giữa tháng')).toBeVisible();
+  await novSecond.getByRole('button', { name: 'Điều chỉnh' }).click();
+  const adjust = page.getByRole('dialog', { name: /Điều chỉnh dòng · Tiếng Anh Release 1/ });
+  await adjust.getByLabel('Đơn giá (VND)').fill('300000');
+  await adjust.getByLabel('Lý do điều chỉnh').fill('Nghỉ lớp 15/11, thu nửa tháng');
+  await adjust.getByRole('button', { name: 'Lưu điều chỉnh' }).click();
+  await expect(adjust).toBeHidden();
+  await expect(novSecond.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('300.000');
 
    await page.setViewportSize({ width: 1280, height: 900 });
      await page.getByRole('button', { name: 'Về trang chủ PassionEdu' }).click();

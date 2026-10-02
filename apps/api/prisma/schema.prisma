@@ -813,25 +813,27 @@ model CollectionRunLifecycleTransition {
 }
 
 model CollectionRun {
-  id                      String                             @id @default(uuid()) @db.Uuid
-  schoolId                String                             @db.Uuid
-  schoolYearId            String                             @db.Uuid
-  type                    CollectionRunType                  @default(MONTHLY)
-  billingMonth            String
-  status                  CollectionRunStatus                @default(DRAFT)
-  version                 Int                                @default(1)
-  createdAt               DateTime                           @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime                           @updatedAt @db.Timestamptz(3)
-  school                  School                             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  schoolYear              SchoolYear                         @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  selections              CollectionRunSelection[]
-  lifecycleTransitions    CollectionRunLifecycleTransition[]
-  invoices                Invoice[]
-  generation              CollectionRunGeneration?
-  templateLines           CollectionRunTemplateLine[]
-  coverageSelections      CollectionRunCoverageSelection[]
-  templateSnapshot        Json?
-  readyPreviewFingerprint String?
+  id                        String                                  @id @default(uuid()) @db.Uuid
+  schoolId                  String                                  @db.Uuid
+  schoolYearId              String                                  @db.Uuid
+  type                      CollectionRunType                       @default(MONTHLY)
+  billingMonth              String
+  status                    CollectionRunStatus                     @default(DRAFT)
+  version                   Int                                     @default(1)
+  createdAt                 DateTime                                @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime                                @updatedAt @db.Timestamptz(3)
+  school                    School                                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  schoolYear                SchoolYear                              @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  selections                CollectionRunSelection[]
+  lifecycleTransitions      CollectionRunLifecycleTransition[]
+  invoices                  Invoice[]
+  generation                CollectionRunGeneration?
+  templateLines             CollectionRunTemplateLine[]
+  coverageSelections        CollectionRunCoverageSelection[]
+  templateSnapshot          Json?
+  extracurricularSnapshot   Json?
+  readyPreviewFingerprint   String?
+  extracurricularExclusions CollectionRunExtracurricularExclusion[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, billingMonth])
@@ -2098,6 +2100,7 @@ model ExtracurricularClass {
   receivable           Receivable                                @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
   lifecycleTransitions ExtracurricularClassLifecycleTransition[]
   memberships          ExtracurricularMembership[]
+  runExclusions        CollectionRunExtracurricularExclusion[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, id])
@@ -2196,4 +2199,22 @@ enum InvoiceLineSourceKind {
   TEMPLATE_FLEXIBLE
   EXTRACURRICULAR
   MANUAL
+}
+
+// Story 5.36: Finance may leave a whole extracurricular class out of one DRAFT run; deleting the row restores it.
+model CollectionRunExtracurricularExclusion {
+  id                     String               @id @default(uuid()) @db.Uuid
+  schoolId               String               @db.Uuid
+  collectionRunId        String               @db.Uuid
+  extracurricularClassId String               @db.Uuid
+  reason                 String?
+  actorIdentityId        String               @db.Uuid
+  membershipId           String               @db.Uuid
+  operationId            String               @db.Uuid
+  createdAt              DateTime             @default(now()) @db.Timestamptz(3)
+  collectionRun          CollectionRun        @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
+  extracurricularClass   ExtracurricularClass @relation(fields: [schoolId, extracurricularClassId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, collectionRunId, extracurricularClassId])
+  @@index([schoolId, extracurricularClassId])
 }

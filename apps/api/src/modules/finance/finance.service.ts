@@ -26,6 +26,7 @@ const routes = {
     "POST /api/app/schools/:schoolId/finance/receivables/:receivableId/lifecycle",
   classDefaultBankAccount: "PUT /api/app/schools/:schoolId/finance/classes/:classId/default-bank-account",
   extracurricularClass: "POST /api/app/schools/:schoolId/finance/extracurricular-classes",
+  runExtracurricularExclusion: "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/extracurricular-classes/:classId/exclusion",
   extracurricularRename: "PUT /api/app/schools/:schoolId/finance/extracurricular-classes/:classId",
   extracurricularLifecycle: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/lifecycle",
   extracurricularMembershipAdd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships",
@@ -435,12 +436,24 @@ export class FinanceService {
       stackingMode: application.stackingMode, appliedDiscount: application.appliedDiscount.toString(),
       grossAmount: application.grossAmount.toString(), discountAmount: application.discountAmount.toString(), netAmount: application.netAmount.toString() };
   }
-  // Review badge: "Cố định" / "Linh hoạt · <scope>" / "Sửa tay" (extracurricular badges arrive with Story 5.36). Legacy lines carry none.
+  // Review badge: "Cố định" / "Linh hoạt · <scope>" / "Ngoại khóa · <lớp>" / "Sửa tay", plus the server-derived flags and a short detail for
+  // extracurricular lines. Legacy lines carry none.
   private sourceDto(line: any) {
     if (!line.sourceKind) return null;
-    const scope = line.sourceDetail?.scope;
-    const label = line.sourceKind === "TEMPLATE_FIXED" ? "Cố định" : line.sourceKind === "TEMPLATE_FLEXIBLE" ? `Linh hoạt · ${scope?.label ?? "Toàn bộ"}` : line.sourceKind === "MANUAL" ? "Sửa tay" : "Ngoại khóa";
-    return { kind: line.sourceKind, label };
+    const detail = line.sourceDetail ?? {};
+    const day = (value: string) => `${value.slice(8, 10)}/${value.slice(5, 7)}`;
+    const dayYear = (value: string) => `${day(value)}/${value.slice(0, 4)}`;
+    if (line.sourceKind === "EXTRACURRICULAR") {
+      const classes = (detail.classes ?? []) as Array<{ name: string; effectiveFrom: string; effectiveTo: string | null }>;
+      const flags = ((detail.flags ?? []) as string[]).map((code) => ({ code, label: code === "CLASS_CHANGE" ? "Chuyển lớp trong tháng" : "Vào/nghỉ giữa tháng" }));
+      const text = classes.length > 1
+        ? classes.map((item, index) => (index === 0 ? `${item.name} đến ${item.effectiveTo ? day(item.effectiveTo) : "hết tháng"}` : `${item.name} từ ${day(item.effectiveFrom)}`)).join(", ") + " · gộp một dòng, không thu trùng"
+        : classes[0] ? [classes[0].effectiveFrom ? `vào lớp từ ${dayYear(classes[0].effectiveFrom)}` : "", classes[0].effectiveTo ? `nghỉ lớp sau ${dayYear(classes[0].effectiveTo)}` : ""].filter(Boolean).join(" · ") : "";
+      return { kind: "EXTRACURRICULAR", label: `Ngoại khóa · ${classes.map((item) => item.name).join(" → ")}`, flags, detail: flags.length ? text : "" };
+    }
+    const scope = detail.scope;
+    const label = line.sourceKind === "TEMPLATE_FIXED" ? "Cố định" : line.sourceKind === "TEMPLATE_FLEXIBLE" ? `Linh hoạt · ${scope?.label ?? "Toàn bộ"}` : "Sửa tay";
+    return { kind: line.sourceKind, label, flags: [], detail: "" };
   }
   private lineDto(line: any, issued = false) {
     const promotionApplicationSnapshot = issued ? (line.promotionApplications ?? []).sort((a: any, b: any) => a.ordinal - b.ordinal).map((application: any) => this.applicationDto(application)) : null;
@@ -1912,6 +1925,53 @@ export class FinanceService {
       invoiceTotal: effective.reduce((total: bigint, invoice) => total + BigInt(invoice.total), 0n).toString(),
     };
   }
+  // The "Lớp ngoại khóa trong đợt" section: ACTIVE classes of the run's SchoolYear with their members effective in the billing month.
+  async runExtracurricularClasses(identityId: string, schoolId: string, runId: string) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
+    if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
+    const resolution = await this.runResolution(this.prisma, schoolId, run);
+    return {
+      billingMonth: run.billingMonth,
+      classes: resolution.classes.map((item: any) => {
+        const students = new Set<string>(item.members.map((member: any) => member.enrollmentId));
+        // A Student also in an earlier-starting class of the same receivable is billed once, through that class.
+        const transferred = [...students].filter((enrollmentId) => {
+          const own = item.members.filter((member: any) => member.enrollmentId === enrollmentId).map((member: any) => member.from).sort()[0]!;
+          return resolution.classes.some((other: any) => other.id !== item.id && other.receivableId === item.receivableId && this.extracurricularBillable(other) && other.members.some((member: any) => member.enrollmentId === enrollmentId && (member.from < own || (member.from === own && other.name.localeCompare(item.name, "vi") < 0))));
+        }).length;
+        return { id: item.id, name: item.name, receivableId: item.receivableId, receivableName: item.receivable.name, unitLabel: item.receivable.unitLabel, defaultUnitPrice: item.receivable.defaultUnitPrice, memberCount: students.size, transferredCount: transferred, excluded: item.excluded, receivableActive: item.receivableActive };
+      }),
+    };
+  }
+  async setRunExtracurricularExclusion(identityId: string, schoolId: string, runId: string, classId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId"); this.identifier(classId, "classId");
+    if (typeof body?.excluded !== "boolean") throw validation("excluded", "Cần chọn loại khỏi đợt hoặc khôi phục.");
+    const reason = this.text(body?.reason, "reason", false, 500);
+    const expectedVersion = Number(body?.expectedVersion);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw validation("expectedVersion", "Phiên bản đợt thu không hợp lệ.");
+    return this.mutate(actor, identityId, schoolId, routes.runExtracurricularExclusion, key, operationId, { runId, classId, excluded: body.excluded, reason, expectedVersion }, async (tx, operation) => {
+      const run = await this.lockRun(tx, schoolId, runId);
+      if (run.status !== "DRAFT") throw new ConflictException({ code: "COLLECTION_RUN_NOT_DRAFT", message: "Chỉ được loại hoặc khôi phục lớp ngoại khóa khi đợt thu ở trạng thái nháp." });
+      if (run.version !== expectedVersion) throw new ConflictException({ code: "COLLECTION_RUN_VERSION_CONFLICT", message: "Đợt thu đã thay đổi. Hãy tải lại trước khi thay đổi lớp ngoại khóa." });
+      await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR SHARE`;
+      const found = await tx.extracurricularClass.findFirst({ where: { id: classId, schoolId, schoolYearId: run.schoolYearId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
+      if (!found || found.lifecycleTransitions[0]?.status !== "ACTIVE") throw this.classNotFound();
+      const existing = await tx.collectionRunExtracurricularExclusion.findFirst({ where: { schoolId, collectionRunId: run.id, extracurricularClassId: classId } });
+      if (body.excluded && existing) throw validation("excluded", "Lớp đã được loại khỏi đợt này.");
+      if (!body.excluded && !existing) throw validation("excluded", "Lớp đang được tính trong đợt này.");
+      if (body.excluded) await tx.collectionRunExtracurricularExclusion.create({ data: { schoolId, collectionRunId: run.id, extracurricularClassId: classId, reason, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation } });
+      else await tx.collectionRunExtracurricularExclusion.delete({ where: { id: existing!.id } });
+      const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude });
+      const outcome = this.runDto(updated);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, body.excluded ? "COLLECTION_RUN_EXTRACURRICULAR_CLASS_EXCLUDED" : "COLLECTION_RUN_EXTRACURRICULAR_CLASS_RESTORED", operation, { classId, excluded: !body.excluded }, { classId, className: found.name, excluded: body.excluded, run: outcome }, reason ?? undefined);
+      return outcome;
+    });
+  }
   // Picker aid for template scopes: the run's ACTIVE official Classes and a bounded Student search among ENROLLED Students of its SchoolYear.
   async runScopeOptions(identityId: string, schoolId: string, runId: string, query: any) {
     schoolId = this.school(schoolId);
@@ -1925,6 +1985,25 @@ export class FinanceService {
       this.prisma.studentEnrollment.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, lifecycle: "ENROLLED", ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) }, include: { student: { select: { id: true, studentCode: true, fullName: true } } }, orderBy: [{ student: { studentCode: "asc" } }], take: 30 }),
     ]);
     return { classes, students: enrollments.map((item) => ({ id: item.student.id, studentCode: item.student.studentCode, fullName: item.student.fullName, className: item.className })) };
+  }
+  // Preview rows for extracurricular receivables: one merged row per receivable listing its billable classes.
+  private previewExtracurricularSummaries(resolution: { classes: any[] }, eligible: any[]) {
+    const byReceivable = new Map<string, any>();
+    for (const item of resolution.classes) if (this.extracurricularBillable(item)) byReceivable.set(item.receivableId, { receivable: item.receivable, receivableId: item.receivableId, classes: [...(byReceivable.get(item.receivableId)?.classes ?? []), item.name] });
+    return [...byReceivable.values()].sort((a, b) => a.receivable.name.localeCompare(b.receivable.name, "vi")).map((entry) => {
+      const lines = eligible.map((row) => (row.lines ?? []).find((line: any) => line.kind === "EXTRACURRICULAR" && line.receivableId === entry.receivableId)).filter(Boolean);
+      const changed = lines.filter((line: any) => line.extracurricular.flags.includes("CLASS_CHANGE")).length;
+      return { templateLineId: null, receivableId: entry.receivableId, receivableName: entry.receivable.name, kind: "EXTRACURRICULAR", scope: { type: "CLASSES", label: entry.classes.sort((a: string, b: string) => a.localeCompare(b, "vi")).join(", ") }, studentCount: lines.length, subtotal: lines.reduce((total: bigint, line: any) => total + BigInt(line.grossAmount ?? line.amount ?? 0), 0n).toString(), ...(changed ? { note: `${changed} HS chuyển lớp tính một lần` } : {}) };
+    });
+  }
+  // Per class: members effective in the month are counted by the list; here, the eligible Students billed through the class and the server subtotal.
+  private previewExtracurricularClasses(resolution: { classes: any[] }, eligible: any[]) {
+    return resolution.classes.map((item) => {
+      const price = BigInt(item.receivable.defaultUnitPrice);
+      // A Student merged across classes of one receivable is attributed to the class that started first.
+      const billed = eligible.flatMap((row) => (row.lines ?? []).filter((line: any) => line.kind === "EXTRACURRICULAR" && line.receivableId === item.receivableId && line.extracurricular.classes[0]?.id === item.id).map(() => 1));
+      return { id: item.id, billedStudents: billed.length, subtotal: this.extracurricularBillable(item) ? (price * BigInt(billed.length)).toString() : "0" };
+    });
   }
   // Per template line: kind, scope label, how many eligible Students receive it and the server-derived subtotal (before discounts, deductions and VAT).
   private previewLineSummaries(templateLines: any[], eligible: any[]) {
@@ -2105,7 +2184,8 @@ export class FinanceService {
     if (dto.status !== "READY") return dto;
     // READY keeps no stored preview; re-derive it read-only exactly as generation will re-evaluate the roster.
     const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, false, true);
-    const preview = await this.previewDeductions(this.prisma, schoolId, run, await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines));
+    const extracurricular = await this.runResolution(this.prisma, schoolId, run);
+    const preview = await this.previewDeductions(this.prisma, schoolId, run, await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines, extracurricular));
     return { ...dto, summary: this.previewSummary(preview) };
   }
   async addableStudents(identityId: string, schoolId: string, runId: string, query: { limit?: string; cursor?: string } = {}) {
@@ -2119,8 +2199,8 @@ export class FinanceService {
     if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
     if (run.status !== "GENERATED") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ có thể xem học sinh để thêm khi đợt thu đã được tạo." });
     const templateLines = run.templateSnapshot as any[] | null;
-    if (!templateLines?.length) throw new ConflictException({ code: "COLLECTION_RUN_TEMPLATE_SNAPSHOT_MISSING", message: "Không tìm thấy snapshot khoản thu của đợt đã tạo." });
-    const roster = await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines);
+    if (!Array.isArray(templateLines)) throw new ConflictException({ code: "COLLECTION_RUN_TEMPLATE_SNAPSHOT_MISSING", message: "Không tìm thấy snapshot khoản thu của đợt đã tạo." });
+    const roster = await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines, await this.runResolution(this.prisma, schoolId, run));
     const existing = new Set((run.invoices ?? []).map((invoice: any) => invoice.studentId));
     const candidates = roster.eligible.filter((student: any) => !existing.has(student.studentId));
     if (cursor && !candidates.some((student: any) => student.studentId === cursor)) throw validation("cursor", "Con trỏ không thuộc kết quả hiện tại.");
@@ -2228,12 +2308,106 @@ export class FinanceService {
       };
     }
   }
+  // ---- Extracurricular resolution (Story 5.36, decision 2026-10-02 §3.2/§3.3) -------------------------------------------------
+  // The run's extracurricular facts: ACTIVE classes of the SchoolYear with their receivable facts, the per-run exclusions and the
+  // memberships effective at least one day in the billing month. READY/generate/preview read it live; a GENERATED run keeps the class and
+  // receivable facts in `extracurricularSnapshot` and reads memberships at the time a Student is added.
+  private monthBounds(billingMonth: string) {
+    const [year, month] = billingMonth.split("-").map(Number) as [number, number];
+    const iso = (date: Date) => date.toISOString().slice(0, 10);
+    return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 1)), startIso: iso(new Date(Date.UTC(year, month - 1, 1))), endIso: iso(new Date(Date.UTC(year, month, 1))) };
+  }
+  private async memberFacts(client: any, schoolId: string, classIds: string[], billingMonth: string) {
+    if (!classIds.length) return [];
+    const { start, end } = this.monthBounds(billingMonth);
+    const rows = await client.extracurricularMembership.findMany({
+      where: { schoolId, extracurricularClassId: { in: classIds }, effectiveFrom: { lt: end }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: start } }] },
+      select: { extracurricularClassId: true, enrollmentId: true, effectiveFrom: true, effectiveTo: true, enrollment: { select: { studentId: true } } },
+      orderBy: [{ extracurricularClassId: "asc" }, { enrollmentId: "asc" }, { effectiveFrom: "asc" }],
+    });
+    return rows.map((row: any) => ({ classId: row.extracurricularClassId, enrollmentId: row.enrollmentId, studentId: row.enrollment.studentId, from: row.effectiveFrom.toISOString().slice(0, 10), to: row.effectiveTo ? row.effectiveTo.toISOString().slice(0, 10) : null }));
+  }
+  private receivableFacts(receivable: any) {
+    return { name: receivable.displayName, code: receivable.code ?? null, unitLabel: receivable.unitLabel, defaultUnitPrice: receivable.defaultUnitPrice.toString(), taxCategory: receivable.taxCategory ?? "NOT_DECLARED" };
+  }
+  private async extracurricularResolution(client: any, schoolId: string, run: any, lock = false) {
+    const classes = await client.extracurricularClass.findMany({
+      where: { schoolId, schoolYearId: run.schoolYearId },
+      include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } }, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } },
+      orderBy: { id: "asc" },
+    });
+    const active = classes.filter((item: any) => item.lifecycleTransitions[0]?.status === "ACTIVE");
+    // Membership mutations take the class FOR UPDATE; sharing it here gives READY/generate one stable view of the class members.
+    if (lock && active.length) await client.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "schoolId" = ${schoolId}::uuid AND "id" = ANY(${active.map((item: any) => item.id)}::uuid[]) ORDER BY "id" FOR SHARE`;
+    const excluded = new Set((await client.collectionRunExtracurricularExclusion.findMany({ where: { schoolId, collectionRunId: run.id }, select: { extracurricularClassId: true } })).map((item: any) => item.extracurricularClassId));
+    const members = await this.memberFacts(client, schoolId, active.map((item: any) => item.id), run.billingMonth);
+    return {
+      classes: active.map((item: any) => ({ id: item.id, name: item.name, receivableId: item.receivableId, excluded: excluded.has(item.id), receivableActive: item.receivable.lifecycleTransitions[0]?.status === "ACTIVE", receivable: this.receivableFacts(item.receivable), members: members.filter((member: any) => member.classId === item.id) })),
+    };
+  }
+  private async snapshotResolution(client: any, schoolId: string, run: any) {
+    const stored = ((run.extracurricularSnapshot as any)?.classes ?? []) as any[];
+    const members = await this.memberFacts(client, schoolId, stored.map((item) => item.id), run.billingMonth);
+    return { classes: stored.map((item) => ({ ...item, members: members.filter((member: any) => member.classId === item.id) })) };
+  }
+  // The resolution a run uses: live while DRAFT/READY, snapshot-based once generated.
+  private async runResolution(client: any, schoolId: string, run: any, lock = false) {
+    const status = run.lifecycleTransitions?.[0]?.status ?? run.status;
+    return ["GENERATED", "CLOSED"].includes(status) && run.extracurricularSnapshot ? this.snapshotResolution(client, schoolId, run) : this.extracurricularResolution(client, schoolId, run, lock);
+  }
+  private snapshotOfResolution(resolution: { classes: any[] }) {
+    return { classes: resolution.classes.map(({ members, ...item }: any) => item) };
+  }
+  // Fingerprint facts: the class set with exclusions and receivable facts, and the member intervals of billable classes only.
+  private resolutionFacts(resolution: { classes: any[] }) {
+    return resolution.classes.map((item: any) => ({ id: item.id, name: item.name, receivableId: item.receivableId, excluded: item.excluded, receivableActive: item.receivableActive, receivable: item.receivable, members: item.excluded || !item.receivableActive ? [] : item.members.map((member: any) => [member.enrollmentId, member.from, member.to]) }));
+  }
+  private extracurricularBillable(item: any) {
+    return !item.excluded && item.receivableActive;
+  }
+  // One merged line per extracurricular Receivable for an enrollment: default price, quantity 1, no proration.
+  private extracurricularLines(resolution: { classes: any[] }, enrollmentId: string, billingMonth: string) {
+    const { startIso, endIso } = this.monthBounds(billingMonth);
+    const byReceivable = new Map<string, any>();
+    for (const item of resolution.classes) {
+      if (!this.extracurricularBillable(item)) continue;
+      for (const member of item.members) {
+        if (member.enrollmentId !== enrollmentId) continue;
+        const entry = byReceivable.get(item.receivableId) ?? { receivable: item.receivable, receivableId: item.receivableId, intervals: [] };
+        entry.intervals.push({ classId: item.id, className: item.name, from: member.from, to: member.to });
+        byReceivable.set(item.receivableId, entry);
+      }
+    }
+    return [...byReceivable.values()].sort((a, b) => a.receivableId.localeCompare(b.receivableId)).map((entry) => {
+      const classes: Array<{ id: string; name: string; effectiveFrom: string; effectiveTo: string | null }> = [];
+      for (const interval of [...entry.intervals].sort((a: any, b: any) => a.from.localeCompare(b.from) || a.className.localeCompare(b.className))) {
+        const known = classes.find((item) => item.id === interval.classId);
+        const last = interval.to ? new Date(`${interval.to}T00:00:00.000Z`) : null;
+        last?.setUTCDate(last.getUTCDate() - 1);
+        const inclusive = last ? last.toISOString().slice(0, 10) : null;
+        if (known) known.effectiveTo = known.effectiveTo === null || inclusive === null ? null : (inclusive > known.effectiveTo ? inclusive : known.effectiveTo);
+        else classes.push({ id: interval.classId, name: interval.className, effectiveFrom: interval.from, effectiveTo: inclusive });
+      }
+      const flags: string[] = [];
+      if (classes.length > 1) flags.push("CLASS_CHANGE");
+      else {
+        const only = entry.intervals as Array<{ from: string; to: string | null }>;
+        const first = only.reduce((min, item) => (item.from < min ? item.from : min), only[0]!.from);
+        const open = only.some((item) => item.to === null);
+        const lastEnd = open ? null : only.reduce((max, item) => (item.to! > max ? item.to! : max), only[0]!.to!);
+        if (first > startIso || (lastEnd !== null && lastEnd < endIso)) flags.push("MID_MONTH");
+      }
+      const price = entry.receivable.defaultUnitPrice as string;
+      return { templateLineId: null, kind: "EXTRACURRICULAR", receivableId: entry.receivableId, receivableCode: entry.receivable.code, receivableName: entry.receivable.name, unitLabel: entry.receivable.unitLabel, defaultUnitPrice: price, quantity: 1, amount: price, taxCategory: entry.receivable.taxCategory, scope: null, extracurricular: { classes, flags } };
+    });
+  }
   private async selectionPreview(
     client: any,
     schoolId: string,
     run: any,
     studentIds?: string[],
     templateLines: any[] = [],
+    extracurricular: { classes: any[] } = { classes: [] },
   ) {
     const asOf = this.asOf(run.billingMonth);
     const requestedStudentIds = studentIds ? [...new Set(studentIds)].sort() : null;
@@ -2314,19 +2488,21 @@ export class FinanceService {
             : null,
         });
     }
-    const promotionFacts = (await this.promotionFacts(client, schoolId, asOf, rosterStudentIds, templateLines.map((line) => line.receivableId))).sort((a: any, b: any) => a.studentId.localeCompare(b.studentId) || a.receivableId.localeCompare(b.receivableId) || a.policyId.localeCompare(b.policyId) || a.assignmentId.localeCompare(b.assignmentId));
+    const promotionFacts = (await this.promotionFacts(client, schoolId, asOf, rosterStudentIds, [...templateLines.map((line) => line.receivableId), ...extracurricular.classes.filter((item) => this.extracurricularBillable(item)).map((item) => item.receivableId)])).sort((a: any, b: any) => a.studentId.localeCompare(b.studentId) || a.receivableId.localeCompare(b.receivableId) || a.policyId.localeCompare(b.policyId) || a.assignmentId.localeCompare(b.assignmentId));
     // D11: coverage issued in an earlier SchoolYear still covers this month.
     const covered = await client.studentPromotionalCoverage.findMany({ where: { schoolId, studentId: { in: rosterStudentIds }, billingMonth: run.billingMonth }, select: { studentId: true, receivableId: true } });
     const coveredKeys = new Set(covered.map((item: any) => `${item.studentId}:${item.receivableId}`));
     // Decision 2026-10-02 §3.4: an eligible Student with no applicable template line (after scope) is skipped, never billed an empty Invoice.
     const applicable: any[] = [];
+    const extraByStudent = new Map<string, any[]>();
+    for (const item of eligible) extraByStudent.set(item.studentId, this.extracurricularLines(extracurricular, item.enrollment.id, run.billingMonth));
     for (const item of eligible) {
-      if (templateLines.some((line) => this.inScope(line, item))) applicable.push(item);
+      if (templateLines.some((line) => this.inScope(line, item)) || extraByStudent.get(item.studentId)!.length) applicable.push(item);
       else skips.push({ studentId: item.studentId, studentCode: item.studentCode, fullName: item.fullName, reason: "NO_APPLICABLE_LINES" });
     }
     const eligibleRows = applicable.sort((a, b) => a.studentId.localeCompare(b.studentId)).map(({ enrollment, assignment, ...item }) => ({
       ...item,
-      lines: templateLines.filter((line) => this.inScope(line, item) && !coveredKeys.has(`${item.studentId}:${line.receivableId}`)).map((line) => ({ ...this.withTax(this.evaluatePromotionLine(item.studentId, line, promotionFacts), line.taxCategory), templateLineId: line.templateLineId })),
+      lines: [...templateLines.filter((line) => this.inScope(line, item)), ...(extraByStudent.get(item.studentId) ?? [])].filter((line) => !coveredKeys.has(`${item.studentId}:${line.receivableId}`)).map((line) => ({ ...this.withTax(this.evaluatePromotionLine(item.studentId, line, promotionFacts), line.taxCategory), templateLineId: line.templateLineId, ...(line.kind === "EXTRACURRICULAR" ? { kind: "EXTRACURRICULAR", extracurricular: line.extracurricular } : {}) })),
     }));
     const facts = {
       runId: run.id,
@@ -2339,6 +2515,7 @@ export class FinanceService {
       },
       rosterStudentIds,
       templateLines: [...templateLines].sort((a: any, b: any) => a.receivableId.localeCompare(b.receivableId) || a.templateLineId.localeCompare(b.templateLineId)),
+      extracurricular: this.resolutionFacts(extracurricular),
        promotionFacts: promotionFacts.map((fact: any) => ({
         assignmentId: fact.assignmentId, studentId: fact.studentId, policyId: fact.policyId,
         versionId: fact.versionId, targetId: fact.targetId, receivableId: fact.receivableId,
@@ -2363,6 +2540,7 @@ export class FinanceService {
       snapshots: applicable.map((item) => ({
         ...item,
          calculatedLines: eligibleRows.find((row) => row.studentId === item.studentId)!.lines,
+         extracurricularLines: extraByStudent.get(item.studentId) ?? [],
       })),
     };
   }
@@ -2941,9 +3119,10 @@ export class FinanceService {
         message: "Chỉ có thể xem trước đợt thu nháp.",
       });
     const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, true, true);
-    const preview = await this.previewDeductions(this.prisma, schoolId, run, await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines));
-    const lineSummaries = this.previewLineSummaries(templateLines, preview.eligible);
-    return { ...preview, summary: this.previewSummary(preview), lineSummaries, lineTotal: lineSummaries.reduce((total: bigint, line: any) => total + BigInt(line.subtotal), 0n).toString() };
+    const extracurricular = await this.runResolution(this.prisma, schoolId, run);
+    const preview = await this.previewDeductions(this.prisma, schoolId, run, await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines, extracurricular));
+    const lineSummaries = [...this.previewLineSummaries(templateLines, preview.eligible), ...this.previewExtracurricularSummaries(extracurricular, preview.eligible)];
+    return { ...preview, summary: this.previewSummary(preview), lineSummaries, extracurricularClasses: this.previewExtracurricularClasses(extracurricular, preview.eligible), lineTotal: lineSummaries.reduce((total: bigint, line: any) => total + BigInt(line.subtotal), 0n).toString() };
   }
   // The preview shows the leave-day deduction proposed from current facts; it is not part of the READY
   // fingerprint because generation re-reads leave days and refund prices at generation time.
@@ -3006,7 +3185,7 @@ export class FinanceService {
             message: "Trạng thái đợt thu đã thay đổi.",
           });
         const templateLines = await this.templateSnapshot(tx, schoolId, run, false, true);
-        const preview = await this.selectionPreview(tx, schoolId, run, undefined, templateLines);
+        const preview = await this.selectionPreview(tx, schoolId, run, undefined, templateLines, await this.runResolution(tx, schoolId, run, true));
         if (preview.fingerprint !== previewFingerprint)
           throw new ConflictException({
             code: "PREVIEW_STALE",
@@ -3097,7 +3276,8 @@ export class FinanceService {
           });
         // Recheck every live fact confirmed by READY before any generation writes.
         const currentTemplate = await this.templateSnapshot(tx, schoolId, run, false, true);
-        const roster = await this.selectionPreview(tx, schoolId, run, undefined, currentTemplate);
+        const extracurricular = await this.runResolution(tx, schoolId, run, true);
+        const roster = await this.selectionPreview(tx, schoolId, run, undefined, currentTemplate, extracurricular);
         if (!run.readyPreviewFingerprint || roster.fingerprint !== run.readyPreviewFingerprint)
           throw new ConflictException({
             code: "PREVIEW_STALE",
@@ -3108,7 +3288,7 @@ export class FinanceService {
         const snapshots = roster.snapshots as any[];
         // An empty template is allowed; generation is refused only when no Student would get any line.
         if (!snapshots.length && roster.skips.some((item: any) => item.reason === "NO_APPLICABLE_LINES")) throw new ConflictException({ code: "COLLECTION_RUN_NO_APPLICABLE_LINES", message: "Không học sinh nào có khoản thu áp dụng. Hãy thêm khoản thu hoặc kiểm tra phạm vi trước khi tạo hóa đơn." });
-        await tx.collectionRun.update({ where: { id: run.id }, data: { templateSnapshot: templateLines } });
+        await tx.collectionRun.update({ where: { id: run.id }, data: { templateSnapshot: templateLines, extracurricularSnapshot: this.snapshotOfResolution(extracurricular) as any } });
         const deductions = await this.deductionContext(tx, schoolId, run.billingMonth, snapshots.map((item: any) => item.studentId), templateLines.map((line: any) => line.receivableId));
         const generation = await tx.collectionRunGeneration.create({ data: { schoolId, collectionRunId: run.id, operationId: operation.id, actorIdentityId: identityId, membershipId: actor.membershipId, totalCount: snapshots.length + roster.skips.length, processedCount: roster.skips.length, eligibleCount: 0, skippedCount: roster.skips.length } });
         await tx.collectionRunGenerationItem.createMany({ data: [
@@ -3235,7 +3415,7 @@ export class FinanceService {
       if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
         const templateLines = run.templateSnapshot as any[] | null;
         if (!Array.isArray(templateLines)) throw new ConflictException({ code: "COLLECTION_RUN_TEMPLATE_SNAPSHOT_MISSING", message: "Không tìm thấy snapshot khoản thu của đợt đã tạo." });
-        const roster = await this.selectionPreview(tx, schoolId, run, [studentId], templateLines);
+        const roster = await this.selectionPreview(tx, schoolId, run, [studentId], templateLines, await this.runResolution(tx, schoolId, run, true));
         const candidate = roster.snapshots[0] as any;
         const skipped = [...roster.skips];
         const insertedStudentIds = candidate
@@ -3359,7 +3539,7 @@ export class FinanceService {
       const proposal = this.deductionProposal(BigInt(context?.receivables.get(receivableId)?.refundUnitPrice ?? 0), run.billingMonth, days);
       return { refundUnitPriceSnapshot: proposal.refundUnitPriceSnapshot.toString(), deductionQuantity: proposal.deductionQuantity, proposedDeductionQuantity: proposal.proposedDeductionQuantity, deductionAmount: proposal.deductionAmount.toString(), ...(proposal.deductionSource ? { deductionSource: proposal.deductionSource } : {}) };
     };
-    const templateIds = new Set(templateLines.map((line: any) => line.receivableId));
+    const templateIds = new Set([...templateLines.map((line: any) => line.receivableId), ...(item.extracurricularLines ?? []).map((line: any) => line.receivableId)]);
     // D4: a receivable refunded on last month's Invoice but not charged this month still gets its "Bớt" on a "Thu 0" line.
     const refundOnly = days.length ? [...(context?.previous.get(item.studentId) ?? [])].filter((id) => !templateIds.has(id) && context?.receivables.get(id)).map((id) => {
       const receivable = context!.receivables.get(id);
@@ -3381,14 +3561,16 @@ export class FinanceService {
         rosterAsOf: this.asOf(run.billingMonth).toISOString(), enrollmentId: enrollment.id,
         enrollmentInterval: [enrollment.effectiveFrom.toISOString(), enrollment.endedOn?.toISOString() ?? null],
         assignmentId: assignment.id, assignmentInterval: [assignment.effectiveFrom.toISOString(), assignment.effectiveTo?.toISOString() ?? null] },
-      lines: templateLines.filter((line: any) => !item.calculatedLines || item.calculatedLines.some((candidate: any) => candidate.receivableId === line.receivableId)).map((line: any) => {
+      lines: [...templateLines, ...(item.extracurricularLines ?? [])].filter((line: any) => !item.calculatedLines || item.calculatedLines.some((candidate: any) => candidate.receivableId === line.receivableId)).map((line: any) => {
         const calculated = item.calculatedLines?.find((candidate: any) => candidate.receivableId === line.receivableId) ?? this.evaluatePromotionLine(item.studentId, line, []);
         const category: TaxCategory = line.taxCategory ?? "NOT_DECLARED";
         const lineDeduction = deduction(line.receivableId);
         const netAmount = BigInt(calculated.netAmount) - BigInt(lineDeduction.deductionAmount);
         const tax = taxedLine(netAmount, category);
         // Provenance snapshot: the template line and its scope as they were when the Invoice was generated.
-        const source = { sourceKind: line.kind === "FIXED" ? "TEMPLATE_FIXED" : "TEMPLATE_FLEXIBLE", sourceDetail: { templateLineId: line.templateLineId, scope: line.scope ?? { type: "ALL", label: "Toàn bộ", classes: [], students: [] } } };
+        const source = line.kind === "EXTRACURRICULAR"
+          ? { sourceKind: "EXTRACURRICULAR", sourceDetail: { receivableId: line.receivableId, classes: line.extracurricular.classes, flags: line.extracurricular.flags } }
+          : { sourceKind: line.kind === "FIXED" ? "TEMPLATE_FIXED" : "TEMPLATE_FLEXIBLE", sourceDetail: { templateLineId: line.templateLineId, scope: line.scope ?? { type: "ALL", label: "Toàn bộ", classes: [], students: [] } } };
         return { ...source, channel: taxChannel(category), schoolId, receivableId: line.receivableId, receivableCodeSnapshot: line.receivableCode, receivableNameSnapshot: line.receivableName, unitLabelSnapshot: line.unitLabel, defaultUnitPriceSnapshot: line.defaultUnitPrice, unitPrice: line.defaultUnitPrice, quantity: line.quantity, amount: tax.amount.toString(), grossAmount: calculated.grossAmount, discountAmount: calculated.discountAmount, netAmount: netAmount.toString(), ...lineDeduction, taxCategorySnapshot: category, vatRateSnapshot: tax.vatRateSnapshot, vatAmount: tax.vatAmount.toString(), promotionEvaluationProvenance: calculated.promotionEvaluation };
       }).concat(refundOnly as any),
     };

@@ -1916,4 +1916,113 @@ describe("FinanceWorkspace", () => {
       await waitFor(() => expect(screen.queryByText("Học phí tháng")).toBeNull());
     });
   });
+
+  describe("extracurricular classes in the run (Story 5.36)", () => {
+    const draftRun = { ...run, templateLines: [] };
+    const classes = [
+      { id: "a1", name: "Tiếng Anh A1 (T2-T4)", receivableId: "english", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", memberCount: 18, transferredCount: 0, excluded: false, receivableActive: true },
+      { id: "a2", name: "Tiếng Anh A2 (T3-T5)", receivableId: "english", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", memberCount: 15, transferredCount: 1, excluded: false, receivableActive: true },
+      { id: "vo", name: "Võ thuật", receivableId: "martial", receivableName: "Võ thuật", unitLabel: "tháng", defaultUnitPrice: "450000", memberCount: 10, transferredCount: 0, excluded: true, receivableActive: true },
+      { id: "ve", name: "Vẽ cũ", receivableId: "drawing", receivableName: "Năng khiếu vẽ", unitLabel: "tháng", defaultUnitPrice: "400000", memberCount: 3, transferredCount: 0, excluded: false, receivableActive: false },
+    ];
+    const previewBody = { run: draftRun, fingerprint: "fp", eligible: [], skips: [], summary: { eligibleCount: 32, skippedCount: 0, expectedTotal: "19200000" }, lineTotal: "19200000", extracurricularClasses: [{ id: "a1", billedStudents: 18, subtotal: "10800000" }, { id: "a2", billedStudents: 14, subtotal: "8400000" }, { id: "vo", billedStudents: 0, subtotal: "0" }], lineSummaries: [{ templateLineId: null, receivableId: "english", receivableName: "Tiếng Anh bản ngữ", kind: "EXTRACURRICULAR", scope: { type: "CLASSES", label: "Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5)" }, studentCount: 32, subtotal: "19200000", note: "1 HS chuyển lớp tính một lần" }] };
+    const route = (extra: (url: string, init?: RequestInit) => unknown = () => undefined) => vi.fn((url: string, init?: RequestInit) => {
+      const custom = extra(String(url), init);
+      if (custom) return Promise.resolve(custom as Response);
+      if (String(url).includes("/extracurricular-classes")) return Promise.resolve(response({ classes }));
+      if (String(url).includes("/preview")) return Promise.resolve(response(previewBody));
+      if (String(url).includes("collection-run-candidates")) return Promise.resolve(response(candidates));
+      if (String(url).includes("collection-runs")) return Promise.resolve(response({ runs: [draftRun] }));
+      return Promise.resolve(response({ groups: [], receivables: [] }));
+    });
+    const renderRun = async (fetch: ReturnType<typeof route>, props: object = {}) => { vi.stubGlobal("fetch", fetch); render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} {...props} />); await openRun(); await screen.findByRole("table", { name: /Lớp ngoại khóa tính vào đợt thu tháng 09\/2026/ }); };
+
+    it("lists the run's classes with month members, transfer notes, status badges and server subtotals after the preview", async () => {
+      const open = vi.fn();
+      await renderRun(route(), { onOpenExtracurricularClasses: open });
+      const table = screen.getByRole("table", { name: /Lớp ngoại khóa tính vào đợt thu tháng 09\/2026/ });
+      expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Lớp ngoại khóa", "Khoản thu", "Số HS trong tháng", "Tạm tính", "Trạng thái trong đợt", "Tùy chọn"]);
+      const cells = (name: string) => within(within(table).getAllByRole("row").find((row) => within(row).queryAllByRole("cell")[0]?.textContent === name)!).getAllByRole("cell").map((cell) => cell.textContent);
+      expect(cells("Tiếng Anh A1 (T2-T4)")).toEqual(["Tiếng Anh A1 (T2-T4)", "Tiếng Anh bản ngữ600.000 đ/tháng", "18", "—", "Tính trong đợt", "Loại khỏi đợt này"]);
+      expect(cells("Tiếng Anh A2 (T3-T5)")[2]).toBe("151 HS chuyển từ lớp khác, tính một lần");
+      expect(cells("Võ thuật")).toEqual(["Võ thuật", "Võ thuật450.000 đ/tháng", "10", "—", "Loại khỏi đợt này", "Khôi phục"]);
+      expect(cells("Vẽ cũ")[4]).toBe("Khoản thu ngừng áp dụng");
+      expect(cells("Vẽ cũ")[5]).toBe("");
+      fireEvent.click(within(table).getByRole("button", { name: "Tiếng Anh A1 (T2-T4)" }));
+      expect(open).toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
+      await screen.findByRole("table", { name: "Tạm tính theo dòng khoản thu" });
+      expect(cells("Tiếng Anh A1 (T2-T4)")[3]).toBe("10.800.000 đ");
+      expect(cells("Tiếng Anh A2 (T3-T5)")[3]).toBe("8.400.000 đ");
+      expect(cells("Võ thuật")[3]).toBe("—");
+      const perLine = screen.getByRole("table", { name: "Tạm tính theo dòng khoản thu" });
+      const row = within(perLine).getByText("Tiếng Anh bản ngữ").closest("tr")!;
+      expect(within(row).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Tiếng Anh bản ngữ", "Ngoại khóa", "Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5)", "321 HS chuyển lớp tính một lần", "19.200.000 đ"]);
+    });
+
+    it("confirms before excluding or restoring a class, with an optional reason, the run version and a cleared preview", async () => {
+      const fetch = route((_url, init) => (init?.method === "PUT" ? response({ status: "COMPLETED", outcome: { ...draftRun, version: 3 } }) : undefined));
+      await renderRun(fetch);
+      fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
+      await screen.findByRole("table", { name: "Tạm tính theo dòng khoản thu" });
+      const trigger = screen.getByRole("button", { name: "Loại khỏi đợt này Tiếng Anh A1 (T2-T4)" });
+      fireEvent.click(trigger);
+      const dialog = screen.getByRole("dialog", { name: "Loại Tiếng Anh A1 (T2-T4) khỏi đợt này" });
+      expect(within(dialog).getByText("Thành viên của lớp sẽ không có dòng khoản thu ngoại khóa trong đợt này. Lớp và thành viên không thay đổi; cần xem trước lại.")).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Hủy" }));
+      expect(fetch.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "PUT")).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "Loại khỏi đợt này Tiếng Anh A1 (T2-T4)" }));
+      const again = screen.getByRole("dialog", { name: "Loại Tiếng Anh A1 (T2-T4) khỏi đợt này" });
+      fireEvent.change(within(again).getByLabelText("Lý do (không bắt buộc)"), { target: { value: "Lớp nghỉ cả tháng" } });
+      fireEvent.click(within(again).getByRole("button", { name: "Loại khỏi đợt này" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      let put = fetch.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")!;
+      expect(String(put[0]).endsWith("/collection-runs/" + run.id + "/extracurricular-classes/a1/exclusion")).toBe(true);
+      expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({ excluded: true, reason: "Lớp nghỉ cả tháng", expectedVersion: 2 });
+      // The stale preview is dropped: the per-line table is gone until a new preview.
+      expect(screen.queryByRole("table", { name: "Tạm tính theo dòng khoản thu" })).toBeNull();
+      fireEvent.click(await screen.findByRole("button", { name: "Khôi phục Võ thuật" }));
+      const restore = screen.getByRole("dialog", { name: "Khôi phục Võ thuật vào đợt này" });
+      expect(within(restore).getByText("Thành viên có hiệu lực trong tháng sẽ được tính lại khoản thu của lớp; cần xem trước lại.")).toBeTruthy();
+      fireEvent.click(within(restore).getByRole("button", { name: "Khôi phục" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      put = fetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT")[1]!;
+      expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({ excluded: false, expectedVersion: 3 });
+    });
+
+    it("shows extracurricular source badges with flags and lets Finance adjust a flagged line with a required reason", async () => {
+      const generatedRun = { ...run, status: "GENERATED", invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "600000" }] };
+      const lines = [
+        { id: "line-fee", receivableId: "fee", receivableName: "Học phí", sourceBadge: { kind: "TEMPLATE_FIXED", label: "Cố định", flags: [], detail: "" }, unitLabel: "tháng", unitPrice: "1000", quantity: "1", amount: "1000" },
+        { id: "line-en", receivableId: "english", receivableName: "Tiếng Anh bản ngữ", sourceBadge: { kind: "EXTRACURRICULAR", label: "Ngoại khóa · Tiếng Anh A1 → Tiếng Anh A2", flags: [{ code: "CLASS_CHANGE", label: "Chuyển lớp trong tháng" }], detail: "Tiếng Anh A1 đến 15/10, Tiếng Anh A2 từ 16/10 · gộp một dòng, không thu trùng" }, unitLabel: "tháng", unitPrice: "600000", quantity: "1", amount: "600000" },
+        { id: "line-ve", receivableId: "drawing", receivableName: "Năng khiếu vẽ", sourceBadge: { kind: "EXTRACURRICULAR", label: "Ngoại khóa · Vẽ thiếu nhi", flags: [], detail: "" }, unitLabel: "tháng", unitPrice: "400000", quantity: "1", amount: "400000" },
+      ].map((line) => ({ ...line, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }));
+      const draft = { id: "invoice-a", status: "DRAFT", total: "601000", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines };
+      const fetch = vi.fn((url: string, init?: RequestInit) => Promise.resolve(init?.method === "PUT" ? response({ status: "COMPLETED", outcome: { ...draft, lines: lines.map((line) => (line.id === "line-en" ? { ...line, unitPrice: "300000", amount: "300000", overrideReason: "Vào lớp giữa tháng" } : line)) } }) : String(url).includes("/invoices/") ? response(draft) : String(url).includes("collection-run-candidates") ? response(candidates) : String(url).includes("collection-runs") ? response({ runs: [generatedRun] }) : response({ groups: [], receivables: [] })));
+      vi.stubGlobal("fetch", fetch);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+      await openRun();
+      fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
+      const badges = await screen.findAllByTitle("Nguồn");
+      expect(badges.map((badge) => badge.textContent)).toEqual(["Cố định", "Ngoại khóa · Tiếng Anh A1 → Tiếng Anh A2", "Ngoại khóa · Vẽ thiếu nhi"]);
+      expect(screen.getByText("Chuyển lớp trong tháng")).toBeTruthy();
+      expect(screen.getByText("Tiếng Anh A1 đến 15/10, Tiếng Anh A2 từ 16/10 · gộp một dòng, không thu trùng")).toBeTruthy();
+      // Only the flagged line offers "Điều chỉnh".
+      expect(screen.getAllByRole("button", { name: "Điều chỉnh" })).toHaveLength(1);
+      fireEvent.click(screen.getByRole("button", { name: "Điều chỉnh" }));
+      const dialog = screen.getByRole("dialog", { name: "Điều chỉnh dòng · Tiếng Anh bản ngữ" });
+      expect(dialog.classList.contains("dialog-wide")).toBe(true);
+      expect(within(dialog).getByText(/Chuyển lớp trong tháng: Tiếng Anh A1 đến 15\/10/)).toBeTruthy();
+      expect(within(dialog).getByLabelText("Số lượng")).toHaveProperty("value", "1");
+      expect(within(dialog).getByLabelText("Đơn giá (VND)")).toHaveProperty("value", "600000");
+      fireEvent.change(within(dialog).getByLabelText("Đơn giá (VND)"), { target: { value: "300000" } });
+      expect(within(dialog).getByLabelText("Lý do điều chỉnh")).toHaveProperty("required", true);
+      fireEvent.change(within(dialog).getByLabelText("Lý do điều chỉnh"), { target: { value: "Vào lớp giữa tháng" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu điều chỉnh" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      const put = fetch.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")!;
+      expect(String(put[0]).endsWith("/invoices/invoice-a/lines/line-en")).toBe(true);
+      expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({ quantity: "1", unitPrice: "300000", overrideReason: "Vào lớp giữa tháng" });
+    });
+  });
 });
