@@ -84,7 +84,7 @@ ExtracurricularMembership
 
 - Finance sửa trực tiếp **tên, đơn vị tính, đơn giá mặc định** của Receivable; bắt buộc lý do, audit before/after, Operation/idempotency. Không có phiên bản giá theo ngày hiệu lực.
 - InvoiceLine đã tạo giữ snapshot tên/đơn vị/giá; sửa catalog không rewrite Invoice DRAFT/ISSUED.
-- Giá mới áp dụng cho dòng tạo sau đó và cho CollectionRun còn DRAFT (preview stale, phải xem trước lại); run READY trở đi dùng snapshot đã chốt.
+- Giá mới áp dụng cho dòng tạo sau đó và cho CollectionRun còn DRAFT (preview stale, phải xem trước lại); run READY bị chặn generate (`PREVIEW_STALE`) đến khi xem trước lại; run GENERATED trở đi dùng snapshot đã chốt. Đơn giá phải `> 0` như khi tạo.
 - Đơn giá mặc định phải `>=` giá hoàn trả hiện tại (amendment A1 2026-10-01). Đổi nhóm/loại vẫn theo §3.1.
 
 ## 4. Impact analysis
