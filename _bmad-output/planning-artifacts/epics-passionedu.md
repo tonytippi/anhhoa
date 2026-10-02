@@ -482,6 +482,11 @@ Source: sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-c
 **Then** the API refuses without disclosing any fact
 **And** the aggregates do not read or change `Class`, `EnrollmentClassAssignment`, `StaffClassAssignment` or staff authorization.
 
+**Given** an extracurricular class, `ACTIVE` or `INACTIVE`
+**When** Finance renames it with a non-empty name and a required reason
+**Then** the name is stored with audit before/after and Operation/idempotency, a blank, duplicate-in-SchoolYear or other-School request is refused without disclosing facts
+**And** no other class column changes.
+
 ### Story 5.35: Đợt thu tự thêm khoản cố định và phạm vi khoản linh hoạt
 
 As a Finance Manager,

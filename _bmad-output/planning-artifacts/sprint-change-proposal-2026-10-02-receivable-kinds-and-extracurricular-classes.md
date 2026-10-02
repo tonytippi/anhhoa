@@ -73,6 +73,7 @@ ExtracurricularMembership
 - Một Student có thể thuộc nhiều lớp ngoại khóa; không có hai membership chồng thời gian trong cùng một lớp.
 - Thêm/kết thúc membership hàng loạt (chọn nhiều Student từ lớp chính thức) với một reason chung, ghi audit từng membership.
 - Mutation dùng Operation/idempotency như Finance hiện tại; quyền giống quản lý catalog Finance.
+- Đổi tên lớp ngoại khóa kèm lý do và audit (bổ sung 2026-10-02); cho cả lớp đang hoạt động và ngừng hoạt động, các cột khác vẫn bất biến.
 - Ngoài phạm vi: giáo viên ngoại khóa, lịch học, điểm danh buổi ngoại khóa, Parent projection.
 
 ### 3.4 Bổ sung đã duyệt (2026-10-02)

@@ -67,6 +67,9 @@ describe('FinanceService validation', () => {
     await expect(end({ effectiveTo: undefined })).rejects.toMatchObject({ status: 400 });
     await expect(end({ reason: ' ' })).rejects.toMatchObject({ status: 400 });
     await expect(service.transitionExtracurricularClass('identity', school, classId, crypto.randomUUID(), crypto.randomUUID(), { status: 'PAUSED', reason: 'x' })).rejects.toMatchObject({ status: 400 });
+    const rename = (body: object) => service.renameExtracurricularClass('identity', school, classId, crypto.randomUUID(), crypto.randomUUID(), { name: 'Anh B', reason: 'Đổi', ...body });
+    await expect(rename({ name: ' ' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { name: expect.any(String) } } });
+    await expect(rename({ reason: '' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
     await expect(service.extracurricularClass('identity', school, classId, { month: '2026-13' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { month: expect.any(String) } } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });

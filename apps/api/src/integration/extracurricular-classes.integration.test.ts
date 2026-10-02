@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { AuthorizationService } from "../modules/authorization/authorization.service.js";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../modules/identity/prisma.service.js";
 import { FinanceService } from "../modules/finance/finance.service.js";
 
@@ -30,10 +31,10 @@ async function setup(label = "Ngoại khóa") {
   const tuition = await receivable("FIXED", "Học phí");
   const retired = await receivable("EXTRACURRICULAR", "Võ cũ");
   await finance.transitionReceivable(identity.id, school.id, retired, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng" });
-  const enroll = async (index: number, options: { yearId?: string; lifecycle?: "ENROLLED" | "WITHDRAWN" | "SCHEDULED_TO_START" | "ON_LEAVE" } = {}) => {
+  const enroll = async (index: number, options: { yearId?: string; effectiveFrom?: string; lifecycle?: "ENROLLED" | "WITHDRAWN" | "SCHEDULED_TO_START" | "ON_LEAVE" } = {}) => {
     const student = await prisma.student.create({ data: { schoolId: school.id, studentCode: `XC-${String(index).padStart(3, "0")}-${uuid().slice(0, 4)}`, fullName: `Bé ${index}`, dateOfBirth: date("2022-01-01") } });
     const target = options.yearId ?? year.id;
-    const row = await prisma.studentEnrollment.create({ data: { schoolId: school.id, studentId: student.id, schoolYearId: target, classId: target === year.id ? official.id : null, className: target === year.id ? official.name : null, lifecycle: options.lifecycle ?? "ENROLLED", effectiveFrom: date("2026-09-01"), ...(options.lifecycle === "WITHDRAWN" || options.lifecycle === "ON_LEAVE" ? { endedOn: date("2026-09-30") } : {}), schoolYearName: "n", schoolYearStartsOn: date("2026-08-01"), schoolYearEndsOn: date("2027-08-01") } });
+    const row = await prisma.studentEnrollment.create({ data: { schoolId: school.id, studentId: student.id, schoolYearId: target, classId: target === year.id ? official.id : null, className: target === year.id ? official.name : null, lifecycle: options.lifecycle ?? "ENROLLED", effectiveFrom: date(options.effectiveFrom ?? "2026-09-01"), ...(options.lifecycle === "WITHDRAWN" || options.lifecycle === "ON_LEAVE" ? { endedOn: date("2026-09-30") } : {}), schoolYearName: "n", schoolYearStartsOn: date("2026-08-01"), schoolYearEndsOn: date("2027-08-01") } });
     return row.id;
   };
   const students = [] as string[];
@@ -80,7 +81,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     // The database also refuses a non-EXTRACURRICULAR Receivable and cross-School graphs.
     await expect(prisma.extracurricularClass.create({ data: { schoolId: s.school.id, schoolYearId: s.year.id, name: "Direct", receivableId: s.tuition } })).rejects.toThrow(/EXTRACURRICULAR/);
     await expect(prisma.extracurricularClass.create({ data: { schoolId: s.school.id, schoolYearId: s.year.id, name: "Direct", receivableId: foreignReceivable } })).rejects.toThrow();
-    await expect(prisma.extracurricularClass.update({ where: { id: id(a1) }, data: { name: "Đổi" } })).rejects.toThrow(/append-only/);
+    await expect(prisma.extracurricularClass.update({ where: { id: id(a1) }, data: { receivableId: s.drawing } })).rejects.toThrow(/append-only/);
+    await expect(prisma.extracurricularClass.update({ where: { id: id(a1) }, data: { createdAt: new Date() } })).rejects.toThrow(/append-only/);
+    await expect(prisma.extracurricularClass.delete({ where: { id: id(a1) } })).rejects.toThrow(/append-only/);
     // List: shared names and receivable options.
     const list = await finance.extracurricularClasses(s.identity.id, s.school.id, { schoolYearId: s.year.id });
     expect(list.classes.find((item) => item.name === "Tiếng Anh A1")).toMatchObject({ sharedWith: ["Tiếng Anh A2"], currentMembers: 0, receivableName: "Tiếng Anh bản ngữ", defaultUnitPrice: "600000" });
@@ -185,6 +188,114 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     expect(await prisma.staffClassAssignment.count({ where: { schoolId: s.school.id } })).toBe(0);
   });
 
+  it("keeps memberships inside the enrollment interval on add and end, in the API and the database", async () => {
+    const s = await setup();
+    const classId = id(await createClass(s, "Tiếng Anh A1"));
+    const scheduled = await s.enroll(20, { lifecycle: "SCHEDULED_TO_START", effectiveFrom: "2026-11-01" });
+    await expect(add(s, classId, [scheduled], { effectiveFrom: "2026-10-15" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveFrom: expect.any(String) } } });
+    expect(await prisma.extracurricularMembership.count({ where: { schoolId: s.school.id } })).toBe(0);
+    const opId = (await prisma.operation.create({ data: { schoolId: s.school.id, membershipId: s.membership.id, actorIdentityId: s.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: s.membership.id, route: "direct", fingerprint: "direct", idempotencyKey: uuid(), status: "COMPLETED" } })).id;
+    await expect(prisma.extracurricularMembership.create({ data: { schoolId: s.school.id, schoolYearId: s.year.id, extracurricularClassId: classId, enrollmentId: scheduled, effectiveFrom: date("2026-10-15"), reason: "x", actorIdentityId: s.identity.id, createdByMembershipId: s.membership.id, createOperationId: opId } })).rejects.toThrow(/enrollment interval/);
+    await expect(add(s, classId, [scheduled], { effectiveFrom: "2026-11-01" })).resolves.toMatchObject({ status: "COMPLETED" });
+
+    // A Student withdrawn later (roster module, not blocked here): the end date may not run past the enrollment end.
+    const [stayer] = s.students as [string];
+    const open = (await add(s, classId, [stayer])).outcome as any;
+    await prisma.studentEnrollment.update({ where: { id: stayer }, data: { lifecycle: "WITHDRAWN", endedOn: date("2026-11-01") } });
+    const end = (effectiveTo: string) => finance.endExtracurricularMemberships(s.identity.id, s.school.id, classId, uuid(), uuid(), { membershipIds: [open.memberships[0].id], effectiveTo, reason: "Nghỉ học" });
+    await expect(end("2026-11-15")).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveTo: expect.any(String) } } });
+    await expect(end("2026-11-01")).rejects.toMatchObject({ status: 400 });
+    await expect(prisma.$executeRaw`UPDATE "ExtracurricularMembership" SET "effectiveTo" = '2026-11-15', "endReason" = 'x', "endedByMembershipId" = ${s.membership.id}::uuid, "endOperationId" = ${opId}::uuid, "endedAt" = now() WHERE "id" = ${open.memberships[0].id}::uuid`).rejects.toThrow(/enrollment interval/);
+    expect((await end("2026-10-31")).outcome).toMatchObject({ memberships: [{ effectiveTo: "2026-10-31" }] });
+    // An open membership on an ended enrollment cannot be created either.
+    await expect(prisma.$executeRaw`INSERT INTO "ExtracurricularMembership" ("schoolId","schoolYearId","extracurricularClassId","enrollmentId","effectiveFrom","reason","actorIdentityId","createdByMembershipId","createOperationId") VALUES (${s.school.id}::uuid, ${s.year.id}::uuid, ${classId}::uuid, ${stayer}::uuid, '2026-12-01', 'x', ${s.identity.id}::uuid, ${s.membership.id}::uuid, ${opId}::uuid)`).rejects.toThrow(/enrollment interval/);
+  });
+
+  it("requires complete end provenance, rejecting partial or direct end updates", async () => {
+    const s = await setup();
+    const classId = id(await createClass(s, "Tiếng Anh A1"));
+    const created = (await add(s, classId, [s.students[0]!])).outcome as any;
+    const membershipId = created.memberships[0].id;
+    const opId = (await prisma.operation.findFirstOrThrow({ where: { schoolId: s.school.id } })).id;
+    await expect(prisma.extracurricularMembership.update({ where: { id: membershipId }, data: { effectiveTo: date("2026-10-31"), endReason: "x", endOperationId: opId } })).rejects.toThrow(/complete end provenance/);
+    await expect(prisma.extracurricularMembership.update({ where: { id: membershipId }, data: { effectiveTo: date("2026-10-31"), endReason: "x", endOperationId: opId, endedByMembershipId: s.membership.id } })).rejects.toThrow(/complete end provenance/);
+    // Even history-cleanup mode (which skips the guard trigger) cannot persist a half-set end.
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
+      await tx.$executeRaw`UPDATE "ExtracurricularMembership" SET "effectiveTo" = '2026-10-31', "endReason" = 'x' WHERE "id" = ${membershipId}::uuid`;
+    })).rejects.toThrow(/end_provenance_complete/);
+    expect(await prisma.extracurricularMembership.findUniqueOrThrow({ where: { id: membershipId } })).toMatchObject({ effectiveTo: null, endReason: null, endedAt: null });
+    const ended = await finance.endExtracurricularMemberships(s.identity.id, s.school.id, classId, uuid(), uuid(), { membershipIds: [membershipId], effectiveTo: "2026-10-31", reason: "Hết khóa" });
+    expect(await prisma.extracurricularMembership.findUniqueOrThrow({ where: { id: membershipId } })).toMatchObject({ endReason: "Hết khóa", endOperationId: ended.id, endedByMembershipId: s.membership.id, endedAt: expect.any(Date) });
+  });
+
+  it("serializes class creation against receivable deactivation and the database requires an ACTIVE Receivable", async () => {
+    const s = await setup();
+    // Deactivation in flight (row locked, INACTIVE transition uncommitted): class creation waits, then is refused.
+    const operation = await prisma.operation.create({ data: { schoolId: s.school.id, membershipId: s.membership.id, actorIdentityId: s.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: s.membership.id, route: "direct", fingerprint: "direct", idempotencyKey: uuid(), status: "COMPLETED" } });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let ready!: () => void;
+    const started = new Promise<void>((resolve) => { ready = resolve; });
+    const deactivating = prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${s.drawing}::uuid AND "schoolId" = ${s.school.id}::uuid FOR UPDATE`;
+      await tx.receivableLifecycleTransition.create({ data: { schoolId: s.school.id, receivableId: s.drawing, previousStatus: "ACTIVE", status: "INACTIVE", reason: "Ngừng", actorIdentityId: s.identity.id, membershipId: s.membership.id, operationId: operation.id, sequence: 2 } });
+      ready();
+      await gate;
+    }, { timeout: 30000, maxWait: 30000 });
+    deactivating.catch(() => ready());
+    await started;
+    let settled = false;
+    const creating = createClass(s, "Vẽ", s.drawing).then((value) => { settled = true; return value; }, (error) => { settled = true; throw error; });
+    creating.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(settled).toBe(false);
+    release();
+    await deactivating;
+    await expect(creating).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableId: expect.any(String) } } });
+    expect(await prisma.extracurricularClass.count({ where: { schoolId: s.school.id, receivableId: s.drawing } })).toBe(0);
+    // Defense in depth: the database refuses a class on a receivable whose latest lifecycle is INACTIVE.
+    await expect(prisma.extracurricularClass.create({ data: { schoolId: s.school.id, schoolYearId: s.year.id, name: "Direct", receivableId: s.drawing } })).rejects.toThrow(/ACTIVE Receivable/);
+    // A class created first keeps working: deactivating the receivable afterwards is allowed and leaves the class (and its history) intact.
+    const kept = id(await createClass(s, "Tiếng Anh A1"));
+    await finance.transitionReceivable(s.identity.id, s.school.id, s.english, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng khoản" });
+    expect(await prisma.extracurricularClass.count({ where: { id: kept } })).toBe(1);
+  });
+
+  it("renames a class with reason and audit for ACTIVE and INACTIVE classes, refusing blank, duplicate and foreign requests", async () => {
+    const s = await setup();
+    const foreign = await setup("Foreign");
+    const a1 = id(await createClass(s, "Tiếng Anh A1"));
+    await createClass(s, "Tiếng Anh A2");
+    const foreignClass = id(await createClass(foreign, "Foreign lớp"));
+    const rename = (classId: string, body: object, key = uuid(), actor: Setup = s) => finance.renameExtracurricularClass(actor.identity.id, actor.school.id, classId, key, uuid(), body);
+    const key = uuid();
+    const renamed = await rename(a1, { name: "  Tiếng Anh nâng cao  ", reason: "Đổi tên theo chương trình" }, key);
+    expect(renamed.outcome).toMatchObject({ id: a1, name: "Tiếng Anh nâng cao", status: "ACTIVE" });
+    expect(await prisma.extracurricularClass.findUniqueOrThrow({ where: { id: a1 } })).toMatchObject({ name: "Tiếng Anh nâng cao", receivableId: s.english });
+    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: s.school.id, action: "EXTRACURRICULAR_CLASS_RENAMED" } })).toMatchObject({ reason: "Đổi tên theo chương trình", membershipId: s.membership.id, provenance: { operationId: renamed.id, oldValue: { name: "Tiếng Anh A1" }, newValue: { name: "Tiếng Anh nâng cao" } } });
+    // Replay by key returns the stored outcome without a second audit; a changed body conflicts.
+    expect(await rename(a1, { name: "Tiếng Anh nâng cao", reason: "Đổi tên theo chương trình" }, key)).toEqual({ ...renamed, outcome: renamed.outcome });
+    await expect(rename(a1, { name: "Khác", reason: "x" }, key)).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
+    expect(await prisma.auditRecord.count({ where: { schoolId: s.school.id, action: "EXTRACURRICULAR_CLASS_RENAMED" } })).toBe(1);
+    // Validation: blank name, missing reason, same name, name already used in the school year.
+    await expect(rename(a1, { name: "   ", reason: "x" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { name: expect.any(String) } } });
+    await expect(rename(a1, { name: "Mới", reason: " " })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
+    await expect(rename(a1, { name: "Tiếng Anh nâng cao", reason: "x" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { name: expect.any(String) } } });
+    await expect(rename(a1, { name: "Tiếng Anh A2", reason: "x" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { name: expect.any(String) } } });
+    // Allowed while INACTIVE too.
+    await finance.transitionExtracurricularClass(s.identity.id, s.school.id, a1, uuid(), uuid(), { status: "INACTIVE", reason: "Hết khóa" });
+    expect((await rename(a1, { name: "Tiếng Anh cũ", reason: "Lưu trữ" })).outcome).toMatchObject({ name: "Tiếng Anh cũ", status: "INACTIVE" });
+    // Cross-School and missing look identical, and nothing changes.
+    const missing = async (call: () => Promise<unknown>) => call().then(() => null, (error) => ({ status: error.status, code: error.response?.code }));
+    expect(await missing(() => rename(foreignClass, { name: "Hack", reason: "x" }))).toEqual({ status: 404, code: "EXTRACURRICULAR_CLASS_NOT_FOUND" });
+    expect(await missing(() => rename(uuid(), { name: "Hack", reason: "x" }))).toEqual({ status: 404, code: "EXTRACURRICULAR_CLASS_NOT_FOUND" });
+    expect((await prisma.extracurricularClass.findUniqueOrThrow({ where: { id: foreignClass } })).name).toBe("Foreign lớp");
+    // Capability.
+    await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: s.school.id, capability: "FINANCE_MANAGE" } });
+    await expect(rename(a1, { name: "Không quyền", reason: "x" })).rejects.toMatchObject({ status: 403 });
+  });
+
   it("replays a bulk add by key, rejects a changed body and re-authorizes, and refuses foreign Schools without leaking facts", async () => {
     const s = await setup();
     const foreign = await setup("Foreign");
@@ -224,7 +335,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     await add(s, a1, [full], { effectiveFrom: "2026-09-01" });
     await add(s, a1, [leaver], { effectiveFrom: "2026-09-01" });
     await add(s, a1, [joiner], { effectiveFrom: "2026-10-14" });
-    await add(s, a1, [earlier], { effectiveFrom: "2026-08-15", effectiveTo: "2026-09-30" });
+    await add(s, a1, [earlier], { effectiveFrom: "2026-09-01", effectiveTo: "2026-09-30" });
     const leaverRow = await prisma.extracurricularMembership.findFirstOrThrow({ where: { schoolId: s.school.id, enrollmentId: leaver } });
     await finance.endExtracurricularMemberships(s.identity.id, s.school.id, a1, uuid(), uuid(), { membershipIds: [leaverRow.id], effectiveTo: "2026-10-15", reason: "Chuyển lớp" });
     await add(s, a2, [leaver], { effectiveFrom: "2026-10-16" });

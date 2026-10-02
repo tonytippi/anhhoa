@@ -9,7 +9,7 @@ const member = (overrides = {}) => ({ id: "m1", enrollmentId: "e1", studentCode:
 const detail = (overrides = {}) => ({ class: { ...klass(), schoolYearName: "2026-2027" }, month: { month: "2026-10", current: 2, counted: 4, midMonth: 2 }, officialClasses: [{ id: "c1", name: "Chồi 3B" }], total: 4, members: [member(), member({ id: "m2", enrollmentId: "e2", studentCode: "AH-104", fullName: "Bé Minh Anh", effectiveTo: "2026-10-15", open: false, flags: ["LEFT_IN_MONTH"], transferNote: "Chuyển sang Tiếng Anh A2 (T3-T5) từ 16/10/2026" }), member({ id: "m3", enrollmentId: "e3", studentCode: "AH-133", fullName: "Bé An Nhiên", effectiveFrom: "2026-10-14", flags: ["JOINED_IN_MONTH"] }), member({ id: "m4", enrollmentId: "e4", studentCode: "AH-090", fullName: "Bé Khôi Nguyên", effectiveTo: "2026-09-30", open: false, state: "ENDED" })], ...overrides });
 const candidates = { officialClasses: [{ id: "c1", name: "Chồi 3B" }], candidates: [{ enrollmentId: "e10", studentCode: "AH-140", fullName: "Bé Bảo Châu", officialClassName: "Chồi 3B", member: false }, { enrollmentId: "e11", studentCode: "AH-056", fullName: "Bé Gia Hân", officialClassName: "Chồi 3B", member: true }] };
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); sessionStorage.clear(); });
 const props = (search = "", extra = {}) => ({ schoolId: "school-a", schoolName: "Trường Ánh Hoa", search, onSearchChange: vi.fn(), denied: vi.fn(), ...extra });
 const route = (handlers: Record<string, (url: string, options?: RequestInit) => unknown>) => vi.fn((url: string, options?: RequestInit) => {
   const key = Object.keys(handlers).find((item) => String(url).includes(item));
@@ -187,5 +187,173 @@ describe("ExtracurricularClassesWorkspace", () => {
     const operationId = ((post[1] as RequestInit).headers as Record<string, string>)["x-operation-id"];
     expect(fetch.mock.calls.some(([url]) => String(url).endsWith(`/finance/operations/${operationId}`))).toBe(true);
     expect(fetch.mock.calls.filter(([, options]) => (options as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+  });
+
+  const fillCreate = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm lớp ngoại khóa" });
+    fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "drawing" } });
+    fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Vẽ 2" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
+    return dialog;
+  };
+  const posts = (fetch: ReturnType<typeof vi.fn>) => fetch.mock.calls.filter(([, options]) => (options as RequestInit | undefined)?.method === "POST");
+  const headerOf = (call: unknown[], name: string) => ((call[1] as RequestInit).headers as Record<string, string>)[name];
+
+  it("keeps commands disabled after reconciliation is exhausted and reconciles the same Operation without a new key", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let known = false;
+    const fetch = route({
+      "/operations/": () => (known ? response({ status: "COMPLETED", outcome: {} }) : new Response(null, { status: 404 })),
+      "extracurricular-classes": (_url, options) => (options?.method === "POST" ? new Response(null, { status: 503 }) : response(list)),
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    const dialog = await fillCreate();
+    await vi.advanceTimersByTimeAsync(750 * 9);
+    expect(await screen.findByText(/Chưa thể xác nhận Operation/)).toBeTruthy();
+    expect(posts(fetch)).toHaveLength(1);
+    const operationId = headerOf(posts(fetch)[0]!, "x-operation-id");
+    expect(JSON.parse(sessionStorage.getItem("passionedu.app.pending-extracurricular-operation")!)).toMatchObject({ id: operationId, key: headerOf(posts(fetch)[0]!, "idempotency-key"), body: { name: "Vẽ 2" } });
+    // Every command stays blocked: the dialog submit is disabled and so is the page action.
+    expect(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" })).toHaveProperty("disabled", true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
+    expect(screen.getByRole("button", { name: "Thêm lớp ngoại khóa" })).toHaveProperty("disabled", true);
+    expect(posts(fetch)).toHaveLength(1);
+    // The server now knows the Operation: "Đối soát lại" reads that same Operation and mints nothing new.
+    known = true;
+    fireEvent.click(screen.getByRole("button", { name: "Đối soát lại" }));
+    await vi.advanceTimersByTimeAsync(2000);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posts(fetch)).toHaveLength(1);
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith(`/finance/operations/${operationId}`))).toBe(true);
+    expect(sessionStorage.getItem("passionedu.app.pending-extracurricular-operation")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Đối soát lại" })).toBeNull();
+  });
+
+  it("re-sends the stored request under the same key only when the server never saw the Operation", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let attempts = 0;
+    const fetch = route({
+      "/operations/": () => new Response(null, { status: 404 }),
+      "extracurricular-classes": (_url, options) => (options?.method === "POST" ? (++attempts === 1 ? new Response(null, { status: 503 }) : response({ status: "COMPLETED", outcome: {} })) : response(list)),
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    await fillCreate();
+    await vi.advanceTimersByTimeAsync(750 * 9);
+    fireEvent.click(await screen.findByRole("button", { name: "Đối soát lại" }));
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const sent = posts(fetch);
+    expect(sent).toHaveLength(2);
+    expect(headerOf(sent[1]!, "idempotency-key")).toBe(headerOf(sent[0]!, "idempotency-key"));
+    expect(headerOf(sent[1]!, "x-operation-id")).toBe(headerOf(sent[0]!, "x-operation-id"));
+    expect(sent[1]![1]).toMatchObject({ body: (sent[0]![1] as RequestInit).body });
+  });
+
+  it("restores a persisted pending Operation after a reload and blocks new commands until it is reconciled", async () => {
+    sessionStorage.setItem("passionedu.app.pending-extracurricular-operation", JSON.stringify({ id: "11111111-1111-4111-8111-111111111111", key: "22222222-2222-4222-8222-222222222222", path: "/api/app/schools/school-a/finance/extracurricular-classes", body: { name: "Vẽ 2" }, schoolId: "school-a" }));
+    const fetch = route({ "/operations/": () => response({ status: "COMPLETED", outcome: {} }), "extracurricular-classes": () => response(list) });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    expect(await screen.findByRole("button", { name: "Đối soát lại" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Thêm lớp ngoại khóa" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "Đối soát lại" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Đối soát lại" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Thêm lớp ngoại khóa" })).toHaveProperty("disabled", false);
+    expect(posts(fetch)).toHaveLength(0);
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/operations/11111111-1111-4111-8111-111111111111"))).toBe(true);
+  });
+
+  it("ignores out-of-order list responses", async () => {
+    const pendingResponses: Array<(value: Response) => void> = [];
+    const fetch = vi.fn((url: string) => (String(url).includes("q=") ? new Promise<Response>((resolve) => pendingResponses.push(resolve)) : Promise.resolve(response(list))));
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    await screen.findByText("Vẽ thiếu nhi");
+    for (const query of ["a", "b"]) {
+      fireEvent.change(screen.getByLabelText("Tìm kiếm"), { target: { value: query } });
+      fireEvent.click(screen.getByRole("button", { name: "Áp dụng" }));
+      await waitFor(() => expect(pendingResponses.length).toBe(query === "a" ? 1 : 2));
+    }
+    pendingResponses[1]!(response({ ...list, classes: [klass({ id: "new", name: "Kết quả mới nhất" })] }));
+    await screen.findByText("Kết quả mới nhất");
+    pendingResponses[0]!(response({ ...list, classes: [klass({ id: "old", name: "Kết quả cũ chậm" })] }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText("Kết quả cũ chậm")).toBeNull();
+    expect(screen.getByText("Kết quả mới nhất")).toBeTruthy();
+  });
+
+  it("ignores a detail response for a class that is no longer open and a late picker response", async () => {
+    const resolvers: Record<string, (value: Response) => void> = {};
+    const fetch = vi.fn((url: string) => new Promise<Response>((resolve) => { resolvers[String(url).includes("/candidates") ? "candidates" : String(url).includes("class-b") ? "b" : "a"] = resolve; }));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<ExtracurricularClassesWorkspace {...props("?class=class-a")} />);
+    await waitFor(() => expect(resolvers.a).toBeTruthy());
+    view.rerender(<ExtracurricularClassesWorkspace {...props("?class=class-b")} />);
+    await waitFor(() => expect(resolvers.b).toBeTruthy());
+    resolvers.b!(response(detail({ class: { ...klass({ id: "class-b", name: "Lớp B" }), schoolYearName: "2026-2027" } })));
+    expect(await screen.findByRole("heading", { name: /Lớp B · Trường Ánh Hoa/ })).toBeTruthy();
+    resolvers.a!(response(detail({ class: { ...klass({ id: "class-a", name: "Lớp A chậm" }), schoolYearName: "2026-2027" } })));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByRole("heading", { name: /Lớp A chậm/ })).toBeNull();
+    expect(screen.getByRole("heading", { name: /Lớp B · Trường Ánh Hoa/ })).toBeTruthy();
+    // Picker: a late response for an older filter does not replace the newer one.
+    fireEvent.click(screen.getByRole("button", { name: "Thêm học sinh" }));
+    await waitFor(() => expect(resolvers.candidates).toBeTruthy());
+    const first = resolvers.candidates!;
+    delete resolvers.candidates;
+    fireEvent.change(within(await screen.findByRole("dialog")).getByLabelText("Tìm học sinh"), { target: { value: "bảo" } });
+    await waitFor(() => expect(resolvers.candidates).toBeTruthy());
+    resolvers.candidates!(response({ ...candidates, candidates: [{ ...candidates.candidates[0]!, fullName: "Bé Mới Nhất" }] }));
+    await screen.findByText("Bé Mới Nhất");
+    first(response({ ...candidates, candidates: [{ ...candidates.candidates[0]!, fullName: "Bé Cũ Chậm" }] }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText("Bé Cũ Chậm")).toBeNull();
+  });
+
+  it("renames a class from the detail header with a required reason through an idempotent PUT", async () => {
+    let refuse = true;
+    const fetch = route({ "extracurricular-classes/class-a1": (_url, options) => (options?.method === "PUT" ? (refuse ? new Response(JSON.stringify({ error: { message: "Tên lớp ngoại khóa đã tồn tại trong năm học.", fieldErrors: { name: "Tên lớp ngoại khóa đã tồn tại trong năm học." } } }), { status: 400 }) : response({ status: "COMPLETED", outcome: {} })) : response(detail())) });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props("?class=class-a1")} />);
+    const trigger = await screen.findByRole("button", { name: "Đổi tên" });
+    expect(trigger.nextElementSibling!.textContent).toBe("Ngừng hoạt động");
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Đổi tên · Tiếng Anh A1 (T2-T4)" });
+    expect(dialog.classList.contains("dialog-wide")).toBe(true);
+    expect(within(dialog).getByLabelText("Tên lớp")).toHaveProperty("value", "Tiếng Anh A1 (T2-T4)");
+    fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Tiếng Anh nâng cao" } });
+    fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Đổi chương trình" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu tên lớp" }));
+    expect((await within(dialog).findAllByText("Tên lớp ngoại khóa đã tồn tại trong năm học.")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("dialog", { name: /Đổi tên/ })).toBeTruthy();
+    refuse = false;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu tên lớp" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const puts = fetch.mock.calls.filter(([, options]) => (options as RequestInit | undefined)?.method === "PUT");
+    expect(puts).toHaveLength(2);
+    expect(String(puts[1]![0]).endsWith("/extracurricular-classes/class-a1")).toBe(true);
+    expect(JSON.parse(String((puts[1]![1] as RequestInit).body))).toEqual({ name: "Tiếng Anh nâng cao", reason: "Đổi chương trình" });
+    expect(headerOf(puts[1]!, "idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
+    expect(headerOf(puts[1]!, "idempotency-key")).not.toBe(headerOf(puts[0]!, "idempotency-key"));
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("submits the first open SchoolYear when the dialog was opened before the list finished loading", async () => {
+    let resolveList!: (value: Response) => void;
+    const fetch = vi.fn((_url: string, options?: RequestInit) => (options?.method === "POST" ? Promise.resolve(response({ status: "COMPLETED", outcome: {} })) : new Promise<Response>((resolve) => { resolveList = resolve; })));
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm lớp ngoại khóa" });
+    resolveList(response(list));
+    await within(dialog).findByRole("option", { name: "Năng khiếu vẽ · 400.000 đ/tháng" });
+    fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "drawing" } });
+    fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Vẽ 3" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(JSON.parse(String((posts(fetch)[0]![1] as RequestInit).body))).toEqual({ name: "Vẽ 3", schoolYearId: "year", receivableId: "drawing" });
   });
 });

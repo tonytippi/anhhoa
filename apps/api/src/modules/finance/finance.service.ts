@@ -26,6 +26,7 @@ const routes = {
     "POST /api/app/schools/:schoolId/finance/receivables/:receivableId/lifecycle",
   classDefaultBankAccount: "PUT /api/app/schools/:schoolId/finance/classes/:classId/default-bank-account",
   extracurricularClass: "POST /api/app/schools/:schoolId/finance/extracurricular-classes",
+  extracurricularRename: "PUT /api/app/schools/:schoolId/finance/extracurricular-classes/:classId",
   extracurricularLifecycle: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/lifecycle",
   extracurricularMembershipAdd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships",
   extracurricularMembershipEnd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships/end",
@@ -1297,6 +1298,8 @@ export class FinanceService {
       operationId,
       { id, status, reason },
       async (tx, operation) => {
+        // FOR UPDATE: class creation / line paths hold FOR SHARE, so a lifecycle change waits for them (and they see it once committed).
+        await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${id}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
         const item = await tx.receivable.findFirst({
           where: { id, schoolId },
           include: {
@@ -1641,6 +1644,28 @@ export class FinanceService {
       return outcome;
     });
   }
+  // Business owner 2026-10-02: rename with reason and audit, for ACTIVE and INACTIVE classes alike.
+  async renameExtracurricularClass(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(classId, "classId");
+    const name = this.text(body?.name, "name")!;
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    return this.mutate(actor, identityId, schoolId, routes.extracurricularRename, key, operationId, { classId, name, reason }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const found = await this.extracurricularClassFor(tx, schoolId, classId);
+      if (found.name === name) throw validation("name", "Tên mới trùng tên hiện tại.");
+      try {
+        const updated = await tx.extracurricularClass.update({ where: { id: found.id }, data: { name } });
+        const outcome = this.extracurricularClassDto({ ...found, name: updated.name });
+        await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_CLASS_RENAMED", operation, this.extracurricularClassDto(found), outcome, reason);
+        return outcome;
+      } catch (error) {
+        if ((error as any)?.code === "P2002") throw validation("name", "Tên lớp ngoại khóa đã tồn tại trong năm học.");
+        throw error;
+      }
+    });
+  }
   private uuidList(value: unknown, field: string, limit = 200) {
     if (!Array.isArray(value) || value.length < 1 || value.length > limit || new Set(value).size !== value.length) throw validation(field, `Chọn từ 1 đến ${limit} mục, không trùng nhau.`);
     return value.map((item) => this.identifier(item, field));
@@ -1670,6 +1695,8 @@ export class FinanceService {
       if (enrollments.length !== enrollmentIds.length) throw new NotFoundException({ code: "ENROLLMENT_NOT_FOUND", message: "Không tìm thấy học sinh trong năm học của lớp." });
       const invalid = enrollments.filter((item: any) => item.schoolYearId !== found.schoolYearId || !membershipLifecycles.includes(item.lifecycle));
       if (invalid.length) throw validation("enrollmentIds", `Học sinh phải đang học hoặc đã đăng ký trước trong năm học của lớp: ${invalid.map((item: any) => item.student.studentCode).join(", ")}.`);
+      const outside = enrollments.filter((item: any) => effectiveFrom < item.effectiveFrom || (item.endedOn && (!effectiveTo || effectiveTo > item.endedOn)));
+      if (outside.length) throw validation("effectiveFrom", `Thời gian tham gia phải nằm trong thời gian học của học sinh: ${outside.map((item: any) => item.student.studentCode).join(", ")}.`);
       const overlapping = await tx.extracurricularMembership.findMany({ where: { schoolId, extracurricularClassId: found.id, enrollmentId: { in: enrollmentIds }, ...(effectiveTo ? { effectiveFrom: { lt: effectiveTo } } : {}), OR: [{ effectiveTo: null }, { effectiveTo: { gt: effectiveFrom } }] }, select: { enrollmentId: true } });
       if (overlapping.length) {
         const codes = enrollments.filter((item: any) => overlapping.some((row: any) => row.enrollmentId === item.id)).map((item: any) => item.student.studentCode);
@@ -1700,12 +1727,14 @@ export class FinanceService {
       await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const found = await this.extracurricularClassFor(tx, schoolId, classId);
       if (this.classStatus(found) !== "ACTIVE") throw new ConflictException({ code: "EXTRACURRICULAR_CLASS_INACTIVE", message: "Lớp ngoại khóa đã ngừng hoạt động." });
-      const rows = await tx.extracurricularMembership.findMany({ where: { id: { in: membershipIds }, schoolId, extracurricularClassId: found.id }, include: { enrollment: { select: { student: { select: { studentCode: true } } } } } });
+      const rows = await tx.extracurricularMembership.findMany({ where: { id: { in: membershipIds }, schoolId, extracurricularClassId: found.id }, include: { enrollment: { select: { endedOn: true, student: { select: { studentCode: true } } } } } });
       if (rows.length !== membershipIds.length) throw new NotFoundException({ code: "EXTRACURRICULAR_MEMBERSHIP_NOT_FOUND", message: "Không tìm thấy thành viên của lớp." });
       const notOpen = rows.filter((row: any) => row.effectiveTo);
       if (notOpen.length) throw new ConflictException({ code: "EXTRACURRICULAR_MEMBERSHIP_NOT_OPEN", message: `Thành viên đã có ngày kết thúc: ${notOpen.map((row: any) => row.enrollment.student.studentCode).join(", ")}.` });
       const tooEarly = rows.filter((row: any) => effectiveTo <= row.effectiveFrom);
       if (tooEarly.length) throw validation("effectiveTo", `Ngày kết thúc phải từ ngày bắt đầu tham gia trở đi: ${tooEarly.map((row: any) => row.enrollment.student.studentCode).join(", ")}.`);
+      const beyond = rows.filter((row: any) => row.enrollment.endedOn && effectiveTo > row.enrollment.endedOn);
+      if (beyond.length) throw validation("effectiveTo", `Ngày kết thúc không được sau thời gian học của học sinh: ${beyond.map((row: any) => row.enrollment.student.studentCode).join(", ")}.`);
       const ended: any[] = [];
       for (const row of rows.sort((a: any, b: any) => a.enrollment.student.studentCode.localeCompare(b.enrollment.student.studentCode))) {
         const updated = await tx.extracurricularMembership.update({ where: { id: row.id }, data: { effectiveTo, endReason: reason, endedByMembershipId: actor.membershipId, endOperationId: operation, endedAt: new Date() } });

@@ -214,10 +214,15 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await secondIssue.getByLabel('Nhập chính xác tên học sinh Bé Bình để xác nhận').fill('Bé Bình');
    await secondIssue.getByRole('button', { name: 'Xác nhận phát hành' }).click();
    await expect(secondInvoiceReview.getByRole('complementary', { name: 'Thanh toán' })).toContainText('Tổng cần nộp150.000 VND');
+    // The initial queue load rewrites the filter form with the server's default month when it lands, so let it finish before typing.
+    const initialQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?'));
     await page.getByRole('button', { name: 'Thu tiền' }).click();
     await expect(page.getByRole('heading', { name: 'Thu tiền' })).toBeVisible();
+    expect((await initialQueue).status()).toBe(200);
     // The queue defaults to the current month, so select each month explicitly instead of depending on today's date.
     const receiptQueue = page.getByRole('table', { name: 'Hóa đơn chờ thu' });
+    await expect(receiptQueue).toBeVisible();
+    await expect(page.getByLabel('Tháng thu')).not.toHaveValue('');
     const septemberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('billingMonth=2026-09'));
     await page.getByLabel('Tháng thu').fill('2026-09');
     await page.getByRole('button', { name: 'Lọc' }).click();

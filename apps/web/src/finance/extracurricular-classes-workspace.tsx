@@ -10,11 +10,17 @@ type ListData = { schoolYears: Year[]; classes: ExtraClass[]; receivables: Recei
 type Member = { id: string; enrollmentId: string; studentCode: string; fullName: string; officialClassId: string | null; officialClassName: string | null; effectiveFrom: string; effectiveTo: string | null; open: boolean; state: "ACTIVE" | "ENDED" | "UPCOMING"; flags: Array<"JOINED_IN_MONTH" | "LEFT_IN_MONTH">; transferNote: string | null };
 type Detail = { class: ExtraClass & { schoolYearName: string }; month: { month: string; current: number; counted: number; midMonth: number }; officialClasses: Array<{ id: string; name: string }>; total: number; members: Member[] };
 type Candidates = { officialClasses: Array<{ id: string | null; name: string }>; candidates: Array<{ enrollmentId: string; studentCode: string; fullName: string; officialClassName: string | null; member: boolean }> };
-type Dialog = "create" | "add" | "end" | "lifecycle";
+type Dialog = "create" | "add" | "end" | "lifecycle" | "rename";
 
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const csrfName = typeof __CSRF_COOKIE_NAME__ === "undefined" ? "app_csrf" : __CSRF_COOKIE_NAME__;
 const csrf = () => document.cookie.split("; ").find((item) => item.startsWith(`${csrfName}=`))?.slice(csrfName.length + 1);
+// An uncertain mutation keeps its Operation (id, key, route, body) until the server says it is terminal; no new key is minted before.
+const pendingStorageKey = "passionedu.app.pending-extracurricular-operation";
+type PendingOp = { id: string; key: string; path: string; body: object; schoolId: string; method?: "POST" | "PUT" };
+const storedPending = (schoolId: string): PendingOp | undefined => {
+  try { const value = JSON.parse(sessionStorage.getItem(pendingStorageKey) ?? "null") as PendingOp | null; return value && value.schoolId === schoolId ? value : undefined; } catch { return undefined; }
+};
 const uncertain = (status: number) => [408, 502, 503, 504].includes(status);
 const vnd = (value: string) => new Intl.NumberFormat("vi-VN").format(BigInt(value));
 const price = (item: { defaultUnitPrice: string; unitLabel: string }) => `${vnd(item.defaultUnitPrice)} đ/${item.unitLabel}`;
@@ -54,29 +60,37 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
+  const [pendingOp, setPendingOp] = useState<PendingOp | undefined>(() => storedPending(schoolId));
   const active = useRef(schoolId);
   const submitting = useRef(false);
   const trigger = useRef<HTMLElement | null>(null);
   const restoreFocus = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const classIdRef = useRef(classId);
+  const sequence = useRef({ list: 0, detail: 0, candidates: 0 });
   active.current = schoolId;
+  classIdRef.current = classId;
 
-  const request = async <T,>(path: string) => {
+  const request = async <T,>(path: string, allowNotFoundRedirect = true) => {
     const response = await fetch(`${apiUrl}${path}`, { credentials: "include" });
     if ([401, 403].includes(response.status)) { denied(); throw new Error(); }
-    if (response.status === 404 && classId) { onSearchChange(""); throw new Error("Không tìm thấy lớp ngoại khóa."); }
+    if (response.status === 404 && classIdRef.current && allowNotFoundRedirect) { onSearchChange(""); throw new Error("Không tìm thấy lớp ngoại khóa."); }
     if (!response.ok) throw new Error("Không thể tải dữ liệu lớp ngoại khóa.");
     return ((await response.json()) as { data: T }).data;
   };
   const base = `/api/app/schools/${schoolId}/finance/extracurricular-classes`;
   const query = (values: Record<string, string>) => { const params = new URLSearchParams(Object.entries(values).filter(([, value]) => value)); return params.toString() ? `?${params}` : ""; };
+  // Each load captures the School, class and a sequence number; an out-of-order or superseded response is ignored.
   const loadList = async () => {
+    const token = ++sequence.current.list;
     const data = await request<ListData>(`${base}${query({ schoolYearId: applied.schoolYearId, receivableId: applied.receivableId, status: applied.status, q: applied.q })}`);
-    if (active.current === schoolId) setList(data);
+    if (active.current === schoolId && token === sequence.current.list && !classIdRef.current) setList(data);
   };
   const loadDetail = async () => {
-    const data = await request<Detail>(`${base}/${classId}${query({ q: memberApplied.q, officialClassId: memberApplied.officialClassId, status: memberApplied.status })}`);
-    if (active.current === schoolId) { setDetail(data); setSelected((current) => current.filter((id) => data.members.some((member) => member.id === id && member.open))); }
+    const token = ++sequence.current.detail;
+    const requested = classId;
+    const data = await request<Detail>(`${base}/${requested}${query({ q: memberApplied.q, officialClassId: memberApplied.officialClassId, status: memberApplied.status })}`);
+    if (active.current === schoolId && token === sequence.current.detail && classIdRef.current === requested) { setDetail(data); setSelected((current) => current.filter((id) => data.members.some((member) => member.id === id && member.open))); }
   };
   const refresh = () => (classId ? loadDetail() : loadList());
   useEffect(() => {
@@ -93,7 +107,11 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   }, [dialog]);
   useEffect(() => {
     if (dialog !== "add" || !classId) return;
-    request<Candidates>(`${base}/${classId}/candidates${query({ q: candidateFilter.q, officialClassId: candidateFilter.officialClassId })}`).then((data) => active.current === schoolId && setCandidates(data)).catch((error: Error) => error.message && setMessage(error.message));
+    const token = ++sequence.current.candidates;
+    const requested = classId;
+    request<Candidates>(`${base}/${requested}/candidates${query({ q: candidateFilter.q, officialClassId: candidateFilter.officialClassId })}`)
+      .then((data) => { if (active.current === schoolId && token === sequence.current.candidates && classIdRef.current === requested) setCandidates(data); })
+      .catch((error: Error) => error.message && token === sequence.current.candidates && setMessage(error.message));
   }, [dialog, candidateFilter]);
 
   const open = (kind: Dialog, source: HTMLElement | null) => {
@@ -104,6 +122,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
     setCandidates(undefined);
     setCandidateFilter({ q: "", officialClassId: "" });
     setPicked([]);
+    if (kind === "rename" && detail) setForm((current) => ({ ...current, name: detail.class.name }));
     setDialog(kind);
   };
   const close = () => { if (pending) return; restoreFocus.current = true; setDialog(undefined); setErrors({}); };
@@ -117,49 +136,76 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   };
 
-  // Every mutation carries a UUID Idempotency-Key and Operation id; an uncertain result is reconciled before any retry.
-  const command = async (path: string, body: object) => {
-    if (submitting.current) return false;
-    submitting.current = true;
-    setPending(true);
-    setErrors({});
-    setMessage("");
-    const operationId = crypto.randomUUID();
-    const reconcile = async (): Promise<boolean> => {
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        try {
-          const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/operations/${operationId}`, { credentials: "include" });
-          if (response.ok) {
-            const result = ((await response.json()) as { data: { status: string } }).data;
-            if (result.status === "COMPLETED") return true;
-            if (result.status !== "PENDING") { setMessage("Thao tác không thành công."); return false; }
-          }
-        } catch { /* keep reconciling with the same Operation */ }
-        await new Promise((resolve) => setTimeout(resolve, 750));
-      }
-      setMessage("Chưa thể xác nhận Operation. Mã thao tác được giữ lại để đối soát sau.");
-      return false;
-    };
+  const forget = () => { sessionStorage.removeItem(pendingStorageKey); setPendingOp(undefined); };
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  // Polls the Operation. true = COMPLETED, false = terminal failure, undefined = still unknown (kept pending for "Đối soát lại").
+  const poll = async (op: PendingOp, attempts = 8): Promise<boolean | undefined> => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const response = await fetch(`${apiUrl}/api/app/schools/${op.schoolId}/finance/operations/${op.id}`, { credentials: "include" });
+        if ([401, 403].includes(response.status)) { denied(); return false; }
+        if (response.ok) {
+          const result = ((await response.json()) as { data: { status: string } }).data;
+          if (result.status === "COMPLETED") { forget(); return true; }
+          if (result.status !== "PENDING") { forget(); setMessage("Thao tác không thành công."); return false; }
+        }
+      } catch { /* keep reconciling with the same Operation */ }
+      await wait(750);
+    }
+    setMessage("Chưa thể xác nhận Operation. Giữ nguyên thao tác và bấm “Đối soát lại”; hệ thống chưa cho thực hiện thao tác mới.");
+    return undefined;
+  };
+  // Sends (or re-sends) the stored request under its own Idempotency-Key; an uncertain answer is reconciled, never retried under a new key.
+  const send = async (op: PendingOp): Promise<boolean> => {
     try {
-      const response = await fetch(`${apiUrl}${path}`, { method: "POST", credentials: "include", headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? ""), "idempotency-key": crypto.randomUUID(), "x-operation-id": operationId }, body: JSON.stringify(body) });
-      if ([401, 403].includes(response.status)) { denied(); return false; }
-      if (uncertain(response.status)) { setMessage("Kết quả chưa chắc chắn. Đang đối soát Operation trước khi thử lại."); return await reconcile(); }
+      const response = await fetch(`${apiUrl}${op.path}`, { method: op.method ?? "POST", credentials: "include", headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? ""), "idempotency-key": op.key, "x-operation-id": op.id }, body: JSON.stringify(op.body) });
+      if ([401, 403].includes(response.status)) { forget(); denied(); return false; }
+      if (uncertain(response.status)) { setMessage("Kết quả chưa chắc chắn. Đang đối soát Operation trước khi thử lại."); return (await poll(op)) === true; }
       if (!response.ok) {
+        forget();
         const error = ((await response.json()) as { error?: { message?: string; fieldErrors?: Record<string, string> } }).error;
         setErrors(error?.fieldErrors ?? {});
         setMessage(error?.message ?? "Thao tác không thành công.");
         return false;
       }
       const result = ((await response.json()) as { data: { status: string } }).data;
-      if (result.status === "PENDING") return await reconcile();
+      if (result.status === "PENDING") return (await poll(op)) === true;
+      forget();
       return result.status === "COMPLETED";
     } catch {
       setMessage("Kết nối bị gián đoạn. Đang đối soát Operation trước khi thử lại.");
-      return await reconcile();
-    } finally {
-      submitting.current = false;
-      setPending(false);
+      return (await poll(op)) === true;
     }
+  };
+  const command = async (path: string, body: object, method: "POST" | "PUT" = "POST") => {
+    if (submitting.current || pendingOp) return false;
+    submitting.current = true;
+    setPending(true);
+    setErrors({});
+    setMessage("");
+    const op: PendingOp = { id: crypto.randomUUID(), key: crypto.randomUUID(), path, body, schoolId, method };
+    sessionStorage.setItem(pendingStorageKey, JSON.stringify(op));
+    setPendingOp(op);
+    try { return await send(op); } finally { submitting.current = false; setPending(false); }
+  };
+  // "Đối soát lại": ask the server about the same Operation; only when it never saw it is the same request re-sent with the same key.
+  const reconcileAgain = async () => {
+    const op = pendingOp;
+    if (!op || submitting.current) return;
+    submitting.current = true;
+    setPending(true);
+    setMessage("");
+    let completed = false;
+    try {
+      let known = false;
+      try {
+        const response = await fetch(`${apiUrl}/api/app/schools/${op.schoolId}/finance/operations/${op.id}`, { credentials: "include" });
+        if ([401, 403].includes(response.status)) { denied(); return; }
+        known = response.ok;
+      } catch { /* unknown: reconcile below */ }
+      completed = known ? (await poll(op, 1)) === true : await send(op);
+    } finally { submitting.current = false; setPending(false); }
+    if (completed) await finish();
   };
   const finish = async () => {
     restoreFocus.current = true;
@@ -169,7 +215,9 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   };
   const createClass = async (event: FormEvent) => {
     event.preventDefault();
-    if (await command(base, { name: form.name, schoolYearId: form.schoolYearId, receivableId: form.receivableId })) await finish();
+    // The dialog can open before the list (and its SchoolYears) has loaded; the select then shows the first open year, so submit that.
+    const schoolYearId = form.schoolYearId || years.find((year) => !year.closedAt)?.id || "";
+    if (await command(base, { name: form.name, schoolYearId, receivableId: form.receivableId })) await finish();
   };
   const addMembers = async (event: FormEvent) => {
     event.preventDefault();
@@ -180,6 +228,10 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
     event.preventDefault();
     if (await command(`${base}/${classId}/memberships/end`, { membershipIds: selected, effectiveTo: form.effectiveTo, reason: form.reason })) await finish();
   };
+  const renameClass = async (event: FormEvent) => {
+    event.preventDefault();
+    if (await command(`${base}/${classId}`, { name: form.name, reason: form.reason }, "PUT")) await finish();
+  };
   const changeLifecycle = async (event: FormEvent) => {
     event.preventDefault();
     if (detail && await command(`${base}/${classId}/lifecycle`, { status: detail.class.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: form.reason })) await finish();
@@ -187,12 +239,14 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   const go = (next: string) => (event: { preventDefault(): void }) => { event.preventDefault(); onSearchChange(next); };
   const field = (name: string) => ({ "aria-invalid": errors[name] ? true : undefined, "aria-describedby": errors[name] ? `xc-${name}-error` : undefined });
   const fieldError = (name: string) => errors[name] && <small id={`xc-${name}-error`} role="alert">{errors[name]}</small>;
+  const blocked = pending || Boolean(pendingOp);
   const years = list?.schoolYears ?? [];
   const chosenReceivable = list?.receivables.find((item) => item.id === form.receivableId);
 
   const shell = (children: React.ReactNode) => (
     <section className="finance-workspace extracurricular-workspace" aria-labelledby="xc-title">
       {message && <div role="alert" tabIndex={-1}>{message}</div>}
+      {pendingOp && <div role="status" className="xc-pending"><p>Một thao tác chưa có kết quả cuối cùng nên các thao tác mới đang bị khóa.</p><button type="button" disabled={pending} onClick={() => void reconcileAgain()}>Đối soát lại</button></div>}
       {children}
     </section>
   );
@@ -210,9 +264,10 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
           <p className="muted">Năm học {cls.schoolYearName} · {cls.receivableName} · {price(cls)}{cls.sharedWith.length ? ` · Dùng chung với ${cls.sharedWith.join(", ")}` : ""}.</p>
         </div>
         <div className="finance-list-actions">
-          <button type="button" disabled={pending} onClick={(event) => open("lifecycle", event.currentTarget)}>{inactive ? "Kích hoạt lại" : "Ngừng hoạt động"}</button>
-          <button type="button" disabled={pending || inactive || !selected.length} onClick={(event) => open("end", event.currentTarget)}>Kết thúc</button>
-          <button className="primary-action" type="button" disabled={pending || inactive} onClick={(event) => open("add", event.currentTarget)}>Thêm học sinh</button>
+          <button type="button" disabled={blocked} onClick={(event) => open("rename", event.currentTarget)}>Đổi tên</button>
+          <button type="button" disabled={blocked} onClick={(event) => open("lifecycle", event.currentTarget)}>{inactive ? "Kích hoạt lại" : "Ngừng hoạt động"}</button>
+          <button type="button" disabled={blocked || inactive || !selected.length} onClick={(event) => open("end", event.currentTarget)}>Kết thúc</button>
+          <button className="primary-action" type="button" disabled={blocked || inactive} onClick={(event) => open("add", event.currentTarget)}>Thêm học sinh</button>
         </div>
       </div>
       <div className="xc-cards">
@@ -265,7 +320,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
             <div><label>Hiệu lực từ<input type="date" value={form.effectiveFrom} onChange={(event) => setForm({ ...form, effectiveFrom: event.target.value })} {...field("effectiveFrom")} /></label>{fieldError("effectiveFrom")}</div>
             <div><label>Lý do<input placeholder="Ví dụ: Đăng ký học kỳ 1" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
           </div>
-          <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={pending}>Thêm học sinh đã chọn</button></div>
+          <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Thêm học sinh đã chọn</button></div>
         </form>
       </div></div>}
 
@@ -278,7 +333,18 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
             <div><label>Lý do<input placeholder="Ví dụ: Phụ huynh xin nghỉ" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
             <p className="muted full">Học sinh vẫn được tính tháng có ngày tham gia cuối.</p>
           </div>
-          <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={pending}>Kết thúc tham gia</button></div>
+          <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Kết thúc tham gia</button></div>
+        </form>
+      </div></div>}
+
+      {dialog === "rename" && <div className="dialog-backdrop"><div ref={dialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="xc-rename-title" onKeyDown={keyDown}>
+        <form onSubmit={renameClass}>
+          <h3 id="xc-rename-title">Đổi tên · {cls.name}</h3>
+          <div className="dialog-grid">
+            <div><label>Tên lớp<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
+            <div><label>Lý do<input placeholder="Ví dụ: Đổi tên theo chương trình mới" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
+          </div>
+          <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Lưu tên lớp</button></div>
         </form>
       </div></div>}
 
@@ -287,7 +353,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
           <h3 id="xc-lifecycle-title">{inactive ? "Kích hoạt lại" : "Ngừng hoạt động"} {cls.name}</h3>
           <p>{inactive ? "Lớp sẽ được tính vào đợt thu mới. Hệ thống kiểm tra khoản thu của lớp còn áp dụng." : "Lớp sẽ không được tính vào đợt thu mới. Thành viên và lịch sử vẫn được giữ để đối soát."}</p>
           <div><label>Lý do<input value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
-          <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={pending}>{inactive ? "Kích hoạt lại" : "Ngừng hoạt động"}</button></div>
+          <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>{inactive ? "Kích hoạt lại" : "Ngừng hoạt động"}</button></div>
         </form>
       </div></div>}
     </>);
@@ -301,7 +367,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
         <h1 id="xc-title">Lớp ngoại khóa · {schoolName}</h1>
         <p className="muted">{yearName ? `Năm học ${yearName} · ` : ""}Dữ liệu do hệ thống xác nhận.</p>
       </div>
-      <button className="primary-action" type="button" disabled={pending} onClick={(event) => open("create", event.currentTarget)}>Thêm lớp ngoại khóa</button>
+      <button className="primary-action" type="button" disabled={blocked} onClick={(event) => open("create", event.currentTarget)}>Thêm lớp ngoại khóa</button>
     </div>
     <form className="finance-list-toolbar" aria-label="Lọc lớp ngoại khóa" onSubmit={(event) => { event.preventDefault(); setApplied(filters); }}>
       <label>Tìm kiếm<input type="search" placeholder="Tên lớp ngoại khóa" autoComplete="off" value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} /></label>
@@ -340,7 +406,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
           <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-receivable-help" : "xc-receivable-help"}><option value="">Chọn khoản thu Ngoại khóa</option>{list?.receivables.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>)}</select></label>
             <p id="xc-receivable-help" className="muted">{chosenReceivable?.sharedWith.length ? `Dùng chung với: ${chosenReceivable.sharedWith.join(", ")}.` : "Chỉ khoản thu Ngoại khóa đang áp dụng."}</p>{fieldError("receivableId")}</div>
         </div>
-        <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={pending}>Lưu lớp ngoại khóa</button></div>
+        <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Lưu lớp ngoại khóa</button></div>
       </form>
     </div></div>}
   </>);

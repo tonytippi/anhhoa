@@ -2264,3 +2264,5 @@ tbody tr:last-child td {
 .xc-cards h2 { margin: 0 0 8px; font-size: 16px; }
 .xc-cards p { margin: 4px 0; }
 @media (max-width: 720px) { .xc-cards { grid-template-columns: 1fr; } }
+.xc-pending { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; padding: 12px 16px; border: 1px solid #e4d9a8; border-radius: 12px; background: #fbf5dd; }
+.xc-pending p { margin: 0; }
