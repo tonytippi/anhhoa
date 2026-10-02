@@ -119,11 +119,13 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(page).toHaveURL(/\/schools\/[^/]+\/collection-runs$/);
    await expect(page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' })).toBeVisible();
    await openRun(page, '2026-10');
-  const template = page.getByRole('region', { name: 'Khoản thu trong đợt' });
-  await template.getByLabel('Khoản thu').selectOption({ label: 'Học phí Release 1' });
-  await template.getByLabel('Số lượng').fill('1');
-   await page.getByRole('button', { name: 'Lưu khoản thu mẫu' }).click();
-   await expect(page.getByRole('table', { name: 'Khoản thu mẫu chung' })).toContainText('150.000');
+  // Story 5.35: opening the run already put the ACTIVE FIXED receivable in the template, for everyone.
+  const templateTable = page.getByRole('table', { name: 'Khoản thu mẫu của đợt' });
+  const feeRow = templateTable.getByRole('row').filter({ hasText: 'Học phí Release 1' });
+  await expect(feeRow).toContainText('Cố định');
+  await expect(feeRow).toContainText('Tự thêm khi mở đợt thu');
+  await expect(feeRow).toContainText('Toàn bộ');
+  await expect(feeRow).toContainText('150.000');
   await expect(page.getByRole('checkbox', { name: /Chọn RG1-/ })).toHaveCount(0);
   let selectionRequests = 0;
   page.on('request', (request) => {
@@ -173,6 +175,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(invoiceLines).toContainText('15.000');
    await expect(invoiceLines).toContainText('135.000');
    await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
+   await expect(invoiceReview.getByTitle('Nguồn')).toHaveText('Cố định');
    await invoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
    const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho Bé An' });
    await firstIssue.getByLabel('Nhập chính xác tên học sinh Bé An để xác nhận').fill('Bé An');
@@ -200,6 +203,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await page.getByRole('button', { name: 'Học sinh trước' }).click();
     await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
     await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
+   await expect(invoiceReview.getByTitle('Nguồn')).toHaveText('Cố định');
      await expect(invoiceReview.getByRole('button', { name: 'Ghi thực nhận và đóng hóa đơn' })).toHaveCount(0);
     await invoiceReview.getByRole('button', { name: 'Quay lại đợt thu' }).click();
     await expect(page).toHaveURL(/\/collection-runs\/[^/]+$/);
@@ -309,6 +313,39 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   expect(csvResponse.headers()['content-type']).toContain('text/csv; charset=utf-8');
   expect(csvResponse.headers()['x-content-type-options']).toBe('nosniff');
    expect((await download).suggestedFilename()).toBe('finance-overview.csv');
+
+  // Story 5.35: a new month starts with the fixed line; a flexible line scoped to one official class reaches the Invoices with its provenance.
+  await page.getByRole('button', { name: 'Đợt thu' }).click();
+  await page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' }).getByRole('button', { name: 'Tạo đợt thu' }).click();
+  const novDialog = page.getByRole('dialog', { name: 'Tạo hoặc mở đợt thu' });
+  await novDialog.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
+  await novDialog.getByLabel('Tháng thu').fill('2026-11');
+  await novDialog.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
+  await expect(page.getByRole('heading', { name: 'Đợt thu tháng 11/2026 · Nháp' })).toBeVisible();
+  const novTemplate = page.getByRole('table', { name: 'Khoản thu mẫu của đợt' });
+  await expect(novTemplate.getByRole('row').filter({ hasText: 'Học phí Release 1' })).toContainText('Cố định');
+  await page.getByRole('button', { name: 'Thêm khoản thu' }).click();
+  const lineDialog = page.getByRole('dialog', { name: 'Thêm khoản thu' });
+  await expect(lineDialog.getByLabel('Khoản thu').locator('option')).toHaveText(['Chọn khoản thu linh hoạt', 'Phí dã ngoại Release 1 · 50.000 đ/lần']);
+  await lineDialog.getByLabel('Khoản thu').selectOption({ label: 'Phí dã ngoại Release 1 · 50.000 đ/lần' });
+  await lineDialog.getByRole('radio', { name: 'Lớp chính thức' }).check();
+  await lineDialog.getByRole('checkbox', { name: 'Mầm Release 1' }).check();
+  await lineDialog.getByRole('button', { name: 'Lưu khoản thu mẫu' }).click();
+  await expect(lineDialog).toBeHidden();
+  await expect(novTemplate.getByRole('row').filter({ hasText: 'Phí dã ngoại Release 1' })).toContainText('Lớp chính thức: Mầm Release 1');
+  await page.getByRole('button', { name: 'Xem trước từ máy chủ' }).click();
+  const perLine = page.getByRole('table', { name: 'Tạm tính theo dòng khoản thu' });
+  await expect(perLine.getByRole('row').filter({ hasText: 'Phí dã ngoại Release 1' })).toContainText('100.000');
+  await expect(perLine.getByRole('row').filter({ hasText: 'Học phí Release 1' })).toContainText('300.000');
+  await page.getByRole('button', { name: 'Xác nhận xem trước và chuyển sẵn sàng' }).click();
+  await page.getByRole('button', { name: 'Tạo hóa đơn nháp' }).click();
+  await page.getByRole('dialog').getByRole('textbox').fill('2026-11');
+  await page.getByRole('button', { name: 'Xác nhận tạo hóa đơn nháp' }).click();
+  await expect(page.getByRole('heading', { name: 'Kết quả tạo hóa đơn từ máy chủ' })).toBeVisible({ timeout: 10000 });
+  await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tr').filter({ hasText: 'RG1-1 / Bé An' }).first().getByRole('button', { name: 'Rà soát hóa đơn' }).click();
+  const novReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-1/ });
+  await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Cố định' })).toBeVisible();
+  await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Linh hoạt · Lớp chính thức: Mầm Release 1' })).toBeVisible();
 
    await page.setViewportSize({ width: 1280, height: 900 });
      await page.getByRole('button', { name: 'Về trang chủ PassionEdu' }).click();

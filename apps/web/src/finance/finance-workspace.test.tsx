@@ -318,16 +318,18 @@ describe("FinanceWorkspace", () => {
   it("marks an unsaved template input dirty and sends the current run version", async () => {
     const onStatusChange = vi.fn();
     const templateRun = { ...run, templateLines: [] };
-    const catalogWithMeal = { groups: [], receivables: [{ id: "meal", groupId: "group", code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", status: "ACTIVE", available: true }] };
+    const catalogWithMeal = { groups: [], receivables: [{ id: "meal", groupId: "group", kind: "FLEXIBLE", code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", status: "ACTIVE", available: true }] };
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "PUT" ? response({ outcome: { ...templateRun, version: 3, templateLines: [{ id: "line", receivableId: "meal", receivableName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", quantity: "22", amount: "770000" }] } }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [templateRun] }) : response(catalogWithMeal)));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} onStatusChange={onStatusChange} />);
     await openRun();
-    fireEvent.change(screen.getAllByLabelText("Khoản thu").at(-1)!, { target: { value: "meal" } });
-    fireEvent.change(screen.getAllByLabelText("Số lượng").at(-1)!, { target: { value: "22" } });
+    fireEvent.click(screen.getByRole("button", { name: "Thêm khoản thu" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
+    fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "meal" } });
+    fireEvent.change(within(dialog).getByLabelText("Số lượng"), { target: { value: "22" } });
     await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(expect.objectContaining({ dirty: true })));
-    fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu mẫu" }));
-    expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/template-lines") && (options as RequestInit).body === JSON.stringify({ receivableId: "meal", quantity: "22", expectedVersion: 2 }))).toBe(true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
+    expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/template-lines") && (options as RequestInit).body === JSON.stringify({ receivableId: "meal", quantity: "22", scope: { type: "ALL" }, expectedVersion: 2 }))).toBe(true);
   });
   it("loads promotion policies and submits multi-target policy and batch assignment through the shared command", async () => {
     const catalogWithReceivables = { groups: [], receivables: [{ id: "r1", groupId: "g", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true }, { id: "r2", groupId: "g", code: null, displayName: "Tiền ăn", unitLabel: "tháng", defaultUnitPrice: "50", status: "ACTIVE", available: true }] };
@@ -1051,7 +1053,7 @@ describe("FinanceWorkspace", () => {
   it("reconciles a timed-out template save from its Operation without retrying the command", async () => {
     const templateRun = { ...run, templateLines: [] };
     const reconciledRun = { ...templateRun, version: 3, templateLines: [{ id: "line", receivableId: "meal", receivableName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", quantity: "22", amount: "770000" }] };
-    const catalogWithMeal = { groups: [], receivables: [{ id: "meal", groupId: "group", code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", status: "ACTIVE", available: true }] };
+    const catalogWithMeal = { groups: [], receivables: [{ id: "meal", groupId: "group", kind: "FLEXIBLE", code: "MEAL", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", status: "ACTIVE", available: true }] };
     let reconciled = false;
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(
       String(url).includes("/operations/") ? (reconciled = true, response({ status: "COMPLETED", outcome: reconciledRun })) :
@@ -1061,10 +1063,12 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
-    fireEvent.change(screen.getAllByLabelText("Khoản thu").at(-1)!, { target: { value: "meal" } });
-    fireEvent.change(screen.getAllByLabelText("Số lượng").at(-1)!, { target: { value: "22" } });
-    fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu mẫu" }));
-    expect(await screen.findByText("770.000")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Thêm khoản thu" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
+    fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "meal" } });
+    fireEvent.change(within(dialog).getByLabelText("Số lượng"), { target: { value: "22" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
+    expect(await screen.findByText("22 ngày")).toBeTruthy();
     expect(fetch.mock.calls.filter(([url, options]) => String(url).endsWith("/template-lines") && (options as RequestInit).method === "PUT")).toHaveLength(1);
     expect(fetch.mock.calls.some(([url]) => String(url).includes("/operations/"))).toBe(true);
   });
@@ -1369,13 +1373,14 @@ describe("FinanceWorkspace", () => {
   });
   it("confirms removal, hides all editing actions for non-DRAFT invoices, and focuses server field errors", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
-    const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
+    const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", sourceBadge: { kind: "TEMPLATE_FIXED", label: "Cố định" }, unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
     let readonly = false;
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "DELETE" ? response({ outcome: { ...draft, total: "0", lines: [] } }) : options?.method === "POST" ? new Response(JSON.stringify({ error: { message: "Dữ liệu không hợp lệ.", fieldErrors: { quantity: "Số lượng phải lớn hơn 0." } } }), { status: 400 }) : url.includes("/invoices/") ? response(readonly ? { ...draft, status: "ISSUED" } : draft) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response({ groups: [], receivables: [{ id: "receivable-a", groupId: "group", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true }] })));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
     fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
+    expect((await screen.findByTitle("Nguồn")).textContent).toBe("Cố định");
     fireEvent.click(await screen.findByRole("button", { name: "Xóa" }));
     expect(fetch.mock.calls.some(([_, options]) => (options as RequestInit)?.method === "DELETE")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
@@ -1774,6 +1779,141 @@ describe("FinanceWorkspace", () => {
         JSON.parse((opts as RequestInit).body as string).versionId === null
       );
       expect(call).toBeTruthy();
+    });
+  });
+
+  describe("template lines by kind and scope (Story 5.35)", () => {
+    const scopeAll = { type: "ALL", label: "Toàn bộ", classes: [], students: [] };
+    const fixedLine = { id: "l-fee", receivableId: "fee", receivableName: "Học phí tháng", unitLabel: "tháng", defaultUnitPrice: "1500000", quantity: "1", amount: "1500000", kind: "FIXED", scope: scopeAll };
+    const tripLine = { id: "l-trip", receivableId: "trip", receivableName: "Phí dã ngoại mùa thu", unitLabel: "lần", defaultUnitPrice: "350000", quantity: "2", amount: "700000", kind: "FLEXIBLE", scope: { type: "CLASSES", label: "Lớp chính thức: Chồi 3B, Lá 5A", classes: [{ id: "c1", name: "Lá 5A" }, { id: "c2", name: "Chồi 3B" }], students: [] } };
+    const draftRun = { ...run, templateLines: [fixedLine, tripLine] };
+    const scopeCatalog = { groups: [], receivables: [
+      { id: "fee", groupId: "g1", kind: "FIXED", code: "HP", displayName: "Học phí tháng", unitLabel: "tháng", defaultUnitPrice: "1500000", status: "ACTIVE", available: true },
+      { id: "trip", groupId: "g2", kind: "FLEXIBLE", code: "DN", displayName: "Phí dã ngoại mùa thu", unitLabel: "lần", defaultUnitPrice: "350000", status: "ACTIVE", available: true },
+      { id: "uniform", groupId: "g2", kind: "FLEXIBLE", code: "DP", displayName: "Đồng phục", unitLabel: "bộ", defaultUnitPrice: "250000", status: "ACTIVE", available: true },
+      { id: "english", groupId: "g3", kind: "EXTRACURRICULAR", code: "NK", displayName: "Tiếng Anh", unitLabel: "tháng", defaultUnitPrice: "600000", status: "ACTIVE", available: true },
+      { id: "old", groupId: "g2", kind: "FLEXIBLE", code: "CU", displayName: "Phí cũ", unitLabel: "lần", defaultUnitPrice: "1", status: "INACTIVE", available: false },
+    ] };
+    const options = { classes: [{ id: "c1", name: "Lá 5A" }, { id: "c2", name: "Chồi 3B" }, { id: "c3", name: "Mầm 4A" }], students: [{ id: "s1", studentCode: "AH-104", fullName: "Bé Minh Anh", className: "Mầm 4A" }, { id: "s2", studentCode: "AH-121", fullName: "Bé Tuấn Huy", className: "Chồi 3B" }] };
+    const route = (extra: (url: string, options?: RequestInit) => unknown = () => undefined) => vi.fn((url: string, init?: RequestInit) => {
+      const custom = extra(String(url), init);
+      if (custom) return Promise.resolve(custom as Response);
+      if (String(url).includes("/scope-options")) return Promise.resolve(response(options));
+      if (String(url).includes("/preview")) return Promise.resolve(response({ run: draftRun, fingerprint: "fp", eligible: [], skips: [{ studentId: "s9", studentCode: "AH-009", fullName: "Bé Bình", reason: "NO_APPLICABLE_LINES" }], summary: { eligibleCount: 124, skippedCount: 1, expectedTotal: "318900000" }, lineTotal: "3300000", lineSummaries: [{ templateLineId: "l-fee", receivableId: "fee", receivableName: "Học phí tháng", kind: "FIXED", scope: { type: "ALL", label: "Toàn bộ" }, studentCount: 124, subtotal: "2600000" }, { templateLineId: "l-trip", receivableId: "trip", receivableName: "Phí dã ngoại mùa thu", kind: "FLEXIBLE", scope: { type: "CLASSES", label: "Lớp chính thức: Chồi 3B, Lá 5A" }, studentCount: 46, subtotal: "700000" }] }));
+      if (String(url).includes("collection-run-candidates")) return Promise.resolve(response(candidates));
+      if (String(url).includes("collection-runs")) return Promise.resolve(response({ runs: [draftRun] }));
+      return Promise.resolve(response(scopeCatalog));
+    });
+    const renderRun = async (fetch: ReturnType<typeof route>) => { vi.stubGlobal("fetch", fetch); render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />); await openRun(); await screen.findByRole("table", { name: "Khoản thu mẫu của đợt" }); };
+    const puts = (fetch: ReturnType<typeof route>) => fetch.mock.calls.filter(([url, init]) => String(url).endsWith("/template-lines") && (init as RequestInit | undefined)?.method === "PUT");
+
+    it("lists template lines with kind and scope, and fills counts and subtotals only from the server preview", async () => {
+      const fetch = route();
+      await renderRun(fetch);
+      const table = screen.getByRole("table", { name: "Khoản thu mẫu của đợt" });
+      expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Khoản thu", "Loại", "Áp dụng cho", "Số lượng", "Đơn giá", "Số HS", "Tạm tính", "Tùy chọn"]);
+      const rows = within(table).getAllByRole("row");
+      const cells = (row: HTMLElement) => within(row).getAllByRole("cell").map((cell) => cell.textContent);
+      const fee = rows.find((row) => within(row).queryByText("Học phí tháng"))!;
+      const trip = rows.find((row) => within(row).queryByText("Phí dã ngoại mùa thu"))!;
+      expect(cells(fee)).toEqual(["Học phí tháng", "Cố địnhTự thêm khi mở đợt thu", "Toàn bộ", "1 tháng", "1.500.000 đ", "—", "—", "SửaBỏ"]);
+      expect(cells(trip).slice(0, 7)).toEqual(["Phí dã ngoại mùa thu", "Linh hoạt", "Lớp chính thức: Chồi 3B, Lá 5A", "2 lần", "350.000 đ", "—", "—"]);
+      fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
+      await screen.findByRole("table", { name: "Tạm tính theo dòng khoản thu" });
+      expect(cells(within(screen.getByRole("table", { name: "Khoản thu mẫu của đợt" })).getAllByRole("row").find((row) => within(row).queryByText("Phí dã ngoại mùa thu"))!).slice(5, 7)).toEqual(["46", "700.000 đ"]);
+      const perLine = screen.getByRole("table", { name: "Tạm tính theo dòng khoản thu" });
+      expect(within(perLine).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Khoản thu", "Loại", "Áp dụng cho", "Số HS", "Tạm tính"]);
+      expect(within(perLine).getByText("Tổng trước ưu đãi, bớt và thuế").closest("tr")!.textContent).toContain("3.300.000 đ");
+      expect(screen.getByText("AH-009 / Bé Bình").closest("tr, li, p, details")!.textContent).toContain("Không có khoản thu áp dụng.");
+      expect(screen.getByText("Hướng dẫn").closest("details")!.open).toBe(false);
+    });
+
+    it("adds a flexible line with a class scope through the modal and clears the preview", async () => {
+      const fetch = route((_url, init) => (init?.method === "PUT" ? response({ status: "COMPLETED", outcome: { ...draftRun, version: 3 } }) : undefined));
+      await renderRun(fetch);
+      fireEvent.click(screen.getByRole("button", { name: "Thêm khoản thu" }));
+      const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
+      expect(dialog.classList.contains("dialog-wide")).toBe(true);
+      const receivable = within(dialog).getByLabelText("Khoản thu") as HTMLSelectElement;
+      expect(Array.from(receivable.options).map((option) => option.textContent)).toEqual(["Chọn khoản thu linh hoạt", "Phí dã ngoại mùa thu · 350.000 đ/lần", "Đồng phục · 250.000 đ/bộ"]);
+      expect(within(dialog).getByRole("radio", { name: "Toàn bộ" })).toHaveProperty("checked", true);
+      expect(within(dialog).queryByRole("group", { name: "Lớp chính thức" })).toBeNull();
+      fireEvent.change(receivable, { target: { value: "uniform" } });
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Lớp chính thức" }));
+      const classes = await within(dialog).findByRole("group", { name: "Lớp chính thức" });
+      fireEvent.click(within(classes).getByRole("checkbox", { name: "Mầm 4A" }));
+      fireEvent.click(within(classes).getByRole("checkbox", { name: "Lá 5A" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(JSON.parse(String((puts(fetch)[0]![1] as RequestInit).body))).toEqual({ receivableId: "uniform", quantity: "1", scope: { type: "CLASSES", classIds: ["c3", "c1"] }, expectedVersion: 2 });
+    });
+
+    it("picks specific Students with a server search and shows the server scope error", async () => {
+      let refuse = true;
+      const fetch = route((url, init) => (init?.method === "PUT" ? (refuse ? new Response(JSON.stringify({ error: { message: "Dữ liệu không hợp lệ.", fieldErrors: { scope: "Học sinh phải thuộc năm học của đợt thu." } } }), { status: 400 }) : response({ status: "COMPLETED", outcome: { ...draftRun, version: 3 } })) : url.includes("scope-options?q=") ? response({ ...options, students: [options.students[1]] }) : undefined));
+      await renderRun(fetch);
+      fireEvent.click(screen.getByRole("button", { name: "Thêm khoản thu" }));
+      const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
+      fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "uniform" } });
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Học sinh cụ thể" }));
+      fireEvent.change(within(dialog).getByRole("searchbox", { name: "Học sinh cụ thể" }), { target: { value: "huy" } });
+      await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("/scope-options?q=huy"))).toBe(true));
+      const results = await within(dialog).findByRole("group", { name: "Kết quả tìm học sinh" });
+      fireEvent.click(await within(results).findByRole("checkbox", { name: "AH-121 · Bé Tuấn Huy" }));
+      expect(within(within(dialog).getByRole("group", { name: "Học sinh đã chọn" })).getByRole("checkbox", { name: "AH-121 · Bé Tuấn Huy" })).toHaveProperty("checked", true);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
+      expect(await within(dialog).findByText("Học sinh phải thuộc năm học của đợt thu.")).toBeTruthy();
+      expect(screen.getByRole("dialog", { name: "Thêm khoản thu" })).toBeTruthy();
+      refuse = false;
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(JSON.parse(String((puts(fetch)[1]![1] as RequestInit).body))).toMatchObject({ receivableId: "uniform", scope: { type: "STUDENTS", studentIds: ["s2"] } });
+    });
+
+    it("opens the edit modal prefilled with the receivable locked, and locks a FIXED line's scope to Toàn bộ", async () => {
+      const fetch = route((_url, init) => (init?.method === "PUT" ? response({ status: "COMPLETED", outcome: { ...draftRun, version: 3 } }) : undefined));
+      await renderRun(fetch);
+      fireEvent.click(screen.getByRole("button", { name: "Sửa Phí dã ngoại mùa thu" }));
+      let dialog = screen.getByRole("dialog", { name: "Sửa · Phí dã ngoại mùa thu" });
+      expect(within(dialog).getByLabelText("Khoản thu")).toHaveProperty("disabled", true);
+      expect(within(dialog).getByLabelText("Số lượng")).toHaveProperty("value", "2");
+      expect(within(dialog).getByRole("radio", { name: "Lớp chính thức" })).toHaveProperty("checked", true);
+      const classes = await within(dialog).findByRole("group", { name: "Lớp chính thức" });
+      expect(within(classes).getByRole("checkbox", { name: "Lá 5A" })).toHaveProperty("checked", true);
+      expect(within(classes).getByRole("checkbox", { name: "Chồi 3B" })).toHaveProperty("checked", true);
+      expect(within(classes).getByRole("checkbox", { name: "Mầm 4A" })).toHaveProperty("checked", false);
+      fireEvent.change(within(dialog).getByLabelText("Số lượng"), { target: { value: "3" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(JSON.parse(String((puts(fetch)[0]![1] as RequestInit).body))).toEqual({ receivableId: "trip", quantity: "3", scope: { type: "CLASSES", classIds: ["c1", "c2"] }, expectedVersion: 2 });
+      fireEvent.click(screen.getByRole("button", { name: "Sửa Học phí tháng" }));
+      dialog = screen.getByRole("dialog", { name: "Sửa · Học phí tháng" });
+      expect(within(dialog).getByRole("radio", { name: "Toàn bộ" })).toHaveProperty("checked", true);
+      for (const name of ["Toàn bộ", "Lớp chính thức", "Học sinh cụ thể"]) expect(within(dialog).getByRole("radio", { name }).matches(":disabled")).toBe(true);
+      expect(within(dialog).getByText("Khoản thu cố định luôn áp dụng cho toàn bộ học sinh.")).toBeTruthy();
+      fireEvent.change(within(dialog).getByLabelText("Số lượng"), { target: { value: "22" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
+      await waitFor(() => expect(puts(fetch)).toHaveLength(2));
+      expect(JSON.parse(String((puts(fetch)[1]![1] as RequestInit).body))).toEqual({ receivableId: "fee", quantity: "22", scope: { type: "ALL" }, expectedVersion: 3 });
+    });
+
+    it("asks for confirmation before dropping a line and sends the run version", async () => {
+      const fetch = route((_url, init) => (init?.method === "DELETE" ? response({ status: "COMPLETED", outcome: { ...draftRun, version: 3, templateLines: [tripLine] } }) : undefined));
+      await renderRun(fetch);
+      const trigger = screen.getByRole("button", { name: "Bỏ Học phí tháng" });
+      fireEvent.click(trigger);
+      const dialog = screen.getByRole("dialog", { name: "Bỏ Học phí tháng khỏi đợt thu" });
+      expect(within(dialog).getByText("Khoản thu sẽ không có trong hóa đơn nháp của đợt này. Cần xem trước lại sau khi bỏ.")).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Hủy" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(fetch.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "DELETE")).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "Bỏ Học phí tháng" }));
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Bỏ khoản thu" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      const call = fetch.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "DELETE")!;
+      expect(String(call[0]).endsWith("/template-lines/l-fee")).toBe(true);
+      expect((call[1] as RequestInit).body).toBe(JSON.stringify({ expectedVersion: 2 }));
+      await waitFor(() => expect(screen.queryByText("Học phí tháng")).toBeNull());
     });
   });
 });

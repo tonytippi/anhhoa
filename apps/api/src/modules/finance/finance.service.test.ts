@@ -79,6 +79,28 @@ describe('FinanceService validation', () => {
     expect(() => service.catalogConstraintError(new Error('Receivable kind cannot change once the Receivable is used on an Invoice'))).toThrow(expect.objectContaining({ status: 409, response: expect.objectContaining({ code: 'RECEIVABLE_KIND_LOCKED' }) }));
     expect(() => service.catalogConstraintError(new Error('connection reset'))).toThrow('connection reset');
   });
+  it('validates template scope input before any write and resolves scope membership from canonical facts', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never) as any;
+    const save = (scope: unknown) => service.saveTemplateLine('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { receivableId: crypto.randomUUID(), quantity: '1', expectedVersion: 1, scope });
+    const id = crypto.randomUUID();
+    for (const scope of [{ type: 'NOPE' }, { type: 'CLASSES' }, { type: 'CLASSES', classIds: [] }, { type: 'CLASSES', classIds: ['x'] }, { type: 'CLASSES', classIds: [id, id] }, { type: 'STUDENTS', studentIds: [] }, { type: 'STUDENTS', studentIds: Array.from({ length: 501 }, () => crypto.randomUUID()) }, 'ALL'])
+      await expect(save(scope)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { scope: expect.any(String) } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    const classA = crypto.randomUUID(); const classB = crypto.randomUUID(); const student = crypto.randomUUID();
+    const classes = service.scopeFacts({ scopeType: 'CLASSES', scopeClasses: [{ classId: classB, classroom: { name: 'Lá 5A' } }, { classId: classA, classroom: { name: 'Chồi 3B' } }], scopeStudents: [] });
+    expect(classes).toMatchObject({ type: 'CLASSES', label: 'Lớp chính thức: Chồi 3B, Lá 5A' });
+    expect(classes.classes.map((item: any) => item.id)).toEqual([classA, classB].sort());
+    expect(service.scopeFacts({ scopeType: 'ALL' })).toEqual({ type: 'ALL', label: 'Toàn bộ', classes: [], students: [] });
+    expect(service.scopeFacts({ scopeType: 'STUDENTS', scopeClasses: [], scopeStudents: [{ studentId: student, student: { studentCode: 'AH-1', fullName: 'Bé An' } }] }).label).toBe('Học sinh cụ thể: AH-1 · Bé An');
+    // Snapshots re-read from run.templateSnapshot keep their scope.
+    expect(service.scopeFacts({ scope: classes })).toMatchObject({ type: 'CLASSES', label: classes.label });
+    expect(service.inScope({ scope: classes }, { studentId: student, classId: classA })).toBe(true);
+    expect(service.inScope({ scope: classes }, { studentId: student, classId: crypto.randomUUID() })).toBe(false);
+    expect(service.inScope({ scope: { type: 'STUDENTS', students: [{ id: student }] } }, { studentId: student, classId: null })).toBe(true);
+    expect(service.inScope({ scope: { type: 'STUDENTS', students: [{ id: student }] } }, { studentId: crypto.randomUUID() })).toBe(false);
+    expect(service.inScope({}, { studentId: student })).toBe(true);
+  });
   it('has no API to create, rename or change the lifecycle of a group', () => {
     const service = new FinanceService({} as never, authorization as never) as any;
     expect(service.createGroup).toBeUndefined();

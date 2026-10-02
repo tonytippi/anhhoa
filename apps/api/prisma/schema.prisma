@@ -132,24 +132,25 @@ model SchoolYear {
 }
 
 model Class {
-  id                         String                      @id @default(uuid()) @db.Uuid
-  schoolId                   String                      @db.Uuid
-  schoolYearId               String                      @db.Uuid
+  id                         String                            @id @default(uuid()) @db.Uuid
+  schoolId                   String                            @db.Uuid
+  schoolYearId               String                            @db.Uuid
   name                       String
-  status                     ClassStatus                 @default(ACTIVE)
-  defaultBankAccountId       String?                     @db.Uuid
-  createdAt                  DateTime                    @default(now()) @db.Timestamptz(3)
-  updatedAt                  DateTime                    @updatedAt @db.Timestamptz(3)
-  school                     School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  schoolYear                 SchoolYear                  @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  defaultBankAccount         BankAccount?                @relation(fields: [schoolId, defaultBankAccountId], references: [schoolId, id], onDelete: Restrict, map: "Class_defaultBankAccount_fkey")
+  status                     ClassStatus                       @default(ACTIVE)
+  defaultBankAccountId       String?                           @db.Uuid
+  createdAt                  DateTime                          @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime                          @updatedAt @db.Timestamptz(3)
+  school                     School                            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  schoolYear                 SchoolYear                        @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  defaultBankAccount         BankAccount?                      @relation(fields: [schoolId, defaultBankAccountId], references: [schoolId, id], onDelete: Restrict, map: "Class_defaultBankAccount_fkey")
   enrollments                StudentEnrollment[]
   staffClassAssignments      StaffClassAssignment[]
   enrollmentClassAssignments EnrollmentClassAssignment[]
   attendanceRecords          AttendanceRecord[]
-  uploadedEvidenceReferences EvidenceReference[]         @relation("EvidenceUploadedClass")
+  uploadedEvidenceReferences EvidenceReference[]               @relation("EvidenceUploadedClass")
   dailyJournals              DailyJournal[]
   dailyJournalMedia          DailyJournalMedia[]
+  templateScopeClasses       CollectionRunTemplateScopeClass[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, id])
@@ -389,24 +390,25 @@ model LeaveDaySourceExclusion {
 }
 
 model Student {
-  id                              String                           @id @default(uuid()) @db.Uuid
-  schoolId                        String                           @db.Uuid
+  id                              String                              @id @default(uuid()) @db.Uuid
+  schoolId                        String                              @db.Uuid
   studentCode                     String
   fullName                        String
-  dateOfBirth                     DateTime                         @db.Date
+  dateOfBirth                     DateTime                            @db.Date
   preferredName                   String?
   gender                          StudentGender?
   address                         String?
   personalIdentifier              String?
-  createdAt                       DateTime                         @default(now()) @db.Timestamptz(3)
-  updatedAt                       DateTime                         @updatedAt @db.Timestamptz(3)
-  school                          School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  createdAt                       DateTime                            @default(now()) @db.Timestamptz(3)
+  updatedAt                       DateTime                            @updatedAt @db.Timestamptz(3)
+  school                          School                              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   enrollments                     StudentEnrollment[]
+  templateScopeStudents           CollectionRunTemplateScopeStudent[]
   parentLinks                     StudentParent[]
   leaveRequests                   LeaveRequest[]
   leaveDaySources                 LeaveDaySource[]
   attendanceRecords               AttendanceRecord[]
-  confirmedEvidenceReferences     EvidenceReference[]              @relation("EvidenceConfirmedStudent")
+  confirmedEvidenceReferences     EvidenceReference[]                 @relation("EvidenceConfirmedStudent")
   handoverRecords                 HandoverRecord[]
   dailyJournals                   DailyJournal[]
   dailyJournalMedia               DailyJournalMedia[]
@@ -838,15 +840,18 @@ model CollectionRun {
 }
 
 model CollectionRunTemplateLine {
-  id              String        @id @default(uuid()) @db.Uuid
-  schoolId        String        @db.Uuid
-  collectionRunId String        @db.Uuid
-  receivableId    String        @db.Uuid
+  id              String                              @id @default(uuid()) @db.Uuid
+  schoolId        String                              @db.Uuid
+  collectionRunId String                              @db.Uuid
+  receivableId    String                              @db.Uuid
   quantity        Int
-  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
-  collectionRun   CollectionRun @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
-  receivable      Receivable    @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  scopeType       TemplateScopeType                   @default(ALL)
+  createdAt       DateTime                            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                            @updatedAt @db.Timestamptz(3)
+  collectionRun   CollectionRun                       @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
+  receivable      Receivable                          @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  scopeClasses    CollectionRunTemplateScopeClass[]
+  scopeStudents   CollectionRunTemplateScopeStudent[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, collectionRunId, receivableId])
@@ -1262,6 +1267,8 @@ model InvoiceLine {
   schoolId                      String                       @db.Uuid
   invoiceId                     String                       @db.Uuid
   receivableId                  String?                      @db.Uuid
+  sourceKind                    InvoiceLineSourceKind?
+  sourceDetail                  Json?
   kind                          InvoiceLineKind              @default(NORMAL)
   receivableCodeSnapshot        String?
   receivableNameSnapshot        String
@@ -2148,4 +2155,45 @@ model ExtracurricularMembership {
   @@unique([schoolId, id])
   @@index([schoolId, extracurricularClassId, effectiveFrom])
   @@index([schoolId, enrollmentId, effectiveFrom])
+}
+
+// Story 5.35 (decision 2026-10-02 §3.2): where a template line applies. FIXED lines are always ALL; FLEXIBLE lines may name official
+// Classes (resolved by the Student's class effective on the first day of the billing month) or specific Students.
+enum TemplateScopeType {
+  ALL
+  CLASSES
+  STUDENTS
+}
+
+model CollectionRunTemplateScopeClass {
+  id             String                    @id @default(uuid()) @db.Uuid
+  schoolId       String                    @db.Uuid
+  schoolYearId   String                    @db.Uuid
+  templateLineId String                    @db.Uuid
+  classId        String                    @db.Uuid
+  line           CollectionRunTemplateLine @relation(fields: [schoolId, templateLineId], references: [schoolId, id], onDelete: Restrict)
+  classroom      Class                     @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
+
+  @@unique([schoolId, templateLineId, classId])
+  @@index([schoolId, classId])
+}
+
+model CollectionRunTemplateScopeStudent {
+  id             String                    @id @default(uuid()) @db.Uuid
+  schoolId       String                    @db.Uuid
+  templateLineId String                    @db.Uuid
+  studentId      String                    @db.Uuid
+  line           CollectionRunTemplateLine @relation(fields: [schoolId, templateLineId], references: [schoolId, id], onDelete: Restrict)
+  student        Student                   @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, templateLineId, studentId])
+  @@index([schoolId, studentId])
+}
+
+// Provenance of a generated or hand-added InvoiceLine; immutable once written. NULL = line created before provenance existed.
+enum InvoiceLineSourceKind {
+  TEMPLATE_FIXED
+  TEMPLATE_FLEXIBLE
+  EXTRACURRICULAR
+  MANUAL
 }

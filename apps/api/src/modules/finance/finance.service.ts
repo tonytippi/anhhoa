@@ -435,10 +435,17 @@ export class FinanceService {
       stackingMode: application.stackingMode, appliedDiscount: application.appliedDiscount.toString(),
       grossAmount: application.grossAmount.toString(), discountAmount: application.discountAmount.toString(), netAmount: application.netAmount.toString() };
   }
+  // Review badge: "Cố định" / "Linh hoạt · <scope>" / "Sửa tay" (extracurricular badges arrive with Story 5.36). Legacy lines carry none.
+  private sourceDto(line: any) {
+    if (!line.sourceKind) return null;
+    const scope = line.sourceDetail?.scope;
+    const label = line.sourceKind === "TEMPLATE_FIXED" ? "Cố định" : line.sourceKind === "TEMPLATE_FLEXIBLE" ? `Linh hoạt · ${scope?.label ?? "Toàn bộ"}` : line.sourceKind === "MANUAL" ? "Sửa tay" : "Ngoại khóa";
+    return { kind: line.sourceKind, label };
+  }
   private lineDto(line: any, issued = false) {
     const promotionApplicationSnapshot = issued ? (line.promotionApplications ?? []).sort((a: any, b: any) => a.ordinal - b.ordinal).map((application: any) => this.applicationDto(application)) : null;
     return {
-      id: line.id, kind: line.kind, receivableId: line.receivableId, receivableCode: line.receivableCodeSnapshot,
+      id: line.id, kind: line.kind, sourceKind: line.sourceKind ?? null, sourceBadge: this.sourceDto(line), receivableId: line.receivableId, receivableCode: line.receivableCodeSnapshot,
       receivableName: line.receivableNameSnapshot, unitLabel: line.unitLabelSnapshot,
       defaultUnitPrice: line.defaultUnitPriceSnapshot.toString(), unitPrice: line.unitPrice.toString(),
       quantity: line.quantity.toString(), amount: line.amount.toString(),
@@ -1021,7 +1028,7 @@ export class FinanceService {
       const deduction = await this.lineProposal(tx, schoolId, target, receivable, unitPrice);
       const netAmount = BigInt(evaluated.netAmount) - deduction.deductionAmount;
       const tax = taxedLine(netAmount, receivable.taxCategory);
-      const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice, quantity: input.quantity, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), ...this.deductionData(deduction), netAmount, ...tax, promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason: input.overrideReason, ...source } });
+      const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, sourceKind: "MANUAL", sourceDetail: { addedByMembershipId: actor.membershipId }, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice, quantity: input.quantity, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), ...this.deductionData(deduction), netAmount, ...tax, promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason: input.overrideReason, ...source } });
       const outcome = await this.refreshInvoice(tx, schoolId, target.id); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_ADDED", operation, null, { line: this.lineDto(line), invoice: outcome }); return outcome;
     });
   }
@@ -1868,7 +1875,7 @@ export class FinanceService {
   }
   private runInclude: any = {
     coverageSelections: { select: { studentId: true, versionId: true, billingMonth: true }, orderBy: [{ studentId: "asc" }, { billingMonth: "asc" }, { versionId: "asc" }] },
-    templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } } }, orderBy: { id: "asc" } },
+    templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } }, scopeClasses: { include: { classroom: { select: { name: true } } } }, scopeStudents: { include: { student: { select: { studentCode: true, fullName: true } } } } }, orderBy: { id: "asc" } },
     invoices: {
       select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true, channel: true, kind: true },
       orderBy: [{ studentCodeSnapshot: "asc" }, { channel: "asc" }, { id: "asc" }],
@@ -1905,6 +1912,27 @@ export class FinanceService {
       invoiceTotal: effective.reduce((total: bigint, invoice) => total + BigInt(invoice.total), 0n).toString(),
     };
   }
+  // Picker aid for template scopes: the run's ACTIVE official Classes and a bounded Student search among ENROLLED Students of its SchoolYear.
+  async runScopeOptions(identityId: string, schoolId: string, runId: string, query: any) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId");
+    const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId }, select: { schoolYearId: true } });
+    if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
+    const search = typeof query?.q === "string" ? query.q.trim().slice(0, 100) : "";
+    const [classes, enrollments] = await Promise.all([
+      this.prisma.class.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      this.prisma.studentEnrollment.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, lifecycle: "ENROLLED", ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) }, include: { student: { select: { id: true, studentCode: true, fullName: true } } }, orderBy: [{ student: { studentCode: "asc" } }], take: 30 }),
+    ]);
+    return { classes, students: enrollments.map((item) => ({ id: item.student.id, studentCode: item.student.studentCode, fullName: item.student.fullName, className: item.className })) };
+  }
+  // Per template line: kind, scope label, how many eligible Students receive it and the server-derived subtotal (before discounts, deductions and VAT).
+  private previewLineSummaries(templateLines: any[], eligible: any[]) {
+    return templateLines.map((line) => {
+      const rows = eligible.map((row) => (row.lines ?? []).find((candidate: any) => candidate.templateLineId === line.templateLineId)).filter(Boolean);
+      return { templateLineId: line.templateLineId, receivableId: line.receivableId, receivableName: line.receivableName, kind: line.kind, scope: { type: line.scope.type, label: line.scope.label }, studentCount: rows.length, subtotal: rows.reduce((total: bigint, item: any) => total + BigInt(item.grossAmount ?? item.amount ?? 0), 0n).toString() };
+    });
+  }
   private previewSummary(preview: { eligible: any[]; skips: any[] }) {
     return {
       eligibleCount: preview.eligible.length,
@@ -1915,10 +1943,25 @@ export class FinanceService {
         .toString(),
     };
   }
+  // Scope facts are canonical (sorted by id) so they can sit inside the preview fingerprint and the generation snapshot.
+  private scopeFacts(line: any) {
+    const type: "ALL" | "CLASSES" | "STUDENTS" = line.scopeType ?? line.scope?.type ?? "ALL";
+    const classes = [...(line.scopeClasses ?? line.scope?.classes?.map((item: any) => ({ classId: item.id, classroom: { name: item.name } })) ?? [])].map((item: any) => ({ id: item.classId, name: item.classroom?.name ?? "" })).sort((a, b) => a.id.localeCompare(b.id));
+    const students = [...(line.scopeStudents ?? line.scope?.students?.map((item: any) => ({ studentId: item.id, student: { studentCode: item.studentCode, fullName: item.fullName } })) ?? [])].map((item: any) => ({ id: item.studentId, studentCode: item.student?.studentCode ?? "", fullName: item.student?.fullName ?? "" })).sort((a, b) => a.id.localeCompare(b.id));
+    const names = (type === "CLASSES" ? classes.map((item) => item.name) : students.map((item) => `${item.studentCode} · ${item.fullName}`)).sort((a, b) => a.localeCompare(b, "vi"));
+    const label = type === "ALL" ? "Toàn bộ" : type === "CLASSES" ? `Lớp chính thức: ${names.join(", ")}` : `Học sinh cụ thể: ${names.length > 3 ? `${names.slice(0, 3).join(", ")} và ${names.length - 3} học sinh khác` : names.join(", ")}`;
+    return { type, label, classes: type === "CLASSES" ? classes : [], students: type === "STUDENTS" ? students : [] };
+  }
+  // A Student receives a template line when it is ALL, or the Student's class effective on the first day of the month is named, or the Student is named.
+  private inScope(line: any, item: { studentId: string; classId?: string | null }) {
+    const scope = line.scope;
+    if (!scope || scope.type === "ALL") return true;
+    return scope.type === "CLASSES" ? scope.classes.some((target: any) => target.id === item.classId) : scope.students.some((target: any) => target.id === item.studentId);
+  }
   private templateLineDto(line: any) {
     const receivable = line.receivable;
     const price = receivable.defaultUnitPrice;
-    return { id: line.id, receivableId: line.receivableId, receivableName: receivable.displayName, unitLabel: receivable.unitLabel, defaultUnitPrice: price.toString(), quantity: line.quantity.toString(), amount: this.amount(price, line.quantity).toString(), taxCategory: receivable.taxCategory ?? "NOT_DECLARED" };
+    return { id: line.id, receivableId: line.receivableId, receivableName: receivable.displayName, unitLabel: receivable.unitLabel, defaultUnitPrice: price.toString(), quantity: line.quantity.toString(), amount: this.amount(price, line.quantity).toString(), taxCategory: receivable.taxCategory ?? "NOT_DECLARED", kind: receivable.group?.kind ?? null, scope: this.scopeFacts(line) };
   }
   private async templateSnapshot(tx: any, schoolId: string, run: any, validateActive = true, includeLifecycleFacts = false) {
     await tx.$queryRaw`SELECT 1 FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid FOR UPDATE`;
@@ -1926,10 +1969,9 @@ export class FinanceService {
     await tx.$queryRaw`SELECT 1 FROM "ReceivableLifecycleTransition" WHERE "schoolId" = ${schoolId}::uuid AND "receivableId" IN (SELECT "receivableId" FROM "CollectionRunTemplateLine" WHERE "schoolId" = ${schoolId}::uuid AND "collectionRunId" = ${run.id}::uuid) FOR UPDATE`;
     const lines = await tx.collectionRunTemplateLine.findMany({
       where: { schoolId, collectionRunId: run.id },
-      include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } } },
+      include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } }, scopeClasses: { include: { classroom: { select: { name: true } } } }, scopeStudents: { include: { student: { select: { studentCode: true, fullName: true } } } } },
       orderBy: { id: "asc" },
     });
-    if (!lines.length) throw validation("template", "Đợt thu phải có ít nhất một khoản thu mẫu.");
     return lines.map((line: any) => {
       const receivable = line.receivable;
       if (validateActive && (receivable.lifecycleTransitions[0]?.status !== "ACTIVE")) throw validation("receivableId", "Khoản thu mẫu đã ngừng áp dụng.");
@@ -1944,13 +1986,28 @@ export class FinanceService {
         quantity: line.quantity,
         amount: amount.toString(),
         taxCategory: receivable.taxCategory,
+        kind: receivable.group?.kind ?? null,
+        scope: this.scopeFacts(line),
         ...(includeLifecycleFacts ? { receivableStatus: receivable.lifecycleTransitions[0]?.status ?? null } : {}),
       };
     }).sort((a: any, b: any) => this.amountDescending({ ...a, id: a.templateLineId }, { ...b, id: b.templateLineId }));
   }
+  // Decision 2026-10-02 §3.2: the optional `scope` is { type: ALL|CLASSES|STUDENTS, classIds?, studentIds? }. A missing scope keeps an existing
+  // line's scope (ALL for a new line); FIXED lines are always ALL; EXTRACURRICULAR receivables are never template lines.
+  private scopeInput(value: unknown) {
+    if (value == null) return null;
+    const type = (value as any)?.type;
+    if (!["ALL", "CLASSES", "STUDENTS"].includes(type)) throw validation("scope", "Phạm vi phải là toàn bộ, lớp chính thức hoặc học sinh cụ thể.");
+    const ids = (field: "classIds" | "studentIds", limit: number) => {
+      const list = (value as any)?.[field];
+      if (!Array.isArray(list) || list.length < 1 || list.length > limit || new Set(list).size !== list.length || list.some((item: unknown) => typeof item !== "string" || !uuid.test(item))) throw validation("scope", type === "CLASSES" ? "Chọn ít nhất một lớp chính thức." : "Chọn ít nhất một học sinh.");
+      return [...list].sort() as string[];
+    };
+    return { type: type as "ALL" | "CLASSES" | "STUDENTS", classIds: type === "CLASSES" ? ids("classIds", 100) : [], studentIds: type === "STUDENTS" ? ids("studentIds", 500) : [] };
+  }
   async saveTemplateLine(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, "runId");
-    const input = { receivableId: this.identifier(body?.receivableId, "receivableId"), quantity: this.quantity(body?.quantity), expectedVersion: Number(body?.expectedVersion) };
+    const input = { receivableId: this.identifier(body?.receivableId, "receivableId"), quantity: this.quantity(body?.quantity), expectedVersion: Number(body?.expectedVersion), scope: this.scopeInput(body?.scope) };
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw validation("expectedVersion", "Phiên bản đợt thu không hợp lệ.");
     return this.mutate(actor, identityId, schoolId, routes.template, key, operationId, { runId, ...input }, async (tx, operation) => {
       const run = await this.lockRun(tx, schoolId, runId);
@@ -1959,9 +2016,32 @@ export class FinanceService {
       await this.lockReceivablesShared(tx, schoolId, [input.receivableId]);
       const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } });
       if (!receivable || receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu không còn áp dụng.");
-      const line = await tx.collectionRunTemplateLine.upsert({ where: { schoolId_collectionRunId_receivableId: { schoolId, collectionRunId: run.id, receivableId: receivable.id } }, create: { schoolId, collectionRunId: run.id, receivableId: receivable.id, quantity: input.quantity }, update: { quantity: input.quantity }, include: { receivable: true } });
+      if (receivable.group.kind === "EXTRACURRICULAR") throw validation("receivableId", "Khoản Ngoại khóa thu theo lớp ngoại khóa, không thêm trực tiếp vào đợt thu.");
+      const existing = await tx.collectionRunTemplateLine.findFirst({ where: { schoolId, collectionRunId: run.id, receivableId: receivable.id }, include: { scopeClasses: true, scopeStudents: true } });
+      const scope = input.scope ?? (existing ? { type: existing.scopeType as "ALL" | "CLASSES" | "STUDENTS", classIds: existing.scopeClasses.map((item: any) => item.classId).sort(), studentIds: existing.scopeStudents.map((item: any) => item.studentId).sort() } : { type: "ALL" as const, classIds: [], studentIds: [] });
+      if (receivable.group.kind === "FIXED" && scope.type !== "ALL") throw validation("scope", "Khoản thu cố định luôn áp dụng cho toàn bộ học sinh.");
+      // Foreign, other-year and missing targets are indistinguishable to the caller.
+      if (scope.type === "CLASSES") {
+        const classes = await tx.class.count({ where: { schoolId, schoolYearId: run.schoolYearId, id: { in: scope.classIds } } });
+        if (classes !== scope.classIds.length) throw validation("scope", "Lớp chính thức phải thuộc năm học của đợt thu.");
+      }
+      if (scope.type === "STUDENTS") {
+        const students = await tx.studentEnrollment.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, studentId: { in: scope.studentIds } }, select: { studentId: true } });
+        if (new Set(students.map((item: any) => item.studentId)).size !== scope.studentIds.length) throw validation("scope", "Học sinh phải thuộc năm học của đợt thu.");
+      }
+      // Targets are replaced as a whole: clear them before the scope type changes (a trigger enforces that order).
+      if (existing) {
+        await tx.collectionRunTemplateScopeClass.deleteMany({ where: { schoolId, templateLineId: existing.id } });
+        await tx.collectionRunTemplateScopeStudent.deleteMany({ where: { schoolId, templateLineId: existing.id } });
+      }
+      const saved = existing
+        ? await tx.collectionRunTemplateLine.update({ where: { id: existing.id }, data: { quantity: input.quantity, scopeType: scope.type } })
+        : await tx.collectionRunTemplateLine.create({ data: { schoolId, collectionRunId: run.id, receivableId: receivable.id, quantity: input.quantity, scopeType: scope.type } });
+      if (scope.type === "CLASSES") await tx.collectionRunTemplateScopeClass.createMany({ data: scope.classIds.map((classId: string) => ({ schoolId, schoolYearId: run.schoolYearId, templateLineId: saved.id, classId })) });
+      if (scope.type === "STUDENTS") await tx.collectionRunTemplateScopeStudent.createMany({ data: scope.studentIds.map((studentId: string) => ({ schoolId, templateLineId: saved.id, studentId })) });
+      const line = await tx.collectionRunTemplateLine.findFirstOrThrow({ where: { id: saved.id }, include: { receivable: { include: { group: true } }, scopeClasses: { include: { classroom: { select: { name: true } } } }, scopeStudents: { include: { student: { select: { studentCode: true, fullName: true } } } } } });
       const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude });
-      const outcome = this.runDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_TEMPLATE_SAVED", operation, null, { line: this.templateLineDto(line), run: outcome }); return outcome;
+      const outcome = this.runDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_TEMPLATE_SAVED", operation, existing ? { quantity: existing.quantity, scope: existing.scopeType } : null, { line: this.templateLineDto(line), run: outcome }); return outcome;
     });
   }
   async removeTemplateLine(identityId: string, schoolId: string, runId: string, lineId: string, key: string, operationId: string, body: any) {
@@ -1971,6 +2051,7 @@ export class FinanceService {
       const run = await this.lockRun(tx, schoolId, runId); if (run.status !== "DRAFT") throw new ConflictException({ code: "COLLECTION_RUN_NOT_DRAFT", message: "Chỉ được sửa khoản thu mẫu khi đợt thu ở trạng thái nháp." });
       if (run.version !== expectedVersion) throw new ConflictException({ code: "COLLECTION_RUN_VERSION_CONFLICT", message: "Đợt thu đã thay đổi. Hãy tải lại trước khi sửa khoản thu mẫu." });
       const line = await tx.collectionRunTemplateLine.findFirst({ where: { id: lineId, schoolId, collectionRunId: run.id }, include: { receivable: true } }); if (!line) throw new NotFoundException({ code: "COLLECTION_RUN_TEMPLATE_LINE_NOT_FOUND", message: "Không tìm thấy khoản thu mẫu." });
+      await tx.collectionRunTemplateScopeClass.deleteMany({ where: { schoolId, templateLineId: line.id } }); await tx.collectionRunTemplateScopeStudent.deleteMany({ where: { schoolId, templateLineId: line.id } });
       await tx.collectionRunTemplateLine.delete({ where: { id: line.id } }); const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude }); const outcome = this.runDto(updated); await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_TEMPLATE_REMOVED", operation, this.templateLineDto(line), outcome); return outcome;
     });
   }
@@ -2100,10 +2181,12 @@ export class FinanceService {
           sequence: 1,
         },
       });
-      const outcome = this.runDto({
-        ...run,
-        lifecycleTransitions: [transition],
-      });
+      // Decision 2026-10-02 §3.2: a new run starts with every ACTIVE FIXED receivable, quantity 1, for everyone.
+      const fixed = (await tx.receivable.findMany({ where: { schoolId, group: { kind: "FIXED" } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } }, orderBy: { id: "asc" } })).filter((item: any) => item.lifecycleTransitions[0]?.status === "ACTIVE");
+      await this.lockReceivablesShared(tx, schoolId, fixed.map((item: any) => item.id));
+      if (fixed.length) await tx.collectionRunTemplateLine.createMany({ data: fixed.map((item: any) => ({ schoolId, collectionRunId: run.id, receivableId: item.id, quantity: 1, scopeType: "ALL" as const })) });
+      const seeded = await tx.collectionRun.findFirstOrThrow({ where: { id: run.id, schoolId }, include: this.runInclude });
+      const outcome = this.runDto({ ...seeded, lifecycleTransitions: [transition] });
       await this.audit(
         tx,
         schoolId,
@@ -2112,7 +2195,7 @@ export class FinanceService {
         "COLLECTION_RUN_OPENED",
         operation,
         null,
-        outcome,
+        { ...outcome, seededFixedReceivableIds: fixed.map((item: any) => item.id) },
       );
       return outcome;
     };
@@ -2235,9 +2318,15 @@ export class FinanceService {
     // D11: coverage issued in an earlier SchoolYear still covers this month.
     const covered = await client.studentPromotionalCoverage.findMany({ where: { schoolId, studentId: { in: rosterStudentIds }, billingMonth: run.billingMonth }, select: { studentId: true, receivableId: true } });
     const coveredKeys = new Set(covered.map((item: any) => `${item.studentId}:${item.receivableId}`));
-    const eligibleRows = eligible.sort((a, b) => a.studentId.localeCompare(b.studentId)).map(({ enrollment, assignment, ...item }) => ({
+    // Decision 2026-10-02 §3.4: an eligible Student with no applicable template line (after scope) is skipped, never billed an empty Invoice.
+    const applicable: any[] = [];
+    for (const item of eligible) {
+      if (templateLines.some((line) => this.inScope(line, item))) applicable.push(item);
+      else skips.push({ studentId: item.studentId, studentCode: item.studentCode, fullName: item.fullName, reason: "NO_APPLICABLE_LINES" });
+    }
+    const eligibleRows = applicable.sort((a, b) => a.studentId.localeCompare(b.studentId)).map(({ enrollment, assignment, ...item }) => ({
       ...item,
-      lines: templateLines.filter((line) => !coveredKeys.has(`${item.studentId}:${line.receivableId}`)).map((line) => this.withTax(this.evaluatePromotionLine(item.studentId, line, promotionFacts), line.taxCategory)),
+      lines: templateLines.filter((line) => this.inScope(line, item) && !coveredKeys.has(`${item.studentId}:${line.receivableId}`)).map((line) => ({ ...this.withTax(this.evaluatePromotionLine(item.studentId, line, promotionFacts), line.taxCategory), templateLineId: line.templateLineId })),
     }));
     const facts = {
       runId: run.id,
@@ -2271,7 +2360,7 @@ export class FinanceService {
       futureCoverageFacts: [],
       fingerprint: requestFingerprint(facts),
       // This is the sole roster result used to create invoice snapshots below.
-      snapshots: eligible.map((item) => ({
+      snapshots: applicable.map((item) => ({
         ...item,
          calculatedLines: eligibleRows.find((row) => row.studentId === item.studentId)!.lines,
       })),
@@ -2853,7 +2942,8 @@ export class FinanceService {
       });
     const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, true, true);
     const preview = await this.previewDeductions(this.prisma, schoolId, run, await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines));
-    return { ...preview, summary: this.previewSummary(preview) };
+    const lineSummaries = this.previewLineSummaries(templateLines, preview.eligible);
+    return { ...preview, summary: this.previewSummary(preview), lineSummaries, lineTotal: lineSummaries.reduce((total: bigint, line: any) => total + BigInt(line.subtotal), 0n).toString() };
   }
   // The preview shows the leave-day deduction proposed from current facts; it is not part of the READY
   // fingerprint because generation re-reads leave days and refund prices at generation time.
@@ -3016,6 +3106,8 @@ export class FinanceService {
         // One authoritative roster read supplies both eligibility and immutable snapshots.
         const templateLines = currentTemplate.map(({ receivableStatus, ...line }: any) => line);
         const snapshots = roster.snapshots as any[];
+        // An empty template is allowed; generation is refused only when no Student would get any line.
+        if (!snapshots.length && roster.skips.some((item: any) => item.reason === "NO_APPLICABLE_LINES")) throw new ConflictException({ code: "COLLECTION_RUN_NO_APPLICABLE_LINES", message: "Không học sinh nào có khoản thu áp dụng. Hãy thêm khoản thu hoặc kiểm tra phạm vi trước khi tạo hóa đơn." });
         await tx.collectionRun.update({ where: { id: run.id }, data: { templateSnapshot: templateLines } });
         const deductions = await this.deductionContext(tx, schoolId, run.billingMonth, snapshots.map((item: any) => item.studentId), templateLines.map((line: any) => line.receivableId));
         const generation = await tx.collectionRunGeneration.create({ data: { schoolId, collectionRunId: run.id, operationId: operation.id, actorIdentityId: identityId, membershipId: actor.membershipId, totalCount: snapshots.length + roster.skips.length, processedCount: roster.skips.length, eligibleCount: 0, skippedCount: roster.skips.length } });
@@ -3142,7 +3234,7 @@ export class FinanceService {
       const student = await tx.student.findFirst({ where: { id: studentId, schoolId } });
       if (!student) throw new NotFoundException({ code: "STUDENT_NOT_FOUND", message: "Không tìm thấy học sinh." });
         const templateLines = run.templateSnapshot as any[] | null;
-        if (!templateLines?.length) throw new ConflictException({ code: "COLLECTION_RUN_TEMPLATE_SNAPSHOT_MISSING", message: "Không tìm thấy snapshot khoản thu của đợt đã tạo." });
+        if (!Array.isArray(templateLines)) throw new ConflictException({ code: "COLLECTION_RUN_TEMPLATE_SNAPSHOT_MISSING", message: "Không tìm thấy snapshot khoản thu của đợt đã tạo." });
         const roster = await this.selectionPreview(tx, schoolId, run, [studentId], templateLines);
         const candidate = roster.snapshots[0] as any;
         const skipped = [...roster.skips];
@@ -3295,8 +3387,10 @@ export class FinanceService {
         const lineDeduction = deduction(line.receivableId);
         const netAmount = BigInt(calculated.netAmount) - BigInt(lineDeduction.deductionAmount);
         const tax = taxedLine(netAmount, category);
-        return { channel: taxChannel(category), schoolId, receivableId: line.receivableId, receivableCodeSnapshot: line.receivableCode, receivableNameSnapshot: line.receivableName, unitLabelSnapshot: line.unitLabel, defaultUnitPriceSnapshot: line.defaultUnitPrice, unitPrice: line.defaultUnitPrice, quantity: line.quantity, amount: tax.amount.toString(), grossAmount: calculated.grossAmount, discountAmount: calculated.discountAmount, netAmount: netAmount.toString(), ...lineDeduction, taxCategorySnapshot: category, vatRateSnapshot: tax.vatRateSnapshot, vatAmount: tax.vatAmount.toString(), promotionEvaluationProvenance: calculated.promotionEvaluation };
-      }).concat(refundOnly),
+        // Provenance snapshot: the template line and its scope as they were when the Invoice was generated.
+        const source = { sourceKind: line.kind === "FIXED" ? "TEMPLATE_FIXED" : "TEMPLATE_FLEXIBLE", sourceDetail: { templateLineId: line.templateLineId, scope: line.scope ?? { type: "ALL", label: "Toàn bộ", classes: [], students: [] } } };
+        return { ...source, channel: taxChannel(category), schoolId, receivableId: line.receivableId, receivableCodeSnapshot: line.receivableCode, receivableNameSnapshot: line.receivableName, unitLabelSnapshot: line.unitLabel, defaultUnitPriceSnapshot: line.defaultUnitPrice, unitPrice: line.defaultUnitPrice, quantity: line.quantity, amount: tax.amount.toString(), grossAmount: calculated.grossAmount, discountAmount: calculated.discountAmount, netAmount: netAmount.toString(), ...lineDeduction, taxCategorySnapshot: category, vatRateSnapshot: tax.vatRateSnapshot, vatAmount: tax.vatAmount.toString(), promotionEvaluationProvenance: calculated.promotionEvaluation };
+      }).concat(refundOnly as any),
     };
   }
   // One generated Student becomes one Invoice per payment channel that has lines; a Student without

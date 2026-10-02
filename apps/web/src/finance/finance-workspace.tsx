@@ -10,6 +10,7 @@ const receivableKinds: Array<{ kind: ReceivableKind; label: string; hint: string
   { kind: "FLEXIBLE", label: "Khoản thu linh hoạt", hint: "Thêm vào đợt thu khi cần, chọn phạm vi: toàn bộ, lớp chính thức hoặc học sinh cụ thể." },
   { kind: "EXTRACURRICULAR", label: "Ngoại khóa", hint: "Thu theo lớp ngoại khóa; gắn khoản thu vào lớp ở trang Lớp ngoại khóa." },
 ];
+const kindShortLabel = (kind: ReceivableKind | null | undefined) => ({ FIXED: "Cố định", FLEXIBLE: "Linh hoạt", EXTRACURRICULAR: "Ngoại khóa" } as const)[kind ?? "FLEXIBLE"] ?? "";
 const kindLabel = (kind: ReceivableKind | null | undefined) => receivableKinds.find((item) => item.kind === kind)?.label ?? "";
 type Receivable = {
   id: string;
@@ -52,6 +53,12 @@ type Year = {
 };
 type Candidate = { id: string; studentCode: string; fullName: string };
 type Candidates = { schoolYears: Year[]; students: Candidate[] };
+// Decision 2026-10-02 §3.2: a template line has a typed kind and a scope; counts and subtotals only come from the server preview.
+type TemplateScope = { type: "ALL" | "CLASSES" | "STUDENTS"; label: string; classes: Array<{ id: string; name: string }>; students: Array<{ id: string; studentCode: string; fullName: string }> };
+type TemplateLine = { id: string; receivableId: string; receivableName: string; unitLabel: string; defaultUnitPrice: string; quantity: string; amount: string; kind?: ReceivableKind | null; scope?: TemplateScope };
+type LineSummary = { templateLineId: string; receivableId: string; receivableName: string; kind: ReceivableKind | null; scope: { type: string; label: string }; studentCount: number; subtotal: string };
+type ScopeOptions = { classes: Array<{ id: string; name: string }>; students: Array<{ id: string; studentCode: string; fullName: string; className: string | null }> };
+type TemplateDialog = { lineId?: string; receivableId: string; name: string; kind: ReceivableKind | null; quantity: string; scopeType: "ALL" | "CLASSES" | "STUDENTS"; classIds: string[]; students: Array<{ id: string; label: string }>; search: string };
 type Run = {
   id: string;
   schoolYearId: string;
@@ -59,7 +66,7 @@ type Run = {
   type: "MONTHLY";
   status: "DRAFT" | "READY" | "GENERATED" | "CLOSED";
   version: number;
-  templateLines: Array<{ id: string; receivableId: string; receivableName: string; unitLabel: string; defaultUnitPrice: string; quantity: string; amount: string }>;
+  templateLines: Array<TemplateLine>;
   coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
   invoices?: Array<{ id: string; studentId: string; studentCode: string; studentName: string; className: string; status: string; total: string; channel?: PaymentChannel; kind?: "NORMAL" | "SETTLEMENT" }>;
   summary?: PreviewSummary | InvoiceSummary;
@@ -83,6 +90,8 @@ type Preview = {
   }>;
   fingerprint: string;
   summary?: PreviewSummary;
+  lineSummaries?: LineSummary[];
+  lineTotal?: string;
   coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
   futureCoverageFacts?: Array<{ studentId: string; billingMonth: string; policyId: string; versionId: string; receivableId: string; receivableName: string; originalPrice: string; reduction: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string }>;
 };
@@ -104,7 +113,7 @@ type GenerateOutcome = {
 };
 type Source = { serviceDate: string | null; attendanceState: "PRESENT" | "ABSENT" | null; pickedUpAt: string | null; lateCareMinutes: number | null };
 type BankAccount = { id: string; kind?: PaymentChannel; receivingBank: string; bankBin?: string | null; accountNumber: string; accountHolderName: string };
-type Invoice = { id: string; channel?: PaymentChannel; kind?: "NORMAL" | "SETTLEMENT"; enrollmentEndedOn?: string | null; notice?: { classDefaultBankAccountId: string | null; invoices: Invoice[] }; status: string; total: string; sourceOutstanding?: string | null; billingMonth: string; revisesInvoiceId: string | null; revisionReason: string | null; replacementInvoiceId: string | null; receipt: { actualAmount: string; outcome: "EXACT" | "SHORTFALL" | "OVERPAYMENT"; postedAt: string; difference: { signedAmount: string } | null } | null; settlementTransfer: { sourceInvoiceId: string; sourceReceiptId: string; amount: string; postedAt: string } | null; sourceDebtTransfers?: Array<{ targetInvoiceId: string; amount: string; reason: string; postedAt: string }>; priorDebtTransfers?: Array<{ sourceInvoiceId: string; amount: string; reason: string; postedAt: string }>; carries: Array<{ type: "SHORTFALL_CARRY" | "OVERPAYMENT_CARRY"; amount: string; sourceDifferenceId: string }>; coverageFacts?: Array<{ coverageId: string | null; receivableId: string; billingMonth: string; policyId: string; versionId: string; originalPrice: string; reduction: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string; issuedAt: string | null }>; paymentImageAvailable?: boolean; student: { code: string; name: string; className: string }; lines: Array<{ id: string; kind?: "NORMAL" | "PRIOR_DEBT"; receivableId: string | null; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; grossAmount: string; discountAmount: string; netAmount: string; taxCategory?: TaxCategory | null; vatRate?: number | null; vatAmount?: string; refundUnitPrice?: string; deductionQuantity?: string; proposedDeductionQuantity?: string; deductionAmount?: string; deductionReason?: string | null; deductionSource?: DeductionSource | null; promotionEvaluation: { applications: Array<{ assignmentReason: string; appliedDiscount: string }> } | null; promotionApplicationSnapshot: Array<{ assignmentReason: string; appliedDiscount: string }> | null; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationCode?: string | null; obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
+type Invoice = { id: string; channel?: PaymentChannel; kind?: "NORMAL" | "SETTLEMENT"; enrollmentEndedOn?: string | null; notice?: { classDefaultBankAccountId: string | null; invoices: Invoice[] }; status: string; total: string; sourceOutstanding?: string | null; billingMonth: string; revisesInvoiceId: string | null; revisionReason: string | null; replacementInvoiceId: string | null; receipt: { actualAmount: string; outcome: "EXACT" | "SHORTFALL" | "OVERPAYMENT"; postedAt: string; difference: { signedAmount: string } | null } | null; settlementTransfer: { sourceInvoiceId: string; sourceReceiptId: string; amount: string; postedAt: string } | null; sourceDebtTransfers?: Array<{ targetInvoiceId: string; amount: string; reason: string; postedAt: string }>; priorDebtTransfers?: Array<{ sourceInvoiceId: string; amount: string; reason: string; postedAt: string }>; carries: Array<{ type: "SHORTFALL_CARRY" | "OVERPAYMENT_CARRY"; amount: string; sourceDifferenceId: string }>; coverageFacts?: Array<{ coverageId: string | null; receivableId: string; billingMonth: string; policyId: string; versionId: string; originalPrice: string; reduction: string; serviceStart: string; serviceEnd: string; calendarEffectiveFrom: string; timezone: string; issuedAt: string | null }>; paymentImageAvailable?: boolean; student: { code: string; name: string; className: string }; lines: Array<{ id: string; kind?: "NORMAL" | "PRIOR_DEBT"; sourceBadge?: { kind: string; label: string } | null; receivableId: string | null; receivableName: string; unitLabel: string; unitPrice: string; quantity: string; amount: string; grossAmount: string; discountAmount: string; netAmount: string; taxCategory?: TaxCategory | null; vatRate?: number | null; vatAmount?: string; refundUnitPrice?: string; deductionQuantity?: string; proposedDeductionQuantity?: string; deductionAmount?: string; deductionReason?: string | null; deductionSource?: DeductionSource | null; promotionEvaluation: { applications: Array<{ assignmentReason: string; appliedDiscount: string }> } | null; promotionApplicationSnapshot: Array<{ assignmentReason: string; appliedDiscount: string }> | null; overrideReason: string | null; source: Source | null; sourceReason: string | null; sourceRecordedAt: string | null; sourceProvenance: unknown; sourceAudit: { actorIdentityId: string; membershipId: string } | null }>; issue?: { obligationCode?: string | null; obligationTotal: string; dueOn: string; bankAccount: BankAccount; transferContent: string; policy: { effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string } } };
 type Pending = { id: string; schoolId: string };
 // Decision 2026-10-01 D9: Students who left last month are settled in this run.
 type Settlement = { studentId: string; studentCode: string; fullName: string; className: string | null; lifecycle: string; endedOn: string; invoices: Array<{ id: string; channel: PaymentChannel; status: string; total: string }> };
@@ -157,6 +166,7 @@ const skipReason = (reason: string) =>
     NO_CLASS_ASSIGNMENT: "Chưa có lớp được phân công hiệu lực vào đầu tháng thu.",
     CLASS_INACTIVE: "Lớp được phân công đã ngừng hoạt động.",
     INVOICE_EXISTS: "Học sinh đã có hóa đơn trong đợt thu này.",
+    NO_APPLICABLE_LINES: "Không có khoản thu áp dụng.",
   })[reason] ?? "Không đủ điều kiện theo roster hiện tại.";
 const runStatusLabel = (status: Run["status"]) => ({
   DRAFT: "Nháp",
@@ -288,7 +298,11 @@ export function FinanceWorkspace({
   const [open, setOpen] = useState({ schoolYearId: "", billingMonth: "" });
   const [runDialog, setRunDialog] = useState(false);
   const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[] }>();
-  const [template, setTemplate] = useState({ receivableId: "", quantity: "" });
+  const [templateDialog, setTemplateDialog] = useState<TemplateDialog>();
+  const [scopeOptions, setScopeOptions] = useState<ScopeOptions>();
+  const [templateRemoval, setTemplateRemoval] = useState<{ id: string; name: string }>();
+  const templateDialogRef = useRef<HTMLDivElement>(null);
+  const removalDialogRef = useRef<HTMLDivElement>(null);
   const [receivable, setReceivable] = useState({
     kind: "" as ReceivableKind | "",
     code: "",
@@ -580,7 +594,8 @@ export function FinanceWorkspace({
     setOpen({ schoolYearId: "", billingMonth: "" });
     setRunDialog(false);
     setInvoiceQueue(undefined);
-    setTemplate({ receivableId: "", quantity: "" });
+    setTemplateDialog(undefined);
+    setTemplateRemoval(undefined);
     resetReceivable();
     setKindEdit(undefined);
     setLifecycle(undefined);
@@ -643,8 +658,7 @@ export function FinanceWorkspace({
     receivable.unitLabel ||
     receivable.defaultUnitPrice ||
     lifecycle?.reason ||
-     template.receivableId ||
-      template.quantity ||
+     templateDialog?.receivableId ||
       promotion.name || promotion.receivableIds.length || promotion.discountValue || assignment.studentIds.length || assignment.reason || endingAssignment?.reason,
   );
   useEffect(() => {
@@ -698,6 +712,13 @@ export function FinanceWorkspace({
     const dialog = catalogDialog ? catalogDialogRef.current : promotionDialog ? promotionDialogRef.current : undefined;
     dialog?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])")?.focus();
   }, [catalogDialog, promotionDialog]);
+  useEffect(() => {
+    if (templateDialog && templateDialog.lineId === undefined) templateDialogRef.current?.querySelector<HTMLElement>("select")?.focus();
+    else if (templateDialog) templateDialogRef.current?.querySelector<HTMLElement>("input:not([disabled])")?.focus();
+  }, [Boolean(templateDialog), templateDialog?.lineId]);
+  useEffect(() => {
+    if (templateRemoval) removalDialogRef.current?.querySelector<HTMLElement>("button")?.focus();
+  }, [Boolean(templateRemoval)]);
   useEffect(() => {
     if (runDialog) runDialogRef.current?.querySelector<HTMLElement>("select, input, button")?.focus();
   }, [runDialog]);
@@ -859,15 +880,34 @@ export function FinanceWorkspace({
       await load();
     }
   };
-  const saveTemplate = async (event: FormEvent) => {
-    event.preventDefault(); if (!run) return;
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/template-lines`, "PUT", { ...template, expectedVersion: run.version });
-    if (outcome) { chooseRun(outcome as Run); setTemplate({ receivableId: "", quantity: "" }); await load(); }
-  };
-  const removeTemplate = async (lineId: string) => {
+  const templateBase = () => `/api/app/schools/${schoolId}/finance/collection-runs/${run!.id}`;
+  const openTemplateDialog = (trigger: HTMLButtonElement | null, line?: TemplateLine) => {
     if (!run) return;
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/template-lines/${lineId}`, "DELETE", { expectedVersion: run.version });
-    if (outcome) { chooseRun(outcome as Run); await load(); }
+    setErrors({});
+    setScopeOptions(undefined);
+    if (trigger) dialogTrigger.current = trigger;
+    setTemplateDialog(line
+      ? { lineId: line.id, receivableId: line.receivableId, name: line.receivableName, kind: line.kind ?? null, quantity: line.quantity, scopeType: line.scope?.type ?? "ALL", classIds: (line.scope?.classes ?? []).map((item) => item.id), students: (line.scope?.students ?? []).map((item) => ({ id: item.id, label: `${item.studentCode} · ${item.fullName}` })), search: "" }
+      : { receivableId: "", name: "", kind: null, quantity: "1", scopeType: "ALL", classIds: [], students: [], search: "" });
+    void get<ScopeOptions>(`${templateBase()}/scope-options`).then((options) => setScopeOptions(options)).catch(() => undefined);
+  };
+  const closeTemplateDialog = () => closeNewDialog(() => setTemplateDialog(undefined), () => {});
+  const searchScopeStudents = async (search: string) => {
+    if (!run) return;
+    setTemplateDialog((current) => current && { ...current, search });
+    try { setScopeOptions(await get<ScopeOptions>(`${templateBase()}/scope-options?q=${encodeURIComponent(search)}`)); } catch { /* the picker keeps its last result */ }
+  };
+  const saveTemplate = async (event: FormEvent) => {
+    event.preventDefault(); if (!run || !templateDialog) return;
+    const dialog = templateDialog;
+    const scope = dialog.kind === "FIXED" ? { type: "ALL" } : dialog.scopeType === "CLASSES" ? { type: "CLASSES", classIds: dialog.classIds } : dialog.scopeType === "STUDENTS" ? { type: "STUDENTS", studentIds: dialog.students.map((item) => item.id) } : { type: "ALL" };
+    const outcome = await command(`${templateBase()}/template-lines`, "PUT", { receivableId: dialog.receivableId, quantity: dialog.quantity, scope, expectedVersion: run.version }, "run");
+    if (outcome) { closeManagedDialog(() => setTemplateDialog(undefined)); chooseRun(outcome as Run); setPreview(undefined); await load(); }
+  };
+  const removeTemplate = async () => {
+    if (!run || !templateRemoval) return;
+    const outcome = await command(`${templateBase()}/template-lines/${templateRemoval.id}`, "DELETE", { expectedVersion: run.version }, "run");
+    if (outcome) { closeManagedDialog(() => setTemplateRemoval(undefined)); chooseRun(outcome as Run); setPreview(undefined); await load(); }
   };
   const loadPreview = async () => {
     if (!run) return;
@@ -1418,12 +1458,17 @@ export function FinanceWorkspace({
         </dl>
         {run.status === "DRAFT" && (
           <section aria-labelledby="run-template-title">
-            <div className="finance-card-heading">
-              <h2 id="run-template-title">Khoản thu trong đợt</h2>
-              <p>Đơn giá và thành tiền do máy chủ xác nhận. Dòng được hiển thị theo số tiền giảm dần.</p>
+            <div className="finance-card-heading finance-catalog-heading">
+              <div>
+                <h2 id="run-template-title">Khoản thu trong đợt</h2>
+                <p>Khoản cố định được tự thêm khi mở đợt thu. Số học sinh và tạm tính do máy chủ tính sau khi xem trước.</p>
+              </div>
+              <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={(event) => openTemplateDialog(event.currentTarget)}>Thêm khoản thu</button>
             </div>
-            <div className="table-scroll"><table><caption>Khoản thu mẫu chung</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th className="finance-money">Đơn giá VND</th><th className="finance-money">Số tiền VND</th><th>Thao tác</th></tr></thead><tbody>{(run.templateLines ?? []).length ? (run.templateLines ?? []).map((item) => <tr key={item.id}><td>{item.receivableName}</td><td>{item.quantity} {item.unitLabel}</td><td className="finance-money">{vnd(item.defaultUnitPrice)}</td><td className="finance-money">{vnd(item.amount)}</td><td><button type="button" disabled={Boolean(pending)} onClick={() => void removeTemplate(item.id)}>Bỏ</button></td></tr>) : <tr><td colSpan={5}>Chưa có khoản thu mẫu. Thêm khoản thu trước khi xem trước.</td></tr>}</tbody></table></div>
-            <form className="finance-inline-form" onSubmit={saveTemplate}><label>Khoản thu<select value={template.receivableId} onChange={(event) => setTemplate({ ...template, receivableId: event.target.value })}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label><label>Số lượng<input inputMode="numeric" value={template.quantity} onChange={(event) => setTemplate({ ...template, quantity: event.target.value })} /></label><button disabled={Boolean(pending)}>Lưu khoản thu mẫu</button></form>
+            <div className="table-scroll"><table><caption>Khoản thu mẫu của đợt</caption><thead><tr><th>Khoản thu</th><th>Loại</th><th>Áp dụng cho</th><th>Số lượng</th><th className="finance-money">Đơn giá</th><th className="finance-money">Số HS</th><th className="finance-money">Tạm tính</th><th>Tùy chọn</th></tr></thead><tbody>{(run.templateLines ?? []).length ? (run.templateLines ?? []).map((item) => {
+              const summary = preview?.lineSummaries?.find((line) => line.templateLineId === item.id);
+              return <tr key={item.id}><td>{item.receivableName}</td><td><span className="badge neutral">{kindShortLabel(item.kind)}</span>{item.kind === "FIXED" && <><br /><small className="muted">Tự thêm khi mở đợt thu</small></>}</td><td>{item.scope?.label ?? "Toàn bộ"}</td><td>{item.quantity} {item.unitLabel}</td><td className="finance-money">{vnd(item.defaultUnitPrice)} đ</td><td className="finance-money">{summary ? summary.studentCount : "—"}</td><td className="finance-money">{summary ? `${vnd(summary.subtotal)} đ` : "—"}</td><td><div className="finance-list-actions"><button type="button" disabled={Boolean(pending)} aria-label={`Sửa ${item.receivableName}`} onClick={(event) => openTemplateDialog(event.currentTarget, item)}>Sửa</button><button type="button" disabled={Boolean(pending)} aria-label={`Bỏ ${item.receivableName}`} onClick={(event) => { dialogTrigger.current = event.currentTarget; setTemplateRemoval({ id: item.id, name: item.receivableName }); }}>Bỏ</button></div></td></tr>;
+            }) : <tr><td colSpan={8}>Chưa có khoản thu mẫu. Thêm khoản thu linh hoạt hoặc xem trước để biết học sinh nào không có khoản thu áp dụng.</td></tr>}</tbody></table></div>
           </section>
         )}
         {run.status === "DRAFT" && (
@@ -1440,7 +1485,12 @@ export function FinanceWorkspace({
               </div>
             )}
             {preview && <>
-              <div className="table-scroll">
+              <div className="table-scroll"><table>
+                  <caption>Tạm tính theo dòng khoản thu</caption>
+                  <thead><tr><th>Khoản thu</th><th>Loại</th><th>Áp dụng cho</th><th className="finance-money">Số HS</th><th className="finance-money">Tạm tính</th></tr></thead>
+                  <tbody>{(preview.lineSummaries ?? []).map((line) => <tr key={line.templateLineId}><td>{line.receivableName}</td><td>{kindShortLabel(line.kind)}</td><td>{line.scope.label}</td><td className="finance-money">{line.studentCount}</td><td className="finance-money">{vnd(line.subtotal)} đ</td></tr>)}{preview.lineTotal !== undefined && <tr><td><b>Tổng trước ưu đãi, bớt và thuế</b></td><td></td><td></td><td></td><td className="finance-money"><b>{vnd(preview.lineTotal)} đ</b></td></tr>}</tbody>
+                </table></div>
+                <div className="table-scroll">
                 <table>
                   <caption>Học sinh đủ điều kiện</caption>
                   <thead>
@@ -1497,6 +1547,11 @@ export function FinanceWorkspace({
             </>}
           </section>
         )}
+        {run.status === "DRAFT" && <details className="finance-guide">
+          <summary>Hướng dẫn</summary>
+          <p>Khoản thu cố định được tự thêm khi mở đợt thu và áp dụng cho toàn bộ học sinh; sửa số lượng hoặc bỏ dòng khi đợt còn Nháp. Khoản thu linh hoạt thêm khi cần, kèm phạm vi toàn bộ, lớp chính thức hoặc học sinh cụ thể. Khoản Ngoại khóa không thêm vào khoản thu mẫu.</p>
+          <p>Đơn giá, số học sinh và tạm tính do máy chủ xác nhận. Mọi thay đổi khoản thu hoặc phạm vi sau khi xem trước cần xem trước lại.</p>
+        </details>}
       </>}
       {page === "collection-runs" && (runId || !onOpenRun) && <>
       {!invoiceRouteActive && run?.status === "READY" && (
@@ -1616,7 +1671,7 @@ export function FinanceWorkspace({
           <div className="finance-invoice-split">
             <section aria-labelledby="invoice-lines-title">
               <div className="finance-card-heading"><h2 id="invoice-lines-title">Chi tiết hóa đơn</h2><p>Dòng, chính sách và số tiền được chốt khi phát hành.</p></div>
-           {noticeParts.map((part, index) => <div key={part.id} className="finance-notice-part" aria-labelledby={`notice-part-${part.id}`}>{noticeParts.length > 1 && <div className="finance-title-row"><h3 id={`notice-part-${part.id}`}>Phần {index + 1} · Thu vào {channelAccountLabel(part.channel).toLocaleLowerCase("vi")}</h3><span className={`finance-badge finance-badge-${part.status === "DRAFT" ? "warning" : "success"}`}>{invoiceStatusLabel(part.status)}</span></div>}<div className="table-scroll"><table><caption>{noticeParts.length > 1 ? `Dòng phần ${index + 1} do máy chủ tính` : "Dòng hóa đơn do máy chủ tính"}</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá (VND)</th><th>Tổng trước giảm (VND)</th><th>Ưu đãi (VND)</th><th>Bớt (VND)</th><th>Thuế GTGT (VND)</th><th>Tổng phải thu (VND)</th><th>Lý do ưu đãi</th><th>Thao tác</th></tr></thead><tbody>{part.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.source && <small> Nguồn: {[item.source.serviceDate, item.source.attendanceState, item.source.pickedUpAt, item.source.lateCareMinutes != null ? `${item.source.lateCareMinutes} phút` : null].filter(Boolean).join("; ") || "Máy chủ đã ghi nhận"}{item.sourceReason ? `; ${item.sourceReason}` : ""}</small>}{item.source && <details><summary>Thông tin nguồn và kiểm tra</summary><p>Thời điểm ghi nhận: {item.sourceRecordedAt ?? "Máy chủ không trả về"}</p><p>Nguồn đã được máy chủ xác nhận cho dòng hóa đơn này.</p></details>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.grossAmount ?? item.amount)}</td><td style={{ textAlign: "right" }}>{vnd(item.discountAmount ?? "0")}</td><td style={{ textAlign: "right" }}>{BigInt(item.deductionAmount ?? "0") > 0n ? <>-{vnd(item.deductionAmount!)}<br /><small>{item.deductionSource?.type === "PREPAID_PACKAGE_V1" ? `Hoàn học phí nộp trước · gói ${item.deductionSource.months} tháng ${deductionMonthLabel(item.deductionSource.firstMonth)} - ${deductionMonthLabel(item.deductionSource.lastMonth)} · đã học ${item.deductionSource.usedMonths}/${item.deductionSource.months} tháng · đã nộp ${vnd(item.deductionSource.paidNet ?? "0")} - giá gốc tháng đã học ${vnd(item.deductionSource.listPriceUsed ?? "0")}${BigInt(item.deductionSource.priorRefundNet ?? "0") > 0n ? ` - đã hoàn ${vnd(item.deductionSource.priorRefundNet!)}` : ""}` : `${item.deductionQuantity} ${item.unitLabel} × ${vnd(item.refundUnitPrice ?? "0")}`}{item.deductionSource?.month ? ` · nghỉ có phép ${deductionMonth(item.deductionSource)}` : ""}{deductionDays(item.deductionSource) ? ` (${deductionDays(item.deductionSource)})` : ""}{item.deductionReason ? ` · Lý do: ${item.deductionReason}` : ""}</small></> : "0"}</td><td style={{ textAlign: "right" }}>{item.vatRate != null ? `${vnd(item.vatAmount ?? "0")} (${item.vatRate}%)` : "—"}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{(part.status === "DRAFT" ? item.promotionEvaluation?.applications : item.promotionApplicationSnapshot)?.map((application) => application.assignmentReason).join(", ") || "Không áp dụng"}</td><td>{part.status === "DRAFT" && item.receivableId !== null && <><button type="button" disabled={Boolean(pending)} onClick={() => { dialogTrigger.current = null; setErrors({}); setDeductionEdit({ invoiceId: part.id, lineId: item.id, name: item.receivableName, unitLabel: item.unitLabel, proposal: item.deductionSource?.month ? `Hệ thống đề xuất ${item.proposedDeductionQuantity ?? "0"} ${item.unitLabel} nghỉ có phép tháng ${deductionMonth(item.deductionSource)}${deductionDays(item.deductionSource) ? `: ${deductionDays(item.deductionSource)}` : ""}.` : "Hệ thống không đề xuất bớt cho khoản này.", packageRefund: item.deductionSource?.type === "PREPAID_PACKAGE_V1", deductionQuantity: item.deductionQuantity ?? "0", refundUnitPrice: item.refundUnitPrice ?? "0", reason: item.deductionReason ?? "" }); }}>Sửa bớt</button><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingLineInvoiceId(part.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId ?? "", quantity: item.quantity, unitPrice: item.overrideReason ? item.unitPrice : "", overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName, invoiceId: part.id })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={7}>{noticeParts.length > 1 ? `Tổng phần ${index + 1}` : BigInt(part.total) < 0n ? "Trường hoàn lại" : "Tổng cần thu"}</th><th style={{ textAlign: "right" }}>{BigInt(part.total) < 0n ? `Hoàn ${vnd((-BigInt(part.total)).toString())}` : vnd(part.total)}</th><td colSpan={2} /></tr></tbody></table></div></div>)}{noticeParts.length > 1 && <p className="finance-payment-total"><span>{noticeParts.reduce((sum, part) => sum + BigInt(part.total), 0n) < 0n ? "Trường hoàn lại cho phụ huynh" : "Tổng cần thu do hệ thống xác nhận"} <small>{noticeParts.length} phần</small></span><b>{signedVnd(noticeParts.reduce((sum, part) => sum + BigInt(part.total), 0n).toString())}</b></p>}
+           {noticeParts.map((part, index) => <div key={part.id} className="finance-notice-part" aria-labelledby={`notice-part-${part.id}`}>{noticeParts.length > 1 && <div className="finance-title-row"><h3 id={`notice-part-${part.id}`}>Phần {index + 1} · Thu vào {channelAccountLabel(part.channel).toLocaleLowerCase("vi")}</h3><span className={`finance-badge finance-badge-${part.status === "DRAFT" ? "warning" : "success"}`}>{invoiceStatusLabel(part.status)}</span></div>}<div className="table-scroll"><table><caption>{noticeParts.length > 1 ? `Dòng phần ${index + 1} do máy chủ tính` : "Dòng hóa đơn do máy chủ tính"}</caption><thead><tr><th>Khoản thu</th><th>Số lượng</th><th>Đơn giá (VND)</th><th>Tổng trước giảm (VND)</th><th>Ưu đãi (VND)</th><th>Bớt (VND)</th><th>Thuế GTGT (VND)</th><th>Tổng phải thu (VND)</th><th>Lý do ưu đãi</th><th>Thao tác</th></tr></thead><tbody>{part.lines.map((item) => <tr key={item.id}><td>{item.receivableName}{item.sourceBadge && <> <span className="badge neutral" title="Nguồn">{item.sourceBadge.label}</span></>}{item.source && <small> Nguồn: {[item.source.serviceDate, item.source.attendanceState, item.source.pickedUpAt, item.source.lateCareMinutes != null ? `${item.source.lateCareMinutes} phút` : null].filter(Boolean).join("; ") || "Máy chủ đã ghi nhận"}{item.sourceReason ? `; ${item.sourceReason}` : ""}</small>}{item.source && <details><summary>Thông tin nguồn và kiểm tra</summary><p>Thời điểm ghi nhận: {item.sourceRecordedAt ?? "Máy chủ không trả về"}</p><p>Nguồn đã được máy chủ xác nhận cho dòng hóa đơn này.</p></details>}</td><td>{item.quantity} {item.unitLabel}</td><td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td><td style={{ textAlign: "right" }}>{vnd(item.grossAmount ?? item.amount)}</td><td style={{ textAlign: "right" }}>{vnd(item.discountAmount ?? "0")}</td><td style={{ textAlign: "right" }}>{BigInt(item.deductionAmount ?? "0") > 0n ? <>-{vnd(item.deductionAmount!)}<br /><small>{item.deductionSource?.type === "PREPAID_PACKAGE_V1" ? `Hoàn học phí nộp trước · gói ${item.deductionSource.months} tháng ${deductionMonthLabel(item.deductionSource.firstMonth)} - ${deductionMonthLabel(item.deductionSource.lastMonth)} · đã học ${item.deductionSource.usedMonths}/${item.deductionSource.months} tháng · đã nộp ${vnd(item.deductionSource.paidNet ?? "0")} - giá gốc tháng đã học ${vnd(item.deductionSource.listPriceUsed ?? "0")}${BigInt(item.deductionSource.priorRefundNet ?? "0") > 0n ? ` - đã hoàn ${vnd(item.deductionSource.priorRefundNet!)}` : ""}` : `${item.deductionQuantity} ${item.unitLabel} × ${vnd(item.refundUnitPrice ?? "0")}`}{item.deductionSource?.month ? ` · nghỉ có phép ${deductionMonth(item.deductionSource)}` : ""}{deductionDays(item.deductionSource) ? ` (${deductionDays(item.deductionSource)})` : ""}{item.deductionReason ? ` · Lý do: ${item.deductionReason}` : ""}</small></> : "0"}</td><td style={{ textAlign: "right" }}>{item.vatRate != null ? `${vnd(item.vatAmount ?? "0")} (${item.vatRate}%)` : "—"}</td><td style={{ textAlign: "right" }}>{vnd(item.amount)}</td><td>{(part.status === "DRAFT" ? item.promotionEvaluation?.applications : item.promotionApplicationSnapshot)?.map((application) => application.assignmentReason).join(", ") || "Không áp dụng"}</td><td>{part.status === "DRAFT" && item.receivableId !== null && <><button type="button" disabled={Boolean(pending)} onClick={() => { dialogTrigger.current = null; setErrors({}); setDeductionEdit({ invoiceId: part.id, lineId: item.id, name: item.receivableName, unitLabel: item.unitLabel, proposal: item.deductionSource?.month ? `Hệ thống đề xuất ${item.proposedDeductionQuantity ?? "0"} ${item.unitLabel} nghỉ có phép tháng ${deductionMonth(item.deductionSource)}${deductionDays(item.deductionSource) ? `: ${deductionDays(item.deductionSource)}` : ""}.` : "Hệ thống không đề xuất bớt cho khoản này.", packageRefund: item.deductionSource?.type === "PREPAID_PACKAGE_V1", deductionQuantity: item.deductionQuantity ?? "0", refundUnitPrice: item.refundUnitPrice ?? "0", reason: item.deductionReason ?? "" }); }}>Sửa bớt</button><button type="button" disabled={Boolean(pending)} onClick={() => { setEditingLineId(item.id); setEditingLineInvoiceId(part.id); setEditingSource(Boolean(item.source)); setLine({ receivableId: item.receivableId ?? "", quantity: item.quantity, unitPrice: item.overrideReason ? item.unitPrice : "", overrideReason: item.overrideReason ?? "", sourceReason: item.sourceReason ?? "", serviceDate: item.source?.serviceDate ?? "", attendanceState: item.source?.attendanceState ?? "", pickedUpAt: item.source?.pickedUpAt ?? "", lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "" }); }}>Sửa</button><button ref={removeTrigger} type="button" disabled={Boolean(pending)} onClick={() => setRemoveConfirmation({ id: item.id, name: item.receivableName, invoiceId: part.id })}>Xóa</button></>}</td></tr>)}<tr><th colSpan={7}>{noticeParts.length > 1 ? `Tổng phần ${index + 1}` : BigInt(part.total) < 0n ? "Trường hoàn lại" : "Tổng cần thu"}</th><th style={{ textAlign: "right" }}>{BigInt(part.total) < 0n ? `Hoàn ${vnd((-BigInt(part.total)).toString())}` : vnd(part.total)}</th><td colSpan={2} /></tr></tbody></table></div></div>)}{noticeParts.length > 1 && <p className="finance-payment-total"><span>{noticeParts.reduce((sum, part) => sum + BigInt(part.total), 0n) < 0n ? "Trường hoàn lại cho phụ huynh" : "Tổng cần thu do hệ thống xác nhận"} <small>{noticeParts.length} phần</small></span><b>{signedVnd(noticeParts.reduce((sum, part) => sum + BigInt(part.total), 0n).toString())}</b></p>}
           {invoice.status === "DRAFT" ? <form className="finance-form-grid" onSubmit={saveLine}><h4>{editingLineId ? "Sửa dòng" : "Thêm dòng"}</h4><label>Khoản thu<select disabled={Boolean(editingLineId)} value={line.receivableId} onChange={(event) => setLine({ ...line, receivableId: event.target.value })} {...invoiceField("receivableId")}><option value="">Chọn khoản thu</option>{(catalog?.receivables ?? []).filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>{scope === "invoice" && errors.receivableId && <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>}<label>Số lượng<input inputMode="numeric" value={line.quantity} onChange={(event) => setLine({ ...line, quantity: event.target.value })} {...invoiceField("quantity")} /></label>{scope === "invoice" && errors.quantity && <small id="invoice-invoice-quantity-error">{errors.quantity}</small>}<label>Đơn giá điều chỉnh (VND, không bắt buộc)<input inputMode="numeric" value={line.unitPrice} onChange={(event) => setLine({ ...line, unitPrice: event.target.value })} {...invoiceField("unitPrice")} /></label>{scope === "invoice" && errors.unitPrice && <small id="invoice-invoice-unitPrice-error">{errors.unitPrice}</small>}<label>Lý do điều chỉnh<input value={line.overrideReason} onChange={(event) => setLine({ ...line, overrideReason: event.target.value })} {...invoiceField("overrideReason")} /></label>{scope === "invoice" && errors.overrideReason && <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>}<fieldset><legend>Nguồn giải thích thủ công</legend><label>Ngày dịch vụ<input type="date" value={line.serviceDate} onChange={(event) => setLine({ ...line, serviceDate: event.target.value })} /></label><label>Điểm danh<select value={line.attendanceState} onChange={(event) => setLine({ ...line, attendanceState: event.target.value })}><option value="">Không có</option><option value="PRESENT">Có mặt</option><option value="ABSENT">Vắng mặt</option></select></label><label>Giờ đón (HH:MM)<input value={line.pickedUpAt} onChange={(event) => setLine({ ...line, pickedUpAt: event.target.value })} /></label><label>Số phút trông muộn<input inputMode="numeric" value={line.lateCareMinutes} onChange={(event) => setLine({ ...line, lateCareMinutes: event.target.value })} /></label><label>Lý do nguồn giải thích<input value={line.sourceReason} onChange={(event) => setLine({ ...line, sourceReason: event.target.value })} /></label></fieldset><button disabled={Boolean(pending)}>{editingLineId ? "Lưu dòng" : "Thêm dòng"}</button>{editingLineId && <button type="button" onClick={() => { setEditingLineId(undefined); setEditingLineInvoiceId(undefined); setEditingSource(false); setLine({ receivableId: "", quantity: "", unitPrice: "", overrideReason: "", sourceReason: "", serviceDate: "", attendanceState: "", pickedUpAt: "", lateCareMinutes: "" }); }}>Hủy sửa</button>}</form> : <p>Hóa đơn {invoiceStatusLabel(invoice.status).toLocaleLowerCase("vi")} chỉ đọc; dòng hóa đơn không thể thay đổi.</p>}
             </section>
             <aside aria-labelledby="invoice-issue-title">
@@ -1901,6 +1956,52 @@ export function FinanceWorkspace({
               {scope === "receivable" && Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
               <div className="dialog-actions"><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setKindEdit(undefined))}>Hủy</button><button className="primary-action" disabled={Boolean(pending) || (kindEdit.displayName === kindEdit.original.displayName && kindEdit.unitLabel === kindEdit.original.unitLabel && kindEdit.defaultUnitPrice === kindEdit.original.defaultUnitPrice && (kindEdit.locked || kindEdit.kind === kindEdit.original.kind))}>Lưu thay đổi</button></div>
             </form>
+          </div>
+        </div>
+      )}
+      {templateDialog && (
+        <div className="dialog-backdrop">
+          <div ref={templateDialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="finance-template-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setTemplateDialog(undefined))}>
+            <form onSubmit={saveTemplate}>
+              <h3 id="finance-template-title">{templateDialog.lineId ? `Sửa · ${templateDialog.name}` : "Thêm khoản thu"}</h3>
+              <div className="dialog-grid">
+                <div>
+                  <label>Khoản thu
+                    <select required disabled={Boolean(templateDialog.lineId)} aria-describedby="template-receivable-hint" value={templateDialog.receivableId} onChange={(event) => setTemplateDialog({ ...templateDialog, receivableId: event.target.value })}>
+                      {templateDialog.lineId ? <option value={templateDialog.receivableId}>{templateDialog.name}</option> : <><option value="">Chọn khoản thu linh hoạt</option>{(catalog?.receivables ?? []).filter((item) => item.available && item.kind === "FLEXIBLE").map((item) => <option key={item.id} value={item.id}>{item.displayName} · {vnd(item.defaultUnitPrice)} đ/{item.unitLabel}</option>)}</>}
+                    </select>
+                  </label>
+                  <small className="muted" id="template-receivable-hint">Chỉ khoản thu linh hoạt đang áp dụng. Khoản Ngoại khóa thu theo lớp ngoại khóa.</small>
+                  {errors.receivableId && <small role="alert">{errors.receivableId}</small>}
+                </div>
+                <div>
+                  <label>Số lượng<input type="number" min={1} step={1} required inputMode="numeric" value={templateDialog.quantity} onChange={(event) => setTemplateDialog({ ...templateDialog, quantity: event.target.value })} /></label>
+                  {errors.quantity && <small role="alert">{errors.quantity}</small>}
+                </div>
+                <fieldset className="chip-group full" disabled={templateDialog.kind === "FIXED"}>
+                  <legend>Phạm vi</legend>
+                  {([["ALL", "Toàn bộ"], ["CLASSES", "Lớp chính thức"], ["STUDENTS", "Học sinh cụ thể"]] as const).map(([value, label]) => <label key={value}><input type="radio" name="template-scope" value={value} checked={templateDialog.scopeType === value} onChange={() => setTemplateDialog({ ...templateDialog, scopeType: value })} />{label}</label>)}
+                </fieldset>
+                {templateDialog.kind === "FIXED" && <small className="muted full">Khoản thu cố định luôn áp dụng cho toàn bộ học sinh.</small>}
+                {templateDialog.scopeType === "CLASSES" && templateDialog.kind !== "FIXED" && <fieldset className="chip-group full"><legend>Lớp chính thức</legend>{scopeOptions ? scopeOptions.classes.map((item) => <label key={item.id}><input type="checkbox" checked={templateDialog.classIds.includes(item.id)} onChange={(event) => setTemplateDialog({ ...templateDialog, classIds: event.target.checked ? [...templateDialog.classIds, item.id] : templateDialog.classIds.filter((id) => id !== item.id) })} />{item.name}</label>) : <small className="muted">Đang tải lớp.</small>}</fieldset>}
+                {templateDialog.scopeType === "STUDENTS" && templateDialog.kind !== "FIXED" && <div className="full">
+                  <label>Học sinh cụ thể<input type="search" placeholder="Tìm mã hoặc tên học sinh" autoComplete="off" value={templateDialog.search} onChange={(event) => void searchScopeStudents(event.target.value)} /></label>
+                  <fieldset className="chip-group" aria-label="Học sinh đã chọn">{templateDialog.students.map((item) => <label key={item.id}><input type="checkbox" checked onChange={() => setTemplateDialog({ ...templateDialog, students: templateDialog.students.filter((student) => student.id !== item.id) })} />{item.label}</label>)}</fieldset>
+                  <fieldset className="chip-group" aria-label="Kết quả tìm học sinh">{(scopeOptions?.students ?? []).filter((item) => !templateDialog.students.some((student) => student.id === item.id)).map((item) => <label key={item.id}><input type="checkbox" checked={false} onChange={() => setTemplateDialog({ ...templateDialog, students: [...templateDialog.students, { id: item.id, label: `${item.studentCode} · ${item.fullName}` }] })} />{item.studentCode} · {item.fullName}</label>)}</fieldset>
+                </div>}
+                {errors.scope && <small className="full" role="alert">{errors.scope}</small>}
+              </div>
+              <div className="dialog-actions"><button type="button" disabled={Boolean(pending)} onClick={closeTemplateDialog}>Hủy</button><button className="primary-action" disabled={Boolean(pending)}>Lưu khoản thu mẫu</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+      {templateRemoval && (
+        <div className="dialog-backdrop">
+          <div ref={removalDialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="finance-template-remove-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setTemplateRemoval(undefined))}>
+            <h3 id="finance-template-remove-title">Bỏ {templateRemoval.name} khỏi đợt thu</h3>
+            <p>Khoản thu sẽ không có trong hóa đơn nháp của đợt này. Cần xem trước lại sau khi bỏ.</p>
+            <div className="dialog-actions"><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setTemplateRemoval(undefined), () => {})}>Hủy</button><button className="primary-action" type="button" disabled={Boolean(pending)} onClick={() => void removeTemplate()}>Bỏ khoản thu</button></div>
           </div>
         </div>
       )}

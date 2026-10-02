@@ -118,6 +118,8 @@ try {
       await tx.$executeRawUnsafe(
         "SET LOCAL passionedu.allow_collection_run_template_cleanup = 'on'",
       );
+      await tx.collectionRunTemplateScopeClass.deleteMany({ where: { schoolId: { in: schoolIds } } });
+      await tx.collectionRunTemplateScopeStudent.deleteMany({ where: { schoolId: { in: schoolIds } } });
       await tx.collectionRunTemplateLine.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });
@@ -643,6 +645,9 @@ try {
             sequence: 1,
           },
         });
+        const flexibleGroup = await tx.receivableGroup.findFirstOrThrow({ where: { schoolId: school.id, kind: "FLEXIBLE" } });
+        const trip = await tx.receivable.create({ data: { schoolId: school.id, groupId: flexibleGroup.id, code: `RG${index + 1}-TRIP`, displayName: `Phí dã ngoại Release ${index + 1}`, unitLabel: "lần", defaultUnitPrice: 50000n } });
+        await tx.receivableLifecycleTransition.create({ data: { schoolId: school.id, receivableId: trip.id, status: "ACTIVE", actorIdentityId: admin.id, membershipId: adminMembershipId, operationId: operation.id, sequence: 1 } });
         const extracurricularGroup = await tx.receivableGroup.findFirstOrThrow({ where: { schoolId: school.id, kind: "EXTRACURRICULAR" } });
         const english = await tx.receivable.create({ data: { schoolId: school.id, groupId: extracurricularGroup.id, code: `RG${index + 1}-ENGLISH`, displayName: `Tiếng Anh Release ${index + 1}`, unitLabel: "tháng", defaultUnitPrice: 600000n } });
         await tx.receivableLifecycleTransition.create({ data: { schoolId: school.id, receivableId: english.id, status: "ACTIVE", actorIdentityId: admin.id, membershipId: adminMembershipId, operationId: operation.id, sequence: 1 } });

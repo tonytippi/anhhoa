@@ -29,7 +29,7 @@ async function school() {
   await prisma.financePolicy.create({ data: { schoolId: created.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", actorIdentityId: identity.id, membershipId: membership.id } });
   await prisma.schoolCalendarVersion.create({ data: { schoolId: created.id, effectiveFrom: date("2026-01-01"), actorIdentityId: identity.id, membershipId: membership.id } });
   await prisma.receivableGroup.createMany({ data: [{ schoolId: created.id, kind: "FIXED", name: "Khoản thu cố định" }, { schoolId: created.id, kind: "FLEXIBLE", name: "Khoản thu linh hoạt" }, { schoolId: created.id, kind: "EXTRACURRICULAR", name: "Ngoại khóa" }] });
-  const groupId = (await prisma.receivableGroup.findFirstOrThrow({ where: { schoolId: created.id, kind: "FIXED" } })).id;
+  const groupId = (await prisma.receivableGroup.findFirstOrThrow({ where: { schoolId: created.id, kind: "FLEXIBLE" } })).id;
   return { school: created, identity, membership, year, classroom, groupId };
 }
 type School = Awaited<ReturnType<typeof school>>;
