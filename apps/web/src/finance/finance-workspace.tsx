@@ -301,7 +301,7 @@ export function FinanceWorkspace({
   const [deductionEdit, setDeductionEdit] = useState<{ invoiceId: string; lineId: string; name: string; unitLabel: string; proposal: string; packageRefund: boolean; deductionQuantity: string; refundUnitPrice: string; reason: string }>();
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
   const [catalogDialog, setCatalogDialog] = useState<"receivable" | "receivable-kind">();
-  const [kindEdit, setKindEdit] = useState<{ id: string; name: string; kind: ReceivableKind; locked: boolean }>();
+  const [kindEdit, setKindEdit] = useState<{ id: string; title: string; displayName: string; unitLabel: string; defaultUnitPrice: string; kind: ReceivableKind; original: { displayName: string; unitLabel: string; defaultUnitPrice: string; kind: ReceivableKind }; locked: boolean; reason: string }>();
   const [catalogFilter, setCatalogFilter] = useState({ search: "", kind: "", status: "" });
   const [catalogFilterApplied, setCatalogFilterApplied] = useState({ search: "", kind: "", status: "" });
   const [promotionDialog, setPromotionDialog] = useState<"policy" | "assignment">();
@@ -949,13 +949,18 @@ export function FinanceWorkspace({
       try { await load(); } catch { setMessage("Đợt thu đã đóng; chưa thể tải lại dữ liệu mới nhất."); }
     }
   };
+  // Decision 2026-10-02 §3.5: name, unit and price go through the edit endpoint (reason required); a changed kind through its own endpoint, each audited.
   const saveKind = async (event: FormEvent) => {
     event.preventDefault();
-    if (!kindEdit || kindEdit.locked) return;
-    if (await command(`/api/app/schools/${schoolId}/finance/receivables/${kindEdit.id}/kind`, "PUT", { kind: kindEdit.kind }, "receivable")) {
-      closeManagedDialog(() => { setCatalogDialog(undefined); setKindEdit(undefined); });
-      await load();
-    }
+    if (!kindEdit) return;
+    const detailsChanged = kindEdit.displayName !== kindEdit.original.displayName || kindEdit.unitLabel !== kindEdit.original.unitLabel || kindEdit.defaultUnitPrice !== kindEdit.original.defaultUnitPrice;
+    const kindChanged = !kindEdit.locked && kindEdit.kind !== kindEdit.original.kind;
+    if (!detailsChanged && !kindChanged) return;
+    const base = `/api/app/schools/${schoolId}/finance/receivables/${kindEdit.id}`;
+    if (detailsChanged && !(await command(base, "PUT", { displayName: kindEdit.displayName, unitLabel: kindEdit.unitLabel, defaultUnitPrice: kindEdit.defaultUnitPrice, reason: kindEdit.reason }, "receivable"))) return;
+    if (kindChanged && !(await command(`${base}/kind`, "PUT", { kind: kindEdit.kind }, "receivable"))) { await load(); return; }
+    closeManagedDialog(() => { setCatalogDialog(undefined); setKindEdit(undefined); });
+    await load();
   };
   const saveReceivable = async (event: FormEvent) => {
     event.preventDefault();
@@ -1271,7 +1276,7 @@ export function FinanceWorkspace({
                     <td className="money">{BigInt(item.refundUnitPrice ?? "0") > 0n ? `${vnd(item.refundUnitPrice!)} VND / ${item.unitLabel}` : "—"}</td>
                     <td>{taxShortLabel[item.taxCategory ?? "NOT_DECLARED"]}<br /><small className="muted">{channelAccountLabel(item.channel)}</small></td>
                     <td>{item.available ? "Đang áp dụng" : "Ngừng áp dụng"}</td>
-                    <td><AnchoredActionMenu label={`Tùy chọn cho ${item.displayName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); if (item.kind) setKindEdit({ id: item.id, name: item.displayName, kind: item.kind, locked: Boolean(item.kindLocked) }); setCatalogDialog("receivable-kind"); }}>Chỉnh sửa</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setTaxChange({ id: item.id, name: item.displayName, taxCategory: item.taxCategory ?? "NOT_DECLARED" }); }}>Đổi mức thuế suất</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setRefundChange({ id: item.id, name: item.displayName, unitLabel: item.unitLabel, refundUnitPrice: item.refundUnitPrice ?? "0" }); }}>Đổi giá hoàn trả</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td>
+                    <td><AnchoredActionMenu label={`Tùy chọn cho ${item.displayName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); if (item.kind) setKindEdit({ id: item.id, title: item.displayName, displayName: item.displayName, unitLabel: item.unitLabel, defaultUnitPrice: item.defaultUnitPrice, kind: item.kind, original: { displayName: item.displayName, unitLabel: item.unitLabel, defaultUnitPrice: item.defaultUnitPrice, kind: item.kind }, locked: Boolean(item.kindLocked), reason: "" }); setCatalogDialog("receivable-kind"); }}>Chỉnh sửa</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setTaxChange({ id: item.id, name: item.displayName, taxCategory: item.taxCategory ?? "NOT_DECLARED" }); }}>Đổi mức thuế suất</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setRefundChange({ id: item.id, name: item.displayName, unitLabel: item.unitLabel, refundUnitPrice: item.refundUnitPrice ?? "0" }); }}>Đổi giá hoàn trả</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td>
                   </tr>
                 ))
               ) : (
@@ -1870,8 +1875,12 @@ export function FinanceWorkspace({
         <div className="dialog-backdrop">
           <div ref={catalogDialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="finance-receivable-kind-title" onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setCatalogDialog(undefined), () => setKindEdit(undefined))}>
             <form onSubmit={saveKind}>
-              <h3 id="finance-receivable-kind-title">Chỉnh sửa · {kindEdit.name}</h3><p className="muted">Thay đổi chỉ áp dụng sau khi máy chủ xác nhận trong đúng Trường.</p>
+              <h3 id="finance-receivable-kind-title">Chỉnh sửa · {kindEdit.title}</h3><p className="muted">Thay đổi chỉ áp dụng sau khi máy chủ xác nhận trong đúng Trường. Hóa đơn đã tạo giữ nguyên tên, đơn vị và giá lúc tạo.</p>
               <div className="dialog-grid">
+                <label>Tên khoản thu<input value={kindEdit.displayName} onChange={(event) => setKindEdit({ ...kindEdit, displayName: event.target.value })} {...field("receivable", "displayName")} /></label>
+                <label>Giá / đơn vị (chưa VAT)<input inputMode="numeric" value={kindEdit.defaultUnitPrice} onChange={(event) => setKindEdit({ ...kindEdit, defaultUnitPrice: event.target.value })} {...field("receivable", "defaultUnitPrice")} /></label>
+                <label>Đơn vị tính<input value={kindEdit.unitLabel} onChange={(event) => setKindEdit({ ...kindEdit, unitLabel: event.target.value })} {...field("receivable", "unitLabel")} /></label>
+                <label>Lý do<input placeholder="Bắt buộc khi đổi tên, đơn vị hoặc giá" value={kindEdit.reason} onChange={(event) => setKindEdit({ ...kindEdit, reason: event.target.value })} {...field("receivable", "reason")} /></label>
                 <fieldset className="chip-group full" disabled={kindEdit.locked} aria-describedby="receivable-kind-edit-hint">
                   <legend>Nhóm khoản thu</legend>
                   {receivableKinds.map((item) => <label key={item.kind}><input type="radio" name="receivable-kind-edit" value={item.kind} checked={kindEdit.kind === item.kind} onChange={() => setKindEdit({ ...kindEdit, kind: item.kind })} />{item.label}</label>)}
@@ -1879,7 +1888,7 @@ export function FinanceWorkspace({
                 <small className="muted full" id="receivable-kind-edit-hint">{kindEdit.locked ? "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa." : receivableKinds.find((item) => item.kind === kindEdit.kind)?.hint}</small>
               </div>
               {scope === "receivable" && Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
-              <div className="dialog-actions"><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setKindEdit(undefined))}>Hủy</button><button className="primary-action" disabled={Boolean(pending) || kindEdit.locked}>Lưu thay đổi</button></div>
+              <div className="dialog-actions"><button type="button" disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setCatalogDialog(undefined), () => setKindEdit(undefined))}>Hủy</button><button className="primary-action" disabled={Boolean(pending) || (kindEdit.displayName === kindEdit.original.displayName && kindEdit.unitLabel === kindEdit.original.unitLabel && kindEdit.defaultUnitPrice === kindEdit.original.defaultUnitPrice && (kindEdit.locked || kindEdit.kind === kindEdit.original.kind))}>Lưu thay đổi</button></div>
             </form>
           </div>
         </div>

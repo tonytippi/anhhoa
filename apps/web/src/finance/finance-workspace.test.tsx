@@ -489,6 +489,30 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Lưu thay đổi" }));
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables/unused/kind") && (options as RequestInit).method === "PUT" && (options as RequestInit).body === JSON.stringify({ kind: "EXTRACURRICULAR" }))).toBe(true));
   });
+  it("edits name, unit and price with a required reason, then the kind, through separate audited calls", async () => {
+    const receivables = [{ id: "r1", groupId: "g2", kind: "FLEXIBLE", kindLocked: false, code: null, displayName: "Dã ngoại", unitLabel: "lần", defaultUnitPrice: "350000", status: "ACTIVE", available: true }];
+    const fetch = vi.fn((_url: string, options?: RequestInit) => Promise.resolve(options?.method ? response({ status: "COMPLETED", outcome: { id: "r1" } }) : response({ groups: [], receivables })));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+    fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Dã ngoại" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Chỉnh sửa" }));
+    const dialog = await screen.findByRole("dialog", { name: "Chỉnh sửa · Dã ngoại" });
+    expect(dialog.classList.contains("dialog-wide")).toBe(true);
+    expect(within(dialog).getByLabelText("Tên khoản thu")).toHaveProperty("value", "Dã ngoại");
+    expect(within(dialog).getByLabelText("Giá / đơn vị (chưa VAT)")).toHaveProperty("value", "350000");
+    expect(within(dialog).getByLabelText("Đơn vị tính")).toHaveProperty("value", "lần");
+    expect(within(dialog).getByRole("button", { name: "Lưu thay đổi" })).toHaveProperty("disabled", true);
+    fireEvent.change(within(dialog).getByLabelText("Tên khoản thu"), { target: { value: "Dã ngoại thu" } });
+    fireEvent.change(within(dialog).getByLabelText("Giá / đơn vị (chưa VAT)"), { target: { value: "400000" } });
+    fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Tăng chi phí xe" } });
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Khoản thu cố định" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu thay đổi" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables/r1/kind") && (options as RequestInit).method === "PUT")).toBe(true));
+    const puts = fetch.mock.calls.filter(([, options]) => (options as RequestInit | undefined)?.method === "PUT");
+    expect(String(puts[0]![0]).endsWith("/finance/receivables/r1")).toBe(true);
+    expect(JSON.parse(String((puts[0]![1] as RequestInit).body))).toEqual({ displayName: "Dã ngoại thu", unitLabel: "lần", defaultUnitPrice: "400000", reason: "Tăng chi phí xe" });
+    expect((puts[1]![1] as RequestInit).body).toBe(JSON.stringify({ kind: "FIXED" }));
+  });
   it("autofocuses managed catalog, policy, assignment, and transition dialogs", async () => {
     const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
     const groups = [{ id: "group", name: "Khoản thu cố định", kind: "FIXED" as const }];

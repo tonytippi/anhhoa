@@ -717,6 +717,56 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(fixedId).not.toBe(flexibleId);
     });
 
+    it("edits name, unit and price with audit and replay, refuses price below the refund price and foreign Schools, and keeps Invoice line snapshots", async () => {
+      const fixture = await issueFixture("100000");
+      const { current, receivableId, invoice } = fixture;
+      const foreign = await graph();
+      const before = await prisma.invoiceLine.findMany({ where: { schoolId: current.school.id, invoiceId: invoice.id, receivableId }, orderBy: { id: "asc" } });
+      expect(before.length).toBeGreaterThan(0);
+      const body = { displayName: "Học phí mới", unitLabel: "kỳ", defaultUnitPrice: "120000", reason: "Điều chỉnh học phí" };
+      const key = uuid();
+      const edited = await finance.updateReceivable(current.identity.id, current.school.id, receivableId, key, uuid(), body);
+      expect(edited.outcome).toMatchObject({ id: receivableId, displayName: "Học phí mới", unitLabel: "kỳ", defaultUnitPrice: "120000" });
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId } })).toMatchObject({ displayName: "Học phí mới", unitLabel: "kỳ", defaultUnitPrice: 120000n });
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "RECEIVABLE_EDITED" } })).toMatchObject({ reason: "Điều chỉnh học phí", membershipId: current.membership.id, provenance: { operationId: edited.id, oldValue: { displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100000" }, newValue: { displayName: "Học phí mới", unitLabel: "kỳ", defaultUnitPrice: "120000" } } });
+      // Same key and body replays the stored outcome without a second audit; a changed body under the key conflicts.
+      expect(await finance.updateReceivable(current.identity.id, current.school.id, receivableId, key, uuid(), body)).toEqual(edited);
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, receivableId, key, uuid(), { ...body, defaultUnitPrice: "130000" })).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
+      expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "RECEIVABLE_EDITED" } })).toBe(1);
+      // Existing Invoice lines are never rewritten.
+      expect(await prisma.invoiceLine.findMany({ where: { schoolId: current.school.id, invoiceId: invoice.id, receivableId }, orderBy: { id: "asc" } })).toEqual(before);
+      expect(before[0]).toMatchObject({ receivableNameSnapshot: "Học phí", unitLabelSnapshot: "tháng", defaultUnitPriceSnapshot: 100000n });
+
+      // The default price may not drop below the current refund price (amendment A1).
+      await finance.updateReceivableRefundPrice(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { refundUnitPrice: "90000" });
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { ...body, defaultUnitPrice: "89999" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { defaultUnitPrice: expect.any(String) } } });
+      await finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { ...body, defaultUnitPrice: "90000" });
+      for (const invalid of [{ displayName: " " }, { unitLabel: "123" }, { defaultUnitPrice: "0" }, { defaultUnitPrice: "1.5" }, { defaultUnitPrice: "9007199254740992" }, { reason: "" }]) {
+        await expect(finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { ...body, defaultUnitPrice: "95000", ...invalid })).rejects.toMatchObject({ status: 400 });
+      }
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { ...body, defaultUnitPrice: "90000" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { displayName: expect.any(String) } } });
+      // Cross-School: a foreign Finance actor cannot see or edit it, and the database keeps every other column append-only.
+      await group(foreign);
+      await expect(finance.updateReceivable(foreign.identity.id, foreign.school.id, receivableId, uuid(), uuid(), body)).rejects.toMatchObject({ status: 404, response: { code: "RECEIVABLE_NOT_FOUND" } });
+      await expect(prisma.receivable.update({ where: { id: receivableId }, data: { code: "HACK" } })).rejects.toThrow(/append-only/);
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId } })).toMatchObject({ displayName: "Học phí mới", defaultUnitPrice: 90000n });
+    });
+
+    it("makes a DRAFT run preview stale when a referenced Receivable is edited", async () => {
+      const current = await roster(await graph());
+      await group(current);
+      const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { kind: "FIXED", displayName: "Phí", unitLabel: "lần", defaultUnitPrice: "35000" }));
+      const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
+      await finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId, quantity: "1", expectedVersion: 1 });
+      const preview = await finance.preview(current.identity.id, current.school.id, runId);
+      await finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { displayName: "Phí", unitLabel: "lần", defaultUnitPrice: "40000", reason: "Tăng giá" });
+      await expect(finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      expect((await finance.run(current.identity.id, current.school.id, runId)).status).toBe("DRAFT");
+      const fresh = await finance.preview(current.identity.id, current.school.id, runId);
+      expect(fresh.fingerprint).not.toBe(preview.fingerprint);
+      await expect(finance.readyRun(current.identity.id, current.school.id, runId, uuid(), uuid(), { previewFingerprint: fresh.fingerprint })).resolves.toMatchObject({ status: "COMPLETED" });
+    });
+
     it("changes the kind of an unused Receivable with audit and refuses once an Invoice line or template line uses it", async () => {
       const current = await roster(await graph());
       const foreign = await roster(await graph());

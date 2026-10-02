@@ -84,7 +84,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     expect(changed.outcome).toMatchObject({ taxCategory: "VAT_5", channel: "SCHOOL" });
     expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "RECEIVABLE_TAX_CATEGORY_CHANGED" } })).toBe(1);
     // Only the tax category may change on the append-only catalog.
-    await expect(prisma.receivable.update({ where: { id: receivableId }, data: { defaultUnitPrice: 1n } })).rejects.toThrow(/append-only/);
+    await expect(prisma.receivable.update({ where: { id: receivableId }, data: { code: "IMMUTABLE" } })).rejects.toThrow(/append-only/);
   });
 
   it("splits generation into one DRAFT per channel with per-line half-up VAT after discount", async () => {

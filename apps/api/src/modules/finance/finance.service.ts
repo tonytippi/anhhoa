@@ -23,6 +23,7 @@ const routes = {
   receivableLifecycle:
     "POST /api/app/schools/:schoolId/finance/receivables/:receivableId/lifecycle",
   classDefaultBankAccount: "PUT /api/app/schools/:schoolId/finance/classes/:classId/default-bank-account",
+  receivableEdit: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId",
   receivableKind: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/kind",
   receivableTax: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/tax-category",
   receivableRefund: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/refund-price",
@@ -1328,6 +1329,24 @@ export class FinanceService {
         return outcome;
       },
     );
+  }
+  // Decision 2026-10-02 §3.5: direct edit of name, unit label and default price. InvoiceLines keep their snapshots;
+  // DRAFT previews go stale because the template snapshot (name, unit, price) is part of the preview fingerprint.
+  async updateReceivable(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
+    const input = { displayName: this.text(body?.displayName, "displayName")!, unitLabel: this.unitLabel(body?.unitLabel), defaultUnitPrice: this.price(body?.defaultUnitPrice), reason: this.text(body?.reason, "reason", true, 500)! };
+    return this.mutate(actor, identityId, schoolId, routes.receivableEdit, key, operationId, { receivableId, ...input, defaultUnitPrice: input.defaultUnitPrice.toString() }, async (tx, operation) => {
+      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
+      await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
+      if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
+      if (item.displayName === input.displayName && item.unitLabel === input.unitLabel && item.defaultUnitPrice === input.defaultUnitPrice) throw validation("displayName", "Không có thay đổi để lưu.");
+      if (input.defaultUnitPrice < item.refundUnitPrice) throw validation("defaultUnitPrice", `Đơn giá thu không được thấp hơn giá hoàn trả (${item.refundUnitPrice.toLocaleString("vi-VN")} đ).`);
+      const updated = await tx.receivable.update({ where: { id: item.id }, data: { displayName: input.displayName, unitLabel: input.unitLabel, defaultUnitPrice: input.defaultUnitPrice }, include });
+      const outcome = this.receivableDto(updated);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_EDITED", operation, this.receivableDto(item), outcome, input.reason);
+      return outcome;
+    });
   }
   // Decision 2026-10-02 §3.1: a Receivable keeps its kind once an InvoiceLine or collection template line uses it.
   async updateReceivableKind(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {

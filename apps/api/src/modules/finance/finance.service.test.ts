@@ -34,6 +34,18 @@ describe('FinanceService validation', () => {
     await expect(service.updateReceivableKind('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { kind: 'NOPE' })).rejects.toMatchObject({ status: 400 });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('validates a direct Receivable edit before any Operation or write', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const edit = (body: object, key = crypto.randomUUID()) => service.updateReceivable('identity', crypto.randomUUID(), crypto.randomUUID(), key, crypto.randomUUID(), { displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000', reason: 'Đổi giá', ...body });
+    await expect(edit({ displayName: ' ' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { displayName: expect.any(String) } } });
+    await expect(edit({ unitLabel: '12' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { unitLabel: expect.any(String) } } });
+    await expect(edit({ defaultUnitPrice: '1.5' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { defaultUnitPrice: expect.any(String) } } });
+    await expect(edit({ defaultUnitPrice: '9007199254740992' })).rejects.toMatchObject({ status: 400 });
+    await expect(edit({ reason: '' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
+    await expect(edit({}, 'not-uuid' as never)).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
   it('has no API to create, rename or change the lifecycle of a group', () => {
     const service = new FinanceService({} as never, authorization as never) as any;
     expect(service.createGroup).toBeUndefined();
