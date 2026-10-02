@@ -30,10 +30,10 @@ async function setup(label = "Ngoại khóa") {
   const tuition = await receivable("FIXED", "Học phí");
   const retired = await receivable("EXTRACURRICULAR", "Võ cũ");
   await finance.transitionReceivable(identity.id, school.id, retired, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng" });
-  const enroll = async (index: number, options: { yearId?: string; lifecycle?: "ENROLLED" | "WITHDRAWN" } = {}) => {
+  const enroll = async (index: number, options: { yearId?: string; lifecycle?: "ENROLLED" | "WITHDRAWN" | "SCHEDULED_TO_START" | "ON_LEAVE" } = {}) => {
     const student = await prisma.student.create({ data: { schoolId: school.id, studentCode: `XC-${String(index).padStart(3, "0")}-${uuid().slice(0, 4)}`, fullName: `Bé ${index}`, dateOfBirth: date("2022-01-01") } });
     const target = options.yearId ?? year.id;
-    const row = await prisma.studentEnrollment.create({ data: { schoolId: school.id, studentId: student.id, schoolYearId: target, classId: target === year.id ? official.id : null, className: target === year.id ? official.name : null, lifecycle: options.lifecycle ?? "ENROLLED", effectiveFrom: date("2026-09-01"), ...(options.lifecycle === "WITHDRAWN" ? { endedOn: date("2026-09-30") } : {}), schoolYearName: "n", schoolYearStartsOn: date("2026-08-01"), schoolYearEndsOn: date("2027-08-01") } });
+    const row = await prisma.studentEnrollment.create({ data: { schoolId: school.id, studentId: student.id, schoolYearId: target, classId: target === year.id ? official.id : null, className: target === year.id ? official.name : null, lifecycle: options.lifecycle ?? "ENROLLED", effectiveFrom: date("2026-09-01"), ...(options.lifecycle === "WITHDRAWN" || options.lifecycle === "ON_LEAVE" ? { endedOn: date("2026-09-30") } : {}), schoolYearName: "n", schoolYearStartsOn: date("2026-08-01"), schoolYearEndsOn: date("2027-08-01") } });
     return row.id;
   };
   const students = [] as string[];
@@ -147,6 +147,14 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     await expect(add(s, a2, [w], { effectiveFrom: "2025-01-01" })).rejects.toMatchObject({ status: 400 });
     await expect(add(s, a2, [w], { effectiveTo: "2026-09-30" })).rejects.toMatchObject({ status: 400 });
     await expect(add(s, a2, [w, w])).rejects.toMatchObject({ status: 400 });
+    // Pre-registered Students may join; ON_LEAVE ones may not (billing eligibility is decided by the run later).
+    const onLeave = await s.enroll(11, { lifecycle: "ON_LEAVE" });
+    await expect(add(s, a2, [w, onLeave])).rejects.toMatchObject({ status: 400, response: { fieldErrors: { enrollmentIds: expect.any(String) } } });
+    const scheduled = await s.enroll(12, { lifecycle: "SCHEDULED_TO_START" });
+    expect((await finance.extracurricularCandidates(s.identity.id, s.school.id, a2, {})).candidates.map((row) => row.enrollmentId)).toEqual(expect.arrayContaining([scheduled]));
+    expect((await finance.extracurricularCandidates(s.identity.id, s.school.id, a2, {})).candidates.map((row) => row.enrollmentId)).not.toContain(onLeave);
+    await expect(add(s, a2, [scheduled], { effectiveFrom: "2026-11-01" })).resolves.toMatchObject({ status: "COMPLETED" });
+    before[0] += 1; before[1] += 1; // the pre-registered Student above is a valid new membership
     expect(await counts(s)).toEqual(before);
     // End singly: one open membership gets its end date, reason and audit.
     const [xA1] = rows.filter((row) => row.enrollmentId === x);

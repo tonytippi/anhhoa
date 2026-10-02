@@ -17,6 +17,8 @@ import { transferContent, vietQrPayload } from "./vietqr.js";
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Decision 2026-10-02: pre-registered (SCHEDULED_TO_START) Students may join; billing eligibility stays with the run.
+const membershipLifecycles = ["ENROLLED", "SCHEDULED_TO_START"] as const;
 const receivableGroupKinds = ["FIXED", "FLEXIBLE", "EXTRACURRICULAR"] as const;
 const routes = {
   receivable: "POST /api/app/schools/:schoolId/finance/receivables",
@@ -1007,6 +1009,7 @@ export class FinanceService {
     return this.mutate(actor, identityId, schoolId, routes.addInvoiceLine, key, operationId, { invoiceId, ...input, unitPrice: input.unitPrice?.toString() ?? null, source: body?.source ?? null, sourceReason: body?.sourceReason ?? null }, async (tx, operation) => {
       await this.promotionLock(tx, schoolId);
       const invoice = await this.draftInvoice(tx, schoolId, invoiceId);
+      await this.lockReceivablesShared(tx, schoolId, [input.receivableId]);
       const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } });
       if (!receivable) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu đã ngừng áp dụng.");
@@ -1349,11 +1352,26 @@ export class FinanceService {
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (item.displayName === input.displayName && item.unitLabel === input.unitLabel && item.defaultUnitPrice === input.defaultUnitPrice) throw validation("displayName", "Không có thay đổi để lưu.");
       if (input.defaultUnitPrice < item.refundUnitPrice) throw validation("defaultUnitPrice", `Đơn giá thu không được thấp hơn giá hoàn trả (${item.refundUnitPrice.toLocaleString("vi-VN")} đ).`);
-      const updated = await tx.receivable.update({ where: { id: item.id }, data: { displayName: input.displayName, unitLabel: input.unitLabel, defaultUnitPrice: input.defaultUnitPrice }, include });
+      const updated = await tx.receivable.update({ where: { id: item.id }, data: { displayName: input.displayName, unitLabel: input.unitLabel, defaultUnitPrice: input.defaultUnitPrice }, include }).catch((error: unknown) => this.catalogConstraintError(error));
       const outcome = this.receivableDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_EDITED", operation, this.receivableDto(item), outcome, input.reason);
       return outcome;
     });
+  }
+  // Every path that creates a line referencing a Receivable locks it FOR SHARE (ids sorted, so lock order is consistent) before
+  // validating or snapshotting it. Kind/price/refund edits take FOR UPDATE, so a concurrent edit either waits for the committed
+  // usage and is refused, or the line sees the new catalog values. The DB trigger stays as defense in depth.
+  private async lockReceivablesShared(tx: any, schoolId: string, receivableIds: Array<string | null | undefined>) {
+    const ids = [...new Set(receivableIds.filter((id): id is string => typeof id === "string" && uuid.test(id)))].sort();
+    if (!ids.length) return;
+    await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "schoolId" = ${schoolId}::uuid AND "id" = ANY(${ids}::uuid[]) ORDER BY "id" FOR SHARE`;
+  }
+  // The kind-lock trigger and the refund<=price CHECK are the last line of defense; surface them as normal 4xx responses.
+  private catalogConstraintError(error: any): never {
+    const text = `${error?.message ?? ""} ${error?.meta?.message ?? ""} ${error?.meta?.constraint ?? ""}`;
+    if (/Receivable kind cannot change/i.test(text)) throw new ConflictException({ code: "RECEIVABLE_KIND_LOCKED", message: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn, đợt thu hoặc lớp ngoại khóa." });
+    if (/Receivable_refundUnitPrice_within_price|refundUnitPrice.*defaultUnitPrice/i.test(text)) throw validation("defaultUnitPrice", "Đơn giá thu không được thấp hơn giá hoàn trả.");
+    throw error;
   }
   // Decision 2026-10-02 §3.1: a Receivable keeps its kind once an InvoiceLine or collection template line uses it.
   async updateReceivableKind(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {
@@ -1372,7 +1390,7 @@ export class FinanceService {
       ]);
       if (invoiceLines + templateLines + classes > 0) throw new ConflictException({ code: "RECEIVABLE_KIND_LOCKED", message: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn, đợt thu hoặc lớp ngoại khóa." });
       const group = await this.resolveGroup(tx, schoolId, { kind, groupId: null });
-      const updated = await tx.receivable.update({ where: { id: item.id }, data: { groupId: group.id }, include });
+      const updated = await tx.receivable.update({ where: { id: item.id }, data: { groupId: group.id }, include }).catch((error: unknown) => this.catalogConstraintError(error));
       const outcome = this.receivableDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_KIND_CHANGED", operation, this.receivableDto(item), outcome);
       return outcome;
@@ -1402,6 +1420,7 @@ export class FinanceService {
     const taxCategory = this.taxCategory(body?.taxCategory);
     return this.mutate(actor, identityId, schoolId, routes.receivableTax, key, operationId, { receivableId, taxCategory }, async (tx, operation) => {
       const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
+      await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (item.taxCategory === taxCategory) throw validation("taxCategory", "Khoản thu đã có mức thuế suất này.");
@@ -1417,11 +1436,12 @@ export class FinanceService {
     const refundUnitPrice = this.refundPrice(body?.refundUnitPrice);
     return this.mutate(actor, identityId, schoolId, routes.receivableRefund, key, operationId, { receivableId, refundUnitPrice: refundUnitPrice.toString() }, async (tx, operation) => {
       const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
+      await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (item.refundUnitPrice === refundUnitPrice) throw validation("refundUnitPrice", "Khoản thu đã có giá hoàn trả này.");
       this.refundWithinPrice(refundUnitPrice, item.defaultUnitPrice);
-      const updated = await tx.receivable.update({ where: { id: item.id }, data: { refundUnitPrice }, include });
+      const updated = await tx.receivable.update({ where: { id: item.id }, data: { refundUnitPrice }, include }).catch((error: unknown) => this.catalogConstraintError(error));
       const outcome = this.receivableDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_REFUND_PRICE_CHANGED", operation, this.receivableDto(item), outcome);
       return outcome;
@@ -1552,7 +1572,7 @@ export class FinanceService {
       members: matching.slice(0, 500).map(({ counted, current, ...row }) => row),
     };
   }
-  // Picker aid: ENROLLED Students of the class's SchoolYear, optionally narrowed by their official class.
+  // Picker aid: ENROLLED / SCHEDULED_TO_START Students of the class's SchoolYear, optionally narrowed by their official class.
   async extracurricularCandidates(identityId: string, schoolId: string, classId: string, query: any) {
     schoolId = this.school(schoolId);
     await this.actor(identityId, schoolId);
@@ -1560,7 +1580,7 @@ export class FinanceService {
     const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
     const search = typeof query?.q === "string" ? query.q.trim().slice(0, 100) : "";
     const today = this.localIssueDate(new Date());
-    const base = { schoolId, schoolYearId: found.schoolYearId, lifecycle: "ENROLLED" as const };
+    const base = { schoolId, schoolYearId: found.schoolYearId, lifecycle: { in: [...membershipLifecycles] } };
     const [officialClasses, enrollments] = await Promise.all([
       this.prisma.studentEnrollment.findMany({ where: { ...base, classId: { not: null } }, distinct: ["classId"], select: { classId: true, className: true }, orderBy: { className: "asc" } }),
       this.prisma.studentEnrollment.findMany({
@@ -1585,6 +1605,7 @@ export class FinanceService {
       const year = await tx.schoolYear.findFirst({ where: { id: input.schoolYearId, schoolId } });
       if (!year) throw new NotFoundException({ code: "SCHOOL_YEAR_NOT_FOUND", message: "Không tìm thấy năm học." });
       if (year.closedAt) throw validation("schoolYearId", "Năm học đã đóng.");
+      await this.lockReceivablesShared(tx, schoolId, [input.receivableId]);
       const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { group: true, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
       if (!receivable) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (receivable.group.kind !== "EXTRACURRICULAR") throw validation("receivableId", "Chỉ chọn khoản thu thuộc nhóm Ngoại khóa.");
@@ -1647,8 +1668,8 @@ export class FinanceService {
       if (effectiveFrom < found.schoolYear.startsOn || effectiveFrom >= found.schoolYear.endsOn || (effectiveTo && effectiveTo > found.schoolYear.endsOn)) throw validation("effectiveFrom", "Thời gian tham gia phải nằm trong năm học của lớp.");
       const enrollments = await tx.studentEnrollment.findMany({ where: { id: { in: enrollmentIds }, schoolId }, include: { student: { select: { studentCode: true, fullName: true } } } });
       if (enrollments.length !== enrollmentIds.length) throw new NotFoundException({ code: "ENROLLMENT_NOT_FOUND", message: "Không tìm thấy học sinh trong năm học của lớp." });
-      const invalid = enrollments.filter((item: any) => item.schoolYearId !== found.schoolYearId || item.lifecycle !== "ENROLLED");
-      if (invalid.length) throw validation("enrollmentIds", `Học sinh phải đang học trong năm học của lớp: ${invalid.map((item: any) => item.student.studentCode).join(", ")}.`);
+      const invalid = enrollments.filter((item: any) => item.schoolYearId !== found.schoolYearId || !membershipLifecycles.includes(item.lifecycle));
+      if (invalid.length) throw validation("enrollmentIds", `Học sinh phải đang học hoặc đã đăng ký trước trong năm học của lớp: ${invalid.map((item: any) => item.student.studentCode).join(", ")}.`);
       const overlapping = await tx.extracurricularMembership.findMany({ where: { schoolId, extracurricularClassId: found.id, enrollmentId: { in: enrollmentIds }, ...(effectiveTo ? { effectiveFrom: { lt: effectiveTo } } : {}), OR: [{ effectiveTo: null }, { effectiveTo: { gt: effectiveFrom } }] }, select: { enrollmentId: true } });
       if (overlapping.length) {
         const codes = enrollments.filter((item: any) => overlapping.some((row: any) => row.enrollmentId === item.id)).map((item: any) => item.student.studentCode);
@@ -1906,6 +1927,7 @@ export class FinanceService {
       const run = await this.lockRun(tx, schoolId, runId);
       if (run.status !== "DRAFT") throw new ConflictException({ code: "COLLECTION_RUN_NOT_DRAFT", message: "Chỉ được sửa khoản thu mẫu khi đợt thu ở trạng thái nháp." });
       if (run.version !== input.expectedVersion) throw new ConflictException({ code: "COLLECTION_RUN_VERSION_CONFLICT", message: "Đợt thu đã thay đổi. Hãy tải lại trước khi sửa khoản thu mẫu." });
+      await this.lockReceivablesShared(tx, schoolId, [input.receivableId]);
       const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } });
       if (!receivable || receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu không còn áp dụng.");
       const line = await tx.collectionRunTemplateLine.upsert({ where: { schoolId_collectionRunId_receivableId: { schoolId, collectionRunId: run.id, receivableId: receivable.id } }, create: { schoolId, collectionRunId: run.id, receivableId: receivable.id, quantity: input.quantity }, update: { quantity: input.quantity }, include: { receivable: true } });
@@ -3148,6 +3170,7 @@ export class FinanceService {
         return { channel: taxChannel(receivable.taxCategory), data: { schoolId, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice: receivable.defaultUnitPrice, quantity: 0, grossAmount: 0n, discountAmount: 0n, ...this.deductionData(proposal), netAmount: -proposal.deductionAmount, ...tax, promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [] } } };
       }).filter((line) => line.data.deductionQuantity > 0);
       const packageLines = (await this.packageRefunds(tx, schoolId, studentId, enrollment.endedOn)).map((refund: any) => ({ channel: taxChannel(refund.taxCategory), refund }));
+      await this.lockReceivablesShared(tx, schoolId, [...mealLines.map((line: any) => line.data.receivableId), ...packageLines.map((line: any) => line.refund.receivable?.id)]);
       const channels = [...new Set<PaymentChannel>([...mealLines, ...packageLines].map((line) => line.channel).concat(await this.pendingCarryChannels(tx, schoolId, studentId, run.schoolYearId, run.billingMonth)))].sort((a, b) => (a === b ? 0 : a === "SCHOOL" ? -1 : 1));
       if (!channels.length) throw new ConflictException({ code: "SETTLEMENT_NOTHING_TO_SETTLE", message: "Không có tiền ăn chưa dùng, học phí nộp trước hay số dư chuyển kỳ cần quyết toán cho học sinh này." });
       const asOf = this.asOf(run.billingMonth);
@@ -3251,6 +3274,7 @@ export class FinanceService {
   // lines keeps a single empty PERSONAL Invoice as before.
   private async insertInvoices(tx: any, invoices: any[]) {
     if (!invoices.length) return new Set<string>();
+    await this.lockReceivablesShared(tx, invoices[0].schoolId, invoices.flatMap((invoice) => (invoice.lines ?? []).map((line: any) => line.receivableId)));
     const parts = invoices.flatMap(({ lines, ...invoice }) => {
       const channels = [...new Set<PaymentChannel>((lines as any[]).map((line) => line.channel ?? "PERSONAL"))].sort();
       return (channels.length ? channels : ["PERSONAL" as PaymentChannel]).map((channel) => ({ ...invoice, channel, lines: (lines as any[]).filter((line) => (line.channel ?? "PERSONAL") === channel).map(({ channel: _channel, ...line }) => ({ taxCategorySnapshot: "NOT_DECLARED", ...line })) }));

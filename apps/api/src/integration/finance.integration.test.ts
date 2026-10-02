@@ -209,6 +209,28 @@ async function issueFixture(price = "9007199254740991") {
   return { current, student, receivableId, invoice, bank, operationId };
 }
 
+// Holds an open transaction (lock/uncommitted change in place) until released, to stage a race deterministically.
+async function holding(work: (tx: Prisma.TransactionClient) => Promise<void>) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let ready!: () => void;
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  const done = prisma.$transaction(async (tx) => { await work(tx); ready(); await gate; }, { timeout: 30000, maxWait: 30000 });
+  done.catch(() => ready());
+  await started;
+  return { release, done };
+}
+// Starts a command and proves it is still waiting on the held lock before the holder commits.
+async function blockedUntil<T>(command: () => Promise<T>, release: () => void) {
+  let settled = false;
+  const result = command().then((value) => { settled = true; return value; }, (error) => { settled = true; throw error; });
+  result.catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(settled).toBe(false);
+  release();
+  return result;
+}
+
 const outcomeId = (value: { outcome: unknown }) =>
   (value.outcome as { id: string }).id;
 
@@ -715,6 +737,102 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.receivable.count({ where: { schoolId: current.school.id } })).toBe(2);
       expect(await prisma.receivable.count({ where: { schoolId: foreign.school.id } })).toBe(0);
       expect(fixedId).not.toBe(flexibleId);
+    });
+
+    it("serializes kind change against template-line creation in both directions", async () => {
+      const current = await roster(await graph());
+      await group(current);
+      const flexible = await prisma.receivableGroup.findFirstOrThrow({ where: { schoolId: current.school.id, kind: "FLEXIBLE" } });
+      const mk = async (name: string) => outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { kind: "FIXED", displayName: name, unitLabel: "lần", defaultUnitPrice: "100" }));
+      const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
+
+      // Template line committed first: a concurrent kind change waits for the share lock holder, then is refused.
+      const first = await mk("Dùng trước");
+      const holder = await holding(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${first}::uuid AND "schoolId" = ${current.school.id}::uuid FOR SHARE`;
+        await tx.collectionRunTemplateLine.create({ data: { schoolId: current.school.id, collectionRunId: runId, receivableId: first, quantity: 1 } });
+      });
+      await expect(blockedUntil(() => finance.updateReceivableKind(current.identity.id, current.school.id, first, uuid(), uuid(), { kind: "FLEXIBLE" }), holder.release)).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      await holder.done;
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: first } })).toMatchObject({ groupId: expect.not.stringMatching(flexible.id) });
+
+      // Kind change in flight first: template-line creation waits for it, then proceeds against the new kind.
+      const second = await mk("Đổi trước");
+      const changing = await holding(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${second}::uuid AND "schoolId" = ${current.school.id}::uuid FOR UPDATE`;
+        await tx.$executeRaw`UPDATE "Receivable" SET "groupId" = ${flexible.id}::uuid WHERE "id" = ${second}::uuid`;
+      });
+      const version = (await finance.run(current.identity.id, current.school.id, runId)).version;
+      const saved = await blockedUntil(() => finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId: second, quantity: "1", expectedVersion: version }), changing.release);
+      await changing.done;
+      expect(saved.status).toBe("COMPLETED");
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: second }, include: { group: true } })).toMatchObject({ group: { kind: "FLEXIBLE" } });
+      expect(await prisma.collectionRunTemplateLine.count({ where: { schoolId: current.school.id, receivableId: second } })).toBe(1);
+      // Once used, the kind is locked for good.
+      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, second, uuid(), uuid(), { kind: "FIXED" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+    });
+
+    it("serializes kind change against invoice-line creation in both directions", async () => {
+      const fixture = await issueFixture("100000");
+      const { current, invoice } = fixture;
+      const flexible = await (async () => { await group(current); return prisma.receivableGroup.findFirstOrThrow({ where: { schoolId: current.school.id, kind: "FLEXIBLE" } }); })();
+      const mk = async (name: string) => outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { kind: "FIXED", displayName: name, unitLabel: "lần", defaultUnitPrice: "100" }));
+      const source = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: current.school.id, invoiceId: invoice.id } });
+
+      // An Invoice line committed first: the concurrent kind change waits for it and is refused.
+      const first = await mk("Dòng trước");
+      const holder = await holding(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${first}::uuid AND "schoolId" = ${current.school.id}::uuid FOR SHARE`;
+        await tx.$executeRaw`INSERT INTO "InvoiceLine" SELECT * FROM jsonb_populate_record(NULL::"InvoiceLine", to_jsonb((SELECT l FROM "InvoiceLine" l WHERE l."id" = ${source.id}::uuid)) || jsonb_build_object('id', gen_random_uuid(), 'receivableId', ${first}::text))`;
+      });
+      await expect(blockedUntil(() => finance.updateReceivableKind(current.identity.id, current.school.id, first, uuid(), uuid(), { kind: "FLEXIBLE" }), holder.release)).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      await holder.done;
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: first }, include: { group: true } })).toMatchObject({ group: { kind: "FIXED" } });
+
+      // Kind change in flight first: addInvoiceLine waits, then adds the line against the committed new kind.
+      const second = await mk("Đổi trước dòng");
+      const changing = await holding(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${second}::uuid AND "schoolId" = ${current.school.id}::uuid FOR UPDATE`;
+        await tx.$executeRaw`UPDATE "Receivable" SET "groupId" = ${flexible.id}::uuid WHERE "id" = ${second}::uuid`;
+      });
+      const added = await blockedUntil(() => finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId: second, quantity: "1" }), changing.release);
+      await changing.done;
+      expect(added.status).toBe("COMPLETED");
+      expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id, receivableId: second } })).toBe(1);
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: second }, include: { group: true } })).toMatchObject({ group: { kind: "FLEXIBLE" } });
+      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, second, uuid(), uuid(), { kind: "FIXED" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+    });
+
+    it("keeps refund price <= default price when edits race, answering the loser with a controlled 400", async () => {
+      const current = await graph();
+      await group(current);
+      const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { kind: "FIXED", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "100000", refundUnitPrice: "0" }));
+      const edit = (price: string, name = "Tiền ăn") => finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { displayName: name, unitLabel: "ngày", defaultUnitPrice: price, reason: "Đổi giá" });
+      const refund = (value: string) => finance.updateReceivableRefundPrice(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { refundUnitPrice: value });
+      const invariant = async () => { const row = await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId } }); expect(row.refundUnitPrice <= row.defaultUnitPrice).toBe(true); return row; };
+
+      // A refund raise is in flight (row locked, uncommitted): lowering the price waits, then sees it and is refused.
+      const raising = await holding(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${current.school.id}::uuid FOR UPDATE`;
+        await tx.$executeRaw`UPDATE "Receivable" SET "refundUnitPrice" = 90000 WHERE "id" = ${receivableId}::uuid`;
+      });
+      await expect(blockedUntil(() => edit("50000"), raising.release)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { defaultUnitPrice: expect.any(String) } } });
+      await raising.done;
+      expect(await invariant()).toMatchObject({ defaultUnitPrice: 100000n, refundUnitPrice: 90000n });
+
+      // A price drop is in flight: raising the refund price waits, then sees the lower price and is refused (no 500 from the CHECK).
+      const dropping = await holding(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${current.school.id}::uuid FOR UPDATE`;
+        await tx.$executeRaw`UPDATE "Receivable" SET "refundUnitPrice" = 0, "defaultUnitPrice" = 40000 WHERE "id" = ${receivableId}::uuid`;
+      });
+      await expect(blockedUntil(() => refund("60000"), dropping.release)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
+      await dropping.done;
+      expect(await invariant()).toMatchObject({ defaultUnitPrice: 40000n, refundUnitPrice: 0n });
+
+      // Unstaged contention: whichever order wins, the invariant holds and any loser is a 400.
+      const results = await Promise.allSettled([edit("30000"), refund("35000"), edit("31000", "Tiền ăn mới")]);
+      for (const result of results) if (result.status === "rejected") expect((result.reason as { status?: number }).status).toBeLessThan(500);
+      await invariant();
     });
 
     it("edits name, unit and price with audit and replay, refuses price below the refund price and foreign Schools, and keeps Invoice line snapshots", async () => {

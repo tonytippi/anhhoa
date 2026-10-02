@@ -953,15 +953,23 @@ export function FinanceWorkspace({
     }
   };
   // Decision 2026-10-02 §3.5: name, unit and price go through the edit endpoint (reason required); a changed kind through its own endpoint, each audited.
+  // When the details are saved but the kind change fails or stays uncertain, the dialog is rebased to the saved values so a retry
+  // sends only the outstanding kind change (a pending Operation blocks any further command until it is reconciled).
   const saveKind = async (event: FormEvent) => {
     event.preventDefault();
     if (!kindEdit) return;
     const detailsChanged = kindEdit.displayName !== kindEdit.original.displayName || kindEdit.unitLabel !== kindEdit.original.unitLabel || kindEdit.defaultUnitPrice !== kindEdit.original.defaultUnitPrice;
     const kindChanged = !kindEdit.locked && kindEdit.kind !== kindEdit.original.kind;
     if (!detailsChanged && !kindChanged) return;
+    if (detailsChanged && !kindEdit.reason.trim()) { setScope("receivable"); setErrors({ reason: "Cần nhập lý do khi đổi tên, đơn vị hoặc giá." }); return; }
     const base = `/api/app/schools/${schoolId}/finance/receivables/${kindEdit.id}`;
-    if (detailsChanged && !(await command(base, "PUT", { displayName: kindEdit.displayName, unitLabel: kindEdit.unitLabel, defaultUnitPrice: kindEdit.defaultUnitPrice, reason: kindEdit.reason }, "receivable"))) return;
-    if (kindChanged && !(await command(`${base}/kind`, "PUT", { kind: kindEdit.kind }, "receivable"))) { await load(); return; }
+    if (detailsChanged) {
+      if (!(await command(base, "PUT", { displayName: kindEdit.displayName, unitLabel: kindEdit.unitLabel, defaultUnitPrice: kindEdit.defaultUnitPrice, reason: kindEdit.reason }, "receivable"))) return;
+      const saved = { displayName: kindEdit.displayName, unitLabel: kindEdit.unitLabel, defaultUnitPrice: kindEdit.defaultUnitPrice };
+      setKindEdit((current) => current && { ...current, original: { ...current.original, ...saved }, reason: "" });
+      if (kindChanged) { try { await load(); } catch { /* the dialog keeps the saved values; the list refreshes on the next load */ } }
+    }
+    if (kindChanged && !(await command(`${base}/kind`, "PUT", { kind: kindEdit.kind }, "receivable"))) return;
     closeManagedDialog(() => { setCatalogDialog(undefined); setKindEdit(undefined); });
     await load();
   };

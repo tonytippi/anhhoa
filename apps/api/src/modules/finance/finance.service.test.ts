@@ -70,6 +70,12 @@ describe('FinanceService validation', () => {
     await expect(service.extracurricularClass('identity', school, classId, { month: '2026-13' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { month: expect.any(String) } } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('maps the refund CHECK and the kind-lock trigger to controlled 4xx responses', () => {
+    const service = new FinanceService({} as never, authorization as never) as any;
+    expect(() => service.catalogConstraintError(new Error('new row violates check constraint "Receivable_refundUnitPrice_within_price"'))).toThrow(expect.objectContaining({ status: 400, response: expect.objectContaining({ fieldErrors: { defaultUnitPrice: expect.any(String) } }) }));
+    expect(() => service.catalogConstraintError(new Error('Receivable kind cannot change once the Receivable is used on an Invoice'))).toThrow(expect.objectContaining({ status: 409, response: expect.objectContaining({ code: 'RECEIVABLE_KIND_LOCKED' }) }));
+    expect(() => service.catalogConstraintError(new Error('connection reset'))).toThrow('connection reset');
+  });
   it('has no API to create, rename or change the lifecycle of a group', () => {
     const service = new FinanceService({} as never, authorization as never) as any;
     expect(service.createGroup).toBeUndefined();
