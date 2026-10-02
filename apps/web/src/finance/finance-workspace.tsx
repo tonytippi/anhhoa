@@ -16,6 +16,7 @@ type Receivable = {
   groupId: string;
   kind?: ReceivableKind | null;
   kindLocked?: boolean;
+  extracurricularClassCount?: number;
   code: string | null;
   displayName: string;
   unitLabel: string;
@@ -230,6 +231,7 @@ export function FinanceWorkspace({
   onBackToRun,
   onDetailUnavailable,
   onListSearchChange,
+  onOpenExtracurricularClasses,
 }: {
   schoolId: string;
   schoolName: string;
@@ -245,6 +247,7 @@ export function FinanceWorkspace({
   onBackToRun?: (runId: string) => void;
   onDetailUnavailable?: (message: string) => void;
   onListSearchChange?: (search: string) => void;
+  onOpenExtracurricularClasses?: () => void;
 }) {
   void schoolName;
   const [catalog, setCatalog] = useState<Catalog>();
@@ -1270,13 +1273,13 @@ export function FinanceWorkspace({
               {catalogRows.length ? (
                 catalogRows.map((item) => (
                   <tr key={item.id}>
-                    <td><b>{item.displayName}</b><br /><small className="muted">{kindLabel(item.kind)}{item.unitLabel !== "tháng" ? ` · đơn vị ${item.unitLabel}` : ""}</small></td>
+                    <td><b>{item.displayName}</b><br /><small className="muted">{[kindLabel(item.kind), item.unitLabel !== "tháng" ? `đơn vị ${item.unitLabel}` : "", item.kind === "EXTRACURRICULAR" && (item.extracurricularClassCount ?? 0) > 0 ? `gắn ${item.extracurricularClassCount} lớp ngoại khóa` : ""].filter(Boolean).join(" · ")}</small></td>
                     <td>{item.code ?? "-"}</td>
                     <td className="money">{vnd(item.defaultUnitPrice)} VND / {item.unitLabel}</td>
                     <td className="money">{BigInt(item.refundUnitPrice ?? "0") > 0n ? `${vnd(item.refundUnitPrice!)} VND / ${item.unitLabel}` : "—"}</td>
                     <td>{taxShortLabel[item.taxCategory ?? "NOT_DECLARED"]}<br /><small className="muted">{channelAccountLabel(item.channel)}</small></td>
                     <td>{item.available ? "Đang áp dụng" : "Ngừng áp dụng"}</td>
-                    <td><AnchoredActionMenu label={`Tùy chọn cho ${item.displayName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); if (item.kind) setKindEdit({ id: item.id, title: item.displayName, displayName: item.displayName, unitLabel: item.unitLabel, defaultUnitPrice: item.defaultUnitPrice, kind: item.kind, original: { displayName: item.displayName, unitLabel: item.unitLabel, defaultUnitPrice: item.defaultUnitPrice, kind: item.kind }, locked: Boolean(item.kindLocked), reason: "" }); setCatalogDialog("receivable-kind"); }}>Chỉnh sửa</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setTaxChange({ id: item.id, name: item.displayName, taxCategory: item.taxCategory ?? "NOT_DECLARED" }); }}>Đổi mức thuế suất</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setRefundChange({ id: item.id, name: item.displayName, unitLabel: item.unitLabel, refundUnitPrice: item.refundUnitPrice ?? "0" }); }}>Đổi giá hoàn trả</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td>
+                    <td><AnchoredActionMenu label={`Tùy chọn cho ${item.displayName}`} disabled={Boolean(pending)} onTriggerOpen={(trigger) => { rowMenuTrigger.current = trigger; }}><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); if (item.kind) setKindEdit({ id: item.id, title: item.displayName, displayName: item.displayName, unitLabel: item.unitLabel, defaultUnitPrice: item.defaultUnitPrice, kind: item.kind, original: { displayName: item.displayName, unitLabel: item.unitLabel, defaultUnitPrice: item.defaultUnitPrice, kind: item.kind }, locked: Boolean(item.kindLocked), reason: "" }); setCatalogDialog("receivable-kind"); }}>Chỉnh sửa</AnchoredActionMenuItem>{item.kind === "EXTRACURRICULAR" && onOpenExtracurricularClasses && <AnchoredActionMenuItem onClick={onOpenExtracurricularClasses}>Xem lớp ngoại khóa</AnchoredActionMenuItem>}<AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setTaxChange({ id: item.id, name: item.displayName, taxCategory: item.taxCategory ?? "NOT_DECLARED" }); }}>Đổi mức thuế suất</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setErrors({}); setRefundChange({ id: item.id, name: item.displayName, unitLabel: item.unitLabel, refundUnitPrice: item.refundUnitPrice ?? "0" }); }}>Đổi giá hoàn trả</AnchoredActionMenuItem><AnchoredActionMenuItem onClick={() => { dialogTrigger.current = rowMenuTrigger.current; setLifecycle({ kind: "receivables", id: item.id, name: item.displayName, next: item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE", reason: "" }); }}>{item.status === "ACTIVE" ? "Ngừng áp dụng" : "Kích hoạt"}</AnchoredActionMenuItem></AnchoredActionMenu></td>
                   </tr>
                 ))
               ) : (

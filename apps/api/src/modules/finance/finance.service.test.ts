@@ -46,6 +46,30 @@ describe('FinanceService validation', () => {
     await expect(edit({}, 'not-uuid' as never)).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+  it('validates extracurricular class and membership commands before any Operation or write', async () => {
+    const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };
+    const service = new FinanceService(prisma as never, authorization as never);
+    const school = crypto.randomUUID(); const classId = crypto.randomUUID(); const ids = [crypto.randomUUID()];
+    const create = (body: object) => service.createExtracurricularClass('identity', school, crypto.randomUUID(), crypto.randomUUID(), { name: 'Anh A1', schoolYearId: crypto.randomUUID(), receivableId: crypto.randomUUID(), ...body });
+    await expect(create({ name: ' ' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { name: expect.any(String) } } });
+    await expect(create({ schoolYearId: 'x' })).rejects.toMatchObject({ status: 400 });
+    await expect(create({ receivableId: undefined })).rejects.toMatchObject({ status: 400 });
+    const add = (body: object, key = crypto.randomUUID()) => service.addExtracurricularMemberships('identity', school, classId, key, crypto.randomUUID(), { enrollmentIds: ids, effectiveFrom: '2026-10-01', reason: 'Đăng ký', ...body });
+    await expect(add({ enrollmentIds: [] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { enrollmentIds: expect.any(String) } } });
+    await expect(add({ enrollmentIds: [ids[0], ids[0]] })).rejects.toMatchObject({ status: 400 });
+    await expect(add({ enrollmentIds: Array.from({ length: 201 }, () => crypto.randomUUID()) })).rejects.toMatchObject({ status: 400 });
+    await expect(add({ effectiveFrom: '2026-13-01' })).rejects.toMatchObject({ status: 400 });
+    await expect(add({ effectiveTo: '2026-09-30' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveTo: expect.any(String) } } });
+    await expect(add({ reason: '' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
+    await expect(add({}, 'bad' as never)).rejects.toMatchObject({ status: 401, response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
+    const end = (body: object) => service.endExtracurricularMemberships('identity', school, classId, crypto.randomUUID(), crypto.randomUUID(), { membershipIds: ids, effectiveTo: '2026-10-31', reason: 'Nghỉ', ...body });
+    await expect(end({ membershipIds: 'x' })).rejects.toMatchObject({ status: 400 });
+    await expect(end({ effectiveTo: undefined })).rejects.toMatchObject({ status: 400 });
+    await expect(end({ reason: ' ' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.transitionExtracurricularClass('identity', school, classId, crypto.randomUUID(), crypto.randomUUID(), { status: 'PAUSED', reason: 'x' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.extracurricularClass('identity', school, classId, { month: '2026-13' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { month: expect.any(String) } } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
   it('has no API to create, rename or change the lifecycle of a group', () => {
     const service = new FinanceService({} as never, authorization as never) as any;
     expect(service.createGroup).toBeUndefined();
@@ -60,7 +84,7 @@ describe('FinanceService validation', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
   it('serializes BigInt VND as a safe JSON integer string and scopes catalog reads by School', async () => {
-    const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([{ id: 'group', name: 'Học phí', createdAt: new Date('2026-01-01T00:00:00Z'), kind: 'FIXED' }]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'item', groupId: 'group', code: null, displayName: 'Tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, createdAt: new Date('2026-01-01T00:00:00Z'), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FIXED' } }]) }, invoiceLine: { groupBy: vi.fn().mockResolvedValue([]) }, collectionRunTemplateLine: { groupBy: vi.fn().mockResolvedValue([]) } };
+    const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([{ id: 'group', name: 'Học phí', createdAt: new Date('2026-01-01T00:00:00Z'), kind: 'FIXED' }]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'item', groupId: 'group', code: null, displayName: 'Tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, createdAt: new Date('2026-01-01T00:00:00Z'), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FIXED' } }]) }, invoiceLine: { groupBy: vi.fn().mockResolvedValue([]) }, collectionRunTemplateLine: { groupBy: vi.fn().mockResolvedValue([]) }, extracurricularClass: { groupBy: vi.fn().mockResolvedValue([]) } };
     const school = crypto.randomUUID(); const result = await new FinanceService(prisma as never, authorization as never).read('identity', school);
     expect(result).toMatchObject({ groups: [{ kind: 'FIXED' }], receivables: [{ defaultUnitPrice: '500000', status: 'ACTIVE', kind: 'FIXED', kindLocked: false, available: true }] });
     expect(result.groups[0]).not.toHaveProperty('status');
@@ -76,11 +100,11 @@ describe('FinanceService validation', () => {
     expect(result).toMatchObject({ status: 'GENERATED', summary: { invoiceCount: 3, issuedCount: 2, invoiceTotal: '9007199255025993' } });
     expect(prisma.collectionRun.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: run.id, schoolId: school } }));
   });
-  it('locks the kind of a Receivable used on an Invoice line or a collection template line', async () => {
-    const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'invoiced', groupId: 'group', code: null, displayName: 'A', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FIXED' } }, { id: 'templated', groupId: 'group', code: null, displayName: 'B', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FLEXIBLE' } }, { id: 'unused', groupId: 'group', code: null, displayName: 'C', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'INACTIVE' }], group: { kind: 'FLEXIBLE' } }]) }, invoiceLine: { groupBy: vi.fn().mockResolvedValue([{ receivableId: 'invoiced' }]) }, collectionRunTemplateLine: { groupBy: vi.fn().mockResolvedValue([{ receivableId: 'templated' }]) } };
+  it('locks the kind of a Receivable used on an Invoice line, a collection template line or an extracurricular class', async () => {
+    const prisma = { receivableGroup: { findMany: vi.fn().mockResolvedValue([]) }, receivable: { findMany: vi.fn().mockResolvedValue([{ id: 'invoiced', groupId: 'group', code: null, displayName: 'A', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FIXED' } }, { id: 'templated', groupId: 'group', code: null, displayName: 'B', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'ACTIVE' }], group: { kind: 'FLEXIBLE' } }, { id: 'unused', groupId: 'group', code: null, displayName: 'C', unitLabel: 'tháng', defaultUnitPrice: 1n, createdAt: new Date(), lifecycleTransitions: [{ status: 'INACTIVE' }], group: { kind: 'FLEXIBLE' } }]) }, invoiceLine: { groupBy: vi.fn().mockResolvedValue([{ receivableId: 'invoiced' }]) }, collectionRunTemplateLine: { groupBy: vi.fn().mockResolvedValue([{ receivableId: 'templated' }]) }, extracurricularClass: { groupBy: vi.fn().mockResolvedValue([{ receivableId: 'unused', _count: { _all: 2 } }]) } };
     const school = crypto.randomUUID();
     const result: any = await new FinanceService(prisma as never, authorization as never).read('identity', school);
-    expect(result.receivables.map((item: any) => [item.id, item.kindLocked])).toEqual([['invoiced', true], ['templated', true], ['unused', false]]);
+    expect(result.receivables.map((item: any) => [item.id, item.kindLocked, item.extracurricularClassCount])).toEqual([['invoiced', true, 0], ['templated', true, 0], ['unused', true, 2]]);
     expect(prisma.invoiceLine.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ schoolId: school }) }));
     expect(prisma.collectionRunTemplateLine.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: school } }));
   });

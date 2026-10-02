@@ -2253,3 +2253,14 @@ tbody tr:last-child td {
 .finance-report-export small { color: #5f746e; }
 @media (max-width: 1023px) { .finance-report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .finance-report-charts { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .finance-report-kpis { grid-template-columns: 1fr; } }
+.finance-workspace .muted { color: #6b6e63; }
+.finance-workspace .eyebrow { margin: 0 0 4px; color: #277e48; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; }
+.badge { display: inline-flex; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #eef6f1; color: #4f5249; }
+.badge.success { background: #e3f1e7; color: #1d6538; }
+.badge.warning { background: #fbf0d4; color: #7a5a10; }
+.badge.info { background: #e4eef9; color: #25507c; }
+.xc-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+.xc-cards article { border: 1px solid #e4e2d8; border-radius: 14px; background: #fff; padding: 16px 20px; }
+.xc-cards h2 { margin: 0 0 8px; font-size: 16px; }
+.xc-cards p { margin: 4px 0; }
+@media (max-width: 720px) { .xc-cards { grid-template-columns: 1fr; } }

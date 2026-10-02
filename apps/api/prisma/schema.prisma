@@ -77,6 +77,8 @@ model School {
   financeReportExports              FinanceReportExport[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
   invoicePayouts                    InvoicePayout[]
+  extracurricularClasses            ExtracurricularClass[]
+  extracurricularMemberships        ExtracurricularMembership[]
 }
 
 enum ClassStatus {
@@ -108,6 +110,8 @@ model SchoolYear {
   staffClassAssignments         StaffClassAssignment[]
   enrollmentClassAssignments    EnrollmentClassAssignment[]
   collectionRuns                CollectionRun[]
+  extracurricularClasses        ExtracurricularClass[]
+  extracurricularMemberships    ExtracurricularMembership[]
   invoices                      Invoice[]
   receipts                      Receipt[]
   settlementDifferences         SettlementDifference[]
@@ -449,9 +453,11 @@ model StudentEnrollment {
   lifecycleTransitions        StudentEnrollmentLifecycleTransition[]
   classAssignments            EnrollmentClassAssignment[]
   coverageRefundEligibilities CoverageRefundEligibility[]
+  extracurricularMemberships  ExtracurricularMembership[]
 
   @@unique([schoolId, studentId, schoolYearId])
   @@unique([schoolId, id])
+  @@unique([schoolId, schoolYearId, id])
   @@index([schoolId, classId, lifecycle])
   @@index([schoolId, studentId, createdAt])
 }
@@ -664,16 +670,16 @@ model PlatformOperatorGrant {
 }
 
 model SchoolMembership {
-  id                                  String                               @id @default(uuid()) @db.Uuid
-  schoolId                            String                               @db.Uuid
-  userIdentityId                      String                               @db.Uuid
-  status                              MembershipStatus                     @default(ACTIVE)
-  createdAt                           DateTime                             @default(now()) @db.Timestamptz(3)
-  updatedAt                           DateTime                             @updatedAt @db.Timestamptz(3)
-  school                              School                               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  userIdentity                        UserIdentity                         @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
-  audits                              AuditRecord[]                        @relation("AuditMembership")
-  operations                          Operation[]                          @relation("OperationMembership")
+  id                                  String                                    @id @default(uuid()) @db.Uuid
+  schoolId                            String                                    @db.Uuid
+  userIdentityId                      String                                    @db.Uuid
+  status                              MembershipStatus                          @default(ACTIVE)
+  createdAt                           DateTime                                  @default(now()) @db.Timestamptz(3)
+  updatedAt                           DateTime                                  @updatedAt @db.Timestamptz(3)
+  school                              School                                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  userIdentity                        UserIdentity                              @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
+  audits                              AuditRecord[]                             @relation("AuditMembership")
+  operations                          Operation[]                               @relation("OperationMembership")
   financePolicies                     FinancePolicy[]
   parentAccessPolicies                ParentAccessPolicyVersion[]
   attendancePolicies                  AttendancePolicy[]
@@ -682,20 +688,23 @@ model SchoolMembership {
   handoverRecords                     HandoverRecord[]
   dailyJournalPolicies                DailyJournalPolicy[]
   leavePolicies                       LeavePolicy[]
-  boundStaffProfile                   StaffProfile?                        @relation("StaffProfileLoginBinding")
-  auditedStaffProfileBindings         StaffProfile[]                       @relation("StaffProfileBindingAuditor")
-  decidedLeaveRequests                LeaveRequest[]                       @relation("LeaveRequestDecisionMembership")
+  boundStaffProfile                   StaffProfile?                             @relation("StaffProfileLoginBinding")
+  auditedStaffProfileBindings         StaffProfile[]                            @relation("StaffProfileBindingAuditor")
+  decidedLeaveRequests                LeaveRequest[]                            @relation("LeaveRequestDecisionMembership")
   bankAccounts                        BankAccount[]
   bankAccountLifecycleTransitions     BankAccountLifecycleTransition[]
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
+  extracurricularClassTransitions     ExtracurricularClassLifecycleTransition[]
+  extracurricularMembershipsCreated   ExtracurricularMembership[]               @relation("ExtracurricularMembershipCreatedBy")
+  extracurricularMembershipsEnded     ExtracurricularMembership[]               @relation("ExtracurricularMembershipEndedBy")
   collectionRunLifecycleTransitions   CollectionRunLifecycleTransition[]
-  uploadedEvidenceReferences          EvidenceReference[]                  @relation("EvidenceUploadedMembership")
+  uploadedEvidenceReferences          EvidenceReference[]                       @relation("EvidenceUploadedMembership")
   dailyJournals                       DailyJournal[]
   dailyJournalVersions                DailyJournalVersion[]
-  uploadedDailyJournalMedia           DailyJournalMedia[]                  @relation("DailyJournalMediaUploaderMembership")
-  requestedCoverageReversals          CoverageReversalRequest[]            @relation("CoverageReversalRequester")
-  decidedCoverageReversals            CoverageReversalRequest[]            @relation("CoverageReversalDecider")
+  uploadedDailyJournalMedia           DailyJournalMedia[]                       @relation("DailyJournalMediaUploaderMembership")
+  requestedCoverageReversals          CoverageReversalRequest[]                 @relation("CoverageReversalRequester")
+  decidedCoverageReversals            CoverageReversalRequest[]                 @relation("CoverageReversalDecider")
   coverageRefundEligibilities         CoverageRefundEligibility[]
   financeReportExports                FinanceReportExport[]
   debtTransfers                       DebtTransfer[]
@@ -724,28 +733,31 @@ model AuditRecord {
 }
 
 model Operation {
-  id                                  String                               @id @default(uuid()) @db.Uuid
-  schoolId                            String?                              @db.Uuid
-  membershipId                        String?                              @db.Uuid
-  platformOperatorGrantId             String?                              @db.Uuid
-  actorIdentityId                     String?                              @db.Uuid
+  id                                  String                                    @id @default(uuid()) @db.Uuid
+  schoolId                            String?                                   @db.Uuid
+  membershipId                        String?                                   @db.Uuid
+  platformOperatorGrantId             String?                                   @db.Uuid
+  actorIdentityId                     String?                                   @db.Uuid
   actorType                           OperationActorType
   actorReference                      String
   route                               String
   fingerprint                         String
   idempotencyKey                      String
-  status                              OperationStatus                      @default(PENDING)
+  status                              OperationStatus                           @default(PENDING)
   outcome                             Json?
-  createdAt                           DateTime                             @default(now()) @db.Timestamptz(3)
-  updatedAt                           DateTime                             @updatedAt @db.Timestamptz(3)
-  school                              School?                              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  membership                          SchoolMembership?                    @relation("OperationMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
-  platformOperatorGrant               PlatformOperatorGrant?               @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
-  actorIdentity                       UserIdentity?                        @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
-  closedSchoolYears                   SchoolYear[]                         @relation("SchoolYearCloseOperation")
-  bankAccountLifecycleTransitions     BankAccountLifecycleTransition[]     @relation("BankAccountLifecycleOperation")
+  createdAt                           DateTime                                  @default(now()) @db.Timestamptz(3)
+  updatedAt                           DateTime                                  @updatedAt @db.Timestamptz(3)
+  school                              School?                                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership                          SchoolMembership?                         @relation("OperationMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  platformOperatorGrant               PlatformOperatorGrant?                    @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
+  actorIdentity                       UserIdentity?                             @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
+  closedSchoolYears                   SchoolYear[]                              @relation("SchoolYearCloseOperation")
+  bankAccountLifecycleTransitions     BankAccountLifecycleTransition[]          @relation("BankAccountLifecycleOperation")
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]
   receivableLifecycleTransitions      ReceivableLifecycleTransition[]
+  extracurricularClassTransitions     ExtracurricularClassLifecycleTransition[]
+  extracurricularMembershipsCreated   ExtracurricularMembership[]               @relation("ExtracurricularMembershipCreateOperation")
+  extracurricularMembershipsEnded     ExtracurricularMembership[]               @relation("ExtracurricularMembershipEndOperation")
   debtTransfers                       DebtTransfer[]
   coverageRefundEligibilities         CoverageRefundEligibility[]
   financeReportExports                FinanceReportExport[]
@@ -1459,24 +1471,25 @@ model ReceivableGroup {
 }
 
 model Receivable {
-  id                   String                          @id @default(uuid()) @db.Uuid
-  schoolId             String                          @db.Uuid
-  groupId              String                          @db.Uuid
-  code                 String?
-  displayName          String
-  unitLabel            String
-  defaultUnitPrice     BigInt                          @db.BigInt
-  taxCategory          ReceivableTaxCategory           @default(NOT_DECLARED)
-  refundUnitPrice      BigInt                          @default(0) @db.BigInt
-  createdAt            DateTime                        @default(now()) @db.Timestamptz(3)
-  school               School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  group                ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
-  lifecycleTransitions ReceivableLifecycleTransition[]
-  invoiceLines         InvoiceLine[]
-  templateLines        CollectionRunTemplateLine[]
-  promotionTargets     PromotionPolicyTarget[]
-  coverageFacts        InvoicePromotionCoverageFact[]
-  promotionalCoverages StudentPromotionalCoverage[]
+  id                     String                          @id @default(uuid()) @db.Uuid
+  schoolId               String                          @db.Uuid
+  groupId                String                          @db.Uuid
+  code                   String?
+  displayName            String
+  unitLabel              String
+  defaultUnitPrice       BigInt                          @db.BigInt
+  taxCategory            ReceivableTaxCategory           @default(NOT_DECLARED)
+  refundUnitPrice        BigInt                          @default(0) @db.BigInt
+  createdAt              DateTime                        @default(now()) @db.Timestamptz(3)
+  school                 School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  group                  ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
+  lifecycleTransitions   ReceivableLifecycleTransition[]
+  invoiceLines           InvoiceLine[]
+  templateLines          CollectionRunTemplateLine[]
+  promotionTargets       PromotionPolicyTarget[]
+  coverageFacts          InvoicePromotionCoverageFact[]
+  promotionalCoverages   StudentPromotionalCoverage[]
+  extracurricularClasses ExtracurricularClass[]
 
   @@unique([schoolId, id])
   @@index([schoolId, groupId])
@@ -2063,4 +2076,76 @@ model InvoicePayout {
 enum InvoiceKind {
   NORMAL
   SETTLEMENT
+}
+
+// Story 5.34 (decision 2026-10-02 §3.3): finance-owned applicability source; never reads or changes Class or staff authorization.
+model ExtracurricularClass {
+  id                   String                                    @id @default(uuid()) @db.Uuid
+  schoolId             String                                    @db.Uuid
+  schoolYearId         String                                    @db.Uuid
+  name                 String
+  receivableId         String                                    @db.Uuid
+  createdAt            DateTime                                  @default(now()) @db.Timestamptz(3)
+  school               School                                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  schoolYear           SchoolYear                                @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  receivable           Receivable                                @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  lifecycleTransitions ExtracurricularClassLifecycleTransition[]
+  memberships          ExtracurricularMembership[]
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, schoolYearId, id])
+  @@unique([schoolId, schoolYearId, name])
+  @@index([schoolId, receivableId])
+}
+
+model ExtracurricularClassLifecycleTransition {
+  id                     String               @id @default(uuid()) @db.Uuid
+  schoolId               String               @db.Uuid
+  extracurricularClassId String               @db.Uuid
+  previousStatus         ReceivableStatus?
+  status                 ReceivableStatus
+  reason                 String?
+  actorIdentityId        String               @db.Uuid
+  membershipId           String               @db.Uuid
+  operationId            String               @db.Uuid
+  sequence               Int
+  changedAt              DateTime             @default(now()) @db.Timestamptz(3)
+  extracurricularClass   ExtracurricularClass @relation(fields: [schoolId, extracurricularClassId], references: [schoolId, id], onDelete: Restrict)
+  membership             SchoolMembership     @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation              Operation            @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, extracurricularClassId, sequence])
+}
+
+// Half-open interval: effectiveTo is the first day the Student no longer belongs (the API shows the inclusive last day).
+model ExtracurricularMembership {
+  id                     String               @id @default(uuid()) @db.Uuid
+  schoolId               String               @db.Uuid
+  schoolYearId           String               @db.Uuid
+  extracurricularClassId String               @db.Uuid
+  enrollmentId           String               @db.Uuid
+  effectiveFrom          DateTime             @db.Date
+  effectiveTo            DateTime?            @db.Date
+  reason                 String
+  endReason              String?
+  actorIdentityId        String               @db.Uuid
+  createdByMembershipId  String               @db.Uuid
+  createOperationId      String               @db.Uuid
+  endedByMembershipId    String?              @db.Uuid
+  endOperationId         String?              @db.Uuid
+  endedAt                DateTime?            @db.Timestamptz(3)
+  createdAt              DateTime             @default(now()) @db.Timestamptz(3)
+  school                 School               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  schoolYear             SchoolYear           @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  extracurricularClass   ExtracurricularClass @relation(fields: [schoolId, schoolYearId, extracurricularClassId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
+  enrollment             StudentEnrollment    @relation(fields: [schoolId, schoolYearId, enrollmentId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
+  createdBy              SchoolMembership     @relation("ExtracurricularMembershipCreatedBy", fields: [schoolId, createdByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  createOperation        Operation            @relation("ExtracurricularMembershipCreateOperation", fields: [schoolId, createOperationId], references: [schoolId, id], onDelete: Restrict)
+  endOperation           Operation?           @relation("ExtracurricularMembershipEndOperation", fields: [schoolId, endOperationId], references: [schoolId, id], onDelete: Restrict)
+  endedBy                SchoolMembership?    @relation("ExtracurricularMembershipEndedBy", fields: [schoolId, endedByMembershipId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, extracurricularClassId, effectiveFrom])
+  @@index([schoolId, enrollmentId, effectiveFrom])
 }

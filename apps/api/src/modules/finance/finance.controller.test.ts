@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { updateReceivable: vi.fn(), updateReceivableKind: vi.fn(), read: vi.fn(), runs: vi.fn(), operation: vi.fn(), invoice: vi.fn(), receiptQueue: vi.fn(), receiptQueueDetail: vi.fn(), receiptQueueClasses: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageRefundEligibility: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), addableStudents: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
+  const finance = { extracurricularClasses: vi.fn(), createExtracurricularClass: vi.fn(), addExtracurricularMemberships: vi.fn(), endExtracurricularMemberships: vi.fn(), transitionExtracurricularClass: vi.fn(), extracurricularClass: vi.fn(), extracurricularCandidates: vi.fn(), updateReceivable: vi.fn(), updateReceivableKind: vi.fn(), read: vi.fn(), runs: vi.fn(), operation: vi.fn(), invoice: vi.fn(), receiptQueue: vi.fn(), receiptQueueDetail: vi.fn(), receiptQueueClasses: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageRefundEligibility: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), addableStudents: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
   it('forwards report filters and streams only server-authorized CSV bytes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     finance.report.mockResolvedValue({ workspace: 'overview' }); finance.requestReportExport.mockResolvedValue({ exportId: 'export' }); finance.downloadReportExport.mockResolvedValue({ csv: Buffer.from('a'), workspace: 'overview' });
@@ -26,6 +26,22 @@ describe('FinanceController mutation boundary', () => {
     const controller = new FinanceController(auth as never, finance as never);
     await expect(controller.receivable(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'operation', {})).rejects.toMatchObject({ status: 401 });
     expect(finance.createReceivable).not.toHaveBeenCalled();
+  });
+  it('forwards extracurricular reads and protected commands with session identity and idempotency headers', async () => {
+    const controller = new FinanceController(auth as never, finance as never);
+    finance.extracurricularClasses.mockResolvedValue({ classes: [] }); finance.extracurricularClass.mockResolvedValue({ class: {} }); finance.extracurricularCandidates.mockResolvedValue({ candidates: [] });
+    await expect(controller.extracurricularClasses(request({}), 'school', { q: 'a' })).resolves.toEqual({ data: { classes: [] } });
+    await expect(controller.extracurricularClass(request({}), 'school', 'class', { month: '2026-10' })).resolves.toEqual({ data: { class: {} } });
+    await expect(controller.extracurricularCandidates(request({}), 'school', 'class', {})).resolves.toEqual({ data: { candidates: [] } });
+    finance.createExtracurricularClass.mockResolvedValue({ id: 'c' }); finance.addExtracurricularMemberships.mockResolvedValue({ id: 'a' }); finance.endExtracurricularMemberships.mockResolvedValue({ id: 'e' }); finance.transitionExtracurricularClass.mockResolvedValue({ id: 't' });
+    await expect(controller.createExtracurricularClass(request(valid), 'school', 'key', 'op', { name: 'A' })).resolves.toEqual({ data: { id: 'c' } });
+    await expect(controller.addExtracurricularMemberships(request(valid), 'school', 'class', 'key', 'op', { enrollmentIds: [] })).resolves.toEqual({ data: { id: 'a' } });
+    await expect(controller.endExtracurricularMemberships(request(valid), 'school', 'class', 'key', 'op', {})).resolves.toEqual({ data: { id: 'e' } });
+    await expect(controller.extracurricularLifecycle(request(valid), 'school', 'class', 'key', 'op', {})).resolves.toEqual({ data: { id: 't' } });
+    expect(finance.addExtracurricularMemberships).toHaveBeenCalledWith('actor-id', 'school', 'class', 'key', 'op', { enrollmentIds: [] });
+    finance.createExtracurricularClass.mockClear();
+    await expect(controller.createExtracurricularClass(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'key', 'op', {})).rejects.toMatchObject({ status: 401 });
+    expect(finance.createExtracurricularClass).not.toHaveBeenCalled();
   });
   it('exposes no group create or group lifecycle route', () => {
     const controller = new FinanceController(auth as never, finance as never) as any;

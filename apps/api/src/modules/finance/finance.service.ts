@@ -23,6 +23,10 @@ const routes = {
   receivableLifecycle:
     "POST /api/app/schools/:schoolId/finance/receivables/:receivableId/lifecycle",
   classDefaultBankAccount: "PUT /api/app/schools/:schoolId/finance/classes/:classId/default-bank-account",
+  extracurricularClass: "POST /api/app/schools/:schoolId/finance/extracurricular-classes",
+  extracurricularLifecycle: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/lifecycle",
+  extracurricularMembershipAdd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships",
+  extracurricularMembershipEnd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships/end",
   receivableEdit: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId",
   receivableKind: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/kind",
   receivableTax: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/tax-category",
@@ -321,6 +325,7 @@ export class FinanceService {
       groupId: value.groupId,
       kind: value.group?.kind ?? null,
       kindLocked: Boolean(value.kindLocked),
+      extracurricularClassCount: value.extracurricularClassCount ?? 0,
       code: value.code,
       displayName: value.displayName,
       unitLabel: value.unitLabel,
@@ -336,7 +341,7 @@ export class FinanceService {
   async read(identityId: string, schoolId: string) {
     schoolId = this.school(schoolId);
     await this.actor(identityId, schoolId);
-    const [groups, receivables, schoolYears, invoiceUse, templateUse] = await Promise.all([
+    const [groups, receivables, schoolYears, invoiceUse, templateUse, classUse] = await Promise.all([
       this.prisma.receivableGroup.findMany({ where: { schoolId }, orderBy: { kind: "asc" } }),
       this.prisma.receivable.findMany({
         where: { schoolId },
@@ -349,12 +354,14 @@ export class FinanceService {
       this.prisma.schoolYear?.findMany({ where: { schoolId }, orderBy: { startsOn: "desc" } }) ?? Promise.resolve([]),
       this.prisma.invoiceLine.groupBy({ by: ["receivableId"], where: { schoolId, receivableId: { not: null } } }),
       this.prisma.collectionRunTemplateLine.groupBy({ by: ["receivableId"], where: { schoolId } }),
+      this.prisma.extracurricularClass.groupBy({ by: ["receivableId"], where: { schoolId }, _count: { _all: true } }),
     ]);
     // A Receivable used on an Invoice or collection template keeps its kind (decision 2026-10-02 §3.1).
-    const locked = new Set<string>([...invoiceUse, ...templateUse].map((use) => use.receivableId as string));
+    const classCount = new Map(classUse.map((use) => [use.receivableId, use._count._all]));
+    const locked = new Set<string>([...invoiceUse, ...templateUse, ...classUse].map((use) => use.receivableId as string));
     return {
       groups: groups.map((item) => this.groupDto(item)),
-      receivables: receivables.map((item) => this.receivableDto({ ...item, kindLocked: locked.has(item.id) })),
+      receivables: receivables.map((item) => this.receivableDto({ ...item, kindLocked: locked.has(item.id), extracurricularClassCount: classCount.get(item.id) ?? 0 })),
       schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString(), endsOn: year.endsOn.toISOString(), closedAt: year.closedAt?.toISOString() ?? null })),
     };
   }
@@ -1358,11 +1365,12 @@ export class FinanceService {
       const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
       if (item.group.kind === kind) throw validation("kind", "Khoản thu đã thuộc nhóm này.");
-      const [invoiceLines, templateLines] = await Promise.all([
+      const [invoiceLines, templateLines, classes] = await Promise.all([
         tx.invoiceLine.count({ where: { schoolId, receivableId: item.id } }),
         tx.collectionRunTemplateLine.count({ where: { schoolId, receivableId: item.id } }),
+        tx.extracurricularClass.count({ where: { schoolId, receivableId: item.id } }),
       ]);
-      if (invoiceLines + templateLines > 0) throw new ConflictException({ code: "RECEIVABLE_KIND_LOCKED", message: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc đợt thu." });
+      if (invoiceLines + templateLines + classes > 0) throw new ConflictException({ code: "RECEIVABLE_KIND_LOCKED", message: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn, đợt thu hoặc lớp ngoại khóa." });
       const group = await this.resolveGroup(tx, schoolId, { kind, groupId: null });
       const updated = await tx.receivable.update({ where: { id: item.id }, data: { groupId: group.id }, include });
       const outcome = this.receivableDto(updated);
@@ -1417,6 +1425,272 @@ export class FinanceService {
       const outcome = this.receivableDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_REFUND_PRICE_CHANGED", operation, this.receivableDto(item), outcome);
       return outcome;
+    });
+  }
+
+  // ---- Extracurricular classes (Story 5.34, decision 2026-10-02 §3.3) --------------------------------------------------------
+  // Finance owns these aggregates. Enrollment rows are only a picker/identity source; Class, EnrollmentClassAssignment and
+  // staff authorization are never read for authorization nor changed here.
+  private classStatus(item: any) {
+    return item.lifecycleTransitions?.[0]?.status ?? null;
+  }
+  private extracurricularClassDto(item: any, extra: Record<string, unknown> = {}) {
+    return { id: item.id, schoolYearId: item.schoolYearId, name: item.name, receivableId: item.receivableId, status: this.classStatus(item), ...extra };
+  }
+  private monthFilter(value: unknown) {
+    if (value == null || value === "") {
+      const today = this.localIssueDate(new Date());
+      return `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")}`;
+    }
+    if (typeof value !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw validation("month", "Tháng phải có dạng YYYY-MM.");
+    return value;
+  }
+  private classNotFound() {
+    return new NotFoundException({ code: "EXTRACURRICULAR_CLASS_NOT_FOUND", message: "Không tìm thấy lớp ngoại khóa." });
+  }
+  private async extracurricularClassFor(client: any, schoolId: string, classId: string) {
+    this.identifier(classId, "classId");
+    const found = await client.extracurricularClass.findFirst({
+      where: { id: classId, schoolId },
+      include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } }, schoolYear: true, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } },
+    });
+    if (!found) throw this.classNotFound();
+    return found;
+  }
+  async extracurricularClasses(identityId: string, schoolId: string, query: any) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    const schoolYearId = query?.schoolYearId ? this.identifier(query.schoolYearId, "schoolYearId") : null;
+    const status = query?.status === "ACTIVE" || query?.status === "INACTIVE" ? query.status : null;
+    const receivableId = query?.receivableId ? this.identifier(query.receivableId, "receivableId") : null;
+    const search = typeof query?.q === "string" ? query.q.trim().toLocaleLowerCase("vi").slice(0, 100) : "";
+    const today = this.localIssueDate(new Date());
+    const all = await this.prisma.extracurricularClass.findMany({
+      where: { schoolId, ...(schoolYearId ? { schoolYearId } : {}) },
+      include: { receivable: { select: { displayName: true, unitLabel: true, defaultUnitPrice: true } }, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+    });
+    const counts = all.length
+      ? await this.prisma.extracurricularMembership.groupBy({ by: ["extracurricularClassId"], where: { schoolId, extracurricularClassId: { in: all.map((item) => item.id) }, effectiveFrom: { lte: today }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: today } }] }, _count: { _all: true } })
+      : [];
+    const currentCount = new Map(counts.map((row) => [row.extracurricularClassId, row._count._all]));
+    const sharedWith = (item: any) => all.filter((other) => other.receivableId === item.receivableId && other.schoolYearId === item.schoolYearId && other.id !== item.id).map((other) => other.name);
+    const classes = all
+      .filter((item) => (!status || this.classStatus(item) === status) && (!receivableId || item.receivableId === receivableId) && (!search || item.name.toLocaleLowerCase("vi").includes(search)))
+      .map((item) => this.extracurricularClassDto(item, { receivableName: item.receivable.displayName, unitLabel: item.receivable.unitLabel, defaultUnitPrice: item.receivable.defaultUnitPrice.toString(), sharedWith: sharedWith(item), currentMembers: currentCount.get(item.id) ?? 0 }));
+    const receivables = await this.prisma.receivable.findMany({
+      where: { schoolId, group: { kind: "EXTRACURRICULAR" } },
+      include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } },
+      orderBy: { displayName: "asc" },
+    });
+    const schoolYears = await this.prisma.schoolYear.findMany({ where: { schoolId }, orderBy: { startsOn: "desc" } });
+    return {
+      schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString().slice(0, 10), endsOn: year.endsOn.toISOString().slice(0, 10), closedAt: year.closedAt?.toISOString() ?? null })),
+      classes,
+      receivables: receivables.map((item) => ({ id: item.id, displayName: item.displayName, unitLabel: item.unitLabel, defaultUnitPrice: item.defaultUnitPrice.toString(), status: item.lifecycleTransitions[0]?.status ?? null, sharedWith: all.filter((other) => other.receivableId === item.id && (!schoolYearId || other.schoolYearId === schoolYearId)).map((other) => other.name) })),
+    };
+  }
+  async extracurricularClass(identityId: string, schoolId: string, classId: string, query: any) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    const month = this.monthFilter(query?.month);
+    const statusFilter = ["COUNTED", "CURRENT", "ENDED", "ALL"].includes(query?.status) ? query.status : "COUNTED";
+    const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
+    const search = typeof query?.q === "string" ? query.q.trim().toLocaleLowerCase("vi").slice(0, 100) : "";
+    const found = await this.extracurricularClassFor(this.prisma, schoolId, classId);
+    const [year, monthNumber] = month.split("-").map(Number) as [number, number];
+    const monthStart = new Date(Date.UTC(year, monthNumber - 1, 1));
+    const monthEnd = new Date(Date.UTC(year, monthNumber, 1));
+    const today = this.localIssueDate(new Date());
+    const memberships = await this.prisma.extracurricularMembership.findMany({
+      where: { schoolId, extracurricularClassId: found.id },
+      include: { enrollment: { select: { id: true, classId: true, className: true, student: { select: { studentCode: true, fullName: true } } } } },
+      orderBy: [{ effectiveFrom: "asc" }, { id: "asc" }],
+    });
+    const sibling = await this.prisma.extracurricularMembership.findMany({
+      where: { schoolId, enrollmentId: { in: memberships.map((item) => item.enrollmentId) }, extracurricularClassId: { not: found.id }, extracurricularClass: { receivableId: found.receivableId } },
+      include: { extracurricularClass: { select: { name: true } } },
+    });
+    const isCurrent = (item: any) => item.effectiveFrom <= today && (!item.effectiveTo || item.effectiveTo > today);
+    const isCounted = (item: any) => item.effectiveFrom < monthEnd && (!item.effectiveTo || item.effectiveTo > monthStart);
+    const flags = (item: any) => (isCounted(item) ? [...(item.effectiveFrom > monthStart ? ["JOINED_IN_MONTH"] : []), ...(item.effectiveTo && item.effectiveTo < monthEnd ? ["LEFT_IN_MONTH"] : [])] : []);
+    const dayLabel = (value: Date) => `${String(value.getUTCDate()).padStart(2, "0")}/${String(value.getUTCMonth() + 1).padStart(2, "0")}/${value.getUTCFullYear()}`;
+    const rowsAll = memberships.map((item) => {
+      const next = item.effectiveTo ? sibling.find((other) => other.enrollmentId === item.enrollmentId && other.effectiveFrom.getTime() === item.effectiveTo!.getTime()) : undefined;
+      return {
+        id: item.id,
+        enrollmentId: item.enrollmentId,
+        studentCode: item.enrollment.student.studentCode,
+        fullName: item.enrollment.student.fullName,
+        officialClassId: item.enrollment.classId,
+        officialClassName: item.enrollment.className,
+        effectiveFrom: item.effectiveFrom.toISOString().slice(0, 10),
+        effectiveTo: this.inclusiveDate(item.effectiveTo),
+        open: !item.effectiveTo,
+        state: item.effectiveTo && item.effectiveTo <= today && !isCounted(item) ? "ENDED" : isCurrent(item) ? "ACTIVE" : item.effectiveFrom > today ? "UPCOMING" : "ENDED",
+        flags: flags(item),
+        counted: isCounted(item),
+        current: isCurrent(item),
+        transferNote: next ? `Chuyển sang ${next.extracurricularClass.name} từ ${dayLabel(next.effectiveFrom)}` : null,
+      };
+    });
+    const matching = rowsAll.filter((row) => {
+      if (officialClassId && row.officialClassId !== officialClassId) return false;
+      if (search && !`${row.studentCode} ${row.fullName}`.toLocaleLowerCase("vi").includes(search)) return false;
+      if (statusFilter === "COUNTED") return row.counted;
+      if (statusFilter === "CURRENT") return row.current;
+      if (statusFilter === "ENDED") return row.effectiveTo !== null && memberships.find((item) => item.id === row.id)!.effectiveTo! <= today;
+      return true;
+    });
+    const officialClasses = [...new Map(rowsAll.filter((row) => row.officialClassId).map((row) => [row.officialClassId!, row.officialClassName ?? ""])).entries()].map(([id, name]) => ({ id, name }));
+    return {
+      class: this.extracurricularClassDto(found, { receivableName: found.receivable.displayName, unitLabel: found.receivable.unitLabel, defaultUnitPrice: found.receivable.defaultUnitPrice.toString(), schoolYearName: found.schoolYear.name }),
+      month: { month, current: rowsAll.filter((row) => row.current).length, counted: rowsAll.filter((row) => row.counted).length, midMonth: rowsAll.filter((row) => row.flags.length > 0).length },
+      officialClasses,
+      total: matching.length,
+      members: matching.slice(0, 500).map(({ counted, current, ...row }) => row),
+    };
+  }
+  // Picker aid: ENROLLED Students of the class's SchoolYear, optionally narrowed by their official class.
+  async extracurricularCandidates(identityId: string, schoolId: string, classId: string, query: any) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    const found = await this.extracurricularClassFor(this.prisma, schoolId, classId);
+    const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
+    const search = typeof query?.q === "string" ? query.q.trim().slice(0, 100) : "";
+    const today = this.localIssueDate(new Date());
+    const base = { schoolId, schoolYearId: found.schoolYearId, lifecycle: "ENROLLED" as const };
+    const [officialClasses, enrollments] = await Promise.all([
+      this.prisma.studentEnrollment.findMany({ where: { ...base, classId: { not: null } }, distinct: ["classId"], select: { classId: true, className: true }, orderBy: { className: "asc" } }),
+      this.prisma.studentEnrollment.findMany({
+        where: { ...base, ...(officialClassId ? { classId: officialClassId } : {}), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) },
+        include: { student: { select: { studentCode: true, fullName: true } } },
+        orderBy: [{ student: { studentCode: "asc" } }],
+        take: 200,
+      }),
+    ]);
+    const members = await this.prisma.extracurricularMembership.findMany({ where: { schoolId, extracurricularClassId: found.id, enrollmentId: { in: enrollments.map((item) => item.id) }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: today } }] }, select: { enrollmentId: true } });
+    const memberIds = new Set(members.map((item) => item.enrollmentId));
+    return {
+      officialClasses: officialClasses.map((item) => ({ id: item.classId, name: item.className ?? "" })),
+      candidates: enrollments.map((item) => ({ enrollmentId: item.id, studentCode: item.student.studentCode, fullName: item.student.fullName, officialClassName: item.className, member: memberIds.has(item.id) })),
+    };
+  }
+  async createExtracurricularClass(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    const input = { name: this.text(body?.name, "name")!, schoolYearId: this.identifier(body?.schoolYearId, "schoolYearId"), receivableId: this.identifier(body?.receivableId, "receivableId") };
+    return this.mutate(actor, identityId, schoolId, routes.extracurricularClass, key, operationId, input, async (tx, operation) => {
+      const year = await tx.schoolYear.findFirst({ where: { id: input.schoolYearId, schoolId } });
+      if (!year) throw new NotFoundException({ code: "SCHOOL_YEAR_NOT_FOUND", message: "Không tìm thấy năm học." });
+      if (year.closedAt) throw validation("schoolYearId", "Năm học đã đóng.");
+      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { group: true, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
+      if (!receivable) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
+      if (receivable.group.kind !== "EXTRACURRICULAR") throw validation("receivableId", "Chỉ chọn khoản thu thuộc nhóm Ngoại khóa.");
+      if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu đã ngừng áp dụng.");
+      try {
+        const created = await tx.extracurricularClass.create({ data: { schoolId, schoolYearId: year.id, name: input.name, receivableId: receivable.id } });
+        const transition = await tx.extracurricularClassLifecycleTransition.create({ data: { schoolId, extracurricularClassId: created.id, status: "ACTIVE", actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 1 } });
+        const outcome = this.extracurricularClassDto({ ...created, lifecycleTransitions: [transition] });
+        await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_CLASS_CREATED", operation, null, outcome);
+        return outcome;
+      } catch (error) {
+        if ((error as any)?.code === "P2002") throw validation("name", "Tên lớp ngoại khóa đã tồn tại trong năm học.");
+        throw error;
+      }
+    });
+  }
+  async transitionExtracurricularClass(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(classId, "classId");
+    const status = body?.status;
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    if (!["ACTIVE", "INACTIVE"].includes(status)) throw validation("status", "Trạng thái không hợp lệ.");
+    return this.mutate(actor, identityId, schoolId, routes.extracurricularLifecycle, key, operationId, { classId, status, reason }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const found = await this.extracurricularClassFor(tx, schoolId, classId);
+      const prior = found.lifecycleTransitions[0];
+      if (!prior || prior.status === status) throw validation("status", "Lớp đã ở trạng thái này.");
+      if (status === "ACTIVE" && found.receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("status", "Không thể kích hoạt lớp khi khoản thu đã ngừng áp dụng.");
+      const transition = await tx.extracurricularClassLifecycleTransition.create({ data: { schoolId, extracurricularClassId: found.id, previousStatus: prior.status, status, reason, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: prior.sequence + 1 } });
+      const outcome = this.extracurricularClassDto({ ...found, lifecycleTransitions: [transition] });
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_CLASS_LIFECYCLE_CHANGED", operation, this.extracurricularClassDto(found), outcome, reason);
+      return outcome;
+    });
+  }
+  private uuidList(value: unknown, field: string, limit = 200) {
+    if (!Array.isArray(value) || value.length < 1 || value.length > limit || new Set(value).size !== value.length) throw validation(field, `Chọn từ 1 đến ${limit} mục, không trùng nhau.`);
+    return value.map((item) => this.identifier(item, field));
+  }
+  private isOverlapError(error: any) {
+    return /ExtracurricularMembership_no_overlap|23P01|conflicting key value violates exclusion/i.test(`${error?.code ?? ""} ${error?.meta?.code ?? ""} ${error?.message ?? ""}`);
+  }
+  private membershipDto(item: any) {
+    return { id: item.id, enrollmentId: item.enrollmentId, effectiveFrom: item.effectiveFrom.toISOString().slice(0, 10), effectiveTo: this.inclusiveDate(item.effectiveTo) };
+  }
+  // Single and bulk add share one reason and one Operation; one audit record per membership; all-or-nothing.
+  async addExtracurricularMemberships(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(classId, "classId");
+    const enrollmentIds = this.uuidList(body?.enrollmentIds, "enrollmentIds");
+    const effectiveFrom = this.date(body?.effectiveFrom, "effectiveFrom")!;
+    const effectiveTo = body?.effectiveTo == null || body.effectiveTo === "" ? null : this.inclusiveEnd(body.effectiveTo, "effectiveTo");
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    if (effectiveTo && effectiveTo <= effectiveFrom) throw validation("effectiveTo", "Ngày kết thúc phải từ ngày hiệu lực trở đi.");
+    return this.mutate(actor, identityId, schoolId, routes.extracurricularMembershipAdd, key, operationId, { classId, enrollmentIds: [...enrollmentIds].sort(), effectiveFrom: effectiveFrom.toISOString(), effectiveTo: effectiveTo?.toISOString() ?? null, reason }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const found = await this.extracurricularClassFor(tx, schoolId, classId);
+      if (this.classStatus(found) !== "ACTIVE") throw new ConflictException({ code: "EXTRACURRICULAR_CLASS_INACTIVE", message: "Lớp ngoại khóa đã ngừng hoạt động." });
+      if (effectiveFrom < found.schoolYear.startsOn || effectiveFrom >= found.schoolYear.endsOn || (effectiveTo && effectiveTo > found.schoolYear.endsOn)) throw validation("effectiveFrom", "Thời gian tham gia phải nằm trong năm học của lớp.");
+      const enrollments = await tx.studentEnrollment.findMany({ where: { id: { in: enrollmentIds }, schoolId }, include: { student: { select: { studentCode: true, fullName: true } } } });
+      if (enrollments.length !== enrollmentIds.length) throw new NotFoundException({ code: "ENROLLMENT_NOT_FOUND", message: "Không tìm thấy học sinh trong năm học của lớp." });
+      const invalid = enrollments.filter((item: any) => item.schoolYearId !== found.schoolYearId || item.lifecycle !== "ENROLLED");
+      if (invalid.length) throw validation("enrollmentIds", `Học sinh phải đang học trong năm học của lớp: ${invalid.map((item: any) => item.student.studentCode).join(", ")}.`);
+      const overlapping = await tx.extracurricularMembership.findMany({ where: { schoolId, extracurricularClassId: found.id, enrollmentId: { in: enrollmentIds }, ...(effectiveTo ? { effectiveFrom: { lt: effectiveTo } } : {}), OR: [{ effectiveTo: null }, { effectiveTo: { gt: effectiveFrom } }] }, select: { enrollmentId: true } });
+      if (overlapping.length) {
+        const codes = enrollments.filter((item: any) => overlapping.some((row: any) => row.enrollmentId === item.id)).map((item: any) => item.student.studentCode);
+        throw new ConflictException({ code: "EXTRACURRICULAR_MEMBERSHIP_OVERLAP", message: `Học sinh đã có thời gian tham gia trùng trong lớp này: ${codes.join(", ")}.` });
+      }
+      const created: any[] = [];
+      try {
+        for (const enrollment of enrollments.sort((a: any, b: any) => a.student.studentCode.localeCompare(b.student.studentCode))) {
+          const row = await tx.extracurricularMembership.create({ data: { schoolId, schoolYearId: found.schoolYearId, extracurricularClassId: found.id, enrollmentId: enrollment.id, effectiveFrom, effectiveTo, reason, actorIdentityId: identityId, createdByMembershipId: actor.membershipId, createOperationId: operation } });
+          created.push(row);
+          await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_MEMBERSHIP_ADDED", operation, null, { ...this.membershipDto(row), classId: found.id }, reason);
+        }
+      } catch (error) {
+        if (this.isOverlapError(error)) throw new ConflictException({ code: "EXTRACURRICULAR_MEMBERSHIP_OVERLAP", message: "Học sinh đã có thời gian tham gia trùng trong lớp này." });
+        throw error;
+      }
+      return { classId: found.id, memberships: created.map((row) => this.membershipDto(row)) };
+    });
+  }
+  async endExtracurricularMemberships(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(classId, "classId");
+    const membershipIds = this.uuidList(body?.membershipIds, "membershipIds");
+    const effectiveTo = this.inclusiveEnd(body?.effectiveTo, "effectiveTo", true)!;
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    return this.mutate(actor, identityId, schoolId, routes.extracurricularMembershipEnd, key, operationId, { classId, membershipIds: [...membershipIds].sort(), effectiveTo: effectiveTo.toISOString(), reason }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const found = await this.extracurricularClassFor(tx, schoolId, classId);
+      if (this.classStatus(found) !== "ACTIVE") throw new ConflictException({ code: "EXTRACURRICULAR_CLASS_INACTIVE", message: "Lớp ngoại khóa đã ngừng hoạt động." });
+      const rows = await tx.extracurricularMembership.findMany({ where: { id: { in: membershipIds }, schoolId, extracurricularClassId: found.id }, include: { enrollment: { select: { student: { select: { studentCode: true } } } } } });
+      if (rows.length !== membershipIds.length) throw new NotFoundException({ code: "EXTRACURRICULAR_MEMBERSHIP_NOT_FOUND", message: "Không tìm thấy thành viên của lớp." });
+      const notOpen = rows.filter((row: any) => row.effectiveTo);
+      if (notOpen.length) throw new ConflictException({ code: "EXTRACURRICULAR_MEMBERSHIP_NOT_OPEN", message: `Thành viên đã có ngày kết thúc: ${notOpen.map((row: any) => row.enrollment.student.studentCode).join(", ")}.` });
+      const tooEarly = rows.filter((row: any) => effectiveTo <= row.effectiveFrom);
+      if (tooEarly.length) throw validation("effectiveTo", `Ngày kết thúc phải từ ngày bắt đầu tham gia trở đi: ${tooEarly.map((row: any) => row.enrollment.student.studentCode).join(", ")}.`);
+      const ended: any[] = [];
+      for (const row of rows.sort((a: any, b: any) => a.enrollment.student.studentCode.localeCompare(b.enrollment.student.studentCode))) {
+        const updated = await tx.extracurricularMembership.update({ where: { id: row.id }, data: { effectiveTo, endReason: reason, endedByMembershipId: actor.membershipId, endOperationId: operation, endedAt: new Date() } });
+        ended.push(updated);
+        await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_MEMBERSHIP_ENDED", operation, { ...this.membershipDto(row), classId: found.id }, { ...this.membershipDto(updated), classId: found.id }, reason);
+      }
+      return { classId: found.id, memberships: ended.map((row) => this.membershipDto(row)) };
     });
   }
   private month(value: unknown) {

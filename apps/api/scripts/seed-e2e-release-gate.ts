@@ -93,6 +93,9 @@ try {
       await tx.financeLedgerEvent.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });
+      await tx.extracurricularMembership.deleteMany({ where: { schoolId: { in: schoolIds } } });
+      await tx.extracurricularClassLifecycleTransition.deleteMany({ where: { schoolId: { in: schoolIds } } });
+      await tx.extracurricularClass.deleteMany({ where: { schoolId: { in: schoolIds } } });
       await tx.issuedPromotionApplication.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });
@@ -640,6 +643,9 @@ try {
             sequence: 1,
           },
         });
+        const extracurricularGroup = await tx.receivableGroup.findFirstOrThrow({ where: { schoolId: school.id, kind: "EXTRACURRICULAR" } });
+        const english = await tx.receivable.create({ data: { schoolId: school.id, groupId: extracurricularGroup.id, code: `RG${index + 1}-ENGLISH`, displayName: `Tiếng Anh Release ${index + 1}`, unitLabel: "tháng", defaultUnitPrice: 600000n } });
+        await tx.receivableLifecycleTransition.create({ data: { schoolId: school.id, receivableId: english.id, status: "ACTIVE", actorIdentityId: admin.id, membershipId: adminMembershipId, operationId: operation.id, sequence: 1 } });
         if (index === 0) {
           const policy = await tx.promotionPolicy.create({
             data: { schoolId: school.id, name: "Ưu đãi Release Gate" },

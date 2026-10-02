@@ -39,7 +39,7 @@ Ghép lớp ngoại khóa vào `Class` sẽ phá invariant một lớp và mở 
 
 - Thêm `ReceivableGroupKind`: `FIXED`, `FLEXIBLE`, `EXTRACURRICULAR`; unique `(schoolId, kind)`.
 - Tên hiển thị cố định: **Khoản thu cố định**, **Khoản thu linh hoạt**, **Ngoại khóa**.
-- Migration map nhóm hiện có: `Khoản thu chung` -> FIXED, `Khoản thu đột xuất` -> FLEXIBLE, `Ngoại khóa` -> EXTRACURRICULAR. Receivable thuộc nhóm tự tạo khác được chuyển sang FLEXIBLE, nhóm tự tạo bị gỡ khỏi catalog; migration ghi audit/Operation.
+- Migration map nhóm hiện có: `Khoản thu chung` -> FIXED, `Khoản thu đột xuất` -> FLEXIBLE, `Ngoại khóa` -> EXTRACURRICULAR. Receivable thuộc nhóm tự tạo khác được chuyển sang FLEXIBLE, nhóm tự tạo bị gỡ khỏi catalog; migration ghi một AuditRecord mỗi School (nhóm cũ, receivable đã chuyển). Migration không có actor nên không tạo Operation; Operation chỉ áp dụng cho mutation qua API.
 - Bỏ endpoint tạo nhóm và đổi lifecycle nhóm. Provisioning School tạo đúng ba nhóm typed.
 - Receivable vẫn tạo/ngừng như hiện tại; nhóm chọn từ ba loại. Đổi loại của Receivable đã dùng trên Invoice hoặc lớp ngoại khóa bị từ chối.
 

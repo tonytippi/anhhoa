@@ -40,6 +40,7 @@ export class AuthorizationService {
       { id: 'collection-runs', label: 'Đợt thu' },
       { id: 'receipt-queue', label: 'Thu tiền' },
       { id: 'finance-reports', label: 'Báo cáo' },
+      { id: 'extracurricular-classes', label: 'Lớp ngoại khóa' },
     );
     return navigation;
   }
