@@ -929,9 +929,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(prisma.collectionRunTemplateLine.update({ where: { id: feeLine.id }, data: { scopeType: "CLASSES" } })).rejects.toThrow(/FIXED/);
       await expect(prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: f.current.school.id, schoolYearId: f.current.year.id, templateLineId: feeLine.id, classId: f.classA.id } })).rejects.toThrow(/CLASSES template line/);
       const tripLine = await prisma.collectionRunTemplateLine.findFirstOrThrow({ where: { schoolId: f.current.school.id, collectionRunId: runId, receivableId: f.trip } });
-      await prisma.collectionRunTemplateLine.update({ where: { id: tripLine.id }, data: { scopeType: "CLASSES" } });
-      await expect(prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: f.current.school.id, schoolYearId: otherYear.id, templateLineId: tripLine.id, classId: otherClass.id } })).rejects.toThrow();
-      await expect(prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: f.current.school.id, schoolYearId: f.current.year.id, templateLineId: tripLine.id, classId: foreignClass } })).rejects.toThrow();
+      const retype = (target: () => Promise<unknown>) => prisma.$transaction(async (tx) => { await tx.collectionRunTemplateLine.update({ where: { id: tripLine.id }, data: { scopeType: "CLASSES" } }); await target(); });
+      await expect(retype(() => prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: f.current.school.id, schoolYearId: otherYear.id, templateLineId: tripLine.id, classId: otherClass.id } }))).rejects.toThrow();
+      await expect(retype(() => prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: f.current.school.id, schoolYearId: f.current.year.id, templateLineId: tripLine.id, classId: foreignClass } }))).rejects.toThrow();
       // Picker aid: ACTIVE official Classes of the run's year and a bounded Student search; never another School's data.
       const options = await finance.runScopeOptions(f.current.identity.id, f.current.school.id, runId, {});
       expect(options.classes.map((item) => item.id).sort()).toEqual([f.classA.id, f.classB.id].sort());
@@ -1234,6 +1234,81 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const fresh: any = await previewOf(x, runId);
       expect(fresh.eligible.map((row: any) => row.studentId).sort()).toEqual([s1.student.id, s2.student.id].sort());
       await finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: fresh.fingerprint });
+    });
+
+    it("guards template scope targets on every write and enforces the scope shape at commit", async () => {
+      const f = await scopeFixture();
+      const s1 = await enrolled(f.current, { classId: f.classA.id });
+      const school = f.current.school.id;
+      const extra = outcomeId(await finance.createReceivable(f.current.identity.id, school, uuid(), uuid(), { kind: "FLEXIBLE", displayName: "Phí khác", unitLabel: "lần", defaultUnitPrice: "10" }));
+      const runId = await openRunFor(f.current);
+      await saveLine(f.current, runId, f.trip, { scope: { type: "CLASSES", classIds: [f.classA.id] } });
+      await saveLine(f.current, runId, f.uniform, { scope: { type: "STUDENTS", studentIds: [s1.student.id] } });
+      const lineOf = (receivableId: string) => prisma.collectionRunTemplateLine.findFirstOrThrow({ where: { schoolId: school, collectionRunId: runId, receivableId } });
+      const [tripLine, uniformLine, feeLine] = [await lineOf(f.trip), await lineOf(f.uniform), await lineOf(f.fee)];
+      const shape = /Template scope .* needs matching targets/;
+      // Shape at commit: CLASSES/STUDENTS without targets, deleting the last target, and ALL with targets are all rejected.
+      await expect(prisma.collectionRunTemplateLine.create({ data: { schoolId: school, collectionRunId: runId, receivableId: extra, quantity: 1, scopeType: "CLASSES" } })).rejects.toThrow(shape);
+      await expect(prisma.collectionRunTemplateLine.create({ data: { schoolId: school, collectionRunId: runId, receivableId: extra, quantity: 1, scopeType: "STUDENTS" } })).rejects.toThrow(shape);
+      await expect(prisma.collectionRunTemplateScopeClass.deleteMany({ where: { schoolId: school, templateLineId: tripLine.id } })).rejects.toThrow(shape);
+      await expect(prisma.collectionRunTemplateScopeStudent.deleteMany({ where: { schoolId: school, templateLineId: uniformLine.id } })).rejects.toThrow(shape);
+      expect(await prisma.collectionRunTemplateScopeClass.count({ where: { schoolId: school, templateLineId: tripLine.id } })).toBe(1);
+      expect(await prisma.collectionRunTemplateScopeStudent.count({ where: { schoolId: school, templateLineId: uniformLine.id } })).toBe(1);
+      // Mixed targets and ALL-with-targets need the insert-time guards out of the way; the commit-time shape check still refuses them.
+      await expect(prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('ALTER TABLE "CollectionRunTemplateScopeStudent" DISABLE TRIGGER collection_run_template_scope_student_guard');
+        await tx.collectionRunTemplateScopeStudent.create({ data: { schoolId: school, templateLineId: tripLine.id, studentId: s1.student.id } });
+      })).rejects.toThrow(shape);
+      await expect(prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('ALTER TABLE "CollectionRunTemplateLine" DISABLE TRIGGER collection_run_template_line_scope');
+        await tx.collectionRunTemplateLine.update({ where: { id: tripLine.id }, data: { scopeType: "ALL" } });
+      })).rejects.toThrow(shape);
+      expect((await lineOf(f.trip)).scopeType).toBe("CLASSES");
+      // Target semantics are re-validated on UPDATE: other-year class, student without an enrollment in the run's year, or a line of another type.
+      const otherYear = await prisma.schoolYear.create({ data: { schoolId: school, name: "Năm 2027", startsOn: date("2027-01-01"), endsOn: date("2028-01-01") } });
+      const otherClass = await prisma.class.create({ data: { schoolId: school, schoolYearId: otherYear.id, name: "Lớp năm sau" } });
+      const stranger = await prisma.student.create({ data: { schoolId: school, studentCode: `HS-${uuid()}`, fullName: "Không ghi danh", dateOfBirth: date("2022-01-01") } });
+      const classTarget = await prisma.collectionRunTemplateScopeClass.findFirstOrThrow({ where: { schoolId: school, templateLineId: tripLine.id } });
+      const studentTarget = await prisma.collectionRunTemplateScopeStudent.findFirstOrThrow({ where: { schoolId: school, templateLineId: uniformLine.id } });
+      await expect(prisma.collectionRunTemplateScopeClass.update({ where: { id: classTarget.id }, data: { schoolYearId: otherYear.id, classId: otherClass.id } })).rejects.toThrow(/CLASSES template line of the same SchoolYear/);
+      await expect(prisma.collectionRunTemplateScopeClass.update({ where: { id: classTarget.id }, data: { templateLineId: feeLine.id } })).rejects.toThrow(/CLASSES template line/);
+      await expect(prisma.collectionRunTemplateScopeStudent.update({ where: { id: studentTarget.id }, data: { studentId: stranger.id } })).rejects.toThrow(/enrollment in the run SchoolYear/);
+      await expect(prisma.collectionRunTemplateScopeStudent.update({ where: { id: studentTarget.id }, data: { templateLineId: tripLine.id } })).rejects.toThrow(/STUDENTS template line/);
+      // Moving a target to a line of another School fails too.
+      const foreign = await roster(await graph());
+      await expect(prisma.collectionRunTemplateScopeStudent.update({ where: { id: studentTarget.id }, data: { schoolId: foreign.school.id } })).rejects.toThrow();
+      // After READY nothing about the targets may change, whoever writes.
+      const preview = await finance.preview(f.current.identity.id, school, runId);
+      await finance.readyRun(f.current.identity.id, school, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
+      await expect(prisma.collectionRunTemplateScopeClass.delete({ where: { id: classTarget.id } })).rejects.toThrow(/DRAFT/);
+      await expect(prisma.collectionRunTemplateScopeStudent.delete({ where: { id: studentTarget.id } })).rejects.toThrow(/DRAFT/);
+      await expect(prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: school, schoolYearId: f.current.year.id, templateLineId: tripLine.id, classId: f.classB.id } })).rejects.toThrow(/DRAFT/);
+      await expect(prisma.collectionRunTemplateScopeClass.update({ where: { id: classTarget.id }, data: { classId: f.classB.id } })).rejects.toThrow(/DRAFT/);
+      await expect(prisma.collectionRunTemplateScopeStudent.update({ where: { id: studentTarget.id }, data: { studentId: s1.student.id } })).rejects.toThrow(/DRAFT/);
+      expect(await prisma.collectionRunTemplateScopeClass.count({ where: { schoolId: school, templateLineId: tripLine.id } })).toBe(1);
+    });
+
+    it("serializes run seeding with a receivable deactivation through the per-School command lock", async () => {
+      const f = await scopeFixture();
+      const school = f.current.school.id;
+      const late = outcomeId(await finance.createReceivable(f.current.identity.id, school, uuid(), uuid(), { kind: "FIXED", displayName: "Phí muộn", unitLabel: "tháng", defaultUnitPrice: "70" }));
+      const operation = await prisma.operation.create({ data: { schoolId: school, membershipId: f.current.membership.id, actorIdentityId: f.current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: f.current.membership.id, route: "direct", fingerprint: "direct", idempotencyKey: uuid(), status: "COMPLETED" } });
+      // A deactivation in flight holds what transitionReceivable holds: the School command lock, the receivable lock and an uncommitted INACTIVE transition.
+      const deactivating = await holding(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "School" WHERE "id" = ${school}::uuid FOR UPDATE`;
+        await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${late}::uuid AND "schoolId" = ${school}::uuid FOR UPDATE`;
+        await tx.receivableLifecycleTransition.create({ data: { schoolId: school, receivableId: late, previousStatus: "ACTIVE", status: "INACTIVE", reason: "Ngừng", actorIdentityId: f.current.identity.id, membershipId: f.current.membership.id, operationId: operation.id, sequence: 2 } });
+      });
+      const opened: any = await blockedUntil(() => finance.openRun(f.current.identity.id, school, uuid(), uuid(), { schoolYearId: f.current.year.id, billingMonth: "2026-09" }), deactivating.release);
+      await deactivating.done;
+      expect(opened.outcome.templateLines.map((line: any) => line.receivableId)).toEqual([f.fee]);
+      // The other order: once the run exists, deactivating a seeded receivable does not touch the DRAFT line and the next run omits it.
+      const next = outcomeId(await finance.openRun(f.current.identity.id, school, uuid(), uuid(), { schoolYearId: f.current.year.id, billingMonth: "2026-10" }));
+      expect((await finance.run(f.current.identity.id, school, next)).templateLines.map((line: any) => line.receivableId)).toEqual([f.fee]);
+      await finance.transitionReceivable(f.current.identity.id, school, f.fee, uuid(), uuid(), { status: "INACTIVE", reason: "Ngừng" });
+      expect((await finance.run(f.current.identity.id, school, next)).templateLines.map((line: any) => line.receivableId)).toEqual([f.fee]);
+      const third = outcomeId(await finance.openRun(f.current.identity.id, school, uuid(), uuid(), { schoolYearId: f.current.year.id, billingMonth: "2026-11" }));
+      expect((await finance.run(f.current.identity.id, school, third)).templateLines).toEqual([]);
     });
 
     it("edits name, unit and price with audit and replay, refuses price below the refund price and foreign Schools, and keeps Invoice line snapshots", async () => {

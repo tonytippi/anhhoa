@@ -310,6 +310,8 @@ export function FinanceWorkspace({
   const classExclusionRef = useRef<HTMLDivElement>(null);
   const adjustDialogRef = useRef<HTMLDivElement>(null);
   const templateDialogRef = useRef<HTMLDivElement>(null);
+  // Scope-picker requests: a response is applied only for the latest request of the current dialog instance, run and School.
+  const scopeRequest = useRef({ token: 0, instance: 0 });
   const removalDialogRef = useRef<HTMLDivElement>(null);
   const [receivable, setReceivable] = useState({
     kind: "" as ReceivableKind | "",
@@ -723,6 +725,20 @@ export function FinanceWorkspace({
     const dialog = catalogDialog ? catalogDialogRef.current : promotionDialog ? promotionDialogRef.current : undefined;
     dialog?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])")?.focus();
   }, [catalogDialog, promotionDialog]);
+  const runRef = useRef<string | undefined>(undefined);
+  runRef.current = run?.id;
+  // Switching run or School, or closing the dialog, supersedes every in-flight scope request.
+  useEffect(() => {
+    scopeRequest.current.instance += 1;
+    scopeRequest.current.token += 1;
+    setScopeOptions(undefined);
+  }, [run?.id, schoolId]);
+  useEffect(() => {
+    if (templateDialog) return;
+    scopeRequest.current.instance += 1;
+    scopeRequest.current.token += 1;
+    setScopeOptions(undefined);
+  }, [Boolean(templateDialog)]);
   useEffect(() => {
     if (run?.status === "DRAFT") void loadRunClasses(run.id); else setRunClasses(undefined);
   }, [run?.id, run?.status]);
@@ -895,21 +911,28 @@ export function FinanceWorkspace({
     }
   };
   const templateBase = () => `/api/app/schools/${schoolId}/finance/collection-runs/${run!.id}`;
+  const fetchScopeOptions = (query: string) => {
+    if (!run) return;
+    const scopeSchool = schoolId, scopeRun = run.id, instance = scopeRequest.current.instance, token = ++scopeRequest.current.token;
+    void get<ScopeOptions>(`/api/app/schools/${scopeSchool}/finance/collection-runs/${scopeRun}/scope-options${query ? `?q=${encodeURIComponent(query)}` : ""}`)
+      .then((options) => { if (activeSchool.current === scopeSchool && runRef.current === scopeRun && scopeRequest.current.instance === instance && scopeRequest.current.token === token) setScopeOptions(options); })
+      .catch(() => undefined);
+  };
   const openTemplateDialog = (trigger: HTMLButtonElement | null, line?: TemplateLine) => {
     if (!run) return;
     setErrors({});
     setScopeOptions(undefined);
+    scopeRequest.current.instance += 1;
     if (trigger) dialogTrigger.current = trigger;
     setTemplateDialog(line
       ? { lineId: line.id, receivableId: line.receivableId, name: line.receivableName, kind: line.kind ?? null, quantity: line.quantity, scopeType: line.scope?.type ?? "ALL", classIds: (line.scope?.classes ?? []).map((item) => item.id), students: (line.scope?.students ?? []).map((item) => ({ id: item.id, label: `${item.studentCode} · ${item.fullName}` })), search: "" }
       : { receivableId: "", name: "", kind: null, quantity: "1", scopeType: "ALL", classIds: [], students: [], search: "" });
-    void get<ScopeOptions>(`${templateBase()}/scope-options`).then((options) => setScopeOptions(options)).catch(() => undefined);
+    fetchScopeOptions("");
   };
   const closeTemplateDialog = () => closeNewDialog(() => setTemplateDialog(undefined), () => {});
-  const searchScopeStudents = async (search: string) => {
-    if (!run) return;
+  const searchScopeStudents = (search: string) => {
     setTemplateDialog((current) => current && { ...current, search });
-    try { setScopeOptions(await get<ScopeOptions>(`${templateBase()}/scope-options?q=${encodeURIComponent(search)}`)); } catch { /* the picker keeps its last result */ }
+    fetchScopeOptions(search);
   };
   const saveTemplate = async (event: FormEvent) => {
     event.preventDefault(); if (!run || !templateDialog) return;

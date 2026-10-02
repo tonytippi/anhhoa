@@ -2262,6 +2262,8 @@ export class FinanceService {
         },
       });
       // Decision 2026-10-02 §3.2: a new run starts with every ACTIVE FIXED receivable, quantity 1, for everyone.
+      // `mutate` already holds the per-School FOR UPDATE, which serializes this seeding with transitionReceivable and every other mutate command, so the
+      // lifecycle read below cannot interleave with a deactivation. The FOR SHARE lock on the seeded receivables is the extra line of defense that the line paths use.
       const fixed = (await tx.receivable.findMany({ where: { schoolId, group: { kind: "FIXED" } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } }, orderBy: { id: "asc" } })).filter((item: any) => item.lifecycleTransitions[0]?.status === "ACTIVE");
       await this.lockReceivablesShared(tx, schoolId, fixed.map((item: any) => item.id));
       if (fixed.length) await tx.collectionRunTemplateLine.createMany({ data: fixed.map((item: any) => ({ schoolId, collectionRunId: run.id, receivableId: item.id, quantity: 1, scopeType: "ALL" as const })) });
