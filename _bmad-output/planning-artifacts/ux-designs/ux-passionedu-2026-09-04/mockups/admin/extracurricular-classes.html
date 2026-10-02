@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Lớp ngoại khóa · Ánh Hoa</title>
+    <link rel="stylesheet" href="../prototype.css">
+    <script defer src="admin-shell.js"></script>
+    <script defer src="../prototype.js"></script>
+  </head>
+  <body>
+    <div data-admin-shell data-admin-route="extracurricular">
+      <section id="class-list" class="route-state">
+        <div class="route-head">
+          <div>
+            <p class="eyebrow">DANH BỘ</p>
+            <h1 tabindex="-1">Lớp ngoại khóa · Trường Ánh Hoa</h1>
+            <p class="muted">Năm học 2026-2027 · Dữ liệu do hệ thống xác nhận.</p>
+          </div>
+          <div>
+            <button class="button" type="button" data-open-class-form>Thêm lớp ngoại khóa</button>
+          </div>
+        </div>
+        <form class="filters" data-static-filter aria-label="Lọc lớp ngoại khóa">
+          <label>Tìm kiếm<input type="search" name="q" placeholder="Tên lớp ngoại khóa" autocomplete="off"></label><label>Năm học<select name="year"><option value="2026-2027">2026-2027</option></select></label><label>Khoản thu<select name="receivable"><option value="all">Tất cả khoản thu</option><option>Tiếng Anh bản ngữ</option><option>Năng khiếu vẽ</option><option>Võ thuật</option></select></label><label>Trạng thái<select name="status"><option value="all">Tất cả trạng thái</option><option>Đang hoạt động</option><option>Ngừng hoạt động</option></select></label><button class="button" type="submit">Áp dụng</button>
+        </form>
+        <p class="muted" data-filter-feedback aria-live="polite"></p>
+        <div class="table-wrap">
+          <table>
+            <caption>Lớp ngoại khóa · Trường Ánh Hoa · Năm học 2026-2027</caption>
+            <thead>
+              <tr>
+                <th>Lớp ngoại khóa</th>
+                <th>Khoản thu</th>
+                <th>Học sinh hiện tại</th>
+                <th>Trạng thái</th>
+                <th>Tùy chọn</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>Tiếng Anh A1 (T2-T4)</b></td>
+                <td>Tiếng Anh bản ngữ · 600.000 đ/tháng<br><small class="muted">Dùng chung với Tiếng Anh A2 (T3-T5)</small></td>
+                <td>18 học sinh</td>
+                <td><span class="badge success">Đang hoạt động</span></td>
+                <td><a href="#class-a1">Xem thành viên</a></td>
+              </tr>
+              <tr>
+                <td><b>Tiếng Anh A2 (T3-T5)</b></td>
+                <td>Tiếng Anh bản ngữ · 600.000 đ/tháng<br><small class="muted">Dùng chung với Tiếng Anh A1 (T2-T4)</small></td>
+                <td>15 học sinh</td>
+                <td><span class="badge success">Đang hoạt động</span></td>
+                <td><a href="#class-a1">Xem thành viên</a></td>
+              </tr>
+              <tr>
+                <td><b>Vẽ thiếu nhi</b></td>
+                <td>Năng khiếu vẽ · 400.000 đ/tháng</td>
+                <td>12 học sinh</td>
+                <td><span class="badge success">Đang hoạt động</span></td>
+                <td><a href="#class-a1">Xem thành viên</a></td>
+              </tr>
+              <tr>
+                <td><b>Võ thuật</b></td>
+                <td>Võ thuật · 450.000 đ/tháng</td>
+                <td>10 học sinh</td>
+                <td><span class="badge success">Đang hoạt động</span></td>
+                <td><a href="#class-a1">Xem thành viên</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <details>
+          <summary>Hướng dẫn</summary>
+          <p>Mỗi lớp ngoại khóa gắn một khoản thu Ngoại khóa ở trang <a href="receivable-configuration.html">Khoản thu</a>. Nhiều lớp có thể dùng chung một khoản thu và có cùng giá; muốn giá khác, tạo khoản thu khác.</p>
+          <p>Thành viên có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp trong đợt thu tháng đó. Vào/nghỉ giữa tháng và chuyển lớp trong tháng được đánh dấu trên hóa đơn nháp để kế toán điều chỉnh; hệ thống không tự chia theo ngày.</p>
+          <p>Lớp ngoại khóa không thay đổi lớp chính thức, điểm danh hay quyền của giáo viên.</p>
+        </details>
+      </section>
+
+      <section id="class-a1" class="route-state" hidden>
+        <p><a href="#class-list">Lớp ngoại khóa</a></p>
+        <div class="route-head">
+          <div>
+            <p class="eyebrow">DANH BỘ</p>
+            <h1 tabindex="-1">Tiếng Anh A1 (T2-T4) · Trường Ánh Hoa</h1>
+            <p class="muted">Năm học 2026-2027 · Tiếng Anh bản ngữ · 600.000 đ/tháng · Dùng chung với Tiếng Anh A2 (T3-T5).</p>
+          </div>
+          <div>
+            <button class="button secondary" type="button" data-idempotent-action data-action-title="Ngừng hoạt động Tiếng Anh A1 (T2-T4)" data-action-label="Ngừng hoạt động" data-action-consequence="Lớp sẽ không được tính vào đợt thu mới. Thành viên và lịch sử vẫn được giữ để đối soát.">Ngừng hoạt động</button>
+            <button class="button secondary" type="button" data-open-end-form disabled>Kết thúc</button>
+            <button class="button" type="button" data-open-add-form>Thêm học sinh</button>
+          </div>
+        </div>
+        <div class="grid two">
+          <article class="card">
+            <h2>Thông tin lớp</h2>
+            <p><b>Khoản thu:</b> Tiếng Anh bản ngữ · 600.000 đ/tháng</p>
+            <p><span class="badge success">Đang hoạt động</span></p>
+          </article>
+          <article class="card">
+            <h2>Tháng 10/2026</h2>
+            <p><b>Đang tham gia:</b> 18 học sinh</p>
+            <p><b>Tính trong tháng:</b> 19 học sinh · 2 vào/nghỉ trong tháng</p>
+          </article>
+        </div>
+        <form class="filters" data-static-filter aria-label="Lọc thành viên">
+          <label>Tìm học sinh<input type="search" name="q" placeholder="Mã hoặc tên học sinh" autocomplete="off"></label><label>Lớp chính thức<select name="class"><option value="all">Tất cả lớp</option><option>Mầm 4A</option><option>Chồi 3B</option><option>Lá 5A</option></select></label><label>Trạng thái<select name="status"><option>Đang tham gia và trong tháng</option><option>Đang tham gia</option><option>Đã kết thúc</option><option>Tất cả</option></select></label><button class="button" type="submit">Áp dụng</button>
+        </form>
+        <p class="muted" data-filter-feedback aria-live="polite"></p>
+        <div class="table-wrap">
+          <table>
+            <caption>Thành viên Tiếng Anh A1 (T2-T4) · hiển thị 5 trong 19 học sinh</caption>
+            <thead>
+              <tr>
+                <th><input type="checkbox" data-member-all aria-label="Chọn tất cả thành viên đang tham gia"></th>
+                <th>Mã HS</th>
+                <th>Họ tên</th>
+                <th>Lớp chính thức</th>
+                <th>Từ ngày</th>
+                <th>Đến ngày</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" data-member aria-label="Chọn Bé Tuấn Huy"></td>
+                <td>AH-121</td>
+                <td><b>Bé Tuấn Huy</b></td>
+                <td>Chồi 3B</td>
+                <td>01/09/2026</td>
+                <td>—</td>
+                <td><span class="badge success">Đang tham gia</span></td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" data-member aria-label="Chọn Bé Gia Hân"></td>
+                <td>AH-056</td>
+                <td><b>Bé Gia Hân</b></td>
+                <td>Lá 5A</td>
+                <td>01/09/2026</td>
+                <td>—</td>
+                <td><span class="badge success">Đang tham gia</span></td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" data-member aria-label="Chọn Bé Minh Anh"></td>
+                <td>AH-104</td>
+                <td><b>Bé Minh Anh</b><br><small class="muted">Chuyển sang Tiếng Anh A2 (T3-T5) từ 16/10/2026</small></td>
+                <td>Mầm 4A</td>
+                <td>01/09/2026</td>
+                <td>15/10/2026</td>
+                <td><span class="badge warning">Kết thúc trong tháng</span></td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" data-member aria-label="Chọn Bé An Nhiên"></td>
+                <td>AH-133</td>
+                <td><b>Bé An Nhiên</b></td>
+                <td>Lá 5A</td>
+                <td>14/10/2026</td>
+                <td>—</td>
+                <td><span class="badge info">Vào giữa tháng</span></td>
+              </tr>
+              <tr>
+                <td></td>
+                <td>AH-090</td>
+                <td><b>Bé Khôi Nguyên</b></td>
+                <td>Chồi 3B</td>
+                <td>01/09/2026</td>
+                <td>30/09/2026</td>
+                <td><span class="badge neutral">Đã kết thúc</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" data-member-selection aria-live="polite">Chưa chọn học sinh nào.</p>
+        <details>
+          <summary>Hướng dẫn</summary>
+          <p>Học sinh có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp với giá mặc định. Vào/nghỉ giữa tháng hoặc chuyển giữa hai lớp cùng khoản thu được đánh dấu trên hóa đơn nháp; học sinh chuyển lớp chỉ có một dòng, kế toán điều chỉnh số lượng hoặc đơn giá kèm lý do.</p>
+        </details>
+        <details>
+          <summary>Thông tin đối soát</summary>
+          <p>Mỗi lần thêm hoặc kết thúc tham gia được ghi lịch sử theo từng học sinh, kèm lý do và người thực hiện.</p>
+        </details>
+      </section>
+    </div>
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        var candidates = [['AH-140', 'Bé Bảo Châu', ''], ['AH-141', 'Bé Đức Anh', ''], ['AH-056', 'Bé Gia Hân', 'Đã thuộc lớp này'], ['AH-142', 'Bé Thảo Vy', '']];
+        function submitWhenValid(node, button) {
+          var form = node.querySelector('form');
+          node.querySelector('[data-submit]').addEventListener('click', function (event) {
+            if (!form.reportValidity()) return;
+            if (form.hasAttribute('data-needs-selection') && !form.querySelector('[data-candidate]:checked')) { node.querySelector('[data-candidate-selection]').textContent = 'Chọn ít nhất một học sinh trước khi thêm.'; return; }
+            event.currentTarget.disabled = true;
+            showOperation('Đã gửi thao tác', button, node);
+          });
+        }
+        document.querySelector('[data-open-class-form]').addEventListener('click', function (event) {
+          var button = event.currentTarget;
+          var node = dialog('Thêm lớp ngoại khóa', '<form class="form-grid"><div class="field"><label for="xc-name">Tên lớp</label><input id="xc-name" required placeholder="Ví dụ: Tiếng Anh A2 (T3-T5)"></div><div class="field"><label for="xc-year">Năm học</label><select id="xc-year"><option>2026-2027</option></select></div><div class="field full"><label for="xc-receivable">Khoản thu</label><select id="xc-receivable" required aria-describedby="xc-receivable-help"><option value="">Chọn khoản thu Ngoại khóa</option><option data-shared="Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5)">Tiếng Anh bản ngữ · 600.000 đ/tháng</option><option data-shared="Vẽ thiếu nhi">Năng khiếu vẽ · 400.000 đ/tháng</option><option data-shared="Võ thuật">Võ thuật · 450.000 đ/tháng</option></select><p id="xc-receivable-help" class="muted">Chỉ khoản thu Ngoại khóa đang áp dụng.</p></div></form>', '<button class="button" type="button" data-submit>Lưu lớp ngoại khóa</button>', button);
+          var select = node.querySelector('#xc-receivable'), help = node.querySelector('#xc-receivable-help');
+          select.addEventListener('change', function () { var shared = select.selectedOptions[0].dataset.shared; help.textContent = shared ? 'Dùng chung với: ' + shared + '.' : 'Chỉ khoản thu Ngoại khóa đang áp dụng.'; });
+          node.querySelector('.dialog').classList.add('wide');
+          submitWhenValid(node, button);
+        });
+        document.querySelector('[data-open-add-form]').addEventListener('click', function (event) {
+          var button = event.currentTarget;
+          var rows = candidates.map(function (item) { return '<tr><td><input type="checkbox" data-candidate aria-label="Chọn ' + item[1] + '"' + (item[2] ? ' disabled' : '') + '></td><td>' + item[0] + '</td><td><b>' + item[1] + '</b>' + (item[2] ? '<br><small class="muted">' + item[2] + '</small>' : '') + '</td><td>Lá 5A</td></tr>'; }).join('');
+          var node = dialog('Thêm học sinh · Tiếng Anh A1 (T2-T4)', '<form class="form-grid" data-needs-selection><div class="field"><label for="xc-source-class">Lớp chính thức</label><select id="xc-source-class"><option>Lá 5A</option><option>Mầm 4A</option><option>Chồi 3B</option></select></div><div class="field"><label for="xc-search">Tìm học sinh</label><input id="xc-search" type="search" placeholder="Mã hoặc tên học sinh" autocomplete="off"></div><div class="field full table-wrap"><table><caption>Học sinh lớp Lá 5A</caption><thead><tr><th><input type="checkbox" data-candidate-all aria-label="Chọn tất cả học sinh có thể thêm"></th><th>Mã HS</th><th>Họ tên</th><th>Lớp chính thức</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="muted field full" data-candidate-selection aria-live="polite">Chưa chọn học sinh nào.</p><div class="field"><label for="xc-from">Hiệu lực từ</label><input id="xc-from" type="date" required value="2026-10-01"></div><div class="field"><label for="xc-add-reason">Lý do</label><input id="xc-add-reason" required placeholder="Ví dụ: Đăng ký học kỳ 1"></div></form>', '<button class="button" type="button" data-submit>Thêm học sinh đã chọn</button>', button);
+          node.querySelector('.dialog').classList.add('wide');
+          var checks = [].slice.call(node.querySelectorAll('[data-candidate]:not([disabled])')), all = node.querySelector('[data-candidate-all]'), note = node.querySelector('[data-candidate-selection]');
+          function refresh() { var count = checks.filter(function (check) { return check.checked; }).length; note.textContent = count ? 'Đã chọn ' + count + ' học sinh.' : 'Chưa chọn học sinh nào.'; all.checked = count === checks.length; }
+          checks.forEach(function (check) { check.addEventListener('change', refresh); });
+          all.addEventListener('change', function () { checks.forEach(function (check) { check.checked = all.checked; }); refresh(); });
+          submitWhenValid(node, button);
+        });
+        var members = [].slice.call(document.querySelectorAll('[data-member]')), memberAll = document.querySelector('[data-member-all]'), endButton = document.querySelector('[data-open-end-form]'), selection = document.querySelector('[data-member-selection]');
+        function selectedMembers() { return members.filter(function (check) { return check.checked; }).length; }
+        function refreshMembers() { var count = selectedMembers(); selection.textContent = count ? 'Đã chọn ' + count + ' học sinh.' : 'Chưa chọn học sinh nào.'; memberAll.checked = count === members.length; endButton.disabled = !count; }
+        members.forEach(function (check) { check.addEventListener('change', refreshMembers); });
+        memberAll.addEventListener('change', function () { members.forEach(function (check) { check.checked = memberAll.checked; }); refreshMembers(); });
+        endButton.addEventListener('click', function () {
+          var node = dialog('Kết thúc tham gia · Tiếng Anh A1 (T2-T4)', '<form class="form-grid"><p class="field full">Kết thúc tham gia cho ' + selectedMembers() + ' học sinh đã chọn với cùng ngày kết thúc và lý do.</p><div class="field"><label for="xc-to">Ngày kết thúc</label><input id="xc-to" type="date" required></div><div class="field"><label for="xc-end-reason">Lý do</label><input id="xc-end-reason" required placeholder="Ví dụ: Phụ huynh xin nghỉ"></div><p class="muted field full">Học sinh vẫn được tính tháng có ngày tham gia cuối.</p></form>', '<button class="button" type="button" data-submit>Kết thúc tham gia</button>', endButton);
+          submitWhenValid(node, endButton);
+        });
+      });
+    </script>
+  </body>
+</html>

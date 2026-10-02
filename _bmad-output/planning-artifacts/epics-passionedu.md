@@ -14,7 +14,7 @@ supersedes:
   - epics.md
   - epics-parent-pwa.md
 status: final
-updated: 2026-09-21
+updated: 2026-10-02
 ---
 
 # PassionEdu - Epic Breakdown
@@ -49,6 +49,7 @@ Khi implement mot story co bề mặt portal, `DESIGN.md` va `EXPERIENCE.md` la 
 | 6.1, 6.2, 6.3, 6.4, 6.6 | `mockups/admin/invoice-detail-review.html`, `EXPERIENCE.md` §§ Invoice review and receipt, Adjustment/carry/refund review | Actual Receipt closes mot Invoice; outcome/carry/refund deu server-returned. |
 | 5.16 | `mockups/admin/receivable-configuration.html`, `mockups/admin/promotion-configuration.html`, `EXPERIENCE.md` §§ Management list, Accessibility Floor | Khoản thu và Giảm trừ table-first, `...` row menu và confirmation dialog; không đổi Finance authority. |
 | 5.17 | `mockups/admin/invoice-generation.html`, `mockups/admin/invoice-detail-review.html`, `EXPERIENCE.md` §§ CollectionRun list and detail, Invoice review and issue | Đợt thu table-first và Draft previous/next chỉ theo server-authorized originating order. |
+| 5.33, 5.34, 5.35, 5.36, 5.37 | `mockups/admin/receivable-configuration.html`, `mockups/admin/extracurricular-classes.html`, `mockups/admin/invoice-generation.html`, `mockups/admin/finance-run-preview.html`, `mockups/admin/invoice-detail-review.html`, `EXPERIENCE.md` §§ Receivable kinds and extracurricular classes, CollectionRun list and detail | Ba nhóm khoản thu cố định, `Lớp ngoại khóa`, template có `Loại`/`Áp dụng cho`, khu `Lớp ngoại khóa trong đợt`, cột `Nguồn` và cờ giữa tháng; số Student, tạm tính và provenance đều server-returned. Mockup phải được business owner review trước khi code (proposal 2026-10-02 §8). |
 | 6.5 | `mockups/admin/finance-run-preview.html`, `EXPERIENCE.md` § Finance report | Bon workspace bao cao va CSV la server ledger-derived; mockup mốc nay khong mo rong lifecycle Finance. |
 | 6.7, 6.8 | `mockups/admin/receipt-queue.html`, `EXPERIENCE.md` §§ Daily receipt queue, Accessibility Floor | Thu tiền là Invoice `ISSUED` queue server-authorized; settlement giữ one-Invoice, Operation và ledger contract. |
 | 7.1, 7.2, 7.4, 7.5, 7.7, 7.8 | `mockups/parent/parent.html`, `mockups/parent/parent-home.html` | Mobile-first, clear protected state truoc safe fallback, khong cache protected API data. |
@@ -429,6 +430,127 @@ Source: sprint-change-proposal-2026-10-01-receivable-refund-price-and-leave-dedu
 **Then** issue closes it with a zero Receipt (`OVERPAYMENT`) and the credit carries into the next monthly DRAFT of the same channel and SchoolYear, or in full into the settlement Invoice if the Student leaves; payout is refused on it.
 
 **And** the standalone coverage refund API and pending-request UI are removed; settlement Invoices are the only refund path.
+
+### Story 5.33: Ba loại khoản thu cố định
+
+As a Finance Manager,
+I want every receivable to belong to one of three fixed kinds,
+So that the CollectionRun knows whether a receivable applies to everyone, to a chosen scope or to extracurricular class members.
+
+Source: sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-classes §3.1.
+
+**Acceptance Criteria:**
+
+**Given** every existing and newly provisioned School
+**When** the migration or provisioning runs
+**Then** the School has exactly three `ReceivableGroup` records with typed `kind` `FIXED`, `FLEXIBLE`, `EXTRACURRICULAR`, unique per `(schoolId, kind)`, named `Khoản thu cố định`, `Khoản thu linh hoạt`, `Ngoại khóa`
+**And** Receivables are mapped `Khoản thu chung` -> `FIXED`, `Khoản thu đột xuất` -> `FLEXIBLE`, `Ngoại khóa` -> `EXTRACURRICULAR`, any other custom group's Receivables -> `FLEXIBLE` with the custom group removed, all under audit/Operation.
+
+**Given** a request to create, rename or deactivate a group
+**Then** the API refuses it and the catalog UI shows no group action; Receivables are still created/deactivated as today with the group chosen from the three kinds.
+
+**Given** a Receivable already used on an Invoice or linked to an extracurricular class
+**When** Finance changes its kind
+**Then** the API refuses it.
+
+### Story 5.34: Lớp ngoại khóa và thành viên
+
+As a Finance Manager,
+I want to keep extracurricular classes and their members once,
+So that English, martial arts or drawing fees follow the class every month without reselecting Students.
+
+Source: sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-classes §3.3.
+
+**Acceptance Criteria:**
+
+**Given** an `ACTIVE` `EXTRACURRICULAR` Receivable
+**When** Finance creates an extracurricular class
+**Then** the class is stored for the School and SchoolYear with audit/Operation, even when that Receivable already serves another class
+**And** a Receivable of another kind or an `INACTIVE` one is refused.
+
+**Given** an `ACTIVE` extracurricular class
+**When** Finance adds or ends memberships, singly or in bulk (several Students picked from an official Class) with one reason
+**Then** effective-dated memberships are stored with one audit record each, never overlapping in time within the same class, and each Student belongs to the same School/SchoolYear
+**And** a Student may belong to several extracurricular classes.
+
+**Given** a Student, Receivable or class of another School
+**Then** the API refuses without disclosing any fact
+**And** the aggregates do not read or change `Class`, `EnrollmentClassAssignment`, `StaffClassAssignment` or staff authorization.
+
+### Story 5.35: Đợt thu tự thêm khoản cố định và phạm vi khoản linh hoạt
+
+As a Finance Manager,
+I want fixed receivables preloaded and flexible receivables scoped,
+So that the generated DRAFT Invoices already contain the right lines for each Student.
+
+Source: sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-classes §3.2.
+
+**Acceptance Criteria:**
+
+**Given** a new CollectionRun is opened
+**Then** its template already contains every `ACTIVE` `FIXED` Receivable at quantity 1 with scope `Toàn bộ`
+**And** Finance may change quantity or remove a line while the run is `DRAFT`.
+
+**Given** a `FLEXIBLE` Receivable
+**When** Finance adds a line with scope `Toàn bộ`, one or more official Classes, or specific Students
+**Then** the preview returns per line the kind, scope, Student count and server-derived subtotal
+**And** an empty scope or a Class/Student of another School is refused; Class scope uses the Class effective on the first day of the billing month.
+
+**Given** an `EXTRACURRICULAR` Receivable
+**When** Finance adds it to the template
+**Then** the API refuses it.
+
+**Given** generate
+**Then** each Invoice contains a `FLEXIBLE` line only when its Student is in that line's scope, and every InvoiceLine stores provenance `TEMPLATE_FIXED` or `TEMPLATE_FLEXIBLE` (with scope); lines added later on the DRAFT are `MANUAL`.
+
+**Given** the template is empty or a Student matches no template line, scope or extracurricular membership
+**Then** that Student is skipped with reason `NO_APPLICABLE_LINES`
+**And** generate is refused only when no Student would receive any line.
+
+### Story 5.36: Generate dòng ngoại khóa từ lớp ngoại khóa
+
+As a Finance Manager,
+I want the run to bill extracurricular class members automatically,
+So that I only review Students who joined, left or changed class during the month.
+
+Source: sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-classes §3.2, §3.3.
+
+**Acceptance Criteria:**
+
+**Given** a `DRAFT` run
+**Then** the detail lists `ACTIVE` extracurricular classes with their member count effective in the billing month
+**And** Finance may exclude or restore a whole class for this run.
+
+**Given** generate
+**Then** every eligible and selected Student with a membership effective at least one day in the month gets one line per extracurricular Receivable (classes sharing a Receivable are merged), at the default price and quantity 1 with no proration, with provenance listing the classes
+**And** the line is flagged `Vào/nghỉ giữa tháng` or `Chuyển lớp trong tháng` when applicable; extracurricular membership never makes an ineligible or unselected Student billable.
+
+**Given** a membership or Receivable changes after the preview
+**Then** READY/generate is blocked until a new preview succeeds
+**And** after GENERATED no Invoice is rewritten.
+
+**Given** Finance adds an eligible Student to a GENERATED run
+**Then** the new DRAFT gets every fixed line, the flexible lines whose snapshotted scope includes the Student, and one line per extracurricular Receivable from memberships effective at least one day in the month in classes not excluded from the run, read at add time and snapshotted with provenance and flags.
+
+### Story 5.37: Release gate loại khoản thu và lớp ngoại khóa
+
+As a release owner,
+I want automated proof for typed receivable groups and extracurricular billing,
+So that Finance can rely on scoped and extracurricular lines without cross-School or duplicate charges.
+
+Source: sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-classes §6.
+
+**Acceptance Criteria:**
+
+**Given** a multi-School fixture
+**When** PostgreSQL tests run
+**Then** tenant graph, typed group invariant, membership overlap, scope resolution, fingerprint staleness, idempotency/concurrency and provenance snapshot pass.
+
+**Given** Admin E2E
+**When** Finance creates an extracurricular class -> adds members in bulk -> opens a run (fixed lines preloaded) -> moves a Student between two classes sharing a Receivable mid-month -> adds a field trip scoped by Class -> previews -> generates -> reviews an Invoice showing the `Nguồn` column and mid-month flag -> adjusts one Student
+**Then** the UI shows only server values.
+
+**And** no client-calculated VND, Parent/Teacher dependency or change to `Class`/staff authorization exists.
 
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
@@ -1254,7 +1376,7 @@ So that toi biet cac tre chua ghi nhan attendance hoac leave dang cho xu ly ma k
 
 ## Epic 5: Tạo và phát hành nghĩa vụ thu
 
-Finance cau hinh catalog va template khoan thu chung cho CollectionRun, chon Student, tao Invoice DRAFT co san dong template chong trung, ra soat ngoai le tung Student va issue immutable Payment instruction snapshot. Sau template gate, Pha 1b them PromotionPolicy giam tru theo tung Receivable va Student assignment; ChargeRule automation va `PREPAID_COVERAGE` van la enhancement sau do.
+Finance cau hinh catalog va template khoan thu chung cho CollectionRun, chon Student, tao Invoice DRAFT co san dong template chong trung, ra soat ngoai le tung Student va issue immutable Payment instruction snapshot. Sau template gate, Pha 1b them PromotionPolicy giam tru theo tung Receivable va Student assignment; ChargeRule automation va `PREPAID_COVERAGE` van la enhancement sau do. Tu 2026-10-02, Story 5.33-5.37 them ba nhom khoan thu typed co dinh, lop ngoai khoa va template theo loai/pham vi; full ChargeRule, auto-prorate va Parent projection lop ngoai khoa van deferred.
 
 ### Story 5.1: Quản lý receivable catalog theo School
 
@@ -1275,6 +1397,8 @@ So that toi co the chon dung khoan thu khi ra soat Invoice DRAFT ma khong sua li
 **And** client total khong duoc dung lam persistence authority.
 
 **Deferred follow-up:** `ChargeRule` automation theo School/Class/Student, service catalog/`StudentServiceEnrollment`, `PromotionPolicy`, `StudentPromotionAssignment` va `PREPAID_COVERAGE` khong thuoc Finance Admin MVP; giu lai trong Finance enhancement sau MVP.
+
+**Note (2026-10-02):** Applicability cua khoan ngoai khoa thay cho `StudentServiceEnrollment` duoc giao bang lop ngoai khoa tai Story 5.33-5.37 (sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-classes); full `ChargeRule` van deferred.
 
 ### Story 5.2: Tạo CollectionRun và server-authoritative preview
 
@@ -1348,6 +1472,8 @@ So that Invoice phan anh dung cac khoan va quantity do Finance quyet dinh truoc 
 **And** data table/detail hien thi VND right-aligned, state text label, source/audit context va accessible lifecycle explanation.
 
 **Deferred follow-up:** approved-leave source materialization, `StudentServiceEnrollment`/Saturday coverage va `PromotionPolicy`/`PREPAID_COVERAGE` thuoc Finance enhancement sau MVP.
+
+**Note (2026-10-02):** Phan `StudentServiceEnrollment` cho khoan ngoai khoa duoc thay bang lop ngoai khoa (Story 5.33-5.37).
 
 ### Story 5.5: Issue Invoice với Payment instruction snapshot bất biến
 

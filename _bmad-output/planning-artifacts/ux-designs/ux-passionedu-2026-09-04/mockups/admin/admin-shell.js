@@ -12,6 +12,7 @@
   var links = [
     ['VẬN HÀNH', 'overview', 'Tổng quan', root + 'admin-staff.html#overview'],
     ['DANH BỘ', 'roster', 'Danh bộ', route === 'roster' ? 'roster.html' : 'roster/roster.html'],
+    ['', 'extracurricular', 'Lớp ngoại khóa', root + 'extracurricular-classes.html'],
     ['CẤU HÌNH', 'settings', 'Cấu hình trường', root + 'school-settings.html'],
     ['TÀI CHÍNH', 'receivables', 'Khoản thu', root + 'receivable-configuration.html'],
     ['', 'promotions', 'Ưu đãi', root + 'promotion-configuration.html'],

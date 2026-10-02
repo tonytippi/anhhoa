@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="../prototype.css">
   <link rel="stylesheet" href="finance-style.css">
   <script defer src="admin-shell.js"></script>
+  <style>.finance-page td.money{white-space:nowrap}.finance-page td.money small{display:inline-block;min-width:140px;white-space:normal}.finance-page .guide{margin-top:20px;color:var(--muted)}.finance-page .guide summary{cursor:pointer;font-weight:700;color:var(--ink)}</style>
 </head>
 <body>
   <div data-admin-shell data-admin-route="runs"><div class="finance-page">
@@ -38,33 +39,63 @@
       <div class="summary" aria-label="Tổng quan do máy chủ tính">
         <div class="metric"><span>Học sinh đủ điều kiện</span><b>124</b></div>
         <div class="metric"><span>Học sinh bị bỏ qua</span><b>1</b></div>
-        <div class="metric"><span>Cần thu dự kiến</span><b>262.600.000 đ</b></div>
+        <div class="metric"><span>Cần thu dự kiến</span><b>318.900.000 đ</b></div>
       </div>
       <div class="card">
-        <h2>Khoản thu trong đợt</h2>
-        <p class="muted">Đơn giá và thành tiền do máy chủ xác nhận. Thay đổi khoản thu sau khi xem trước cần xem trước lại.</p>
+        <div class="line"><h2>Khoản thu trong đợt</h2><button class="btn btn-primary" type="button" id="open-template-line">Thêm khoản thu</button></div>
         <div class="table-wrap">
           <table>
-            <caption>Khoản thu mẫu chung</caption>
-            <thead><tr><th>Khoản thu</th><th>Số lượng</th><th class="money">Đơn giá</th><th class="money">Thành tiền</th><th>Tùy chọn</th></tr></thead>
+            <caption>Khoản thu mẫu của đợt</caption>
+            <thead><tr><th>Khoản thu</th><th>Loại</th><th>Áp dụng cho</th><th>Số lượng</th><th class="money">Đơn giá</th><th class="money">Số HS</th><th class="money">Tạm tính</th><th>Tùy chọn</th></tr></thead>
             <tbody>
-              <tr><td>Học phí tháng</td><td>1 tháng</td><td class="money">1.500.000 đ</td><td class="money">1.500.000 đ</td><td><button class="btn btn-secondary" type="button">Bỏ</button></td></tr>
-              <tr><td>Tiền ăn tháng</td><td>22 ngày</td><td class="money">35.000 đ</td><td class="money">770.000 đ</td><td><button class="btn btn-secondary" type="button">Bỏ</button></td></tr>
+              <tr><td>Học phí tháng</td><td><span class="badge neutral">Cố định</span><br><small class="muted">Tự thêm khi mở đợt thu</small></td><td>Toàn bộ</td><td>1 tháng</td><td class="money">1.500.000 đ</td><td class="money">124</td><td class="money">186.000.000 đ</td><td><div class="line"><button class="btn btn-secondary" type="button" data-edit-template data-name="Học phí tháng" data-kind="FIXED" data-quantity="1" data-scope="all">Sửa</button><button class="btn btn-secondary" type="button" data-confirm-title="Bỏ Học phí tháng khỏi đợt thu" data-confirm-text="Khoản thu sẽ không có trong hóa đơn nháp của đợt này. Cần xem trước lại sau khi bỏ." data-confirm-label="Bỏ khoản thu">Bỏ</button></div></td></tr>
+              <tr><td>Tiền ăn tháng</td><td><span class="badge neutral">Cố định</span><br><small class="muted">Tự thêm khi mở đợt thu</small></td><td>Toàn bộ</td><td>22 ngày</td><td class="money">35.000 đ</td><td class="money">124</td><td class="money">95.480.000 đ</td><td><div class="line"><button class="btn btn-secondary" type="button" data-edit-template data-name="Tiền ăn tháng" data-kind="FIXED" data-quantity="22" data-scope="all">Sửa</button><button class="btn btn-secondary" type="button" data-confirm-title="Bỏ Tiền ăn tháng khỏi đợt thu" data-confirm-text="Khoản thu sẽ không có trong hóa đơn nháp của đợt này. Cần xem trước lại sau khi bỏ." data-confirm-label="Bỏ khoản thu">Bỏ</button></div></td></tr>
+              <tr><td>Phí dã ngoại mùa thu</td><td><span class="badge neutral">Linh hoạt</span></td><td>Lớp chính thức: Lá 5A, Chồi 3B</td><td>1 lần</td><td class="money">350.000 đ</td><td class="money">46</td><td class="money">16.100.000 đ</td><td><div class="line"><button class="btn btn-secondary" type="button" data-edit-template data-name="Phí dã ngoại mùa thu" data-kind="FLEXIBLE" data-quantity="1" data-scope="class">Sửa</button><button class="btn btn-secondary" type="button" data-confirm-title="Bỏ Phí dã ngoại mùa thu khỏi đợt thu" data-confirm-text="Khoản thu sẽ không có trong hóa đơn nháp của đợt này. Cần xem trước lại sau khi bỏ." data-confirm-label="Bỏ khoản thu">Bỏ</button></div></td></tr>
             </tbody>
           </table>
         </div>
-        <div class="filters"><label class="field">Khoản thu<select><option>Chọn khoản thu</option><option>Phí dã ngoại mùa thu</option></select></label><label class="field">Số lượng<input inputmode="numeric"></label><button class="btn btn-primary" type="button">Lưu khoản thu mẫu</button></div>
+        <p class="muted" id="template-feedback" aria-live="polite"></p>
+      </div>
+      <div class="card">
+        <h2>Lớp ngoại khóa trong đợt</h2>
+        <div class="table-wrap">
+          <table>
+            <caption>Lớp ngoại khóa tính vào đợt thu tháng 11/2026</caption>
+            <thead><tr><th>Lớp ngoại khóa</th><th>Khoản thu</th><th class="money">Số HS trong tháng</th><th class="money">Tạm tính</th><th>Trạng thái trong đợt</th><th>Tùy chọn</th></tr></thead>
+            <tbody>
+              <tr><td><a href="extracurricular-classes.html#class-a1">Tiếng Anh A1 (T2-T4)</a></td><td>Tiếng Anh bản ngữ<br><small class="muted">600.000 đ/tháng</small></td><td class="money">18</td><td class="money">10.800.000 đ</td><td><span class="badge success">Tính trong đợt</span></td><td><button class="btn btn-secondary" type="button" data-confirm-title="Loại Tiếng Anh A1 (T2-T4) khỏi đợt này" data-confirm-text="Thành viên của lớp sẽ không có dòng khoản thu ngoại khóa trong đợt này. Lớp và thành viên không thay đổi; cần xem trước lại." data-confirm-label="Loại khỏi đợt này" data-confirm-reason>Loại khỏi đợt này</button></td></tr>
+              <tr><td>Tiếng Anh A2 (T3-T5)</td><td>Tiếng Anh bản ngữ<br><small class="muted">600.000 đ/tháng</small></td><td class="money">15<br><small class="muted">1 HS chuyển từ A1, tính một lần</small></td><td class="money">8.400.000 đ</td><td><span class="badge success">Tính trong đợt</span></td><td><button class="btn btn-secondary" type="button" data-confirm-title="Loại Tiếng Anh A2 (T3-T5) khỏi đợt này" data-confirm-text="Thành viên của lớp sẽ không có dòng khoản thu ngoại khóa trong đợt này. Lớp và thành viên không thay đổi; cần xem trước lại." data-confirm-label="Loại khỏi đợt này" data-confirm-reason>Loại khỏi đợt này</button></td></tr>
+              <tr><td>Vẽ thiếu nhi</td><td>Năng khiếu vẽ<br><small class="muted">400.000 đ/tháng</small></td><td class="money">12</td><td class="money">4.800.000 đ</td><td><span class="badge success">Tính trong đợt</span></td><td><button class="btn btn-secondary" type="button" data-confirm-title="Loại Vẽ thiếu nhi khỏi đợt này" data-confirm-text="Thành viên của lớp sẽ không có dòng khoản thu ngoại khóa trong đợt này. Lớp và thành viên không thay đổi; cần xem trước lại." data-confirm-label="Loại khỏi đợt này" data-confirm-reason>Loại khỏi đợt này</button></td></tr>
+              <tr><td>Võ thuật</td><td>Võ thuật<br><small class="muted">450.000 đ/tháng</small></td><td class="money">10</td><td class="money">—</td><td><span class="badge neutral">Loại khỏi đợt này</span></td><td><button class="btn btn-secondary" type="button" data-confirm-title="Khôi phục Võ thuật vào đợt này" data-confirm-text="Thành viên có hiệu lực trong tháng sẽ được tính lại khoản thu của lớp; cần xem trước lại." data-confirm-label="Khôi phục" data-confirm-reason>Khôi phục</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" id="extracurricular-feedback" aria-live="polite"></p>
       </div>
       <div class="card">
         <h2>Kết quả xem trước từ máy chủ</h2>
         <p class="muted">Bản xem trước do máy chủ xác định từ danh sách học sinh hợp lệ tại đầu tháng thu.</p>
         <div class="table-wrap">
           <table>
+            <caption>Tạm tính theo dòng khoản thu</caption>
+            <thead><tr><th>Khoản thu</th><th>Loại</th><th>Áp dụng cho</th><th class="money">Số HS</th><th class="money">Tạm tính</th></tr></thead>
+            <tbody>
+              <tr><td>Học phí tháng</td><td>Cố định</td><td>Toàn bộ</td><td class="money">124</td><td class="money">186.000.000 đ</td></tr>
+              <tr><td>Tiền ăn tháng</td><td>Cố định</td><td>Toàn bộ</td><td class="money">124</td><td class="money">95.480.000 đ</td></tr>
+              <tr><td>Phí dã ngoại mùa thu</td><td>Linh hoạt</td><td>Lớp chính thức: Lá 5A, Chồi 3B</td><td class="money">46</td><td class="money">16.100.000 đ</td></tr>
+              <tr><td>Tiếng Anh bản ngữ</td><td>Ngoại khóa</td><td>Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5)</td><td class="money">32<br><small class="muted">1 HS chuyển lớp tính một lần</small></td><td class="money">19.200.000 đ</td></tr>
+              <tr><td>Năng khiếu vẽ</td><td>Ngoại khóa</td><td>Vẽ thiếu nhi</td><td class="money">12</td><td class="money">4.800.000 đ</td></tr>
+              <tr><td><b>Tổng trước ưu đãi, bớt và thuế</b></td><td></td><td></td><td></td><td class="money"><b>321.580.000 đ</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <table>
             <caption>Học sinh đủ điều kiện</caption>
             <thead><tr><th>Học sinh</th><th>Lớp</th><th class="money">Tổng trước giảm</th><th class="money">Ưu đãi</th><th class="money">Bớt</th><th class="money">Thuế GTGT</th><th class="money">Tổng phải thu</th><th>Lý do ưu đãi</th></tr></thead>
             <tbody>
-              <tr><td>AH-104 / Bé Minh Anh</td><td>Mầm 4A</td><td class="money">2.270.000 đ</td><td class="money">150.000 đ</td><td class="money">84.000 đ</td><td class="money">67.500 đ</td><td class="money">2.103.500 đ</td><td>Con cán bộ trường</td></tr>
-              <tr><td>AH-121 / Bé Tuấn Huy</td><td>Chồi 3B</td><td class="money">2.270.000 đ</td><td class="money">0 đ</td><td class="money">0 đ</td><td class="money">75.000 đ</td><td class="money">2.345.000 đ</td><td>Không áp dụng</td></tr>
+              <tr><td>AH-104 / Bé Minh Anh</td><td>Mầm 4A</td><td class="money">2.870.000 đ</td><td class="money">150.000 đ</td><td class="money">84.000 đ</td><td class="money">67.500 đ</td><td class="money">2.703.500 đ</td><td>Con cán bộ trường</td></tr>
+              <tr><td>AH-121 / Bé Tuấn Huy</td><td>Chồi 3B</td><td class="money">2.620.000 đ</td><td class="money">0 đ</td><td class="money">0 đ</td><td class="money">75.000 đ</td><td class="money">2.695.000 đ</td><td>Không áp dụng</td></tr>
             </tbody>
           </table>
         </div>
@@ -77,6 +108,12 @@
         </div>
         <div class="line"><button class="btn btn-secondary" type="button">Xem trước từ máy chủ</button><button class="btn btn-primary" type="button">Xác nhận xem trước và chuyển sẵn sàng</button></div>
       </div>
+      <details class="guide">
+        <summary>Hướng dẫn</summary>
+        <p>Khoản thu cố định được tự thêm khi mở đợt thu và áp dụng cho toàn bộ học sinh; sửa số lượng hoặc bỏ dòng khi đợt còn Nháp. Khoản thu linh hoạt thêm khi cần, kèm phạm vi toàn bộ, lớp chính thức hoặc học sinh cụ thể. Khoản Ngoại khóa không thêm vào khoản thu mẫu.</p>
+        <p>Máy chủ lấy thành viên có hiệu lực ít nhất một ngày trong tháng của mỗi lớp ngoại khóa đang hoạt động. Học sinh chuyển giữa hai lớp cùng khoản thu chỉ tính một dòng; vào/nghỉ giữa tháng được đánh dấu trên hóa đơn nháp để kế toán điều chỉnh. Loại hoặc khôi phục lớp chỉ áp dụng cho đợt này.</p>
+        <p>Đơn giá, số học sinh và tạm tính do máy chủ xác nhận. Mọi thay đổi khoản thu hoặc lớp ngoại khóa sau khi xem trước cần xem trước lại.</p>
+      </details>
     </section>
 
     <section id="run-ready" data-run-view hidden aria-labelledby="run-ready-title">
@@ -145,6 +182,17 @@
       </div>
     </section>
 
+    <dialog id="template-line-dialog" class="dialog-wide"><form method="dialog" class="dialog-body" id="template-line-form"><h2 id="template-line-title">Thêm khoản thu</h2>
+      <div class="dialog-grid">
+        <label class="field">Khoản thu<select id="template-receivable" required aria-describedby="template-receivable-hint"><option value="">Chọn khoản thu linh hoạt</option><option>Đồng phục · 250.000 đ/bộ</option><option>Phí dã ngoại mùa thu · 350.000 đ</option></select><small class="muted" id="template-receivable-hint">Chỉ khoản thu linh hoạt đang áp dụng. Khoản Ngoại khóa thu theo lớp ngoại khóa.</small></label>
+        <label class="field">Số lượng<input id="template-quantity" type="number" min="1" step="1" required inputmode="numeric" value="1"></label>
+        <fieldset class="chip-group full" id="template-scope"><legend>Phạm vi</legend><label><input type="radio" name="scope" value="all"> Toàn bộ</label><label><input type="radio" name="scope" value="class" checked> Lớp chính thức</label><label><input type="radio" name="scope" value="student"> Học sinh cụ thể</label></fieldset>
+        <fieldset class="chip-group full" data-scope-panel="class"><legend>Lớp chính thức</legend><label><input type="checkbox" checked> Lá 5A</label><label><input type="checkbox"> Lá 5B</label><label><input type="checkbox" checked> Chồi 3B</label><label><input type="checkbox"> Mầm 4A</label><label><input type="checkbox"> Mầm 4B</label><label><input type="checkbox"> Chồi 3A</label></fieldset>
+        <div class="field full" data-scope-panel="student" hidden><label for="template-student-search">Học sinh cụ thể</label><input id="template-student-search" type="search" placeholder="Tìm mã hoặc tên học sinh" autocomplete="off"><fieldset class="chip-group" aria-label="Học sinh đã chọn"><label><input type="checkbox" checked> AH-104 · Bé Minh Anh</label><label><input type="checkbox" checked> AH-121 · Bé Tuấn Huy</label></fieldset></div>
+        <small class="muted full" id="template-scope-hint"></small>
+      </div>
+      <div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" type="button" id="save-template-line">Lưu khoản thu mẫu</button></div></form></dialog>
+    <dialog id="confirm-dialog"><form method="dialog" class="dialog-body" id="confirm-form"><h2 id="confirm-title">Xác nhận thao tác</h2><p class="muted" id="confirm-text"></p><label class="field" id="confirm-reason-field" hidden>Lý do (không bắt buộc)<input id="confirm-reason" placeholder="Ví dụ: Lớp nghỉ cả tháng"></label><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" id="confirm-action" value="default">Xác nhận</button></div></form></dialog>
     <dialog id="create-dialog"><form method="dialog" class="dialog-body"><h2>Tạo hoặc mở đợt thu</h2><p class="muted">Mỗi tháng có một đợt thu. Máy chủ tạo mới hoặc mở đúng đợt đã có.</p><label class="field">Năm học<select><option>Năm học 2026-2027</option></select></label><label class="field">Tháng thu<input type="month" value="2026-12"></label><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" value="default">Xác nhận tạo hoặc mở</button></div></form></dialog>
     <dialog id="add-student-dialog"><form method="dialog" class="dialog-body"><h2>Thêm học sinh vào đợt đã tạo</h2><p class="muted">Máy chủ tự xác nhận điều kiện và dùng bản chốt khoản thu của đợt.</p><div class="table-wrap"><table><caption>Học sinh có thể yêu cầu thêm</caption><thead><tr><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody><tr><td>AH-130 / Bé Khánh Linh</td><td><button class="btn btn-secondary" value="default">Yêu cầu thêm</button></td></tr></tbody></table></div><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Đóng</button></div></form></dialog>
   </div></div>
@@ -163,6 +211,26 @@
       document.getElementById('open-create').addEventListener('click', function () { document.getElementById('create-dialog').showModal(); });
       document.querySelectorAll('[data-create-settlement]').forEach(function (button) { button.addEventListener('click', function () { button.disabled = true; document.getElementById('settlement-feedback').textContent = 'Đang tạo hóa đơn quyết toán theo từng tài khoản nhận. Đối soát thao tác trước khi thử lại.'; }); });
       document.getElementById('open-add-student').addEventListener('click', function () { document.getElementById('add-student-dialog').showModal(); });
+      var lineDialog = document.getElementById('template-line-dialog'), receivable = document.getElementById('template-receivable'), quantity = document.getElementById('template-quantity'), scopeHint = document.getElementById('template-scope-hint');
+      function showScope(value) { document.querySelectorAll('input[name="scope"]').forEach(function (radio) { radio.checked = radio.value === value; }); document.querySelectorAll('[data-scope-panel]').forEach(function (panel) { panel.hidden = panel.dataset.scopePanel !== value; }); }
+      document.querySelectorAll('input[name="scope"]').forEach(function (radio) { radio.addEventListener('change', function () { showScope(radio.value); }); });
+      function openLine(button) {
+        var fixed = button && button.dataset.kind === 'FIXED';
+        document.getElementById('template-line-title').textContent = button ? 'Sửa · ' + button.dataset.name : 'Thêm khoản thu';
+        receivable.innerHTML = button ? '<option selected>' + button.dataset.name + '</option>' : '<option value="">Chọn khoản thu linh hoạt</option><option>Đồng phục · 250.000 đ/bộ</option><option>Phí dã ngoại mùa thu · 350.000 đ</option>';
+        receivable.disabled = !!button;
+        quantity.value = button ? button.dataset.quantity : '1';
+        showScope(button ? button.dataset.scope : 'class');
+        document.querySelectorAll('#template-scope input').forEach(function (radio) { radio.disabled = fixed; });
+        scopeHint.textContent = fixed ? 'Khoản thu cố định luôn áp dụng cho toàn bộ học sinh.' : '';
+        lineDialog.showModal();
+      }
+      document.getElementById('open-template-line').addEventListener('click', function () { openLine(null); });
+      document.querySelectorAll('[data-edit-template]').forEach(function (button) { button.addEventListener('click', function () { openLine(button); }); });
+      document.getElementById('save-template-line').addEventListener('click', function () { if (!document.getElementById('template-line-form').reportValidity()) return; lineDialog.close(); document.getElementById('template-feedback').textContent = 'Đang gửi khoản thu mẫu để máy chủ tính lại số học sinh và tạm tính. Xem trước lại sau khi có kết quả; đối soát thao tác trước khi thử lại.'; });
+      var confirmDialog = document.getElementById('confirm-dialog'), pending;
+      document.querySelectorAll('[data-confirm-title]').forEach(function (button) { button.addEventListener('click', function () { pending = button; document.getElementById('confirm-title').textContent = button.dataset.confirmTitle; document.getElementById('confirm-text').textContent = button.dataset.confirmText; document.getElementById('confirm-action').textContent = button.dataset.confirmLabel; document.getElementById('confirm-reason-field').hidden = !button.hasAttribute('data-confirm-reason'); document.getElementById('confirm-reason').value = ''; confirmDialog.showModal(); }); });
+      document.getElementById('confirm-action').addEventListener('click', function (event) { event.preventDefault(); confirmDialog.close(); pending.disabled = true; var target = pending.hasAttribute('data-confirm-reason') ? 'extracurricular-feedback' : 'template-feedback'; document.getElementById(target).textContent = 'Đang gửi lựa chọn để máy chủ cập nhật đợt thu. Xem trước lại sau khi có kết quả; đối soát thao tác trước khi thử lại.'; });
     });
   </script>
 </body>
