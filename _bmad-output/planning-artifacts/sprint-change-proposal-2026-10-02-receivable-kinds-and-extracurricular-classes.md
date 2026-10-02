@@ -80,6 +80,13 @@ ExtracurricularMembership
 - **Thêm Student sau GENERATED:** Invoice DRAFT của Student đó áp dụng đủ ba loại theo snapshot của run: mọi dòng cố định; dòng linh hoạt khi Student thuộc phạm vi đã snapshot (Toàn bộ, lớp chính thức hiệu lực ngày đầu tháng, hoặc Student cụ thể); dòng ngoại khóa từ membership hiệu lực ít nhất một ngày trong tháng của các lớp ngoại khóa không bị loại khỏi run, đọc tại thời điểm thêm và snapshot vào Invoice.
 - **Template rỗng:** không chặn generate chỉ vì template rỗng. Student eligible + selected không có dòng nào (sau khi áp dụng template, phạm vi và ngoại khóa) bị skip với lý do `NO_APPLICABLE_LINES`; generate chỉ bị từ chối khi không Student nào có dòng.
 
+### 3.5 Sửa khoản thu (bổ sung 2026-10-02)
+
+- Finance sửa trực tiếp **tên, đơn vị tính, đơn giá mặc định** của Receivable; bắt buộc lý do, audit before/after, Operation/idempotency. Không có phiên bản giá theo ngày hiệu lực.
+- InvoiceLine đã tạo giữ snapshot tên/đơn vị/giá; sửa catalog không rewrite Invoice DRAFT/ISSUED.
+- Giá mới áp dụng cho dòng tạo sau đó và cho CollectionRun còn DRAFT (preview stale, phải xem trước lại); run READY trở đi dùng snapshot đã chốt.
+- Đơn giá mặc định phải `>=` giá hoàn trả hiện tại (amendment A1 2026-10-01). Đổi nhóm/loại vẫn theo §3.1.
+
 ## 4. Impact analysis
 
 | Area | Impact |
@@ -105,6 +112,8 @@ ExtracurricularMembership
 ## 6. Stories
 
 ### Story 5.33: Ba loại khoản thu cố định
+
+- Given Receivable bất kỳ, when Finance sửa tên/đơn vị/đơn giá kèm lý do, then API lưu với audit before/after; Invoice đã tạo không đổi; run DRAFT có preview stale; đơn giá nhỏ hơn giá hoàn trả bị từ chối.
 
 - Given mọi School, when migration và provisioning chạy, then mỗi School có đúng ba ReceivableGroup typed với tên cố định; Receivable cũ được map như mục 3.1 kèm audit.
 - Given request tạo, đổi tên hoặc ngừng nhóm, then API từ chối; UI catalog không còn thao tác nhóm.

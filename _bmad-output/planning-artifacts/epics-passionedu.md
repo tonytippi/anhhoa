@@ -453,6 +453,11 @@ Source: sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-c
 **When** Finance changes its kind
 **Then** the API refuses it.
 
+**Given** any Receivable
+**When** Finance edits its name, unit label or default unit price with a reason
+**Then** the API stores it with before/after audit and Operation idempotency, issued and generated Invoice lines keep their snapshot, a `DRAFT` run preview becomes stale
+**And** a default unit price below the current refund unit price is refused.
+
 ### Story 5.34: Lớp ngoại khóa và thành viên
 
 As a Finance Manager,
