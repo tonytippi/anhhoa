@@ -29,7 +29,7 @@ describe("ReceiptQueueWorkspace", () => {
       return Promise.resolve(response({ ...queue, invoices: [refundRow] }));
     });
     vi.stubGlobal("fetch", fetch); render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await screen.findByText("Hoàn 448.000 VND");
+    await screen.findByText("Hoàn 448.000 đ");
     expect(screen.getByText("Chờ chi hoàn")).toBeTruthy();
     await waitFor(() => {
       if (!screen.queryByRole("menuitem", { name: "Ghi nhận đã chi" })) fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
@@ -37,7 +37,7 @@ describe("ReceiptQueueWorkspace", () => {
     });
     fireEvent.click(screen.getByRole("menuitem", { name: "Ghi nhận đã chi" }));
     const dialog = await screen.findByRole("dialog", { name: "Ghi nhận đã chi cho Bé An" });
-    expect(dialog.textContent).toContain("Số tiền phải chi do hệ thống xác nhận: 448.000 VND.");
+    expect(dialog.textContent).toContain("Số tiền phải chi do hệ thống xác nhận: 448.000 đ.");
     expect((within(dialog).getByRole("button", { name: "Xác nhận đã chi" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(within(dialog).getByLabelText("Ngày chi"), { target: { value: "2026-09-12" } });
     fireEvent.change(within(dialog).getByLabelText("Hình thức"), { target: { value: "CASH" } });
@@ -64,11 +64,11 @@ describe("ReceiptQueueWorkspace", () => {
     const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
-    expect(screen.getByText("Thực nhận: 120.000 VND.")).toBeTruthy();
+    expect(screen.getByText("Thực nhận: 120.000 đ.")).toBeTruthy();
     expect(screen.getByText("Kết quả máy chủ: Đủ.")).toBeTruthy();
-    expect(screen.getByText("Chênh lệch: 0 VND.")).toBeTruthy();
+    expect(screen.getByText("Chênh lệch: 0 đ.")).toBeTruthy();
     expect(screen.getByText("Trạng thái chuyển kỳ: Máy chủ chưa tạo khoản chuyển kỳ cho hóa đơn này.")).toBeTruthy();
-    expect(screen.getByText("Coverage kỳ 2026-10 đã phát hành.")).toBeTruthy();
+    expect(screen.getByText("Ưu đãi nộp trước kỳ 10/2026 đã phát hành.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Hóa đơn tiếp theo" })).toBeNull();
     await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).includes("receipt-queue?")).length).toBeGreaterThan(1));
   });
@@ -91,7 +91,7 @@ describe("ReceiptQueueWorkspace", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByText("Số thực nhận không hợp lệ.");
     expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(within(dialog).getByLabelText("Số thực nhận (VND)")).toHaveProperty("disabled", false);
+    expect(within(dialog).getByLabelText("Số thực nhận (đ)")).toHaveProperty("disabled", false);
     expect(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" })).toHaveProperty("disabled", false);
     expect(sessionStorage.getItem("passionedu.app.pending-receipt-queue-operation")).toBeNull();
     expect(fetch.mock.calls.some(([url]) => String(url).includes("/operations/"))).toBe(false);

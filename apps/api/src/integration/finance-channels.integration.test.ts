@@ -100,6 +100,13 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     const { runId, preview } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: english, quantity: "1" }, { receivableId: meals, quantity: "22" }]);
     // 3.150.000 * 5% = 157.500; 333.333 * 8% = 26.666,64 -> 26.667; meals untaxed.
     expect(preview.summary.expectedTotal).toBe(String(3150000 + 157500 + 333333 + 26667 + 770000));
+    // Every preview aggregate reconciles: gross − discount − deduction + VAT = total, all server-derived.
+    const reconciles = (row: any, total: string) => expect(BigInt(row.grossAmount ?? row.subtotal) - BigInt(row.discountAmount) - BigInt(row.deductionAmount) + BigInt(row.vatAmount)).toBe(BigInt(total));
+    expect(preview.summary).toMatchObject({ grossAmount: String(3500000 + 333333 + 770000), discountAmount: "350000", deductionAmount: "0", vatAmount: String(157500 + 26667) });
+    reconciles(preview.summary, preview.summary.expectedTotal);
+    expect(preview.lineSummaries.find((line: any) => line.receivableId === tuition)).toMatchObject({ subtotal: "3500000", discountAmount: "350000", deductionAmount: "0", vatAmount: "157500", totalAmount: "3307500" });
+    for (const line of preview.lineSummaries) reconciles(line, line.totalAmount);
+    expect(preview.lineSummaries.reduce((total: bigint, line: any) => total + BigInt(line.totalAmount), 0n)).toBe(BigInt(preview.summary.expectedTotal));
     const invoices = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: runId }, include: { lines: true }, orderBy: { channel: "asc" } });
     expect(invoices.map((invoice) => [invoice.channel, invoice.total])).toEqual([["SCHOOL", 3150000n + 157500n + 333333n + 26667n], ["PERSONAL", 770000n]]);
     expect(invoices[0]!.lines.find((line) => line.receivableId === tuition)).toMatchObject({ grossAmount: 3500000n, discountAmount: 350000n, netAmount: 3150000n, taxCategorySnapshot: "VAT_5", vatRateSnapshot: 5, vatAmount: 157500n, amount: 3307500n });

@@ -1997,7 +1997,8 @@ export class FinanceService {
     return [...byReceivable.values()].sort((a, b) => a.receivable.name.localeCompare(b.receivable.name, "vi")).map((entry) => {
       const lines = eligible.map((row) => (row.lines ?? []).find((line: any) => line.kind === "EXTRACURRICULAR" && line.receivableId === entry.receivableId)).filter(Boolean);
       const changed = lines.filter((line: any) => line.extracurricular.flags.includes("CLASS_CHANGE")).length;
-      return { templateLineId: null, receivableId: entry.receivableId, receivableName: entry.receivable.name, kind: "EXTRACURRICULAR", scope: { type: "CLASSES", label: entry.classes.sort((a: string, b: string) => a.localeCompare(b, "vi")).join(", ") }, studentCount: lines.length, subtotal: lines.reduce((total: bigint, line: any) => total + BigInt(line.grossAmount ?? line.amount ?? 0), 0n).toString(), ...(changed ? { note: `${changed} HS chuyển lớp tính một lần` } : {}) };
+      const totals = this.previewTotals(lines);
+      return { templateLineId: null, receivableId: entry.receivableId, receivableName: entry.receivable.name, kind: "EXTRACURRICULAR", scope: { type: "CLASSES", label: entry.classes.sort((a: string, b: string) => a.localeCompare(b, "vi")).join(", ") }, studentCount: lines.length, subtotal: totals.grossAmount, discountAmount: totals.discountAmount, deductionAmount: totals.deductionAmount, vatAmount: totals.vatAmount, totalAmount: totals.amount, ...(changed ? { note: `${changed} HS chuyển lớp tính một lần` } : {}) };
     });
   }
   // Per class: members effective in the month are counted by the list; here, the eligible Students billed through the class and the server subtotal.
@@ -2013,17 +2014,30 @@ export class FinanceService {
   private previewLineSummaries(templateLines: any[], eligible: any[]) {
     return templateLines.map((line) => {
       const rows = eligible.map((row) => (row.lines ?? []).find((candidate: any) => candidate.templateLineId === line.templateLineId)).filter(Boolean);
-      return { templateLineId: line.templateLineId, receivableId: line.receivableId, receivableName: line.receivableName, kind: line.kind, scope: { type: line.scope.type, label: line.scope.label }, studentCount: rows.length, subtotal: rows.reduce((total: bigint, item: any) => total + BigInt(item.grossAmount ?? item.amount ?? 0), 0n).toString() };
+      const totals = this.previewTotals(rows);
+      return { templateLineId: line.templateLineId, receivableId: line.receivableId, receivableName: line.receivableName, kind: line.kind, scope: { type: line.scope.type, label: line.scope.label }, studentCount: rows.length, subtotal: totals.grossAmount, discountAmount: totals.discountAmount, deductionAmount: totals.deductionAmount, vatAmount: totals.vatAmount, totalAmount: totals.amount };
     });
   }
+  private previewTotals(lines: any[]) {
+    return lines.reduce((totals: { grossAmount: string; discountAmount: string; deductionAmount: string; vatAmount: string; amount: string }, line: any) => ({
+      grossAmount: (BigInt(totals.grossAmount) + BigInt(line.grossAmount ?? line.amount ?? 0)).toString(),
+      discountAmount: (BigInt(totals.discountAmount) + BigInt(line.discountAmount ?? 0)).toString(),
+      deductionAmount: (BigInt(totals.deductionAmount) + BigInt(line.deductionAmount ?? 0)).toString(),
+      vatAmount: (BigInt(totals.vatAmount) + BigInt(line.vatAmount ?? 0)).toString(),
+      amount: (BigInt(totals.amount) + BigInt(line.amount ?? line.netAmount ?? 0)).toString(),
+    }), { grossAmount: "0", discountAmount: "0", deductionAmount: "0", vatAmount: "0", amount: "0" });
+  }
   private previewSummary(preview: { eligible: any[]; skips: any[] }) {
+    const totals = this.previewTotals(preview.eligible.flatMap((row) => row.lines ?? []));
     return {
       eligibleCount: preview.eligible.length,
       skippedCount: preview.skips.length,
-      expectedTotal: preview.eligible
-        .flatMap((row) => row.lines ?? [])
-        .reduce((total: bigint, line: any) => total + BigInt(line.amount ?? line.netAmount), 0n)
-        .toString(),
+      expectedTotal: totals.amount,
+      grossAmount: totals.grossAmount,
+      discountAmount: totals.discountAmount,
+      deductionAmount: totals.deductionAmount,
+      vatAmount: totals.vatAmount,
+      netAmount: (BigInt(totals.grossAmount) - BigInt(totals.discountAmount) - BigInt(totals.deductionAmount)).toString(),
     };
   }
   // Scope facts are canonical (sorted by id) so they can sit inside the preview fingerprint and the generation snapshot.
