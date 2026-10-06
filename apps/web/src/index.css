@@ -18,6 +18,20 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+button,
+[role="button"],
+[role="menuitem"],
+[role="option"],
+[role="tab"],
+summary {
+  cursor: pointer;
+  user-select: none;
+}
+button:disabled,
+[aria-disabled="true"],
+[data-disabled] {
+  cursor: not-allowed;
+}
 :focus-visible {
   outline: 3px solid #277e48;
   outline-offset: 3px;
