@@ -945,12 +945,14 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const retype = (target: () => Promise<unknown>) => prisma.$transaction(async (tx) => { await tx.collectionRunTemplateLine.update({ where: { id: tripLine.id }, data: { scopeType: "CLASSES" } }); await target(); });
       await expect(retype(() => prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: f.current.school.id, schoolYearId: otherYear.id, templateLineId: tripLine.id, classId: otherClass.id } }))).rejects.toThrow();
       await expect(retype(() => prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: f.current.school.id, schoolYearId: f.current.year.id, templateLineId: tripLine.id, classId: foreignClass } }))).rejects.toThrow();
-      // Picker aid: ACTIVE official Classes of the run's year and a bounded Student search; never another School's data.
+      // Picker aid: ACTIVE official Classes of the run's year, Student search and class filter; never another School's data.
       const options = await finance.runScopeOptions(f.current.identity.id, f.current.school.id, runId, {});
       expect(options.classes.map((item) => item.id).sort()).toEqual([f.classA.id, f.classB.id].sort());
       expect(options.students.map((item) => item.id)).toContain(mine);
       expect(options.students.map((item) => item.id)).not.toContain(otherStudent.id);
       expect((await finance.runScopeOptions(f.current.identity.id, f.current.school.id, runId, { q: "zzz-no-match" })).students).toEqual([]);
+      expect((await finance.runScopeOptions(f.current.identity.id, f.current.school.id, runId, { officialClassId: f.current.activeClass.id })).students.map((item) => item.id)).toContain(mine);
+      expect((await finance.runScopeOptions(f.current.identity.id, f.current.school.id, runId, { officialClassId: f.current.archivedClass.id })).students.map((item) => item.id)).not.toContain(mine);
       await expect(finance.runScopeOptions(foreign.identity.id, foreign.school.id, runId, {})).rejects.toMatchObject({ status: 404, response: { code: "COLLECTION_RUN_NOT_FOUND" } });
       // Foreign actor cannot see or edit this run.
       await expect(finance.saveTemplateLine(foreign.identity.id, foreign.school.id, runId, uuid(), uuid(), { receivableId: f.trip, quantity: "1", expectedVersion: 1 })).rejects.toMatchObject({ status: 404 });

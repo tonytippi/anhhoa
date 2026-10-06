@@ -2026,18 +2026,26 @@ describe("FinanceWorkspace", () => {
       const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
       fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "uniform" } });
       fireEvent.click(within(dialog).getByRole("radio", { name: "Học sinh cụ thể" }));
-      fireEvent.change(within(dialog).getByRole("searchbox", { name: "Học sinh cụ thể" }), { target: { value: "huy" } });
+      fireEvent.click(await within(dialog).findByRole("checkbox", { name: "Chọn Bé Minh Anh" }));
+      fireEvent.change(within(dialog).getByRole("searchbox", { name: "Tìm học sinh" }), { target: { value: "huy" } });
       await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("/scope-options?q=huy"))).toBe(true));
-      const results = await within(dialog).findByRole("group", { name: "Kết quả tìm học sinh" });
-      fireEvent.click(await within(results).findByRole("checkbox", { name: "AH-121 · Bé Tuấn Huy" }));
-      expect(within(within(dialog).getByRole("group", { name: "Học sinh đã chọn" })).getByRole("checkbox", { name: "AH-121 · Bé Tuấn Huy" })).toHaveProperty("checked", true);
+      await waitFor(() => expect(within(dialog).queryByRole("checkbox", { name: "Chọn Bé Minh Anh" })).toBeNull());
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "Chọn tất cả học sinh đang hiện" }));
+      expect(within(dialog).getByRole("checkbox", { name: "Chọn Bé Tuấn Huy" })).toHaveProperty("checked", true);
+      // The selection survives filters: the Student picked before the search still counts.
+      expect(within(dialog).getByText("Đã chọn 2 học sinh.")).toBeTruthy();
+      fireEvent.change(within(dialog).getByRole("combobox", { name: "Lớp chính thức" }), { target: { value: "c2" } });
+      await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("/scope-options?q=huy&officialClassId=c2"))).toBe(true));
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "Chọn Bé Tuấn Huy" }));
+      expect(within(dialog).getByText("Đã chọn 1 học sinh.")).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "Chọn Bé Tuấn Huy" }));
       fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
       expect(await within(dialog).findByText("Học sinh phải thuộc năm học của đợt thu.")).toBeTruthy();
       expect(screen.getByRole("dialog", { name: "Thêm khoản thu" })).toBeTruthy();
       refuse = false;
       fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-      expect(JSON.parse(String((puts(fetch)[1]![1] as RequestInit).body))).toMatchObject({ receivableId: "uniform", scope: { type: "STUDENTS", studentIds: ["s2"] } });
+      expect(JSON.parse(String((puts(fetch)[1]![1] as RequestInit).body))).toMatchObject({ receivableId: "uniform", scope: { type: "STUDENTS", studentIds: ["s1", "s2"] } });
     });
 
     it("opens the edit modal prefilled with the receivable locked, and locks a FIXED line's scope to Toàn bộ", async () => {
@@ -2076,17 +2084,17 @@ describe("FinanceWorkspace", () => {
       fireEvent.click(screen.getByRole("button", { name: "Thêm khoản thu" }));
       let dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
       fireEvent.click(within(dialog).getByRole("radio", { name: "Học sinh cụ thể" }));
-      fireEvent.change(within(dialog).getByRole("searchbox", { name: "Học sinh cụ thể" }), { target: { value: "a" } });
-      fireEvent.change(within(dialog).getByRole("searchbox", { name: "Học sinh cụ thể" }), { target: { value: "ab" } });
+      fireEvent.change(within(dialog).getByRole("searchbox", { name: "Tìm học sinh" }), { target: { value: "a" } });
+      fireEvent.change(within(dialog).getByRole("searchbox", { name: "Tìm học sinh" }), { target: { value: "ab" } });
       await waitFor(() => expect(pending).toHaveLength(3));
       pending[2]!.resolve(optionsWith("Mới nhất"));
-      await within(dialog).findByRole("checkbox", { name: "AH-1 · Mới nhất" });
+      await within(dialog).findByRole("checkbox", { name: "Chọn Mới nhất" });
       pending[1]!.resolve(optionsWith("Cũ chậm"));
       pending[0]!.resolve(optionsWith("Đầu tiên"));
       await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(within(dialog).queryByRole("checkbox", { name: "AH-1 · Cũ chậm" })).toBeNull();
-      expect(within(dialog).queryByRole("checkbox", { name: "AH-1 · Đầu tiên" })).toBeNull();
-      expect(within(dialog).getByRole("checkbox", { name: "AH-1 · Mới nhất" })).toBeTruthy();
+      expect(within(dialog).queryByRole("checkbox", { name: "Chọn Cũ chậm" })).toBeNull();
+      expect(within(dialog).queryByRole("checkbox", { name: "Chọn Đầu tiên" })).toBeNull();
+      expect(within(dialog).getByRole("checkbox", { name: "Chọn Mới nhất" })).toBeTruthy();
       // Closing the dialog drops what is in flight; a reopened dialog starts clean and only trusts its own request.
       fireEvent.click(within(dialog).getByRole("button", { name: "Hủy" }));
       expect(screen.queryByRole("dialog")).toBeNull();

@@ -600,6 +600,24 @@ Source: sprint-change-proposal-2026-10-06-promotion-assignment-picker.
 
 **And** the assign command still validates the whole list server-side and saves all or nothing.
 
+### Story 5.40: Bộ chọn học sinh cho phạm vi khoản thu trong đợt thu
+
+As a Finance user,
+I want to find and pick Students by class or name when a collection-run receivable applies to specific Students,
+So that I can scope a flexible receivable to a few Students without scanning a wall of chips.
+
+Source: sprint-change-proposal-2026-10-06-run-template-student-picker.
+
+**Acceptance Criteria:**
+
+**Given** the `Thêm khoản thu` or `Sửa` dialog of a DRAFT collection run with scope `Học sinh cụ thể`
+**When** Finance filters by official class or searches by code/name
+**Then** the server returns every enrolled Student of the run's School year matching the filter, ordered by class then natural Student code.
+
+**And** select-all selects only visible Students; the selection survives filter changes and shows `Đã chọn N học sinh`.
+
+**And** saving the template line still validates the Students server-side.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

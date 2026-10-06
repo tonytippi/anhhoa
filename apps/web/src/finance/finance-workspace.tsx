@@ -218,6 +218,7 @@ type TemplateDialog = {
   classIds: string[];
   students: Array<{ id: string; label: string }>;
   search: string;
+  officialClassId: string;
 };
 type Run = {
   id: string;
@@ -1468,14 +1469,17 @@ export function FinanceWorkspace({
     }
   };
   const templateBase = () => `/api/app/schools/${schoolId}/finance/collection-runs/${run!.id}`;
-  const fetchScopeOptions = (query: string) => {
+  const fetchScopeOptions = (query: string, officialClassId = "") => {
     if (!run) return;
     const scopeSchool = schoolId,
       scopeRun = run.id,
       instance = scopeRequest.current.instance,
       token = ++scopeRequest.current.token;
     void get<ScopeOptions>(
-      `/api/app/schools/${scopeSchool}/finance/collection-runs/${scopeRun}/scope-options${query ? `?q=${encodeURIComponent(query)}` : ""}`,
+      `/api/app/schools/${scopeSchool}/finance/collection-runs/${scopeRun}/scope-options${(() => {
+        const params = new URLSearchParams({ ...(query ? { q: query } : {}), ...(officialClassId ? { officialClassId } : {}) });
+        return params.toString() ? `?${params}` : "";
+      })()}`,
     )
       .then((options) => {
         if (
@@ -1509,6 +1513,7 @@ export function FinanceWorkspace({
               label: `${item.studentCode} · ${item.fullName}`,
             })),
             search: "",
+            officialClassId: "",
           }
         : {
             receivableId: "",
@@ -1519,6 +1524,7 @@ export function FinanceWorkspace({
             classIds: [],
             students: [],
             search: "",
+            officialClassId: "",
           },
     );
     fetchScopeOptions("");
@@ -1528,9 +1534,9 @@ export function FinanceWorkspace({
       () => setTemplateDialog(undefined),
       () => {},
     );
-  const searchScopeStudents = (search: string) => {
-    setTemplateDialog((current) => current && { ...current, search });
-    fetchScopeOptions(search);
+  const filterScopeStudents = (filter: { search: string; officialClassId: string }) => {
+    setTemplateDialog((current) => current && { ...current, ...filter });
+    fetchScopeOptions(filter.search, filter.officialClassId);
   };
   const saveTemplate = async (event: FormEvent) => {
     event.preventDefault();
@@ -5077,57 +5083,125 @@ export function FinanceWorkspace({
                   </fieldset>
                 )}
                 {templateDialog.scopeType === "STUDENTS" && templateDialog.kind !== "FIXED" && (
-                  <div className="full">
+                  <>
                     <label>
-                      Học sinh cụ thể
+                      Lớp chính thức
+                      <select
+                        value={templateDialog.officialClassId}
+                        onChange={(event) =>
+                          filterScopeStudents({ search: templateDialog.search, officialClassId: event.target.value })
+                        }
+                      >
+                        <option value="">Tất cả lớp</option>
+                        {scopeOptions?.classes.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Tìm học sinh
                       <input
                         type="search"
-                        placeholder="Tìm mã hoặc tên học sinh"
+                        placeholder="Mã hoặc tên học sinh"
                         autoComplete="off"
                         value={templateDialog.search}
-                        onChange={(event) => void searchScopeStudents(event.target.value)}
+                        onChange={(event) =>
+                          filterScopeStudents({
+                            search: event.target.value,
+                            officialClassId: templateDialog.officialClassId,
+                          })
+                        }
                       />
                     </label>
-                    <fieldset className="chip-group" aria-label="Học sinh đã chọn">
-                      {templateDialog.students.map((item) => (
-                        <label key={item.id}>
-                          <input
-                            type="checkbox"
-                            checked
-                            onChange={() =>
-                              setTemplateDialog({
-                                ...templateDialog,
-                                students: templateDialog.students.filter((student) => student.id !== item.id),
-                              })
-                            }
-                          />
-                          {item.label}
-                        </label>
-                      ))}
-                    </fieldset>
-                    <fieldset className="chip-group" aria-label="Kết quả tìm học sinh">
-                      {(scopeOptions?.students ?? [])
-                        .filter((item) => !templateDialog.students.some((student) => student.id === item.id))
-                        .map((item) => (
-                          <label key={item.id}>
-                            <input
-                              type="checkbox"
-                              checked={false}
-                              onChange={() =>
-                                setTemplateDialog({
-                                  ...templateDialog,
-                                  students: [
-                                    ...templateDialog.students,
-                                    { id: item.id, label: `${item.studentCode} · ${item.fullName}` },
-                                  ],
-                                })
-                              }
-                            />
-                            {item.studentCode} · {item.fullName}
-                          </label>
-                        ))}
-                    </fieldset>
-                  </div>
+                    <div className="full table-scroll picker-scroll">
+                      <table>
+                        <caption>Học sinh</caption>
+                        <thead>
+                          <tr>
+                            <th>
+                              <input
+                                type="checkbox"
+                                aria-label="Chọn tất cả học sinh đang hiện"
+                                checked={
+                                  Boolean(scopeOptions?.students.length) &&
+                                  (scopeOptions?.students ?? []).every((item) =>
+                                    templateDialog.students.some((student) => student.id === item.id),
+                                  )
+                                }
+                                onChange={(event) => {
+                                  const visible = scopeOptions?.students ?? [];
+                                  const kept = templateDialog.students.filter(
+                                    (student) => !visible.some((item) => item.id === student.id),
+                                  );
+                                  setTemplateDialog({
+                                    ...templateDialog,
+                                    students: event.target.checked
+                                      ? [
+                                          ...kept,
+                                          ...visible.map((item) => ({
+                                            id: item.id,
+                                            label: `${item.studentCode} · ${item.fullName}`,
+                                          })),
+                                        ]
+                                      : kept,
+                                  });
+                                }}
+                              />
+                            </th>
+                            <th>Mã HS</th>
+                            <th>Họ tên</th>
+                            <th>Lớp chính thức</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {!scopeOptions ? (
+                            <tr>
+                              <td colSpan={4}>Đang tải học sinh.</td>
+                            </tr>
+                          ) : scopeOptions.students.length ? (
+                            scopeOptions.students.map((item) => (
+                              <tr key={item.id}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Chọn ${item.fullName}`}
+                                    checked={templateDialog.students.some((student) => student.id === item.id)}
+                                    onChange={(event) =>
+                                      setTemplateDialog({
+                                        ...templateDialog,
+                                        students: event.target.checked
+                                          ? [
+                                              ...templateDialog.students,
+                                              { id: item.id, label: `${item.studentCode} · ${item.fullName}` },
+                                            ]
+                                          : templateDialog.students.filter((student) => student.id !== item.id),
+                                      })
+                                    }
+                                  />
+                                </td>
+                                <td>{item.studentCode}</td>
+                                <td>
+                                  <b>{item.fullName}</b>
+                                </td>
+                                <td>{item.className ?? "—"}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={4}>Không có học sinh phù hợp.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="muted full" aria-live="polite">
+                      {templateDialog.students.length
+                        ? `Đã chọn ${templateDialog.students.length} học sinh.`
+                        : "Chưa chọn học sinh nào."}
+                    </p>
+                  </>
                 )}
                 {errors.scope && (
                   <small className="full" role="alert">

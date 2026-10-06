@@ -2050,6 +2050,8 @@ export class FinanceService {
     });
   }
   // Picker aid for template scopes: the run's ACTIVE official Classes and a bounded Student search among ENROLLED Students of its SchoolYear.
+  // Decision 2026-10-06: the template scope picker lists every enrolled Student of the run's School year (official class, search),
+  // ordered by class then natural Student code; saving the template line still re-checks the Students.
   async runScopeOptions(identityId: string, schoolId: string, runId: string, query: any) {
     schoolId = this.school(schoolId);
     await this.actor(identityId, schoolId);
@@ -2057,11 +2059,18 @@ export class FinanceService {
     const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId }, select: { schoolYearId: true } });
     if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
     const search = typeof query?.q === "string" ? query.q.trim().slice(0, 100) : "";
+    const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
+    const natural = (left: string | null, right: string | null) => (left ?? "\uffff").localeCompare(right ?? "\uffff", "vi", { numeric: true, sensitivity: "base" });
     const [classes, enrollments] = await Promise.all([
-      this.prisma.class.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-      this.prisma.studentEnrollment.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, lifecycle: "ENROLLED", ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) }, include: { student: { select: { id: true, studentCode: true, fullName: true } } }, orderBy: [{ student: { studentCode: "asc" } }], take: 30 }),
+      this.prisma.class.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ACTIVE" }, select: { id: true, name: true } }),
+      this.prisma.studentEnrollment.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, lifecycle: "ENROLLED", ...(officialClassId ? { classId: officialClassId } : {}), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) }, include: { student: { select: { id: true, studentCode: true, fullName: true } } } }),
     ]);
-    return { classes, students: enrollments.map((item) => ({ id: item.student.id, studentCode: item.student.studentCode, fullName: item.student.fullName, className: item.className })) };
+    return {
+      classes: classes.sort((left, right) => natural(left.name, right.name)),
+      students: enrollments
+        .map((item) => ({ id: item.student.id, studentCode: item.student.studentCode, fullName: item.student.fullName, className: item.className }))
+        .sort((left, right) => natural(left.className, right.className) || natural(left.studentCode, right.studentCode)),
+    };
   }
   // Preview rows for extracurricular receivables: one merged row per receivable listing its billable classes.
   private previewExtracurricularSummaries(resolution: { classes: any[] }, eligible: any[]) {
