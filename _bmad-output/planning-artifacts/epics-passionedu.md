@@ -582,6 +582,24 @@ Source: sprint-change-proposal-2026-10-06-unified-receivable-edit.
 
 **And** a refusal (locked kind, refund above price, no change, missing reason) saves no field and keeps the entered values in the dialog.
 
+### Story 5.39: Bộ chọn học sinh khi gán ưu đãi
+
+As a Finance user,
+I want to find and pick Students by class or name when assigning a promotion,
+So that I can assign a whole class or a few Students without scanning every Student of the School.
+
+Source: sprint-change-proposal-2026-10-06-promotion-assignment-picker.
+
+**Acceptance Criteria:**
+
+**Given** the `Gán ưu đãi cho học sinh` dialog for an ACTIVE version
+**When** Finance filters by official class or searches by code/name
+**Then** the server returns only enrolled Students of the start date's School year, ordered by class then natural Student code, with `assigned` set for overlapping assignments of the same policy.
+
+**And** select-all selects only visible, unassigned Students; the selection survives filter changes; assigned Students cannot be selected.
+
+**And** the assign command still validates the whole list server-side and saves all or nothing.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

@@ -145,6 +145,11 @@ type Year = {
   closedAt: string | null;
 };
 type Candidate = { id: string; studentCode: string; fullName: string };
+type PromotionCandidates = {
+  schoolYear: { id: string; name: string } | null;
+  officialClasses: Array<{ id: string | null; name: string }>;
+  students: Array<Candidate & { officialClassName: string | null; assigned: boolean }>;
+};
 type Candidates = { schoolYears: Year[]; students: Candidate[] };
 // Decision 2026-10-02 §3.2: a template line has a typed kind and a scope; counts and subtotals only come from the server preview.
 type TemplateScope = {
@@ -695,11 +700,10 @@ export function FinanceWorkspace({
 }) {
   void schoolName;
   const [catalog, setCatalog] = useState<Catalog>();
-  const [promotionData, setPromotionData] = useState({
-    schoolId,
-    policies: [] as PromotionPolicy[],
-    students: [] as Candidate[],
-  });
+  const [promotionData, setPromotionData] = useState({ schoolId, policies: [] as PromotionPolicy[] });
+  const [assignmentFilter, setAssignmentFilter] = useState({ q: "", officialClassId: "" });
+  const [assignmentCandidates, setAssignmentCandidates] = useState<PromotionCandidates>();
+  const assignmentCandidatesRequest = useRef(0);
   const [promotion, setPromotion] = useState(defaultPromotion);
   const [assignment, setAssignment] = useState({
     versionId: "",
@@ -844,7 +848,6 @@ export function FinanceWorkspace({
   const invoiceRequest = useRef(0);
   const reconciliationTimer = useRef<number | undefined>(undefined);
   const promotionPolicies = promotionData.schoolId === schoolId ? promotionData.policies : [];
-  const promotionStudents = promotionData.schoolId === schoolId ? promotionData.students : [];
   const activeAssignment = (item: PromotionPolicy["versions"][number]["assignments"][number]) => item.isCurrent;
   const promotionVersions = promotionPolicies.flatMap((policy) =>
     (policy.versions ?? []).map((version) => ({ policy, version })),
@@ -887,16 +890,11 @@ export function FinanceWorkspace({
     setCatalog(nextCatalog);
     if (activePage.current === "receivables") return;
     if (activePage.current === "promotions") {
-      const [nextPolicies, nextPromotionStudents] = await Promise.all([
-        get<{ policies: PromotionPolicy[] }>(`/api/app/schools/${schoolId}/finance/promotion-policies`),
-        get<{ students: Candidate[] }>(`/api/app/schools/${schoolId}/finance/promotion-students`),
-      ]);
+      const nextPolicies = await get<{ policies: PromotionPolicy[] }>(
+        `/api/app/schools/${schoolId}/finance/promotion-policies`,
+      );
       if (activeSchool.current === schoolId && token === request.current)
-        setPromotionData({
-          schoolId,
-          policies: nextPolicies.policies ?? [],
-          students: nextPromotionStudents.students ?? [],
-        });
+        setPromotionData({ schoolId, policies: nextPolicies.policies ?? [] });
       return;
     }
     if (activeRouteRunId.current) {
@@ -906,7 +904,7 @@ export function FinanceWorkspace({
       ]);
       if (activeSchool.current !== schoolId || token !== request.current || activeRouteRunId.current !== selectedRun.id)
         return;
-      setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: [] });
+      setPromotionData({ schoolId, policies: nextPolicies.policies ?? [] });
       chooseRun(selectedRun);
       return;
     }
@@ -917,7 +915,7 @@ export function FinanceWorkspace({
     if (activeSchool.current !== schoolId || token !== request.current) return;
     setRuns(nextRuns.runs);
     setRunsCursor(nextRuns.meta?.nextCursor ?? null);
-    setPromotionData({ schoolId, policies: nextPolicies.policies ?? [], students: [] });
+    setPromotionData({ schoolId, policies: nextPolicies.policies ?? [] });
   };
   const loadBankAccounts = async () => {
     const next = await get<{ accounts: BankAccount[] }>(`/api/app/schools/${schoolId}/finance/bank-accounts`);
@@ -1090,7 +1088,7 @@ export function FinanceWorkspace({
     ++request.current;
     if (reconciliationTimer.current) window.clearTimeout(reconciliationTimer.current);
     setCatalog(undefined);
-    setPromotionData({ schoolId, policies: [], students: [] });
+    setPromotionData({ schoolId, policies: [] });
     setPromotion(defaultPromotion());
     setAssignment({ versionId: "", studentIds: [], effectiveFrom: "", effectiveTo: "", reason: "" });
     setDraftCoverageVersionId("");
@@ -1804,6 +1802,36 @@ export function FinanceWorkspace({
       await load();
     }
   };
+  // Decision 2026-10-06: the picker reads server-filtered candidates (School year of the start date, official class, search) with an
+  // "already assigned" flag; the selection survives filter changes, and Students the server now flags drop out of it.
+  useEffect(() => {
+    if (promotionDialog !== "assignment" || !assignment.versionId) return;
+    const token = ++assignmentCandidatesRequest.current;
+    const params = new URLSearchParams({ versionId: assignment.versionId });
+    if (assignmentFilter.q.trim()) params.set("q", assignmentFilter.q.trim());
+    if (assignmentFilter.officialClassId) params.set("officialClassId", assignmentFilter.officialClassId);
+    if (assignment.effectiveFrom) params.set("effectiveFrom", assignment.effectiveFrom);
+    if (assignment.effectiveTo) params.set("effectiveTo", assignment.effectiveTo);
+    setAssignmentCandidates(undefined);
+    get<PromotionCandidates>(`/api/app/schools/${schoolId}/finance/promotion-students?${params}`)
+      .then((data) => {
+        if (activeSchool.current !== schoolId || token !== assignmentCandidatesRequest.current) return;
+        setAssignmentCandidates(data);
+        const taken = new Set(data.students.filter((item) => item.assigned).map((item) => item.id));
+        setAssignment((current) => ({ ...current, studentIds: current.studentIds.filter((id) => !taken.has(id)) }));
+      })
+      .catch((error: Error) => {
+        if (activeSchool.current === schoolId && token === assignmentCandidatesRequest.current) setMessage(error.message);
+      });
+  }, [
+    promotionDialog,
+    schoolId,
+    assignment.versionId,
+    assignment.effectiveFrom,
+    assignment.effectiveTo,
+    assignmentFilter.q,
+    assignmentFilter.officialClassId,
+  ]);
   const saveAssignments = async (event: FormEvent) => {
     event.preventDefault();
     if (!assignment.versionId) return;
@@ -2321,6 +2349,7 @@ export function FinanceWorkspace({
                                     effectiveTo: "",
                                     reason: "",
                                   });
+                                  setAssignmentFilter({ q: "", officialClassId: "" });
                                   setPromotionDialog("assignment");
                                 }}
                               >
@@ -5581,86 +5610,192 @@ export function FinanceWorkspace({
         </div>
       )}
       {promotionDialog === "assignment" && (
-        <div
-          ref={promotionDialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="finance-assignment-title"
-          onKeyDown={trapDialogFocus}
-        >
-          <form onSubmit={saveAssignments}>
-            <h3 id="finance-assignment-title">Gán ưu đãi cho học sinh</h3>
-            <p>Cả nhóm dùng chung thời hạn và lý do; máy chủ chỉ lưu khi toàn bộ danh sách hợp lệ.</p>
-            <label>
-              Phiên bản đang áp dụng
-              <select
-                value={assignment.versionId}
-                onChange={(event) => setAssignment({ ...assignment, versionId: event.target.value })}
-              >
-                <option value="">Chọn phiên bản</option>
-                {promotionPolicies.flatMap((policy) =>
-                  (policy.versions ?? [])
-                    .filter((version) => version.status === "ACTIVE")
-                    .map((version) => (
-                      <option key={version.id} value={version.id}>
-                        {policy.name} / Phiên bản {version.version}
-                      </option>
-                    )),
-                )}
-              </select>
-            </label>
-            <fieldset>
-              <legend>Học sinh</legend>
-              {promotionStudents.map((student) => (
-                <label key={student.id}>
-                  <input
-                    type="checkbox"
-                    checked={assignment.studentIds.includes(student.id)}
-                    onChange={() =>
-                      setAssignment({
-                        ...assignment,
-                        studentIds: assignment.studentIds.includes(student.id)
-                          ? assignment.studentIds.filter((id) => id !== student.id)
-                          : [...assignment.studentIds, student.id],
-                      })
-                    }
-                  />
-                  {student.studentCode} / {student.fullName}
+        <div className="dialog-backdrop">
+          <div
+            ref={promotionDialogRef}
+            className="dialog dialog-wide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="finance-assignment-title"
+            onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPromotionDialog(undefined))}
+          >
+            <form onSubmit={saveAssignments}>
+              <h3 id="finance-assignment-title">Gán ưu đãi cho học sinh</h3>
+              <p className="muted">
+                Chọn một hoặc nhiều học sinh. Cả nhóm dùng chung thời hạn và lý do; máy chủ chỉ lưu khi toàn bộ danh sách
+                hợp lệ.
+              </p>
+              <div className="dialog-grid">
+                <label className="full">
+                  Phiên bản đang áp dụng
+                  <select
+                    value={assignment.versionId}
+                    onChange={(event) => setAssignment({ ...assignment, versionId: event.target.value, studentIds: [] })}
+                  >
+                    <option value="">Chọn phiên bản</option>
+                    {promotionPolicies.flatMap((policy) =>
+                      (policy.versions ?? [])
+                        .filter((version) => version.status === "ACTIVE")
+                        .map((version) => (
+                          <option key={version.id} value={version.id}>
+                            {policy.name} / Phiên bản {version.version}
+                          </option>
+                        )),
+                    )}
+                  </select>
                 </label>
-              ))}
-            </fieldset>
-            <label>
-              Áp dụng từ
-              <input
-                type="date"
-                value={assignment.effectiveFrom}
-                onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })}
-              />
-            </label>
-            <label>
-              Áp dụng đến (bao gồm)
-              <input
-                type="date"
-                value={assignment.effectiveTo}
-                onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })}
-              />
-            </label>
-            <label>
-              Lý do
-              <textarea
-                value={assignment.reason}
-                onChange={(event) => setAssignment({ ...assignment, reason: event.target.value })}
-              />
-            </label>
-            <button disabled={Boolean(pending)}>Lưu gán học sinh</button>
-            <button
-              type="button"
-              disabled={Boolean(pending)}
-              onClick={() => closeManagedDialog(() => setPromotionDialog(undefined))}
-            >
-              Hủy
-            </button>
-          </form>
+                <label>
+                  Áp dụng từ
+                  <input
+                    type="date"
+                    value={assignment.effectiveFrom}
+                    onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Áp dụng đến (bao gồm)
+                  <input
+                    type="date"
+                    value={assignment.effectiveTo}
+                    onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Lớp chính thức
+                  <select
+                    value={assignmentFilter.officialClassId}
+                    onChange={(event) => setAssignmentFilter({ ...assignmentFilter, officialClassId: event.target.value })}
+                  >
+                    <option value="">Tất cả lớp</option>
+                    {assignmentCandidates?.officialClasses.map((item) => (
+                      <option key={item.id} value={item.id ?? ""}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Tìm học sinh
+                  <input
+                    type="search"
+                    placeholder="Mã hoặc tên học sinh"
+                    autoComplete="off"
+                    value={assignmentFilter.q}
+                    onChange={(event) => setAssignmentFilter({ ...assignmentFilter, q: event.target.value })}
+                  />
+                </label>
+                <div className="full table-scroll picker-scroll">
+                  <table>
+                    <caption>
+                      Học sinh{assignmentCandidates?.schoolYear ? ` · ${assignmentCandidates.schoolYear.name}` : ""}
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th>
+                          <input
+                            type="checkbox"
+                            aria-label="Chọn tất cả học sinh đang hiện"
+                            checked={(() => {
+                              const open = assignmentCandidates?.students.filter((item) => !item.assigned) ?? [];
+                              return open.length > 0 && open.every((item) => assignment.studentIds.includes(item.id));
+                            })()}
+                            onChange={(event) => {
+                              const visible = (assignmentCandidates?.students ?? [])
+                                .filter((item) => !item.assigned)
+                                .map((item) => item.id);
+                              setAssignment({
+                                ...assignment,
+                                studentIds: event.target.checked
+                                  ? [...new Set([...assignment.studentIds, ...visible])]
+                                  : assignment.studentIds.filter((id) => !visible.includes(id)),
+                              });
+                            }}
+                          />
+                        </th>
+                        <th>Mã HS</th>
+                        <th>Họ tên</th>
+                        <th>Lớp chính thức</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!assignment.versionId ? (
+                        <tr>
+                          <td colSpan={4}>Chọn phiên bản để xem học sinh.</td>
+                        </tr>
+                      ) : !assignmentCandidates ? (
+                        <tr>
+                          <td colSpan={4}>Đang tải học sinh.</td>
+                        </tr>
+                      ) : assignmentCandidates.students.length ? (
+                        assignmentCandidates.students.map((student) => (
+                          <tr key={student.id}>
+                            <td>
+                              <input
+                                type="checkbox"
+                                aria-label={`Chọn ${student.fullName}`}
+                                disabled={student.assigned}
+                                checked={assignment.studentIds.includes(student.id)}
+                                onChange={(event) =>
+                                  setAssignment({
+                                    ...assignment,
+                                    studentIds: event.target.checked
+                                      ? [...assignment.studentIds, student.id]
+                                      : assignment.studentIds.filter((id) => id !== student.id),
+                                  })
+                                }
+                              />
+                            </td>
+                            <td>{student.studentCode}</td>
+                            <td>
+                              <b>{student.fullName}</b>
+                              {student.assigned && (
+                                <>
+                                  <br />
+                                  <small className="muted">Đã gán ưu đãi này</small>
+                                </>
+                              )}
+                            </td>
+                            <td>{student.officialClassName ?? "—"}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={4}>Không có học sinh phù hợp.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="muted full" aria-live="polite">
+                  {assignment.studentIds.length
+                    ? `Đã chọn ${assignment.studentIds.length} học sinh.`
+                    : "Chưa chọn học sinh nào."}
+                </p>
+                <label className="full">
+                  Lý do
+                  <input
+                    placeholder="Ví dụ: Con của nhân viên trường"
+                    value={assignment.reason}
+                    onChange={(event) => setAssignment({ ...assignment, reason: event.target.value })}
+                  />
+                </label>
+              </div>
+              {scope === "promotion" &&
+                Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
+              <div className="dialog-actions">
+                <button
+                  type="button"
+                  disabled={Boolean(pending)}
+                  onClick={() => closeManagedDialog(() => setPromotionDialog(undefined))}
+                >
+                  Hủy
+                </button>
+                <button className="primary-action" disabled={Boolean(pending) || !assignment.studentIds.length}>
+                  Lưu gán học sinh
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
       {endingAssignment && (

@@ -648,6 +648,44 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Ngừng phiên bản" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Xác nhận ngừng phiên bản" }));
   });
+  it("picks Students for a promotion from a filtered table and skips those already assigned", async () => {
+    const policy = { id: "policy", name: "Hỗ trợ", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", fulfillmentMode: "DISCOUNT", effectiveFrom: "2026-09-01", effectiveTo: null, targets: [], assignments: [] }] };
+    const students = [
+      { id: "s1", studentCode: "PL1", fullName: "Bé An", officialClassName: "Mầm 1", assigned: false },
+      { id: "s2", studentCode: "PL2", fullName: "Bé Bình", officialClassName: "Mầm 1", assigned: true },
+      { id: "s3", studentCode: "PL10", fullName: "Bé Chi", officialClassName: "Mầm 2", assigned: false },
+    ];
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") return Promise.resolve(response({ status: "COMPLETED", outcome: {} }));
+      if (url.includes("promotion-students")) {
+        const classId = new URL(url, "http://local").searchParams.get("officialClassId");
+        return Promise.resolve(response({ schoolYear: { id: "y", name: "2026-2027" }, officialClasses: [{ id: "c1", name: "Mầm 1" }, { id: "c2", name: "Mầm 2" }], students: classId === "c1" ? students.slice(0, 2) : students }));
+      }
+      return Promise.resolve(url.includes("promotion-policies") ? response({ policies: [policy] }) : response({ groups: [], receivables: [] }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
+    fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Hỗ trợ phiên bản 1" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Gán học sinh" }));
+    const dialog = await screen.findByRole("dialog", { name: "Gán ưu đãi cho học sinh" });
+    expect(dialog.classList.contains("dialog-wide")).toBe(true);
+    expect(await within(dialog).findByText("Bé Chi")).toBeTruthy();
+    expect(within(dialog).getByRole("checkbox", { name: "Chọn Bé Bình" })).toHaveProperty("disabled", true);
+    expect(within(dialog).getByText("Đã gán ưu đãi này")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Chọn Bé Chi" }));
+    fireEvent.change(within(dialog).getByLabelText("Lớp chính thức"), { target: { value: "c1" } });
+    await waitFor(() => expect(within(dialog).queryByText("Bé Chi")).toBeNull());
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("promotion-students?versionId=version&officialClassId=c1"))).toBe(true);
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Chọn tất cả học sinh đang hiện" }));
+    expect(within(dialog).getByText("Đã chọn 2 học sinh.")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("Áp dụng từ"), { target: { value: "2026-09-01" } });
+    fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Con nhân viên" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu gán học sinh" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([, options]) => (options as RequestInit | undefined)?.method === "POST")).toBe(true));
+    const [url, options] = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
+    expect(String(url)).toContain("/promotion-policy-versions/version/assignments");
+    expect(JSON.parse(String((options as RequestInit).body))).toMatchObject({ versionId: "version", studentIds: ["s3", "s1"], effectiveFrom: "2026-09-01", effectiveTo: null, reason: "Con nhân viên" });
+  });
   it("restores the catalog lifecycle row-menu trigger after successful confirmation", async () => {
     const catalogWithReceivable = { groups: [], receivables: [{ id: "receivable", groupId: "group", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE" as const, available: true }] };
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" ? response({ outcome: {} }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalogWithReceivable)));

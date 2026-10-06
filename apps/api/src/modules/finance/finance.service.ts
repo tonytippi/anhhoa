@@ -1821,10 +1821,41 @@ export class FinanceService {
     const policies = await this.prisma.promotionPolicy.findMany({ where: { schoolId }, include: this.promotionInclude, orderBy: { name: "asc" } });
     return { policies: policies.map((policy) => this.promotionDto(policy)) };
   }
-  async promotionStudents(identityId: string, schoolId: string) {
+  // Decision 2026-10-06: the assignment picker lists Students enrolled in the School year of the assignment start (official class,
+  // search) and flags those whose assignment of the same policy already overlaps; the assign command still re-checks everything.
+  async promotionStudents(identityId: string, schoolId: string, query: any) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
-    const students = await this.prisma.student.findMany({ where: { schoolId }, select: { id: true, studentCode: true, fullName: true }, orderBy: { studentCode: "asc" } });
-    return { students };
+    const versionId = this.identifier(query?.versionId, "versionId");
+    const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
+    const search = typeof query?.q === "string" ? query.q.trim().slice(0, 100) : "";
+    const version = await this.prisma.promotionPolicyVersion.findFirst({ where: { id: versionId, schoolId } });
+    if (!version) throw new NotFoundException({ code: "PROMOTION_POLICY_VERSION_NOT_FOUND", message: "Không tìm thấy phiên bản ưu đãi." });
+    const today = this.localIssueDate(new Date());
+    const from = this.date(query?.effectiveFrom || null, "effectiveFrom", false) ?? (version.effectiveFrom > today ? version.effectiveFrom : today);
+    const to = this.inclusiveEnd(query?.effectiveTo || null, "effectiveTo");
+    const year =
+      (await this.prisma.schoolYear.findFirst({ where: { schoolId, startsOn: { lte: from }, endsOn: { gte: from } }, orderBy: { startsOn: "desc" } })) ??
+      (await this.prisma.schoolYear.findFirst({ where: { schoolId, startsOn: { lte: from } }, orderBy: { startsOn: "desc" } })) ??
+      (await this.prisma.schoolYear.findFirst({ where: { schoolId }, orderBy: { startsOn: "asc" } }));
+    if (!year) return { schoolYear: null, officialClasses: [], students: [] };
+    const base = { schoolId, schoolYearId: year.id, lifecycle: { in: [...membershipLifecycles] } };
+    const [officialClasses, enrollments] = await Promise.all([
+      this.prisma.studentEnrollment.findMany({ where: { ...base, classId: { not: null } }, distinct: ["classId"], select: { classId: true, className: true } }),
+      this.prisma.studentEnrollment.findMany({
+        where: { ...base, ...(officialClassId ? { classId: officialClassId } : {}), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) },
+        include: { student: { select: { id: true, studentCode: true, fullName: true } } },
+      }),
+    ]);
+    const assigned = await this.prisma.studentPromotionAssignment.findMany({ where: { schoolId, policyId: version.policyId, studentId: { in: enrollments.map((item) => item.studentId) }, effectiveFrom: { lt: to ?? new Date("9999-12-31T00:00:00.000Z") }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: from } }] }, select: { studentId: true } });
+    const assignedIds = new Set(assigned.map((item) => item.studentId));
+    const natural = (left: string | null, right: string | null) => (left ?? "\uffff").localeCompare(right ?? "\uffff", "vi", { numeric: true, sensitivity: "base" });
+    return {
+      schoolYear: { id: year.id, name: year.name },
+      officialClasses: officialClasses.map((item) => ({ id: item.classId, name: item.className ?? "" })).sort((left, right) => natural(left.name, right.name)),
+      students: enrollments
+        .map((item) => ({ id: item.student.id, studentCode: item.student.studentCode, fullName: item.student.fullName, officialClassName: item.className, assigned: assignedIds.has(item.studentId) }))
+        .sort((left, right) => natural(left.officialClassName, right.officialClassName) || natural(left.studentCode, right.studentCode)),
+    };
   }
   async createPromotionPolicy(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId);

@@ -220,13 +220,13 @@ describe('FinanceController mutation boundary', () => {
     const controller = new FinanceController(auth as never, finance as never);
     finance.promotionPolicies.mockResolvedValue({ policies: [] }); finance.promotionStudents.mockResolvedValue({ students: [] }); finance.createPromotionPolicy.mockResolvedValue({ id: 'create' }); finance.activatePromotionVersion.mockResolvedValue({ id: 'activate' }); finance.retirePromotionVersion.mockResolvedValue({ id: 'retire' }); finance.assignPromotionStudents.mockResolvedValue({ id: 'assign' }); finance.endPromotionAssignment.mockResolvedValue({ id: 'end' });
     await expect(controller.promotionPolicies(request({}), 'school')).resolves.toEqual({ data: { policies: [] } });
-    await expect(controller.promotionStudents(request({}), 'school')).resolves.toEqual({ data: { students: [] } });
+    await expect(controller.promotionStudents(request({}), 'school', { versionId: 'v' })).resolves.toEqual({ data: { students: [] } });
     await expect(controller.createPromotionPolicy(request(valid), 'school', 'key', 'operation', { name: 'Ưu đãi' })).resolves.toEqual({ data: { id: 'create' } });
     await expect(controller.activatePromotionVersion(request(valid), 'school', 'version', 'key', 'operation')).resolves.toEqual({ data: { id: 'activate' } });
     await expect(controller.retirePromotionVersion(request(valid), 'school', 'version', 'key', 'operation')).resolves.toEqual({ data: { id: 'retire' } });
     await expect(controller.assignPromotionStudents(request(valid), 'school', 'version', 'key', 'operation', { studentIds: ['student'] })).resolves.toEqual({ data: { id: 'assign' } });
     await expect(controller.endPromotionAssignment(request(valid), 'school', 'assignment', 'key', 'operation', { effectiveTo: '2026-09-30', reason: 'Hết hạn' })).resolves.toEqual({ data: { id: 'end' } });
-    expect(finance.promotionPolicies).toHaveBeenCalledWith('actor-id', 'school'); expect(finance.promotionStudents).toHaveBeenCalledWith('actor-id', 'school');
+    expect(finance.promotionPolicies).toHaveBeenCalledWith('actor-id', 'school'); expect(finance.promotionStudents).toHaveBeenCalledWith('actor-id', 'school', { versionId: 'v' });
     expect(finance.assignPromotionStudents).toHaveBeenCalledWith('actor-id', 'school', 'version', 'key', 'operation', { studentIds: ['student'] });
     expect(finance.endPromotionAssignment).toHaveBeenCalledWith('actor-id', 'school', 'assignment', 'key', 'operation', { effectiveTo: '2026-09-30', reason: 'Hết hạn' });
   });

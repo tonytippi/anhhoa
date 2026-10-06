@@ -492,6 +492,19 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(finance.assignPromotionStudents(current.identity.id, current.school.id, versionId, uuid(), uuid(), { studentIds: [first.student.id], effectiveFrom: "2026-09-16", reason: "Kề nhau" })).resolves.toMatchObject({ outcome: { assignments: [{ studentId: first.student.id }] } });
       expect(await prisma.operation.findUniqueOrThrow({ where: { id: assigned.id } })).toMatchObject({ schoolId: current.school.id, status: "COMPLETED" });
       expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "STUDENT_PROMOTION_ASSIGNMENTS_CREATED" } })).toMatchObject({ membershipId: current.membership.id, provenance: { operationId: assigned.id } });
+      // The picker lists enrolled Students of the start date's School year and flags overlapping assignments of the same policy.
+      const third = await enrolled(current); const trial = await enrolled(current, { lifecycle: "TRIAL" });
+      const picker = await finance.promotionStudents(current.identity.id, current.school.id, { versionId, effectiveFrom: "2026-09-01", effectiveTo: "2026-09-10" });
+      expect(picker.schoolYear).toEqual({ id: current.year.id, name: current.year.name });
+      expect(picker.officialClasses).toEqual([{ id: current.activeClass.id, name: current.activeClass.name }]);
+      expect(Object.fromEntries(picker.students.map((item) => [item.id, item.assigned]))).toEqual({ [first.student.id]: true, [second.student.id]: true, [third.student.id]: false });
+      expect(picker.students.some((item) => item.id === trial.student.id || item.id === foreignStudent.student.id)).toBe(false);
+      const later = await finance.promotionStudents(current.identity.id, current.school.id, { versionId, effectiveFrom: "2026-12-01" });
+      expect(later.students.find((item) => item.id === second.student.id)).toMatchObject({ assigned: false });
+      expect(later.students.find((item) => item.id === first.student.id)).toMatchObject({ assigned: true });
+      expect((await finance.promotionStudents(current.identity.id, current.school.id, { versionId, q: third.student.studentCode })).students.map((item) => item.id)).toEqual([third.student.id]);
+      expect((await finance.promotionStudents(current.identity.id, current.school.id, { versionId, officialClassId: current.archivedClass.id })).students).toEqual([]);
+      await expect(finance.promotionStudents(foreign.identity.id, foreign.school.id, { versionId })).rejects.toMatchObject({ status: 404 });
     });
 
     it("evaluates and persists PostgreSQL promotion calculations with deterministic ordering, exclusivity, caps, and provenance", async () => {
