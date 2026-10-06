@@ -8,7 +8,7 @@
 # - Chi tao implementation spec tu epics-passionedu.md va canonical PassionEdu artifacts.
 # - Khong resume artifact Anh Hoa legacy; lich su nam trong Git.
 generated: 2026-09-07
-last_updated: 2026-10-02 # Receivable kinds and extracurricular classes approved (Stories 5.33-5.37).
+last_updated: 2026-10-06 # Extracurricular class receivable edit approved (Story 5.41).
 project: PassionEdu
 project_key: passionedu
 tracking_system: file-system
@@ -93,6 +93,7 @@ development_status:
   5-38-mot-hop-chinh-sua-khoan-thu: review
   5-39-bo-chon-hoc-sinh-khi-gan-uu-dai: review
   5-40-bo-chon-hoc-sinh-cho-pham-vi-khoan-thu-trong-dot-thu: review
+  5-41-doi-khoan-thu-cua-lop-ngoai-khoa-va-sua-gia-tu-trang-lop: review
   epic-5-retrospective: optional
 
   epic-6: done

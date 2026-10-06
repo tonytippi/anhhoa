@@ -2,27 +2,19 @@ import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState 
 import { ReceivingAccountLabel, type ReceivingAccount } from "./receiving-account";
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 import { PaymentImagePanel } from "./payment-image-panel";
+import {
+  ReceivableEditFields,
+  receivableEditChanges,
+  receivableEditValues,
+  receivableKinds,
+  taxCategoryOptions,
+  taxChannelHint,
+  type ReceivableEditValues,
+  type ReceivableKind,
+  type TaxCategory,
+} from "./receivable-edit-fields";
 
-// Decision 2026-10-02: every School has the same three fixed groups; the API owns the kind and its lock.
-type ReceivableKind = "FIXED" | "FLEXIBLE" | "EXTRACURRICULAR";
 type Group = { id: string; name: string; kind: ReceivableKind };
-const receivableKinds: Array<{ kind: ReceivableKind; label: string; hint: string }> = [
-  {
-    kind: "FIXED",
-    label: "Khoản thu cố định",
-    hint: "Tự thêm vào mỗi đợt thu cho toàn bộ học sinh; sửa số lượng trong đợt khi cần.",
-  },
-  {
-    kind: "FLEXIBLE",
-    label: "Khoản thu linh hoạt",
-    hint: "Thêm vào đợt thu khi cần, chọn phạm vi: toàn bộ, lớp chính thức hoặc học sinh cụ thể.",
-  },
-  {
-    kind: "EXTRACURRICULAR",
-    label: "Ngoại khóa",
-    hint: "Thu theo lớp ngoại khóa; gắn khoản thu vào lớp ở trang Lớp ngoại khóa.",
-  },
-];
 const kindShortLabel = (kind: ReceivableKind | null | undefined) =>
   (({ FIXED: "Cố định", FLEXIBLE: "Linh hoạt", EXTRACURRICULAR: "Ngoại khóa" }) as const)[kind ?? "FLEXIBLE"] ?? "";
 const kindLabel = (kind: ReceivableKind | null | undefined) =>
@@ -33,6 +25,7 @@ type Receivable = {
   kind?: ReceivableKind | null;
   kindLocked?: boolean;
   extracurricularClassCount?: number;
+  extracurricularClassNames?: string[];
   code: string | null;
   displayName: string;
   unitLabel: string;
@@ -43,7 +36,6 @@ type Receivable = {
   status: "ACTIVE" | "INACTIVE" | null;
   available: boolean;
 };
-type TaxCategory = "NOT_DECLARED" | "EXEMPT" | "VAT_0" | "VAT_5" | "VAT_8" | "VAT_10";
 type PaymentChannel = "SCHOOL" | "PERSONAL";
 // Decision 2026-10-01: "Bớt" is the server-proposed deduction of a line; the source names the leave days it counted.
 type DeductionSource = {
@@ -67,31 +59,6 @@ const deductionDays = (source: DeductionSource | null | undefined) =>
   (source?.days ?? []).map((day) => day.slice(8, 10) + "/" + day.slice(5, 7)).join(", ");
 const deductionMonth = (source: DeductionSource | null | undefined) =>
   source?.month ? `${source.month.slice(5, 7)}/${source.month.slice(0, 4)}` : "";
-// Labels follow the reviewed receivable mockup; the API alone derives rate, VAT and channel.
-const taxCategoryOptions: Array<[TaxCategory, string]> = [
-  ["NOT_DECLARED", "Không kê khai nộp thuế"],
-  ["EXEMPT", "Không chịu thuế"],
-  ["VAT_0", "Thuế suất 0%"],
-  ["VAT_5", "Thuế suất 5%"],
-  ["VAT_8", "Thuế suất 8%"],
-  ["VAT_10", "Thuế suất 10%"],
-];
-type ReceivableEditValues = {
-  displayName: string;
-  unitLabel: string;
-  defaultUnitPrice: string;
-  refundUnitPrice: string;
-  taxCategory: TaxCategory;
-  kind: ReceivableKind;
-};
-// Only changed fields go to the edit command; a locked kind is never sent.
-function receivableEditChanges(edit: { values: ReceivableEditValues; original: ReceivableEditValues; locked: boolean }) {
-  return Object.fromEntries(
-    (Object.keys(edit.values) as Array<keyof ReceivableEditValues>)
-      .filter((key) => edit.values[key] !== edit.original[key] && !(key === "kind" && edit.locked))
-      .map((key) => [key, edit.values[key]]),
-  ) as Partial<ReceivableEditValues>;
-}
 const taxShortLabel: Record<TaxCategory, string> = {
   NOT_DECLARED: "Không kê khai",
   EXEMPT: "Không chịu thuế",
@@ -105,8 +72,6 @@ const channelAccountLabel = (channel: PaymentChannel | undefined) =>
 // Review moves student by student: the first part of each payment notice stands for the Student.
 const studentQueueIds = (invoices: Array<{ id: string; studentId: string }> | undefined) =>
   [...new Map((invoices ?? []).map((item) => [item.studentId, item.id] as const).reverse()).values()].reverse();
-const taxChannelHint = (category: TaxCategory) =>
-  category === "NOT_DECLARED" ? "Thu vào tài khoản cá nhân" : "Thu vào tài khoản trường";
 type Catalog = { groups: Group[]; receivables: Receivable[]; schoolYears?: Year[] };
 type PromotionPolicy = {
   id: string;
@@ -814,6 +779,7 @@ export function FinanceWorkspace({
     values: ReceivableEditValues;
     original: ReceivableEditValues;
     locked: boolean;
+    classNames: string[];
     reason: string;
   }>();
   const [catalogFilter, setCatalogFilter] = useState({ search: "", kind: "", status: "" });
@@ -2564,20 +2530,14 @@ export function FinanceWorkspace({
                               dialogTrigger.current = rowMenuTrigger.current;
                               setErrors({});
                               if (item.kind) {
-                                const values = {
-                                  displayName: item.displayName,
-                                  unitLabel: item.unitLabel,
-                                  defaultUnitPrice: item.defaultUnitPrice,
-                                  refundUnitPrice: item.refundUnitPrice ?? "0",
-                                  taxCategory: item.taxCategory ?? "NOT_DECLARED",
-                                  kind: item.kind,
-                                };
+                                const values = receivableEditValues(item);
                                 setReceivableEdit({
                                   id: item.id,
                                   title: item.displayName,
                                   values,
                                   original: values,
                                   locked: Boolean(item.kindLocked),
+                                  classNames: item.extracurricularClassNames ?? [],
                                   reason: "",
                                 });
                               }
@@ -4847,106 +4807,15 @@ export function FinanceWorkspace({
                 Thay đổi chỉ áp dụng sau khi máy chủ xác nhận trong đúng Trường. Hóa đơn đã tạo giữ nguyên tên, đơn vị,
                 giá và mức thuế lúc tạo.
               </p>
-              <div className="dialog-grid">
-                <label>
-                  Tên khoản thu
-                  <input
-                    value={receivableEdit.values.displayName}
-                    onChange={(event) => editReceivable({ displayName: event.target.value })}
-                    {...field("receivable", "displayName")}
-                  />
-                </label>
-                <label>
-                  Đơn vị tính
-                  <input
-                    value={receivableEdit.values.unitLabel}
-                    onChange={(event) => editReceivable({ unitLabel: event.target.value })}
-                    {...field("receivable", "unitLabel")}
-                  />
-                </label>
-                <fieldset
-                  className="chip-group full"
-                  disabled={receivableEdit.locked}
-                  aria-describedby="receivable-edit-kind-hint"
-                >
-                  <legend>Nhóm khoản thu</legend>
-                  {receivableKinds.map((item) => (
-                    <label key={item.kind}>
-                      <input
-                        type="radio"
-                        name="receivable-edit-kind"
-                        value={item.kind}
-                        checked={receivableEdit.values.kind === item.kind}
-                        onChange={() => editReceivable({ kind: item.kind })}
-                      />
-                      {item.label}
-                    </label>
-                  ))}
-                </fieldset>
-                <small className="muted full" id="receivable-edit-kind-hint">
-                  {receivableEdit.locked
-                    ? "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa."
-                    : receivableKinds.find((item) => item.kind === receivableEdit.values.kind)?.hint}
-                </small>
-                <label>
-                  Giá / đơn vị (chưa VAT)
-                  <input
-                    inputMode="numeric"
-                    value={receivableEdit.values.defaultUnitPrice}
-                    onChange={(event) => editReceivable({ defaultUnitPrice: event.target.value })}
-                    {...field("receivable", "defaultUnitPrice")}
-                  />
-                </label>
-                <div>
-                  <label>
-                    Giá hoàn trả / đơn vị (chưa VAT)
-                    <input
-                      inputMode="numeric"
-                      value={receivableEdit.values.refundUnitPrice}
-                      onChange={(event) => editReceivable({ refundUnitPrice: event.target.value })}
-                      aria-describedby="receivable-edit-refund-hint"
-                      {...field("receivable", "refundUnitPrice")}
-                    />
-                  </label>
-                  <small className="muted" id="receivable-edit-refund-hint">
-                    Số tiền trả lại cho mỗi đơn vị nghỉ có phép của tháng trước, không vượt giá thu. Để 0 nếu không hoàn
-                    trả.
-                  </small>
-                </div>
-                <div>
-                  <label>
-                    Mức thuế suất
-                    <select
-                      value={receivableEdit.values.taxCategory}
-                      onChange={(event) => editReceivable({ taxCategory: event.target.value as TaxCategory })}
-                      aria-describedby="receivable-edit-tax-hint"
-                      {...field("receivable", "taxCategory")}
-                    >
-                      {taxCategoryOptions.map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <small className="muted" id="receivable-edit-tax-hint">
-                    {taxChannelHint(receivableEdit.values.taxCategory)}
-                  </small>
-                </div>
-                <label>
-                  Lý do
-                  <input
-                    placeholder="Bắt buộc"
-                    value={receivableEdit.reason}
-                    onChange={(event) => setReceivableEdit({ ...receivableEdit, reason: event.target.value })}
-                    {...field("receivable", "reason")}
-                  />
-                </label>
-                <p className="muted full">
-                  Đổi giá, giá hoàn trả hoặc mức thuế chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó; đợt thu
-                  còn nháp cần xem trước lại.
-                </p>
-              </div>
+              <ReceivableEditFields
+                values={receivableEdit.values}
+                locked={receivableEdit.locked}
+                reason={receivableEdit.reason}
+                classNames={receivableEdit.classNames}
+                onChange={editReceivable}
+                onReason={(reason) => setReceivableEdit({ ...receivableEdit, reason })}
+                field={(name) => field("receivable", name)}
+              />
               {scope === "receivable" &&
                 Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
               <div className="dialog-actions">

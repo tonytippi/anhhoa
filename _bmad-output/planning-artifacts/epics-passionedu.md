@@ -618,6 +618,28 @@ Source: sprint-change-proposal-2026-10-06-run-template-student-picker.
 
 **And** saving the template line still validates the Students server-side.
 
+### Story 5.41: Đổi khoản thu của lớp ngoại khóa và sửa giá từ trang lớp
+
+As a Finance user,
+I want to change which receivable an extracurricular class uses and edit that receivable's price from the class page,
+So that the class and its charge stay matched without recreating the class or moving its Students.
+
+Source: sprint-change-proposal-2026-10-06-extracurricular-class-receivable-edit.
+
+**Acceptance Criteria:**
+
+**Given** an extracurricular class and an `ACTIVE` `EXTRACURRICULAR` Receivable of the same School different from the current one
+**When** Finance saves `Chỉnh sửa` with the new Receivable and a reason
+**Then** the class uses the new Receivable, memberships are unchanged, one Operation and one `EXTRACURRICULAR_CLASS_EDITED` audit with before/after and reason are recorded.
+
+**And** a Receivable of another kind, inactive, of another School or equal to the current one is refused and nothing (including the name) is saved.
+
+**And** generated InvoiceLines keep their snapshot; a DRAFT run preview becomes stale and a READY run cannot generate until previewed again.
+
+**Given** the class detail page
+**When** Finance opens `Sửa giá`
+**Then** the same `Chỉnh sửa khoản thu` dialog and command as the Khoản thu page are used, the dialog lists the extracurricular classes using the Receivable, and the class page shows the new price after saving.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

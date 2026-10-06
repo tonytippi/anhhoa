@@ -27,7 +27,7 @@ const routes = {
   classDefaultBankAccount: "PUT /api/app/schools/:schoolId/finance/classes/:classId/default-bank-account",
   extracurricularClass: "POST /api/app/schools/:schoolId/finance/extracurricular-classes",
   runExtracurricularExclusion: "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/extracurricular-classes/:classId/exclusion",
-  extracurricularRename: "PUT /api/app/schools/:schoolId/finance/extracurricular-classes/:classId",
+  extracurricularEdit: "PUT /api/app/schools/:schoolId/finance/extracurricular-classes/:classId",
   extracurricularLifecycle: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/lifecycle",
   extracurricularMembershipAdd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships",
   extracurricularMembershipEnd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships/end",
@@ -326,7 +326,8 @@ export class FinanceService {
       groupId: value.groupId,
       kind: value.group?.kind ?? null,
       kindLocked: Boolean(value.kindLocked),
-      extracurricularClassCount: value.extracurricularClassCount ?? 0,
+      extracurricularClassCount: value.extracurricularClassNames?.length ?? 0,
+      extracurricularClassNames: value.extracurricularClassNames ?? [],
       code: value.code,
       displayName: value.displayName,
       unitLabel: value.unitLabel,
@@ -355,14 +356,16 @@ export class FinanceService {
       this.prisma.schoolYear?.findMany({ where: { schoolId }, orderBy: { startsOn: "desc" } }) ?? Promise.resolve([]),
       this.prisma.invoiceLine.groupBy({ by: ["receivableId"], where: { schoolId, receivableId: { not: null } } }),
       this.prisma.collectionRunTemplateLine.groupBy({ by: ["receivableId"], where: { schoolId } }),
-      this.prisma.extracurricularClass.groupBy({ by: ["receivableId"], where: { schoolId }, _count: { _all: true } }),
+      this.prisma.extracurricularClass.findMany({ where: { schoolId }, select: { receivableId: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }),
     ]);
     // A Receivable used on an Invoice or collection template keeps its kind (decision 2026-10-02 §3.1).
-    const classCount = new Map(classUse.map((use) => [use.receivableId, use._count._all]));
+    // Class names let the edit dialog say which extracurricular classes a price change reaches (decision 2026-10-06).
+    const classNames = new Map<string, string[]>();
+    for (const use of classUse) classNames.set(use.receivableId, [...(classNames.get(use.receivableId) ?? []), use.name]);
     const locked = new Set<string>([...invoiceUse, ...templateUse, ...classUse].map((use) => use.receivableId as string));
     return {
       groups: groups.map((item) => this.groupDto(item)),
-      receivables: receivables.map((item) => this.receivableDto({ ...item, kindLocked: locked.has(item.id), extracurricularClassCount: classCount.get(item.id) ?? 0 })),
+      receivables: receivables.map((item) => this.receivableDto({ ...item, kindLocked: locked.has(item.id), extracurricularClassNames: classNames.get(item.id) ?? [] })),
       schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString(), endsOn: year.endsOn.toISOString(), closedAt: year.closedAt?.toISOString() ?? null })),
     };
   }
@@ -1676,21 +1679,36 @@ export class FinanceService {
       return outcome;
     });
   }
-  // Business owner 2026-10-02: rename with reason and audit, for ACTIVE and INACTIVE classes alike.
-  async renameExtracurricularClass(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
+  // Business owner 2026-10-02 / decision 2026-10-06: one edit command for the name and the Receivable, with reason and audit, for ACTIVE and
+  // INACTIVE classes alike. Memberships are untouched and there is no effective date: generated lines keep their snapshot and DRAFT previews
+  // go stale because the class Receivable is part of the preview fingerprint.
+  async editExtracurricularClass(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId);
     const actor = await this.actor(identityId, schoolId);
     this.identifier(classId, "classId");
-    const name = this.text(body?.name, "name")!;
+    const name = body?.name === undefined ? undefined : this.text(body.name, "name")!;
+    const receivableId = body?.receivableId === undefined ? undefined : this.identifier(body.receivableId, "receivableId");
     const reason = this.text(body?.reason, "reason", true, 500)!;
-    return this.mutate(actor, identityId, schoolId, routes.extracurricularRename, key, operationId, { classId, name, reason }, async (tx, operation) => {
+    if (name === undefined && receivableId === undefined) throw validation("name", "Không có thay đổi để lưu.");
+    return this.mutate(actor, identityId, schoolId, routes.extracurricularEdit, key, operationId, { classId, name, receivableId, reason }, async (tx, operation) => {
       await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const found = await this.extracurricularClassFor(tx, schoolId, classId);
-      if (found.name === name) throw validation("name", "Tên mới trùng tên hiện tại.");
+      const nameChanged = name !== undefined && name !== found.name;
+      const receivableChanged = receivableId !== undefined && receivableId !== found.receivableId;
+      if (!nameChanged && !receivableChanged) throw validation(receivableId !== undefined ? "receivableId" : "name", "Không có thay đổi để lưu.");
+      let receivable = found.receivable;
+      if (receivableChanged) {
+        await this.lockReceivablesShared(tx, schoolId, [receivableId]);
+        receivable = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include: { group: true, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
+        if (!receivable) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
+        if (receivable.group.kind !== "EXTRACURRICULAR") throw validation("receivableId", "Chỉ chọn khoản thu thuộc nhóm Ngoại khóa.");
+        if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu đã ngừng áp dụng.");
+      }
+      const fact = (item: any, rec: any) => ({ ...this.extracurricularClassDto(item), receivableName: rec.displayName, defaultUnitPrice: rec.defaultUnitPrice.toString(), unitLabel: rec.unitLabel });
       try {
-        const updated = await tx.extracurricularClass.update({ where: { id: found.id }, data: { name } });
-        const outcome = this.extracurricularClassDto({ ...found, name: updated.name });
-        await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_CLASS_RENAMED", operation, this.extracurricularClassDto(found), outcome, reason);
+        const updated = await tx.extracurricularClass.update({ where: { id: found.id }, data: { ...(nameChanged ? { name } : {}), ...(receivableChanged ? { receivableId } : {}) } });
+        const outcome = this.extracurricularClassDto({ ...found, name: updated.name, receivableId: updated.receivableId });
+        await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_CLASS_EDITED", operation, fact(found, found.receivable), fact({ ...found, ...updated }, receivable), reason);
         return outcome;
       } catch (error) {
         if ((error as any)?.code === "P2002") throw validation("name", "Tên lớp ngoại khóa đã tồn tại trong năm học.");

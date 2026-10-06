@@ -78,38 +78,30 @@
       </section>
 
       <section id="class-a1" class="route-state" hidden>
-        <p><a href="#class-list">Lớp ngoại khóa</a></p>
         <div class="route-head">
           <div>
-            <p class="eyebrow">DANH BỘ</p>
-            <h1 tabindex="-1">Tiếng Anh A1 (T2-T4) · Trường Ánh Hoa</h1>
-            <p class="muted">Năm học 2026-2027 · Tiếng Anh bản ngữ · 600.000 đ/tháng · Dùng chung với Tiếng Anh A2 (T3-T5).</p>
+            <p class="eyebrow">DANH BỘ › <a href="#class-list">Lớp ngoại khóa</a></p>
+            <h1 tabindex="-1">Tiếng Anh A1 (T2-T4)</h1>
+            <p class="muted"><span class="badge success">Đang hoạt động</span> Năm học 2026-2027 · Tiếng Anh bản ngữ · 600.000 đ/tháng <button class="button secondary" type="button" style="min-height:28px;padding:2px 10px;font-size:13px" data-open-price-form>Sửa giá</button> · Dùng chung với Tiếng Anh A2 (T3-T5)</p>
           </div>
           <div>
-            <button class="button secondary" type="button" data-idempotent-action data-action-title="Ngừng hoạt động Tiếng Anh A1 (T2-T4)" data-action-label="Ngừng hoạt động" data-action-consequence="Lớp sẽ không được tính vào đợt thu mới. Thành viên và lịch sử vẫn được giữ để đối soát.">Ngừng hoạt động</button>
-            <button class="button secondary" type="button" data-open-end-form disabled>Kết thúc</button>
             <button class="button" type="button" data-open-add-form>Thêm học sinh</button>
+            <button class="button secondary" type="button" data-open-edit-form>Chỉnh sửa</button>
+            <button class="button secondary" type="button" data-idempotent-action data-action-title="Ngừng hoạt động Tiếng Anh A1 (T2-T4)" data-action-label="Ngừng hoạt động" data-action-consequence="Lớp sẽ không được tính vào đợt thu mới. Thành viên và lịch sử vẫn được giữ để đối soát.">Ngừng hoạt động</button>
           </div>
         </div>
-        <div class="grid two">
-          <article class="card">
-            <h2>Thông tin lớp</h2>
-            <p><b>Khoản thu:</b> Tiếng Anh bản ngữ · 600.000 đ/tháng</p>
-            <p><span class="badge success">Đang hoạt động</span></p>
-          </article>
-          <article class="card">
-            <h2>Tháng 10/2026</h2>
-            <p><b>Đang tham gia:</b> 18 học sinh</p>
-            <p><b>Tính trong tháng:</b> 19 học sinh · 2 vào/nghỉ trong tháng</p>
-          </article>
-        </div>
+        <p class="card" style="display:flex;flex-wrap:wrap;gap:8px 24px;padding:12px 16px"><b>Tháng 10/2026</b><span>Đang tham gia: <b>18</b></span><span>Tính trong tháng: <b>19</b></span><span>Vào/nghỉ trong tháng: <b>2</b></span></p>
         <form class="filters" data-static-filter aria-label="Lọc thành viên">
           <label>Tìm học sinh<input type="search" name="q" placeholder="Mã hoặc tên học sinh" autocomplete="off"></label><label>Lớp chính thức<select name="class"><option value="all">Tất cả lớp</option><option>Mầm 4A</option><option>Chồi 3B</option><option>Lá 5A</option></select></label><label>Trạng thái<select name="status"><option>Đang tham gia và trong tháng</option><option>Đang tham gia</option><option>Đã kết thúc</option><option>Tất cả</option></select></label><button class="button" type="submit">Áp dụng</button>
         </form>
         <p class="muted" data-filter-feedback aria-live="polite"></p>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+          <p class="muted" data-member-selection aria-live="polite">Chưa chọn học sinh nào.</p>
+          <button class="button secondary" type="button" data-open-end-form disabled>Kết thúc tham gia</button>
+        </div>
         <div class="table-wrap">
           <table>
-            <caption>Thành viên Tiếng Anh A1 (T2-T4) · hiển thị 5 trong 19 học sinh</caption>
+            <caption>Thành viên · hiển thị 5 trong 19 học sinh</caption>
             <thead>
               <tr>
                 <th><input type="checkbox" data-member-all aria-label="Chọn tất cả thành viên đang tham gia"></th>
@@ -170,13 +162,9 @@
             </tbody>
           </table>
         </div>
-        <p class="muted" data-member-selection aria-live="polite">Chưa chọn học sinh nào.</p>
         <details>
           <summary>Hướng dẫn</summary>
           <p>Học sinh có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp với giá mặc định. Vào/nghỉ giữa tháng hoặc chuyển giữa hai lớp cùng khoản thu được đánh dấu trên hóa đơn nháp; học sinh chuyển lớp chỉ có một dòng, kế toán điều chỉnh số lượng hoặc đơn giá kèm lý do.</p>
-        </details>
-        <details>
-          <summary>Thông tin đối soát</summary>
           <p>Mỗi lần thêm hoặc kết thúc tham gia được ghi lịch sử theo từng học sinh, kèm lý do và người thực hiện.</p>
         </details>
       </section>
@@ -210,6 +198,20 @@
           function refresh() { var count = checks.filter(function (check) { return check.checked; }).length; note.textContent = count ? 'Đã chọn ' + count + ' học sinh.' : 'Chưa chọn học sinh nào.'; all.checked = count === checks.length; }
           checks.forEach(function (check) { check.addEventListener('change', refresh); });
           all.addEventListener('change', function () { checks.forEach(function (check) { check.checked = all.checked; }); refresh(); });
+          submitWhenValid(node, button);
+        });
+        document.querySelector('[data-open-edit-form]').addEventListener('click', function (event) {
+          var button = event.currentTarget;
+          var node = dialog('Chỉnh sửa · Tiếng Anh A1 (T2-T4)', '<form class="form-grid"><div class="field"><label for="xc-edit-name">Tên lớp</label><input id="xc-edit-name" required value="Tiếng Anh A1 (T2-T4)"></div><div class="field"><label>Năm học</label><input value="2026-2027" disabled></div><div class="field full"><label for="xc-edit-receivable">Khoản thu</label><select id="xc-edit-receivable" required aria-describedby="xc-edit-receivable-help"><option selected data-shared="Tiếng Anh A2 (T3-T5)">Tiếng Anh bản ngữ · 600.000 đ/tháng</option><option>Tiếng Anh nâng cao · 750.000 đ/tháng</option><option data-shared="Vẽ thiếu nhi">Năng khiếu vẽ · 400.000 đ/tháng</option><option data-shared="Võ thuật">Võ thuật · 450.000 đ/tháng</option></select><p id="xc-edit-receivable-help" class="muted">Dùng chung với: Tiếng Anh A2 (T3-T5).</p></div><div class="field full"><label for="xc-edit-reason">Lý do</label><input id="xc-edit-reason" required placeholder="Ví dụ: Lớp chuyển sang chương trình nâng cao"></div><p class="muted field full">Đổi khoản thu chỉ áp dụng cho dòng hóa đơn tạo sau đó; hóa đơn đã tạo giữ nguyên, đợt thu còn nháp cần xem trước lại.</p></form>', '<button class="button" type="button" data-submit>Lưu thay đổi</button>', button);
+          var select = node.querySelector('#xc-edit-receivable'), help = node.querySelector('#xc-edit-receivable-help');
+          select.addEventListener('change', function () { var shared = select.selectedOptions[0].dataset.shared; help.textContent = shared ? 'Dùng chung với: ' + shared + '.' : 'Chỉ khoản thu Ngoại khóa đang áp dụng.'; });
+          node.querySelector('.dialog').classList.add('wide');
+          submitWhenValid(node, button);
+        });
+        document.querySelector('[data-open-price-form]').addEventListener('click', function (event) {
+          var button = event.currentTarget;
+          var node = dialog('Chỉnh sửa · Tiếng Anh bản ngữ', '<form class="form-grid"><p class="field full">Đang dùng cho 2 lớp ngoại khóa: Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5).</p><div class="field"><label for="xc-price-name">Tên khoản thu</label><input id="xc-price-name" required value="Tiếng Anh bản ngữ"></div><div class="field"><label for="xc-price">Giá / đơn vị (chưa VAT)</label><input id="xc-price" type="number" min="1" step="1" inputmode="numeric" required value="600000"></div><div class="field"><label for="xc-price-refund">Giá hoàn trả / đơn vị (chưa VAT)</label><input id="xc-price-refund" type="number" min="0" step="1" inputmode="numeric" value="0"></div><div class="field"><label for="xc-price-tax">Mức thuế suất</label><select id="xc-price-tax"><option selected>Không kê khai nộp thuế</option><option>Không chịu thuế</option><option>Thuế suất 0%</option><option>Thuế suất 5%</option><option>Thuế suất 8%</option><option>Thuế suất 10%</option></select></div><div class="field full"><label for="xc-price-reason">Lý do</label><input id="xc-price-reason" required placeholder="Bắt buộc"></div><p class="muted field full">Cùng hộp Chỉnh sửa của trang Khoản thu. Đổi giá, giá hoàn trả hoặc mức thuế chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó; đợt thu còn nháp cần xem trước lại.</p></form>', '<button class="button" type="button" data-submit>Lưu thay đổi</button>', button);
+          node.querySelector('.dialog').classList.add('wide');
           submitWhenValid(node, button);
         });
         var members = [].slice.call(document.querySelectorAll('[data-member]')), memberAll = document.querySelector('[data-member-all]'), endButton = document.querySelector('[data-open-end-form]'), selection = document.querySelector('[data-member-selection]');

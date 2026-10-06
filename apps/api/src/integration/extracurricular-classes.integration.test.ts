@@ -81,7 +81,6 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     // The database also refuses a non-EXTRACURRICULAR Receivable and cross-School graphs.
     await expect(prisma.extracurricularClass.create({ data: { schoolId: s.school.id, schoolYearId: s.year.id, name: "Direct", receivableId: s.tuition } })).rejects.toThrow(/EXTRACURRICULAR/);
     await expect(prisma.extracurricularClass.create({ data: { schoolId: s.school.id, schoolYearId: s.year.id, name: "Direct", receivableId: foreignReceivable } })).rejects.toThrow();
-    await expect(prisma.extracurricularClass.update({ where: { id: id(a1) }, data: { receivableId: s.drawing } })).rejects.toThrow(/append-only/);
     await expect(prisma.extracurricularClass.update({ where: { id: id(a1) }, data: { createdAt: new Date() } })).rejects.toThrow(/append-only/);
     await expect(prisma.extracurricularClass.delete({ where: { id: id(a1) } })).rejects.toThrow(/append-only/);
     // List: shared names and receivable options.
@@ -92,7 +91,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     // Kind lock through class attachment (API and database).
     await expect(finance.updateReceivable(s.identity.id, s.school.id, s.english, uuid(), uuid(), { kind: "FLEXIBLE", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
     const catalog = await finance.read(s.identity.id, s.school.id);
-    expect(catalog.receivables.find((item) => item.id === s.english)).toMatchObject({ kindLocked: true, extracurricularClassCount: 2 });
+    expect(catalog.receivables.find((item) => item.id === s.english)).toMatchObject({ kindLocked: true, extracurricularClassCount: 2, extracurricularClassNames: ["Tiếng Anh A1", "Tiếng Anh A2"] });
     const flexible = await prisma.receivableGroup.findFirstOrThrow({ where: { schoolId: s.school.id, kind: "FLEXIBLE" } });
     await expect(prisma.receivable.update({ where: { id: s.english }, data: { groupId: flexible.id } })).rejects.toThrow(/kind cannot change/);
     // Idempotent replay.
@@ -268,16 +267,16 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     const a1 = id(await createClass(s, "Tiếng Anh A1"));
     await createClass(s, "Tiếng Anh A2");
     const foreignClass = id(await createClass(foreign, "Foreign lớp"));
-    const rename = (classId: string, body: object, key = uuid(), actor: Setup = s) => finance.renameExtracurricularClass(actor.identity.id, actor.school.id, classId, key, uuid(), body);
+    const rename = (classId: string, body: object, key = uuid(), actor: Setup = s) => finance.editExtracurricularClass(actor.identity.id, actor.school.id, classId, key, uuid(), body);
     const key = uuid();
     const renamed = await rename(a1, { name: "  Tiếng Anh nâng cao  ", reason: "Đổi tên theo chương trình" }, key);
     expect(renamed.outcome).toMatchObject({ id: a1, name: "Tiếng Anh nâng cao", status: "ACTIVE" });
     expect(await prisma.extracurricularClass.findUniqueOrThrow({ where: { id: a1 } })).toMatchObject({ name: "Tiếng Anh nâng cao", receivableId: s.english });
-    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: s.school.id, action: "EXTRACURRICULAR_CLASS_RENAMED" } })).toMatchObject({ reason: "Đổi tên theo chương trình", membershipId: s.membership.id, provenance: { operationId: renamed.id, oldValue: { name: "Tiếng Anh A1" }, newValue: { name: "Tiếng Anh nâng cao" } } });
+    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: s.school.id, action: "EXTRACURRICULAR_CLASS_EDITED" } })).toMatchObject({ reason: "Đổi tên theo chương trình", membershipId: s.membership.id, provenance: { operationId: renamed.id, oldValue: { name: "Tiếng Anh A1" }, newValue: { name: "Tiếng Anh nâng cao" } } });
     // Replay by key returns the stored outcome without a second audit; a changed body conflicts.
     expect(await rename(a1, { name: "Tiếng Anh nâng cao", reason: "Đổi tên theo chương trình" }, key)).toEqual({ ...renamed, outcome: renamed.outcome });
     await expect(rename(a1, { name: "Khác", reason: "x" }, key)).rejects.toMatchObject({ status: 409, response: { code: "IDEMPOTENCY_CONFLICT" } });
-    expect(await prisma.auditRecord.count({ where: { schoolId: s.school.id, action: "EXTRACURRICULAR_CLASS_RENAMED" } })).toBe(1);
+    expect(await prisma.auditRecord.count({ where: { schoolId: s.school.id, action: "EXTRACURRICULAR_CLASS_EDITED" } })).toBe(1);
     // Validation: blank name, missing reason, same name, name already used in the school year.
     await expect(rename(a1, { name: "   ", reason: "x" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { name: expect.any(String) } } });
     await expect(rename(a1, { name: "Mới", reason: " " })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { reason: expect.any(String) } } });
@@ -294,6 +293,32 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     // Capability.
     await prisma.positionCapabilityGrant.deleteMany({ where: { schoolId: s.school.id, capability: "FINANCE_MANAGE" } });
     await expect(rename(a1, { name: "Không quyền", reason: "x" })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("switches a class to another ACTIVE EXTRACURRICULAR Receivable with reason and audit, keeping memberships (decision 2026-10-06)", async () => {
+    const s = await setup();
+    const foreign = await setup("Foreign");
+    const a1 = id(await createClass(s, "Tiếng Anh A1"));
+    await add(s, a1, s.students.slice(0, 2));
+    const edit = (body: object, key = uuid()) => finance.editExtracurricularClass(s.identity.id, s.school.id, a1, key, uuid(), body);
+    const key = uuid();
+    const edited = await edit({ receivableId: s.drawing, reason: "Đổi chương trình" }, key);
+    expect(edited.outcome).toMatchObject({ id: a1, name: "Tiếng Anh A1", receivableId: s.drawing, status: "ACTIVE" });
+    expect(await prisma.extracurricularMembership.count({ where: { extracurricularClassId: a1 } })).toBe(2);
+    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: s.school.id, action: "EXTRACURRICULAR_CLASS_EDITED" } })).toMatchObject({ reason: "Đổi chương trình", provenance: { operationId: edited.id, oldValue: { receivableId: s.english, receivableName: "Tiếng Anh bản ngữ" }, newValue: { receivableId: s.drawing, receivableName: "Năng khiếu vẽ" } } });
+    expect(await edit({ receivableId: s.drawing, reason: "Đổi chương trình" }, key)).toEqual(edited);
+    // Name and Receivable together in one command.
+    expect((await edit({ name: "Vẽ A1", receivableId: s.english, reason: "Quay lại" })).outcome).toMatchObject({ name: "Vẽ A1", receivableId: s.english });
+    // Refusals save nothing, including the name sent alongside.
+    const foreignReceivable = (await prisma.receivable.findFirstOrThrow({ where: { schoolId: foreign.school.id } })).id;
+    await expect(edit({ name: "Không lưu", receivableId: s.tuition, reason: "x" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableId: expect.any(String) } } });
+    await expect(edit({ name: "Không lưu", receivableId: s.retired, reason: "x" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableId: expect.any(String) } } });
+    await expect(edit({ name: "Không lưu", receivableId: foreignReceivable, reason: "x" })).rejects.toMatchObject({ status: 404, response: { code: "RECEIVABLE_NOT_FOUND" } });
+    await expect(edit({ receivableId: s.english, reason: "x" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableId: expect.any(String) } } });
+    expect(await prisma.extracurricularClass.findUniqueOrThrow({ where: { id: a1 } })).toMatchObject({ name: "Vẽ A1", receivableId: s.english });
+    // Database defense: a direct update to a non-EXTRACURRICULAR Receivable or another column is refused.
+    await expect(prisma.extracurricularClass.update({ where: { id: a1 }, data: { receivableId: s.tuition } })).rejects.toThrow(/EXTRACURRICULAR Receivable/);
+    await expect(prisma.extracurricularClass.update({ where: { id: a1 }, data: { schoolYearId: s.nextYear.id } })).rejects.toThrow(/append-only/);
   });
 
   it("serializes competing commands: one concurrent membership add, class creation and rename wins, the rest get controlled 4xx", async () => {
@@ -313,7 +338,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     expect(await prisma.extracurricularClass.count({ where: { schoolId: s.school.id, name: "Vẽ chung" } })).toBe(1);
     // Two renames to the same free name at once.
     const second = id(await createClass(s, "Tiếng Anh A2"));
-    const renames = await Promise.allSettled([classId, second].map((target) => finance.renameExtracurricularClass(s.identity.id, s.school.id, target, uuid(), uuid(), { name: "Tiếng Anh nâng cao", reason: "Đổi tên" })));
+    const renames = await Promise.allSettled([classId, second].map((target) => finance.editExtracurricularClass(s.identity.id, s.school.id, target, uuid(), uuid(), { name: "Tiếng Anh nâng cao", reason: "Đổi tên" })));
     expect(renames.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect((renames.find((result) => result.status === "rejected") as PromiseRejectedResult).reason).toMatchObject({ status: 400 });
     expect(await prisma.extracurricularClass.count({ where: { schoolId: s.school.id, name: "Tiếng Anh nâng cao" } })).toBe(1);

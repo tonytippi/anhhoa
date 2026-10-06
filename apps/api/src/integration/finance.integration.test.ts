@@ -1196,6 +1196,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
       preview = await previewOf(x, runId);
       expect(linesByStudent(preview, s1.student.id)[0]).toMatchObject({ grossAmount: "700" });
+      // Switching the class to another Receivable (decision 2026-10-06) stales it too; the new preview bills the new Receivable.
+      await finance.editExtracurricularClass(x.current.identity.id, x.current.school.id, x.a1, uuid(), uuid(), { receivableId: x.drawing, reason: "Đổi chương trình" });
+      await expect(finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      preview = await previewOf(x, runId);
+      expect(linesByStudent(preview, s1.student.id)[0]).toMatchObject({ receivableId: x.drawing, grossAmount: "400" });
       await finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
       // After READY no exclusion can change (API and database); a membership change now blocks generate.
       await expect(setExclusion(x, runId, x.a1, true)).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_NOT_DRAFT" } });

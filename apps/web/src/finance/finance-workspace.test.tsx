@@ -557,7 +557,7 @@ describe("FinanceWorkspace", () => {
   });
   it("shows how many extracurricular classes a receivable serves and links to them from its row menu", async () => {
     const receivables = [
-      { id: "english", groupId: "g3", kind: "EXTRACURRICULAR", kindLocked: true, extracurricularClassCount: 2, code: "NK-TA", displayName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", status: "ACTIVE", available: true },
+      { id: "english", groupId: "g3", kind: "EXTRACURRICULAR", kindLocked: true, extracurricularClassCount: 2, extracurricularClassNames: ["Tiếng Anh A1", "Tiếng Anh A2"], code: "NK-TA", displayName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", status: "ACTIVE", available: true },
       { id: "fee", groupId: "g1", kind: "FIXED", kindLocked: false, extracurricularClassCount: 0, code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true },
     ];
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response({ groups: [], receivables }))));
@@ -578,6 +578,12 @@ describe("FinanceWorkspace", () => {
     expect(within(feeMenu).queryByRole("menuitem", { name: "Xem lớp ngoại khóa" })).toBeNull();
     fireEvent.keyDown(feeMenu, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    // The edit dialog names the classes a price change reaches (decision 2026-10-06).
+    fireEvent.click(within(await openMenu("Tùy chọn cho Tiếng Anh bản ngữ")).getByRole("menuitem", { name: "Chỉnh sửa" }));
+    const edit = await screen.findByRole("dialog", { name: "Chỉnh sửa · Tiếng Anh bản ngữ" });
+    expect(within(edit).getByText("Đang dùng cho 2 lớp ngoại khóa: Tiếng Anh A1, Tiếng Anh A2.")).toBeTruthy();
+    fireEvent.click(within(edit).getByRole("button", { name: "Hủy" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     const englishMenu = await openMenu("Tùy chọn cho Tiếng Anh bản ngữ");
     fireEvent.click(within(englishMenu).getByRole("menuitem", { name: "Xem lớp ngoại khóa" }));
     expect(open).toHaveBeenCalled();
