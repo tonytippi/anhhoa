@@ -541,6 +541,19 @@ const billingMonthLabel = (month: string) => {
   const [year, value] = (month ?? "").split("-");
   return year && value ? `${value}/${year}` : month;
 };
+// Months whose first day falls inside [startsOn, endsOn), matching the server's billing-month check.
+const schoolYearMonths = (year?: Year) => {
+  if (!year) return [];
+  const months: string[] = [];
+  const [startYear, startMonth, startDay] = year.startsOn.slice(0, 10).split("-").map(Number);
+  let cursor = new Date(Date.UTC(startYear!, startMonth! - 1 + (startDay === 1 ? 0 : 1), 1));
+  const end = year.endsOn.slice(0, 10);
+  while (cursor.toISOString().slice(0, 10) < end) {
+    months.push(cursor.toISOString().slice(0, 7));
+    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+  }
+  return months;
+};
 const promotionStatusLabel = (status: PromotionPolicy["versions"][number]["status"]) =>
   ({ DRAFT: "Nháp", ACTIVE: "Đang áp dụng", RETIRED: "Đã ngừng" })[status];
 const invoiceStatusLabel = (status: string) =>
@@ -2689,7 +2702,7 @@ export function FinanceWorkspace({
                         value={open.schoolYearId}
                         onChange={(event) => {
                           const schoolYearId = event.target.value;
-                          setOpen({ ...open, schoolYearId });
+                          setOpen({ schoolYearId, billingMonth: "" });
                           setPreview(undefined);
                         }}
                         {...field("run", "schoolYearId")}
@@ -2710,12 +2723,21 @@ export function FinanceWorkspace({
                     </label>
                     <label>
                       Tháng thu
-                      <input
-                        type="month"
+                      <select
                         value={open.billingMonth}
+                        disabled={!open.schoolYearId}
                         onChange={(event) => setOpen({ ...open, billingMonth: event.target.value })}
                         {...field("run", "billingMonth")}
-                      />
+                      >
+                        <option value="">Chọn tháng thu</option>
+                        {schoolYearMonths(catalog?.schoolYears?.find((year) => year.id === open.schoolYearId)).map(
+                          (month) => (
+                            <option key={month} value={month}>
+                              Tháng {billingMonthLabel(month)}
+                            </option>
+                          ),
+                        )}
+                      </select>
                       {scope === "run" && errors.billingMonth && (
                         <small id="invoice-run-billingMonth-error" role="alert">
                           {errors.billingMonth}
