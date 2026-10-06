@@ -3,7 +3,7 @@ import jsQRModule from 'jsqr';
 import satori from 'satori';
 import { describe, expect, it } from 'vitest';
 import { paymentImageTree, renderPaymentImage } from './payment-image.js';
-import { crc16, transferContent, transferContentLimit, vietQrBank, vietQrBanks, vietQrPayload } from './vietqr.js';
+import { crc16, transferContent, transferContentLimit, vietQrBank, vietQrBankCode, vietQrBanks, vietQrPayload } from './vietqr.js';
 
 // jsqr is CommonJS; NodeNext types expose its namespace as the default import.
 const jsQR = ((jsQRModule as unknown as { default?: unknown }).default ?? jsQRModule) as (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null;
@@ -59,6 +59,12 @@ describe('VietQR payload', () => {
     expect(new Set(vietQrBanks.map((bank) => bank.bin)).size).toBe(vietQrBanks.length);
     expect(vietQrBanks.every((bank) => /^\d{6}$/.test(bank.bin))).toBe(true);
     expect(vietQrBank('970436')?.shortName).toBe('Vietcombank');
+    expect(new Set(vietQrBanks.map((bank) => bank.code)).size).toBe(vietQrBanks.length);
+  });
+  it('names a receiving account by its short bank code, or the snapshot bank name for an unknown BIN', () => {
+    expect(vietQrBankCode('970407', 'Techcombank')).toBe('TCB');
+    expect(vietQrBankCode('970425', 'ABBANK')).toBe('ABB');
+    expect(vietQrBankCode('999999', 'Ngân hàng lạ')).toBe('Ngân hàng lạ');
   });
 });
 

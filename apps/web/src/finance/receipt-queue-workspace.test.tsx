@@ -2,17 +2,19 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReceiptQueueWorkspace } from "./receipt-queue-workspace";
 
-const row = { id: "invoice-a", student: { code: "HS001", name: "Bé An" }, class: { id: "class-a", name: "Lá 1" }, schoolYearId: "year-a", billingMonth: "2026-09", issuedAt: "2026-09-01T00:00:00.000Z", outstanding: "120000", status: "ISSUED" as const };
+const schoolAccount = { id: "bank-school", kind: "SCHOOL" as const, bankCode: "VCB", accountHolderName: "TRUONG MN ANH HOA", accountNumber: "0123456789" };
+const personalAccount = { id: "bank-an", kind: "PERSONAL" as const, bankCode: "ABB", accountHolderName: "NGUYEN VAN AN", accountNumber: "215000002088" };
+const row = { id: "invoice-a", channel: "SCHOOL" as const, obligationCode: "OBL-202609-000123", account: schoolAccount, student: { code: "HS001", name: "Bé An" }, class: { id: "class-a", name: "Lá 1" }, schoolYearId: "year-a", billingMonth: "2026-09", issuedAt: "2026-09-01T00:00:00.000Z", outstanding: "120000", status: "ISSUED" as const };
 const queue = { invoices: [row], filters: { schoolYearId: null, billingMonth: "2026-09", classIdSnapshot: null, student: null }, meta: { nextCursor: null } };
-const detail = { id: "invoice-a", status: "ISSUED", outstanding: "120000", student: { code: "HS001", name: "Bé An" } };
+const detail = { id: "invoice-a", channel: "SCHOOL", obligationCode: "OBL-202609-000123", account: schoolAccount, status: "ISSUED", outstanding: "120000", student: { code: "HS001", name: "Bé An" } };
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
 
 const openReceiptMenu = async () => {
-  await screen.findByRole("button", { name: "Tùy chọn cho Bé An" });
+  await screen.findByRole("button", { name: "Tùy chọn cho Bé An · Tài khoản trường" });
   // A queue reload can re-render the row trigger mid-keypress; re-query and reopen until the menu is present.
   await waitFor(() => {
     if (!screen.queryByRole("menuitem", { name: "Ghi thực nhận" }))
-      fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
+      fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An · Tài khoản trường" }), { key: "ArrowDown" });
     expect(screen.getByRole("menuitem", { name: "Ghi thực nhận" })).toBeTruthy();
   });
 };
@@ -21,22 +23,23 @@ afterEach(() => { cleanup(); document.querySelectorAll("[data-base-ui-portal]").
 
 describe("ReceiptQueueWorkspace", () => {
   it("lists a negative Invoice as a refund and records an exact payout instead of a receipt", async () => {
-    const refundRow = { ...row, id: "invoice-r", outstanding: "-448000", direction: "REFUND" as const };
+    const refundRow = { ...row, id: "invoice-r", channel: "PERSONAL" as const, account: personalAccount, outstanding: "-448000", direction: "REFUND" as const };
     const fetch = vi.fn((url: string, options?: RequestInit) => {
       if (options?.method === "POST") return Promise.resolve(response({ status: "COMPLETED", outcome: { id: "invoice-r", student: row.student, status: "CLOSED", receipt: null, carries: [], payout: { amount: "448000", paidOn: "2026-09-12", method: "CASH", reference: "Phiếu chi 12" } } }));
       if (url.includes("/classes")) return Promise.resolve(response({ classes: [] }));
-      if (url.includes("/receipt-queue/invoice-r")) return Promise.resolve(response({ id: "invoice-r", status: "ISSUED", outstanding: "-448000", direction: "REFUND", student: row.student }));
+      if (url.includes("/receipt-queue/invoice-r")) return Promise.resolve(response({ id: "invoice-r", channel: "PERSONAL", obligationCode: "OBL-202609-000312", account: personalAccount, status: "ISSUED", outstanding: "-448000", direction: "REFUND", student: row.student }));
       return Promise.resolve(response({ ...queue, invoices: [refundRow] }));
     });
     vi.stubGlobal("fetch", fetch); render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await screen.findByText("Hoàn 448.000 đ");
     expect(screen.getByText("Chờ chi hoàn")).toBeTruthy();
     await waitFor(() => {
-      if (!screen.queryByRole("menuitem", { name: "Ghi nhận đã chi" })) fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }), { key: "ArrowDown" });
+      if (!screen.queryByRole("menuitem", { name: "Ghi nhận đã chi" })) fireEvent.keyDown(screen.getByRole("button", { name: "Tùy chọn cho Bé An · Tài khoản cá nhân" }), { key: "ArrowDown" });
       expect(screen.getByRole("menuitem", { name: "Ghi nhận đã chi" })).toBeTruthy();
     });
     fireEvent.click(screen.getByRole("menuitem", { name: "Ghi nhận đã chi" }));
-    const dialog = await screen.findByRole("dialog", { name: "Ghi nhận đã chi cho Bé An" });
+    const dialog = await screen.findByRole("dialog", { name: "Ghi nhận đã chi cho Bé An · ABB - NGUYEN VAN AN" });
+    expect(dialog.textContent).toContain("Hóa đơn OBL-202609-000312 · tài khoản cá nhân ABB - NGUYEN VAN AN · 215000002088.");
     expect(dialog.textContent).toContain("Số tiền phải chi do hệ thống xác nhận: 448.000 đ.");
     expect((within(dialog).getByRole("button", { name: "Xác nhận đã chi" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(within(dialog).getByLabelText("Ngày chi"), { target: { value: "2026-09-12" } });
@@ -61,7 +64,10 @@ describe("ReceiptQueueWorkspace", () => {
     const receiptAction = screen.getByRole("menuitem", { name: "Ghi thực nhận" });
     expect(receiptAction.closest('[role="menu"]')?.parentElement?.parentElement?.parentElement).toBe(document.body);
     fireEvent.click(receiptAction);
-    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An" });
+    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
+    expect(document.querySelector(".dialog-backdrop")).toBeTruthy();
+    expect(dialog.textContent).toContain("Hóa đơn OBL-202609-000123 · tài khoản trường VCB - TRUONG MN ANH HOA · 0123456789. Nghĩa vụ do hệ thống xác nhận: 120.000 đ.");
+    expect(dialog.textContent).toContain("hóa đơn của tài khoản kia không thay đổi.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
     expect(screen.getByText("Thực nhận: 120.000 đ.")).toBeTruthy();
@@ -87,7 +93,7 @@ describe("ReceiptQueueWorkspace", () => {
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openReceiptMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
-    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An" });
+    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByText("Số thực nhận không hợp lệ.");
     expect(screen.getByRole("dialog")).toBeTruthy();
@@ -95,5 +101,38 @@ describe("ReceiptQueueWorkspace", () => {
     expect(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" })).toHaveProperty("disabled", false);
     expect(sessionStorage.getItem("passionedu.app.pending-receipt-queue-operation")).toBeNull();
     expect(fetch.mock.calls.some(([url]) => String(url).includes("/operations/"))).toBe(false);
+  });
+  it("shows each row's receiving account and filters by a server-listed account grouped by kind", async () => {
+    const personalRow = { ...row, id: "invoice-p", channel: "PERSONAL" as const, account: personalAccount, outstanding: "770000" };
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/classes")) return Promise.resolve(response({ classes: [], accounts: [schoolAccount, personalAccount], months: ["2026-09", "2026-08"] }));
+      return Promise.resolve(response({ ...queue, invoices: url.includes("bankAccountId=bank-an") ? [personalRow] : [row, personalRow], filters: { ...queue.filters, bankAccountId: url.includes("bankAccountId=bank-an") ? "bank-an" : null } }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    const table = await screen.findByRole("table");
+    await within(table).findByText("VCB - TRUONG MN ANH HOA");
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(within(rows[0]!).getByText("0123456789")).toBeTruthy();
+    expect(within(rows[0]!).getByText("Tài khoản trường").className).toBe("sr-only");
+    expect(within(rows[1]!).getByText("ABB - NGUYEN VAN AN")).toBeTruthy();
+    expect(within(rows[1]!).queryByText("Tài khoản trường")).toBeNull();
+    const select = screen.getByLabelText("Tài khoản nhận") as HTMLSelectElement;
+    await waitFor(() => expect(select.querySelectorAll("optgroup")).toHaveLength(2));
+    expect([...select.querySelectorAll("optgroup")].map((group) => [group.label, [...group.querySelectorAll("option")].map((option) => option.textContent)])).toEqual([
+      ["Tài khoản trường", ["VCB - TRUONG MN ANH HOA · 0123456789"]],
+      ["Tài khoản cá nhân", ["ABB - NGUYEN VAN AN · 215000002088"]],
+    ]);
+    // The month opens on the server's latest month with issued Invoices; there is no school-year picker.
+    const month = screen.getByLabelText("Tháng thu") as HTMLSelectElement;
+    expect(month.value).toBe("2026-09");
+    expect([...month.options].map((option) => option.textContent)).toEqual(["Tất cả tháng", "Tháng 09/2026", "Tháng 08/2026"]);
+    expect(screen.queryByLabelText("Năm học")).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/receivables"))).toBe(false);
+    fireEvent.change(select, { target: { value: "bank-an" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lọc" }));
+    await waitFor(() => expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2));
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("receipt-queue?") && String(url).includes("bankAccountId=bank-an"))).toBe(true);
+    expect(select.value).toBe("bank-an");
   });
 });

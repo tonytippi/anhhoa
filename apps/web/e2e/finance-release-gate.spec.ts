@@ -254,20 +254,20 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await expect(receiptQueue).toBeVisible();
     await expect(page.getByLabel('Tháng thu')).not.toHaveValue('');
     const septemberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('billingMonth=2026-09'));
-    await page.getByLabel('Tháng thu').fill('2026-09');
+    await page.getByLabel('Tháng thu').selectOption('2026-09');
     await page.getByRole('button', { name: 'Lọc' }).click();
     expect((await septemberQueue).status()).toBe(200);
     // The seed already holds an issued 2026-09 Invoice.
     await expect(receiptQueue).toContainText('09/2026');
     const octoberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('billingMonth=2026-10'));
-    await page.getByLabel('Tháng thu').fill('2026-10');
+    await page.getByLabel('Tháng thu').selectOption('2026-10');
     await page.getByRole('button', { name: 'Lọc' }).click();
     expect((await octoberQueue).status()).toBe(200);
     await expect(receiptQueue).not.toContainText('09/2026');
     await expect(receiptQueue).toContainText('RG1-1 / Bé An');
     await expect(receiptQueue).toContainText('RG1-2 / Bé Bình');
     await page.setViewportSize({ width: 390, height: 844 });
-     const queueMenu = receiptQueue.getByRole('button', { name: 'Tùy chọn cho Bé An' });
+     const queueMenu = receiptQueue.getByRole('button', { name: /^Tùy chọn cho Bé An · Tài khoản / });
      await expectMenuDoesNotMoveNextRow(queueMenu);
      await queueMenu.scrollIntoViewIfNeeded();
     await expect(queueMenu).toBeVisible();
@@ -279,10 +279,10 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await queueMenu.focus();
     await page.keyboard.press('ArrowDown');
     await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
-    const queueReceipt = page.getByRole('dialog', { name: 'Ghi thực nhận cho Bé An' });
+    const queueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận cho Bé An · / });
     await expect(queueReceipt.getByLabel('Số thực nhận (đ)')).toHaveValue('135000');
     await expect(queueReceipt.getByLabel('Số thực nhận (đ)')).toBeFocused();
-    await queueReceipt.getByRole('button', { name: 'Hủy' }).focus();
+    await queueReceipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).focus();
     await page.keyboard.press('Tab');
     await expect(queueReceipt.getByLabel('Số thực nhận (đ)')).toBeFocused();
     const reconciledQueueRefresh = page.waitForResponse((response) =>
@@ -304,7 +304,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await expect(nextReceipt).toBeVisible();
     await expect(nextReceipt).toBeInViewport();
     await nextReceipt.click();
-    const secondQueueReceipt = page.getByRole('dialog', { name: 'Ghi thực nhận cho Bé Bình' });
+    const secondQueueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận cho Bé Bình · / });
     await expect(secondQueueReceipt).toBeVisible();
     expect(receiptPosts).toBe(1);
     await page.keyboard.press('Escape');

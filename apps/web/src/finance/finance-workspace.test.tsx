@@ -29,8 +29,29 @@ const candidates = {
     { id: fixtureStudentId, studentCode: "HS001", fullName: "Bé An" },
   ],
 };
+// Mirrors the API's payment-notice grouping (one row per Student) for run fixtures that only list channel Invoices.
+type FixtureInvoice = { id: string; studentId: string; studentCode: string; studentName: string; className: string; status: string; total: string; channel?: string; kind?: string };
+const fixtureNotices = (invoices: FixtureInvoice[]) =>
+  [...new Map(invoices.map((item) => [item.studentId, invoices.filter((other) => other.studentId === item.studentId)] as const)).values()].map((parts) => {
+    const live = parts.filter((part) => part.status !== "CANCELLED");
+    const settled = live.filter((part) => part.status === "CLOSED").length;
+    return {
+      invoiceId: parts[0]!.id, studentId: parts[0]!.studentId, studentCode: parts[0]!.studentCode, studentName: parts[0]!.studentName, className: parts[0]!.className,
+      kind: parts.some((part) => part.kind === "SETTLEMENT") ? "SETTLEMENT" : "NORMAL",
+      status: !live.length ? "CANCELLED" : live.some((part) => part.status === "DRAFT") ? "DRAFT" : settled === live.length ? "COMPLETED" : settled ? "PARTLY_SETTLED" : "ISSUED",
+      settledParts: settled, partCount: live.length,
+      total: live.reduce((sum, part) => sum + BigInt(part.total), 0n).toString(),
+      parts: (live.length ? live : parts).map((part) => ({ id: part.id, channel: part.channel ?? "PERSONAL", status: part.status, total: part.total, account: null })),
+    };
+  });
+const withNotices = (value: any): any =>
+  value && typeof value === "object" && Array.isArray(value.runs)
+    ? { ...value, runs: value.runs.map(withNotices) }
+    : value && typeof value === "object" && Array.isArray(value.invoices) && "billingMonth" in value && "version" in value && !value.notices
+      ? { ...value, notices: fixtureNotices(value.invoices) }
+      : value;
 const response = (data: unknown, status = 200) =>
-  new Response(JSON.stringify({ data }), { status });
+  new Response(JSON.stringify({ data: withNotices(data) }), { status });
 const openRun = async () => {
   await screen.findByRole("button", { name: "Tùy chọn cho đợt thu 2026-09" });
   // A list reload can re-render the row trigger mid-keypress; re-query and reopen until the menu is present.
@@ -1331,8 +1352,49 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [draftRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
-    await screen.findByText("Chưa thể đóng: còn hóa đơn nháp cần phát hành.");
+    await screen.findByText("Chưa thể đóng: còn 1 phiếu thu nháp cần phát hành.");
     expect(screen.getByRole("button", { name: "Đóng đợt thu" })).toHaveProperty("disabled", true);
+  });
+  it("lists one row per payment notice with each part's receiving account and the server total and status", async () => {
+    const school = { id: "bank-school", kind: "SCHOOL", bankCode: "VCB", accountHolderName: "TRUONG MN ANH HOA", accountNumber: "0123456789" };
+    const personal = { id: "bank-an", kind: "PERSONAL", bankCode: "ABB", accountHolderName: "NGUYEN VAN AN", accountNumber: "215000002088" };
+    const generatedRun = {
+      ...run, status: "GENERATED" as const,
+      invoices: [
+        { id: "a-school", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "CLOSED", total: "1575000", channel: "SCHOOL" },
+        { id: "a-personal", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "770000", channel: "PERSONAL" },
+        { id: "b-school", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "1417500", channel: "SCHOOL" },
+        { id: "b-personal", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "686000", channel: "PERSONAL" },
+        { id: "c-personal", studentId: "student-c", studentCode: "HS003", studentName: "Bé Khôi", className: "Lá 1", status: "CLOSED", total: "770000", channel: "PERSONAL" },
+      ],
+      notices: [
+        { invoiceId: "a-school", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", kind: "NORMAL", status: "PARTLY_SETTLED", settledParts: 1, partCount: 2, total: "2345000", parts: [{ id: "a-school", channel: "SCHOOL", status: "CLOSED", total: "1575000", account: school }, { id: "a-personal", channel: "PERSONAL", status: "ISSUED", total: "770000", account: personal }] },
+        { invoiceId: "b-school", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", kind: "NORMAL", status: "DRAFT", settledParts: 0, partCount: 2, total: "2103500", parts: [{ id: "b-school", channel: "SCHOOL", status: "DRAFT", total: "1417500", account: null }, { id: "b-personal", channel: "PERSONAL", status: "DRAFT", total: "686000", account: null }] },
+        { invoiceId: "c-personal", studentId: "student-c", studentCode: "HS003", studentName: "Bé Khôi", className: "Lá 1", kind: "NORMAL", status: "COMPLETED", settledParts: 1, partCount: 1, total: "770000", parts: [{ id: "c-personal", channel: "PERSONAL", status: "CLOSED", total: "770000", account: personal }] },
+      ],
+      summary: { invoiceCount: 5, issuedCount: 3, invoiceTotal: "5218500", noticeCount: 3, issuedNoticeCount: 2 },
+    };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-run-candidates") ? response(candidates) : url.includes("addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun();
+    await screen.findByText(/2\/3 phiếu thu đã phát hành hoặc hoàn tất\./);
+    const table = screen.getByRole("table", { name: "Hóa đơn hiện có trong đợt thu" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]!).getByText("Đã thu 1/2 phần")).toBeTruthy();
+    expect(within(rows[0]!).getByText("2.345.000 đ")).toBeTruthy();
+    expect(within(rows[0]!).getByText("VCB - TRUONG MN ANH HOA")).toBeTruthy();
+    expect(within(rows[0]!).getByText("0123456789")).toBeTruthy();
+    expect(within(rows[0]!).getByText("ABB - NGUYEN VAN AN")).toBeTruthy();
+    // The School account is marked by an icon with an accessible name only; no visible kind text.
+    expect(within(rows[0]!).getAllByText("Tài khoản trường")).toHaveLength(1);
+    expect(within(rows[0]!).getByText("Tài khoản trường").className).toBe("sr-only");
+    expect(within(rows[1]!).getByText("Nháp")).toBeTruthy();
+    expect(within(rows[1]!).queryByText(/VCB|ABB/)).toBeNull();
+    expect(within(rows[2]!).getByText("—")).toBeTruthy();
+    expect(within(rows[2]!).getByText("Hoàn tất")).toBeTruthy();
+    expect(screen.getByText("Phiếu thu")).toBeTruthy();
+    expect(screen.getByText("Chưa thể đóng: còn 1 phiếu thu nháp cần phát hành.")).toBeTruthy();
   });
   it("allows close when every invoice has been issued", async () => {
     const issuedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }] };

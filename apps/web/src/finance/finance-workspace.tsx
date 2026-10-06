@@ -1,4 +1,5 @@
 import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ReceivingAccountLabel, type ReceivingAccount } from "./receiving-account";
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 import { PaymentImagePanel } from "./payment-image-panel";
 
@@ -217,7 +218,22 @@ type Run = {
     channel?: PaymentChannel;
     kind?: "NORMAL" | "SETTLEMENT";
   }>;
+  notices?: RunNotice[];
   summary?: PreviewSummary | InvoiceSummary;
+};
+// Decision 2026-10-05: one row per payment notice; the API owns its total and combined status.
+type RunNotice = {
+  invoiceId: string;
+  studentId: string;
+  studentCode: string;
+  studentName: string;
+  className: string;
+  kind: "NORMAL" | "SETTLEMENT";
+  status: "DRAFT" | "ISSUED" | "PARTLY_SETTLED" | "COMPLETED" | "CANCELLED";
+  settledParts: number;
+  partCount: number;
+  total: string;
+  parts: Array<{ id: string; channel: PaymentChannel; status: string; total: string; account: ReceivingAccount | null }>;
 };
 type PreviewSummary = {
   eligibleCount: number;
@@ -229,7 +245,13 @@ type PreviewSummary = {
   vatAmount?: string;
   netAmount?: string;
 };
-type InvoiceSummary = { invoiceCount: number; issuedCount: number; invoiceTotal: string };
+type InvoiceSummary = {
+  invoiceCount: number;
+  issuedCount: number;
+  invoiceTotal: string;
+  noticeCount?: number;
+  issuedNoticeCount?: number;
+};
 type Preview = {
   run: Run;
   eligible: Array<{
@@ -489,8 +511,8 @@ const runMetrics = (run: Run, preview?: Preview): Array<[string, string]> => {
   }
   const summary = run.summary as InvoiceSummary | undefined;
   return [
-    ["Hóa đơn", summary ? String(summary.invoiceCount) : "Chưa có số liệu"],
-    ["Đã phát hành", summary ? String(summary.issuedCount) : "Chưa có số liệu"],
+    ["Phiếu thu", summary ? String(summary.noticeCount ?? summary.invoiceCount) : "Chưa có số liệu"],
+    ["Đã phát hành", summary ? String(summary.issuedNoticeCount ?? summary.issuedCount) : "Chưa có số liệu"],
     ["Tổng phải thu", summary ? `${vnd(summary.invoiceTotal)} đ` : "Chưa có số liệu"],
   ];
 };
@@ -507,6 +529,98 @@ const invoiceStatusLabel = (status: string) =>
     CLOSED: "Đã đóng",
     CANCELLED: "Đã hủy",
   })[status] ?? "Đã cập nhật";
+
+const noticeStatus = (notice: RunNotice): [string, "neutral" | "info" | "success" | "warning"] =>
+  notice.status === "DRAFT"
+    ? ["Nháp", "neutral"]
+    : notice.status === "PARTLY_SETTLED"
+      ? [`Đã thu ${notice.settledParts}/${notice.partCount} phần`, "info"]
+      : notice.status === "COMPLETED"
+        ? ["Hoàn tất", "success"]
+        : notice.status === "CANCELLED"
+          ? ["Đã hủy", "warning"]
+          : ["Đã phát hành", "success"];
+
+function RunNoticeTable({
+  notices,
+  caption,
+  actionLabel,
+  currentInvoiceId,
+  onReview,
+}: {
+  notices: RunNotice[];
+  caption: string;
+  actionLabel: string;
+  currentInvoiceId?: string;
+  onReview: (invoiceId: string) => void;
+}) {
+  const part = (notice: RunNotice, channel: PaymentChannel) => {
+    const item = notice.parts.find((candidate) => candidate.channel === channel);
+    if (!item) return "—";
+    return (
+      <>
+        {signedVnd(item.total)}
+        {item.account && <ReceivingAccountLabel account={item.account} />}
+      </>
+    );
+  };
+  return (
+    <div className="table-scroll">
+      <table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            <th>Học sinh</th>
+            <th>Lớp</th>
+            <th className="finance-money">Tài khoản trường</th>
+            <th className="finance-money">Tài khoản cá nhân</th>
+            <th className="finance-money">Tổng</th>
+            <th>Trạng thái</th>
+            <th>Tùy chọn</th>
+          </tr>
+        </thead>
+        <tbody>
+          {notices.length ? (
+            notices.map((notice) => {
+              const [label, tone] = noticeStatus(notice);
+              return (
+                <tr
+                  key={notice.studentId}
+                  aria-current={
+                    currentInvoiceId && notice.parts.some((item) => item.id === currentInvoiceId) ? "true" : undefined
+                  }
+                >
+                  <td>
+                    {notice.studentCode} / {notice.studentName}
+                    {notice.kind === "SETTLEMENT" && <small> · Quyết toán</small>}
+                  </td>
+                  <td>{notice.className}</td>
+                  <td className="finance-money">{part(notice, "SCHOOL")}</td>
+                  <td className="finance-money">{part(notice, "PERSONAL")}</td>
+                  <td className="finance-money">
+                    <b>{signedVnd(notice.total)}</b>
+                  </td>
+                  <td>
+                    <span className={`finance-badge finance-badge-${tone}`}>{label}</span>
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => onReview(notice.invoiceId)}>
+                      {actionLabel}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })
+          ) : (
+            <tr>
+              <td colSpan={7}>Chưa có hóa đơn trong đợt thu.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const todayInVietnam = () =>
   new Intl.DateTimeFormat("en-CA", {
@@ -2118,6 +2232,8 @@ export function FinanceWorkspace({
   const issueAccountsReady = issueParts.every((part) =>
     part.channel === "SCHOOL" ? Boolean(schoolBankAccount) : Boolean(issueBankAccountId),
   );
+  const liveNotices = (run?.notices ?? []).filter((notice) => notice.status !== "CANCELLED");
+  const draftNoticeCount = liveNotices.filter((notice) => notice.status === "DRAFT").length;
   const reviewInvoice = (id: string) => {
     if (onOpenInvoice && run) onOpenInvoice(run.id, id);
     else void openInvoice(id, run);
@@ -3300,7 +3416,11 @@ export function FinanceWorkspace({
               <div className="finance-actions finance-actions-split">
                 <div className="finance-card-heading">
                   <h2 id="run-invoices-title">Hóa đơn trong đợt</h2>
-                  <p>{(run.invoices ?? []).filter((item) => ["ISSUED", "CLOSED"].includes(item.status)).length}/{(run.invoices ?? []).length} hóa đơn đã phát hành hoặc hoàn tất.</p>
+                  <p>
+                    {liveNotices.filter((notice) => notice.status !== "DRAFT").length}/{liveNotices.length} phiếu thu đã
+                    phát hành hoặc hoàn tất. Mỗi dòng là một phiếu thu gồm phần tài khoản trường và phần tài khoản cá
+                    nhân.
+                  </p>
                 </div>
                 <button
                   ref={addStudentsTrigger}
@@ -3311,56 +3431,13 @@ export function FinanceWorkspace({
                   Thêm học sinh
                 </button>
               </div>
-              <div className="table-scroll">
-                <table>
-                  <caption>Hóa đơn hiện có trong đợt thu</caption>
-                  <thead>
-                    <tr>
-                      <th>Học sinh</th>
-                      <th>Lớp</th>
-                      <th>Tài khoản nhận</th>
-                      <th>Trạng thái</th>
-                      <th className="finance-money">Tổng</th>
-                      <th>Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(run.invoices ?? []).length ? (
-                      (run.invoices ?? []).map((item) => (
-                        <tr key={item.id} aria-current={invoice?.id === item.id ? "true" : undefined}>
-                          <td>
-                            {item.studentCode} / {item.studentName}
-                            {item.kind === "SETTLEMENT" && <small> · Quyết toán</small>}
-                          </td>
-                          <td>{item.className}</td>
-                          <td>{channelAccountLabel(item.channel)}</td>
-                          <td>
-                            <span
-                              className={`finance-badge finance-badge-${item.status === "DRAFT" ? "neutral" : item.status === "CANCELLED" ? "warning" : "success"}`}
-                            >
-                              {invoiceStatusLabel(item.status)}
-                            </span>
-                          </td>
-                          <td className="finance-money">
-                            {BigInt(item.total) < 0n
-                              ? `Hoàn ${vnd((-BigInt(item.total)).toString())}`
-                              : `${vnd(item.total)} đ`}
-                          </td>
-                          <td>
-                            <button type="button" onClick={() => reviewInvoice(item.id)}>
-                              Rà soát hóa đơn
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={6}>Chưa có hóa đơn trong đợt thu.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <RunNoticeTable
+                notices={run.notices ?? []}
+                caption="Hóa đơn hiện có trong đợt thu"
+                actionLabel="Rà soát hóa đơn"
+                currentInvoiceId={invoice?.id}
+                onReview={reviewInvoice}
+              />
               {settlements?.runId === run.id && settlements.students.length > 0 && (
                 <section aria-labelledby="run-settlements-title">
                   <div className="finance-card-heading">
@@ -3427,7 +3504,11 @@ export function FinanceWorkspace({
               )}
               <div className="finance-actions finance-actions-split">
                 {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? (
-                  <p>Chưa thể đóng: còn hóa đơn nháp cần phát hành.</p>
+                  <p>
+                    {draftNoticeCount
+                      ? `Chưa thể đóng: còn ${draftNoticeCount} phiếu thu nháp cần phát hành.`
+                      : "Chưa thể đóng: còn hóa đơn nháp cần phát hành."}
+                  </p>
                 ) : (
                   <p>Mọi hóa đơn đã phát hành; có thể đóng đợt thu.</p>
                 )}
@@ -3462,40 +3543,12 @@ export function FinanceWorkspace({
                 </h2>
                 <p>Máy chủ đã khóa đợt thu này. Không thể thêm học sinh hoặc tạo, sửa hóa đơn trong đợt thu đã đóng.</p>
               </div>
-              <div className="table-scroll">
-                <table>
-                  <caption>Hóa đơn đã khóa theo đợt thu</caption>
-                  <thead>
-                    <tr>
-                      <th>Học sinh</th>
-                      <th>Lớp</th>
-                      <th>Tài khoản nhận</th>
-                      <th>Trạng thái</th>
-                      <th className="finance-money">Tổng (đ)</th>
-                      <th>Chi tiết</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(run.invoices ?? []).map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          {item.studentCode} / {item.studentName}
-                          {item.kind === "SETTLEMENT" && <small> · Quyết toán</small>}
-                        </td>
-                        <td>{item.className}</td>
-                        <td>{channelAccountLabel(item.channel)}</td>
-                        <td>{invoiceStatusLabel(item.status)}</td>
-                        <td className="finance-money">{vnd(item.total)}</td>
-                        <td>
-                          <button type="button" onClick={() => reviewInvoice(item.id)}>
-                            Xem hóa đơn
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <RunNoticeTable
+                notices={run.notices ?? []}
+                caption="Hóa đơn đã khóa theo đợt thu"
+                actionLabel="Xem hóa đơn"
+                onReview={reviewInvoice}
+              />
             </section>
           )}
           {invoiceRouteActive && !invoice && <p>Đang tải hóa đơn.</p>}

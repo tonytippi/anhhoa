@@ -193,6 +193,74 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     expect(schoolAccount).toBeTruthy();
   });
 
+  it("lists one payment notice per Student and filters the receipt queue by a receiving account of the School", async () => {
+    const current = await school();
+    const foreign = await school();
+    const first = await student(current, "Bé An");
+    const second = await student(current, "Bé Bình");
+    const tuition = await receivable(current, "Học phí", "1000000", "VAT_10");
+    const meals = await receivable(current, "Tiền ăn", "30000");
+    const schoolAccount = await account(current, "SCHOOL", "0123456789");
+    const personalAccount = await account(current, "PERSONAL", "215000002088");
+    const foreignAccount = await account(foreign, "PERSONAL", "111");
+    const { runId } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "10" }]);
+    const draft: any = await finance.run(current.identity.id, current.school.id, runId);
+    expect(draft.invoices).toHaveLength(4);
+    expect(draft.notices).toHaveLength(2);
+    expect(draft.notices[0]).toMatchObject({ studentId: (first.studentCode < second.studentCode ? first : second).id, status: "DRAFT", total: "1400000", partCount: 2, settledParts: 0 });
+    // A DRAFT part has no account snapshot yet.
+    expect(draft.notices[0].parts.map((part: any) => [part.channel, part.total, part.account])).toEqual([["SCHOOL", "1100000", null], ["PERSONAL", "300000", null]]);
+    expect(draft.summary).toMatchObject({ invoiceCount: 4, noticeCount: 2, issuedNoticeCount: 0 });
+
+    const firstSchool = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: first.id, channel: "SCHOOL" } });
+    const secondSchool = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: second.id, channel: "SCHOOL" } });
+    await finance.issueInvoice(current.identity.id, current.school.id, firstSchool.id, uuid(), uuid(), { personalBankAccountId: personalAccount });
+    await finance.issueInvoice(current.identity.id, current.school.id, secondSchool.id, uuid(), uuid(), { personalBankAccountId: personalAccount });
+    await finance.closeInvoice(current.identity.id, current.school.id, firstSchool.id, uuid(), uuid(), { actualAmount: "1100000" });
+    const issued: any = await finance.run(current.identity.id, current.school.id, runId);
+    const byStudent = new Map(issued.notices.map((notice: any) => [notice.studentId, notice]));
+    expect(byStudent.get(first.id)).toMatchObject({ status: "PARTLY_SETTLED", settledParts: 1, partCount: 2, total: "1400000" });
+    expect(byStudent.get(second.id)).toMatchObject({ status: "ISSUED", settledParts: 0 });
+    // Decision 2026-10-05 §3: the short VietQR code and holder name, the full number, and the account kind come from the snapshot.
+    expect((byStudent.get(first.id) as any).parts.map((part: any) => part.account)).toEqual([
+      { id: schoolAccount, kind: "SCHOOL", bankCode: "VCB", accountHolderName: "Chủ 0123456789", accountNumber: "0123456789" },
+      { id: personalAccount, kind: "PERSONAL", bankCode: "VCB", accountHolderName: "Chủ 215000002088", accountNumber: "215000002088" },
+    ]);
+    expect(issued.summary).toMatchObject({ noticeCount: 2, issuedNoticeCount: 2 });
+
+    // Receipt queue: one row per channel Invoice, a Student's parts adjacent with the School account first.
+    const queue: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09" });
+    const secondCode = second.studentCode;
+    // The first Student's School part is settled, so only its personal part remains.
+    const expected = first.studentCode < secondCode ? [[first.studentCode, "PERSONAL"], [secondCode, "SCHOOL"], [secondCode, "PERSONAL"]] : [[secondCode, "SCHOOL"], [secondCode, "PERSONAL"], [first.studentCode, "PERSONAL"]];
+    expect(queue.invoices.map((row: any) => [row.student.code, row.channel])).toEqual(expected);
+    expect(queue.invoices[0].account).toMatchObject({ bankCode: "VCB" });
+    expect(queue.invoices[0].obligationCode).toMatch(/^OBL-/);
+    // Paging keeps the adjacency across the cursor.
+    const firstPage: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", limit: "1" });
+    const secondPage: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", limit: "1", cursor: firstPage.meta.nextCursor });
+    const thirdPage: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", limit: "1", cursor: secondPage.meta.nextCursor });
+    expect([...firstPage.invoices, ...secondPage.invoices, ...thirdPage.invoices].map((row: any) => row.id)).toEqual(queue.invoices.map((row: any) => row.id));
+    expect(thirdPage.meta.nextCursor).toBeNull();
+
+    // Without a month the queue opens on the latest month that still has issued Invoices, not the calendar month.
+    const defaulted: any = await finance.receiptQueue(current.identity.id, current.school.id, {});
+    expect(defaulted.filters.billingMonth).toBe("2026-09");
+    expect(defaulted.invoices.map((row: any) => row.id)).toEqual(queue.invoices.map((row: any) => row.id));
+    const everyMonth: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "ALL" });
+    expect(everyMonth.filters.billingMonth).toBe("ALL");
+    expect(everyMonth.invoices).toHaveLength(3);
+    const options: any = await finance.receiptQueueClasses(current.identity.id, current.school.id, { billingMonth: "2026-09" });
+    expect(options.months).toEqual(["2026-09"]);
+    expect(options.accounts.map((item: any) => [item.id, item.kind])).toEqual([[schoolAccount, "SCHOOL"], [personalAccount, "PERSONAL"]]);
+    const schoolOnly: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", bankAccountId: schoolAccount });
+    expect(schoolOnly.invoices.map((row: any) => row.id)).toEqual([secondSchool.id]);
+    const detail: any = await finance.receiptQueueDetail(current.identity.id, current.school.id, secondSchool.id);
+    expect(detail).toMatchObject({ obligationCode: expect.stringMatching(/^OBL-/), account: { id: schoolAccount, kind: "SCHOOL", bankCode: "VCB" } });
+    // An account of another School is refused, not silently ignored.
+    await expect(finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", bankAccountId: foreignAccount })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { bankAccountId: expect.any(String) } } });
+  });
+
   it("refuses a Class default account of another School", async () => {
     const current = await school();
     const foreign = await school();

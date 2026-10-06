@@ -1621,6 +1621,7 @@ tbody tr:last-child td {
   font-weight: 800;
 }
 .roster-list-filters .roster-filter-search { flex: 2 1 240px; }
+.roster-list-filters .receipt-queue-account-filter { flex: 2 1 260px; }
 .roster-list-filters input,
 .roster-list-filters select { width: 100%; min-width: 0; }
 .roster-list-filters button { min-height: 42px; }
@@ -2267,3 +2268,14 @@ tbody tr:last-child td {
 @media (max-width: 720px) { .xc-cards { grid-template-columns: 1fr; } }
 .xc-pending { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; padding: 12px 16px; border: 1px solid #e4d9a8; border-radius: 12px; background: #fbf5dd; }
 .xc-pending p { margin: 0; }
+.receiving-account {
+  display: inline-grid;
+  grid-template-columns: 16px auto;
+  gap: 8px;
+  align-items: start;
+  text-align: left;
+}
+.receiving-account b { display: block; font-weight: 700; white-space: nowrap; }
+.receiving-account small { display: block; color: #66695f; font-size: 12px; font-variant-numeric: tabular-nums; }
+.receiving-account-icon { width: 16px; height: 16px; margin-top: 3px; color: #1d6538; }
+.finance-money .receiving-account { display: grid; justify-content: end; margin-top: 4px; font-size: 13px; font-weight: 400; }

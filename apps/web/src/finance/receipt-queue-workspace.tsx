@@ -1,12 +1,15 @@
 import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 import type { FinanceStatus } from "./finance-workspace";
+import { ReceivingAccountLabel, receivingAccountName, type ReceivingAccount } from "./receiving-account";
 
 // Decision 2026-10-01: a negative Invoice is a refund the School pays back; it is closed by one exact payout.
 type Direction = "COLLECT" | "REFUND";
 type Row = {
   id: string;
   channel?: "SCHOOL" | "PERSONAL";
+  obligationCode?: string | null;
+  account?: ReceivingAccount | null;
   student: { code: string; name: string };
   class: { id: string; name: string };
   schoolYearId: string;
@@ -24,12 +27,15 @@ type Queue = {
     classIdSnapshot: string | null;
     student: string | null;
     direction?: Direction | null;
+    bankAccountId?: string | null;
   };
   meta: { nextCursor: string | null };
 };
 type Detail = {
   id: string;
   channel?: "SCHOOL" | "PERSONAL";
+  obligationCode?: string | null;
+  account?: ReceivingAccount | null;
   student: { code: string; name: string };
   outstanding: string;
   direction?: Direction;
@@ -47,7 +53,6 @@ type Closed = {
   carries: Array<{ type: "SHORTFALL_CARRY" | "OVERPAYMENT_CARRY"; amount: string }>;
   coverageFacts?: Array<{ billingMonth: string; issuedAt: string | null }>;
 };
-type Year = { id: string; name: string };
 type Operation = { status: string; outcome?: Closed };
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const pendingKey = "passionedu.app.pending-receipt-queue-operation";
@@ -68,6 +73,18 @@ const today = () =>
   }).format(new Date());
 // Each payment channel is settled on its own: one row per channel Invoice, money received into that account.
 const accountLabel = (channel: Row["channel"]) => (channel === "SCHOOL" ? "Tài khoản trường" : "Tài khoản cá nhân");
+const accountTitle = (item: { channel?: Row["channel"]; account?: ReceivingAccount | null }) =>
+  item.account ? receivingAccountName(item.account) : accountLabel(item.channel);
+// "Hóa đơn OBL-… · tài khoản trường VCB - … · 0123456789."
+const accountContext = (item: Detail) =>
+  [
+    item.obligationCode ? `Hóa đơn ${item.obligationCode}` : "",
+    item.account
+      ? `${accountLabel(item.channel).toLocaleLowerCase("vi")} ${receivingAccountName(item.account)} · ${item.account.accountNumber}`
+      : accountLabel(item.channel).toLocaleLowerCase("vi"),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 const outcome = (value: NonNullable<Closed["receipt"]>["outcome"]) =>
   value === "EXACT" ? "Đủ" : value === "SHORTFALL" ? "Thu thiếu" : "Thu thừa";
 const monthLabel = (value: string) => (value ? `${value.slice(5, 7)}/${value.slice(0, 4)}` : "");
@@ -98,10 +115,12 @@ export function ReceiptQueueWorkspace({
     classIdSnapshot: "",
     student: "",
     direction: "",
+    bankAccountId: "",
   });
   const [payout, setPayout] = useState({ paidOn: today(), method: "BANK_TRANSFER", reference: "" });
   const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
-  const [years, setYears] = useState<Year[]>([]);
+  const [accounts, setAccounts] = useState<ReceivingAccount[]>([]);
+  const [months, setMonths] = useState<string[]>([]);
   const [detail, setDetail] = useState<Detail>();
   const [actual, setActual] = useState("");
   const [pending, setPending] = useState<string>();
@@ -112,6 +131,7 @@ export function ReceiptQueueWorkspace({
   const generation = useRef(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const resultHeading = useRef<HTMLHeadingElement>(null);
   const query = (cursor?: string | null) => {
     const value = new URLSearchParams({ limit: "25" });
     for (const [key, item] of Object.entries(filters)) if (item) value.set(key, item);
@@ -139,6 +159,7 @@ export function ReceiptQueueWorkspace({
       classIdSnapshot: value.filters.classIdSnapshot ?? "",
       student: value.filters.student ?? "",
       direction: value.filters.direction ?? "",
+      bankAccountId: value.filters.bankAccountId ?? "",
     }));
     return value;
   };
@@ -153,8 +174,16 @@ export function ReceiptQueueWorkspace({
       denied();
       return;
     }
-    if (response.ok && active.current === schoolId && expected === generation.current)
-      setClasses(((await response.json()) as { data: { classes: Array<{ id: string; name: string }> } }).data.classes);
+    if (response.ok && active.current === schoolId && expected === generation.current) {
+      const options = (
+        (await response.json()) as {
+          data: { classes: Array<{ id: string; name: string }>; accounts?: ReceivingAccount[]; months?: string[] };
+        }
+      ).data;
+      setClasses(options.classes);
+      setAccounts(options.accounts ?? []);
+      setMonths(options.months ?? []);
+    }
   };
   const clearProtected = () => {
     generation.current += 1;
@@ -212,25 +241,13 @@ export function ReceiptQueueWorkspace({
     clearProtected();
     setQueue(undefined);
     setClasses([]);
-    setYears([]);
+    setAccounts([]);
+    setMonths([]);
     setMessage("");
     const expected = generation.current;
-    void Promise.all([
-      load(undefined, true, expected),
-      fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/receivables`, { credentials: "include" }).then(
-        async (response) => {
-          if (!response.ok) throw new Error("Không thể tải năm học.");
-          return ((await response.json()) as { data: { schoolYears?: Year[] } }).data.schoolYears ?? [];
-        },
-      ),
-    ])
-      .then(([, schoolYears]) => {
-        if (active.current === schoolId && expected === generation.current) {
-          setYears(schoolYears);
-          void loadClasses(expected);
-        }
-      })
-      .catch((error: Error) => setMessage(error.message));
+    void Promise.all([load(undefined, true, expected), loadClasses(expected)]).catch((error: Error) =>
+      setMessage(error.message),
+    );
     const saved = sessionStorage.getItem(pendingKey);
     if (saved)
       try {
@@ -254,6 +271,10 @@ export function ReceiptQueueWorkspace({
     if (detail) dialogRef.current?.querySelector<HTMLInputElement>("input")?.focus();
     else if (trigger.current?.isConnected) trigger.current.focus();
   }, [detail]);
+  // The outcome renders below a possibly long queue: bring it (and "Hóa đơn tiếp theo") into view.
+  useEffect(() => {
+    if (result) resultHeading.current?.focus();
+  }, [result]);
   const applyFilters = () => {
     clearProtected();
     const expected = generation.current;
@@ -359,30 +380,44 @@ export function ReceiptQueueWorkspace({
     <section aria-labelledby="receipt-queue-title">
       <h2 id="receipt-queue-title">Thu tiền</h2>
       <p>{schoolName}</p>
+      <p>
+        Hóa đơn chờ ghi thực nhận và phiếu hoàn tiền chờ chi. Mỗi dòng là một hóa đơn theo tài khoản nhận, để đối chiếu
+        từng sao kê. Hai phần của cùng một học sinh luôn nằm liền nhau (tài khoản trường trước) và được ghi thực nhận
+        riêng.
+      </p>
       {message && <p role="alert">{message}</p>}
       <form
+        className="roster-list-filters"
+        aria-label="Lọc hóa đơn chờ thu"
         onSubmit={(event) => {
           event.preventDefault();
           applyFilters();
         }}
       >
-        <label>
-          Năm học
-          <select
-            value={filters.schoolYearId}
-            onChange={(event) => setFilters({ ...filters, schoolYearId: event.target.value })}
-          >
-            <option value="">Tất cả năm học</option>
-            {years.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}
-          </select>
+        <label className="roster-filter-search">
+          Tìm học sinh
+          <input
+            placeholder="Mã hoặc tên học sinh"
+            value={filters.student}
+            onChange={(event) => setFilters({ ...filters, student: event.target.value })}
+          />
         </label>
         <label>
           Tháng thu
-          <input
-            type="month"
+          <select
             value={filters.billingMonth}
             onChange={(event) => setFilters({ ...filters, billingMonth: event.target.value })}
-          />
+          >
+            <option value="ALL">Tất cả tháng</option>
+            {[...new Set([...months, ...(filters.billingMonth && filters.billingMonth !== "ALL" ? [filters.billingMonth] : [])])]
+              .sort()
+              .reverse()
+              .map((month) => (
+                <option key={month} value={month}>
+                  Tháng {monthLabel(month)}
+                </option>
+              ))}
+          </select>
         </label>
         <label>
           Lớp
@@ -398,12 +433,27 @@ export function ReceiptQueueWorkspace({
             ))}
           </select>
         </label>
-        <label>
-          Mã hoặc tên học sinh
-          <input
-            value={filters.student}
-            onChange={(event) => setFilters({ ...filters, student: event.target.value })}
-          />
+        <label className="receipt-queue-account-filter">
+          Tài khoản nhận
+          <select
+            value={filters.bankAccountId}
+            onChange={(event) => setFilters({ ...filters, bankAccountId: event.target.value })}
+          >
+            <option value="">Tất cả tài khoản</option>
+            {(["SCHOOL", "PERSONAL"] as const).map((kind) =>
+              accounts.some((account) => account.kind === kind) ? (
+                <optgroup key={kind} label={accountLabel(kind)}>
+                  {accounts
+                    .filter((account) => account.kind === kind)
+                    .map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {receivingAccountName(account)} · {account.accountNumber}
+                      </option>
+                    ))}
+                </optgroup>
+              ) : null,
+            )}
+          </select>
         </label>
         <label>
           Loại
@@ -416,7 +466,9 @@ export function ReceiptQueueWorkspace({
             <option value="REFUND">Cần chi hoàn</option>
           </select>
         </label>
-        <button>Lọc</button>
+        <div className="roster-list-filter-actions">
+          <button>Lọc</button>
+        </div>
       </form>
       <table>
         <caption>Hóa đơn chờ thu và phiếu hoàn tiền chờ chi</caption>
@@ -440,14 +492,14 @@ export function ReceiptQueueWorkspace({
                 </td>
                 <td>{row.class.name}</td>
                 <td>{monthLabel(row.billingMonth)}</td>
-                <td>{accountLabel(row.channel)}</td>
+                <td>{row.account ? <ReceivingAccountLabel account={row.account} /> : accountLabel(row.channel)}</td>
                 <td>
                   {isRefund(row) ? `Hoàn ${vnd((-BigInt(row.outstanding)).toString())}` : vnd(row.outstanding)} đ
                 </td>
                 <td>{isRefund(row) ? "Chờ chi hoàn" : "Chờ thu"}</td>
                 <td>
                   <AnchoredActionMenu
-                    label={`Tùy chọn cho ${row.student.name}`}
+                    label={`Tùy chọn cho ${row.student.name} · ${accountLabel(row.channel)}`}
                     disabled={Boolean(pending)}
                     onTriggerOpen={(element) => {
                       trigger.current = element;
@@ -468,74 +520,106 @@ export function ReceiptQueueWorkspace({
         </tbody>
       </table>
       {detail && isRefund(detail) && (
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={trap}>
-          <h3 id="receipt-title">
-            Ghi nhận đã chi cho {detail.student.name}
-            {detail.channel ? ` · ${accountLabel(detail.channel)}` : ""}
-          </h3>
-          <p>
-            Số tiền phải chi do hệ thống xác nhận: {vnd((-BigInt(detail.outstanding)).toString())} đ. Chi đúng số tiền
-            này một lần; hóa đơn đóng sau khi hệ thống xác nhận.
-          </p>
-          <label>
-            Ngày chi
-            <input
-              type="date"
-              value={payout.paidOn}
-              onChange={(event) => setPayout({ ...payout, paidOn: event.target.value })}
-            />
-          </label>
-          <label>
-            Hình thức
-            <select value={payout.method} onChange={(event) => setPayout({ ...payout, method: event.target.value })}>
-              <option value="BANK_TRANSFER">Chuyển khoản</option>
-              <option value="CASH">Tiền mặt</option>
-            </select>
-          </label>
-          <label>
-            Mã giao dịch hoặc ghi chú
-            <input
-              value={payout.reference}
-              onChange={(event) => setPayout({ ...payout, reference: event.target.value })}
-            />
-          </label>
-          <button
-            type="button"
-            disabled={Boolean(pending) || !payout.paidOn || !payout.reference.trim()}
-            onClick={() => void close()}
+        <>
+          <div className="dialog-backdrop" aria-hidden="true" />
+          <div
+            ref={dialogRef}
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-title"
+            onKeyDown={trap}
           >
-            Xác nhận đã chi
-          </button>
-          <button type="button" disabled={Boolean(pending)} onClick={() => setDetail(undefined)}>
-            Hủy
-          </button>
-        </div>
+            <h3 id="receipt-title">
+              Ghi nhận đã chi cho {detail.student.name} · {accountTitle(detail)}
+            </h3>
+            <p>
+              {accountContext(detail)}. Số tiền phải chi do hệ thống xác nhận:{" "}
+              {vnd((-BigInt(detail.outstanding)).toString())} đ. Chi đúng số tiền này một lần; hóa đơn đóng sau khi hệ
+              thống xác nhận.
+            </p>
+            <label>
+              Ngày chi
+              <input
+                type="date"
+                value={payout.paidOn}
+                onChange={(event) => setPayout({ ...payout, paidOn: event.target.value })}
+              />
+            </label>
+            <label>
+              Hình thức
+              <select value={payout.method} onChange={(event) => setPayout({ ...payout, method: event.target.value })}>
+                <option value="BANK_TRANSFER">Chuyển khoản</option>
+                <option value="CASH">Tiền mặt</option>
+              </select>
+            </label>
+            <label>
+              Mã giao dịch hoặc ghi chú
+              <input
+                value={payout.reference}
+                onChange={(event) => setPayout({ ...payout, reference: event.target.value })}
+              />
+            </label>
+            <div className="dialog-actions">
+              <button type="button" disabled={Boolean(pending)} onClick={() => setDetail(undefined)}>
+                Hủy
+              </button>
+              <button
+                className="primary-action"
+                type="button"
+                disabled={Boolean(pending) || !payout.paidOn || !payout.reference.trim()}
+                onClick={() => void close()}
+              >
+                Xác nhận đã chi
+              </button>
+            </div>
+          </div>
+        </>
       )}
       {detail && !isRefund(detail) && (
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={trap}>
-          <h3 id="receipt-title">
-            Ghi thực nhận cho {detail.student.name}
-            {detail.channel ? ` · ${accountLabel(detail.channel)}` : ""}
-          </h3>
-          <p>
-            Nghĩa vụ do máy chủ xác nhận: {vnd(detail.outstanding)} đ. Kết quả, chênh lệch, chuyển kỳ và ưu đãi nộp trước do
-            máy chủ xác định.
-          </p>
-          <label>
-            Số thực nhận (đ)
-            <input inputMode="numeric" value={actual} onChange={(event) => setActual(event.target.value)} />
-          </label>
-          <button type="button" disabled={Boolean(pending) || !actual} onClick={() => void close()}>
-            Xác nhận ghi thực nhận
-          </button>
-          <button type="button" disabled={Boolean(pending)} onClick={() => setDetail(undefined)}>
-            Hủy
-          </button>
-        </div>
+        <>
+          <div className="dialog-backdrop" aria-hidden="true" />
+          <div
+            ref={dialogRef}
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-title"
+            onKeyDown={trap}
+          >
+            <h3 id="receipt-title">
+              Ghi thực nhận cho {detail.student.name} · {accountTitle(detail)}
+            </h3>
+            <p>
+              {accountContext(detail)}. Nghĩa vụ do hệ thống xác nhận: {vnd(detail.outstanding)} đ. Kết quả thu thiếu,
+              đủ hoặc thừa do hệ thống quyết định và chỉ chuyển sang hóa đơn cùng tài khoản kỳ sau; hóa đơn của tài
+              khoản kia không thay đổi.
+            </p>
+            <label>
+              Số thực nhận (đ)
+              <input inputMode="numeric" value={actual} onChange={(event) => setActual(event.target.value)} />
+            </label>
+            <div className="dialog-actions">
+              <button type="button" disabled={Boolean(pending)} onClick={() => setDetail(undefined)}>
+                Hủy
+              </button>
+              <button
+                className="primary-action"
+                type="button"
+                disabled={Boolean(pending) || !actual}
+                onClick={() => void close()}
+              >
+                Xác nhận ghi thực nhận
+              </button>
+            </div>
+          </div>
+        </>
       )}
       {result && result.payout && (
         <section aria-labelledby="receipt-result-title">
-          <h3 id="receipt-result-title">Đã ghi nhận chi hoàn</h3>
+          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
+            Đã ghi nhận chi hoàn
+          </h3>
           <p>
             Đã chi {vnd(result.payout.amount)} đ ngày {result.payout.paidOn.split("-").reverse().join("/")} ·{" "}
             {result.payout.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"} · {result.payout.reference}.
@@ -549,7 +633,9 @@ export function ReceiptQueueWorkspace({
       )}
       {result && result.receipt && (
         <section aria-labelledby="receipt-result-title">
-          <h3 id="receipt-result-title">Kết quả ghi thực nhận</h3>
+          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
+            Kết quả ghi thực nhận
+          </h3>
           <p>Thực nhận: {vnd(result.receipt.actualAmount)} đ.</p>
           <p>Kết quả máy chủ: {outcome(result.receipt.outcome)}.</p>
           <p>Chênh lệch: {vnd(result.receipt.difference?.signedAmount ?? "0")} đ.</p>
