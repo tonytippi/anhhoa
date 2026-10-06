@@ -1549,6 +1549,12 @@ tbody tr:last-child td {
   gap: 12px;
 }
 .finance-list-toolbar .primary-action { justify-self: stretch; }
+.finance-run-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.finance-run-toolbar label { min-width: 220px; }
 .finance-list-actions .primary-action { flex: 1 1 150px; }
 .dialog.dialog-wide {
   width: min(820px, calc(100vw - 32px));

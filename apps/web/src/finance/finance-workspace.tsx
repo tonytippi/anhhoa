@@ -2625,7 +2625,7 @@ export function FinanceWorkspace({
       {page === "collection-runs" && (!runId || !onOpenRun) && (
         <section>
           <form
-            className="finance-list-toolbar"
+            className="finance-list-toolbar finance-run-toolbar"
             aria-label="Điều khiển danh sách đợt thu"
             onSubmit={(event) => event.preventDefault()}
           >
@@ -2664,125 +2664,136 @@ export function FinanceWorkspace({
             </button>
           </form>
           {runDialog && (
-            <div
-              ref={runDialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="finance-run-title"
-              onKeyDown={(event) =>
-                handleManagedDialogKeyDown(
-                  event,
-                  () => setRunDialog(false),
-                  () => setOpen({ schoolYearId: "", billingMonth: "" }),
-                )
-              }
-            >
-              <h4 id="finance-run-title">Tạo hoặc mở đợt thu</h4>
-              <p>Máy chủ sẽ tạo đợt thu mới hoặc mở đợt thu đã có cho tháng này.</p>
-              <form onSubmit={openRun}>
-                <label>
-                  Năm học
-                  <select
-                    value={open.schoolYearId}
-                    onChange={(event) => {
-                      const schoolYearId = event.target.value;
-                      setOpen({ ...open, schoolYearId });
-                      setPreview(undefined);
-                    }}
-                    {...field("run", "schoolYearId")}
-                  >
-                    <option value="">Chọn năm học</option>
-                    {(catalog?.schoolYears ?? []).map((year) => (
-                      <option key={year.id} value={year.id} disabled={Boolean(year.closedAt)}>
-                        {year.name}
-                        {year.closedAt ? " (đã đóng)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {scope === "run" && errors.schoolYearId && (
-                    <small id="invoice-run-schoolYearId-error" role="alert">
-                      {errors.schoolYearId}
-                    </small>
-                  )}
-                </label>
-                <label>
-                  Tháng thu
-                  <input
-                    type="month"
-                    value={open.billingMonth}
-                    onChange={(event) => setOpen({ ...open, billingMonth: event.target.value })}
-                    {...field("run", "billingMonth")}
-                  />
-                  {scope === "run" && errors.billingMonth && (
-                    <small id="invoice-run-billingMonth-error" role="alert">
-                      {errors.billingMonth}
-                    </small>
-                  )}
-                </label>
-                <button disabled={Boolean(pending)}>Xác nhận tạo hoặc mở</button>
-                <button
-                  type="button"
-                  disabled={Boolean(pending)}
-                  onClick={() =>
-                    closeNewDialog(
-                      () => setRunDialog(false),
-                      () => setOpen({ schoolYearId: "", billingMonth: "" }),
-                    )
-                  }
-                >
-                  Hủy
-                </button>
-              </form>
+            <div className="dialog-backdrop">
+              <div
+                ref={runDialogRef}
+                className="dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="finance-run-title"
+                onKeyDown={(event) =>
+                  handleManagedDialogKeyDown(
+                    event,
+                    () => setRunDialog(false),
+                    () => setOpen({ schoolYearId: "", billingMonth: "" }),
+                  )
+                }
+              >
+                <form onSubmit={openRun}>
+                  <h3 id="finance-run-title">Tạo hoặc mở đợt thu</h3>
+                  <p className="muted">Mỗi tháng có một đợt thu. Máy chủ tạo mới hoặc mở đúng đợt đã có.</p>
+                  <div className="dialog-grid">
+                    <label>
+                      Năm học
+                      <select
+                        value={open.schoolYearId}
+                        onChange={(event) => {
+                          const schoolYearId = event.target.value;
+                          setOpen({ ...open, schoolYearId });
+                          setPreview(undefined);
+                        }}
+                        {...field("run", "schoolYearId")}
+                      >
+                        <option value="">Chọn năm học</option>
+                        {(catalog?.schoolYears ?? []).map((year) => (
+                          <option key={year.id} value={year.id} disabled={Boolean(year.closedAt)}>
+                            {year.name}
+                            {year.closedAt ? " (đã đóng)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {scope === "run" && errors.schoolYearId && (
+                        <small id="invoice-run-schoolYearId-error" role="alert">
+                          {errors.schoolYearId}
+                        </small>
+                      )}
+                    </label>
+                    <label>
+                      Tháng thu
+                      <input
+                        type="month"
+                        value={open.billingMonth}
+                        onChange={(event) => setOpen({ ...open, billingMonth: event.target.value })}
+                        {...field("run", "billingMonth")}
+                      />
+                      {scope === "run" && errors.billingMonth && (
+                        <small id="invoice-run-billingMonth-error" role="alert">
+                          {errors.billingMonth}
+                        </small>
+                      )}
+                    </label>
+                  </div>
+                  <div className="dialog-actions">
+                    <button
+                      type="button"
+                      disabled={Boolean(pending)}
+                      onClick={() =>
+                        closeNewDialog(
+                          () => setRunDialog(false),
+                          () => setOpen({ schoolYearId: "", billingMonth: "" }),
+                        )
+                      }
+                    >
+                      Hủy
+                    </button>
+                    <button className="primary-action" disabled={Boolean(pending)}>
+                      Xác nhận tạo hoặc mở
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
-          <table>
-            <caption>Đợt thu theo trường</caption>
-            <thead>
-              <tr>
-                <th>Tháng</th>
-                <th>Năm học</th>
-                <th>Trạng thái</th>
-                <th>Tùy chọn</th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.length ? (
-                runs.map((item) => (
-                  <tr key={item.id}>
-                    <td>{billingMonthLabel(item.billingMonth)}</td>
-                    <td>
-                      {(catalog?.schoolYears ?? []).find((year) => year.id === item.schoolYearId)?.name ??
-                        "Không xác định"}
-                    </td>
-                    <td>
-                      <span
-                        className={`finance-badge finance-badge-${item.status === "DRAFT" ? "neutral" : item.status === "READY" ? "info" : "success"}`}
-                      >
-                        {runStatusLabel(item.status)}
-                      </span>
-                    </td>
-                    <td>
-                      <AnchoredActionMenu
-                        label={`Tùy chọn cho đợt thu ${item.billingMonth}`}
-                        disabled={Boolean(pending)}
-                        onTriggerOpen={(trigger) => {
-                          rowMenuTrigger.current = trigger;
-                        }}
-                      >
-                        <AnchoredActionMenuItem onClick={() => onOpenRun?.(item.id) ?? chooseRun(item)}>
-                          Mở chi tiết
-                        </AnchoredActionMenuItem>
-                      </AnchoredActionMenu>
-                    </td>
-                  </tr>
-                ))
-              ) : (
+          <div className="table-scroll">
+            <table>
+              <caption>Đợt thu theo trường</caption>
+              <thead>
                 <tr>
-                  <td colSpan={4}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
+                  <th>Tháng</th>
+                  <th>Năm học</th>
+                  <th>Trạng thái</th>
+                  <th>Tùy chọn</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {runs.length ? (
+                  runs.map((item) => (
+                    <tr key={item.id}>
+                      <td>{billingMonthLabel(item.billingMonth)}</td>
+                      <td>
+                        {(catalog?.schoolYears ?? []).find((year) => year.id === item.schoolYearId)?.name ??
+                          "Không xác định"}
+                      </td>
+                      <td>
+                        <span
+                          className={`finance-badge finance-badge-${item.status === "DRAFT" ? "neutral" : item.status === "READY" ? "info" : "success"}`}
+                        >
+                          {runStatusLabel(item.status)}
+                        </span>
+                      </td>
+                      <td>
+                        <AnchoredActionMenu
+                          label={`Tùy chọn cho đợt thu ${item.billingMonth}`}
+                          disabled={Boolean(pending)}
+                          onTriggerOpen={(trigger) => {
+                            rowMenuTrigger.current = trigger;
+                          }}
+                        >
+                          <AnchoredActionMenuItem onClick={() => onOpenRun?.(item.id) ?? chooseRun(item)}>
+                            Mở chi tiết
+                          </AnchoredActionMenuItem>
+                        </AnchoredActionMenu>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
           {runsCursor && (
             <button
               type="button"
