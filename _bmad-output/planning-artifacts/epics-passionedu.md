@@ -562,6 +562,26 @@ Source: sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-c
 
 **And** no client-calculated VND, Parent/Teacher dependency or change to `Class`/staff authorization exists.
 
+### Story 5.38: Một hộp Chỉnh sửa khoản thu
+
+As a Finance user,
+I want to edit every field of a receivable in one dialog,
+So that I do not have to guess which menu item changes which field and a refused change never saves half of my edit.
+
+Source: sprint-change-proposal-2026-10-06-unified-receivable-edit.
+
+**Acceptance Criteria:**
+
+**Given** a receivable row menu
+**When** Finance opens it
+**Then** it shows `Chỉnh sửa` and the lifecycle action (plus `Xem lớp ngoại khóa` for Ngoại khóa), without separate tax or refund-price items.
+
+**Given** the `Chỉnh sửa` dialog with changed name, unit, price, refund price, tax category or kind and a reason
+**When** Finance saves
+**Then** one `PUT .../receivables/:id` carries only the changed fields and the reason, under one Operation and one `RECEIVABLE_EDITED` audit.
+
+**And** a refusal (locked kind, refund above price, no change, missing reason) saves no field and keeps the entered values in the dialog.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

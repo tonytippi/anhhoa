@@ -90,7 +90,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     expect((await finance.extracurricularClasses(s.identity.id, s.school.id, { q: "vẽ" })).classes.map((item) => item.name)).toEqual(["Vẽ"]);
     expect((await finance.extracurricularClasses(foreign.identity.id, foreign.school.id, {})).classes).toEqual([]);
     // Kind lock through class attachment (API and database).
-    await expect(finance.updateReceivableKind(s.identity.id, s.school.id, s.english, uuid(), uuid(), { kind: "FLEXIBLE" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+    await expect(finance.updateReceivable(s.identity.id, s.school.id, s.english, uuid(), uuid(), { kind: "FLEXIBLE", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
     const catalog = await finance.read(s.identity.id, s.school.id);
     expect(catalog.receivables.find((item) => item.id === s.english)).toMatchObject({ kindLocked: true, extracurricularClassCount: 2 });
     const flexible = await prisma.receivableGroup.findFirstOrThrow({ where: { schoolId: s.school.id, kind: "FLEXIBLE" } });

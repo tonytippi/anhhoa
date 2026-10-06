@@ -80,9 +80,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     const receivableId = await receivable(current, "Học phí", "3500000");
     expect((await finance.read(current.identity.id, current.school.id)).receivables[0]).toMatchObject({ id: receivableId, taxCategory: "NOT_DECLARED", channel: "PERSONAL" });
     await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: current.groupId, displayName: "Sai", unitLabel: "tháng", defaultUnitPrice: "1", taxCategory: "VAT_7" })).rejects.toMatchObject({ response: { fieldErrors: { taxCategory: expect.any(String) } } });
-    const changed = await finance.updateReceivableTaxCategory(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { taxCategory: "VAT_5" });
+    const changed = await finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { taxCategory: "VAT_5", reason: "Điều chỉnh khoản thu" });
     expect(changed.outcome).toMatchObject({ taxCategory: "VAT_5", channel: "SCHOOL" });
-    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "RECEIVABLE_TAX_CATEGORY_CHANGED" } })).toBe(1);
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "RECEIVABLE_EDITED" } })).toBe(1);
     // Only the tax category may change on the append-only catalog.
     await expect(prisma.receivable.update({ where: { id: receivableId }, data: { code: "IMMUTABLE" } })).rejects.toThrow(/append-only/);
   });

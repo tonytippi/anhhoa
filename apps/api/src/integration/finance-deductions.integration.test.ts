@@ -97,11 +97,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: current.groupId, displayName: "Sai", unitLabel: "ngày", defaultUnitPrice: "1", refundUnitPrice: "-1" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
     // A1: the refund price may equal the charged price (full refund) but never exceed it.
     await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: current.groupId, displayName: "Sai", unitLabel: "ngày", defaultUnitPrice: "35000", refundUnitPrice: "40000" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.stringContaining("không được vượt") } } });
-    await expect(finance.updateReceivableRefundPrice(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35001" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.stringContaining("không được vượt") } } });
-    const changed: any = await finance.updateReceivableRefundPrice(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35000" });
+    await expect(finance.updateReceivable(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35001", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.stringContaining("không được vượt") } } });
+    const changed: any = await finance.updateReceivable(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35000", reason: "Điều chỉnh khoản thu" });
     expect(changed.outcome).toMatchObject({ refundUnitPrice: "35000" });
-    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "RECEIVABLE_REFUND_PRICE_CHANGED" } })).toBe(1);
-    await expect(finance.updateReceivableRefundPrice(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35000" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "RECEIVABLE_EDITED" } })).toBe(1);
+    await expect(finance.updateReceivable(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35000", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ response: { fieldErrors: { displayName: "Không có thay đổi để lưu." } } });
     // The catalog stays append-only apart from the tax category and the refund price.
     await expect(prisma.receivable.update({ where: { id: meals }, data: { defaultUnitPrice: 1n } })).rejects.toThrow(/append-only/);
     await expect(prisma.receivable.update({ where: { id: meals }, data: { refundUnitPrice: -1n } })).rejects.toThrow(/Receivable_refundUnitPrice_nonnegative/);

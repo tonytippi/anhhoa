@@ -754,7 +754,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${first}::uuid AND "schoolId" = ${current.school.id}::uuid FOR SHARE`;
         await tx.collectionRunTemplateLine.create({ data: { schoolId: current.school.id, collectionRunId: runId, receivableId: first, quantity: 1 } });
       });
-      await expect(blockedUntil(() => finance.updateReceivableKind(current.identity.id, current.school.id, first, uuid(), uuid(), { kind: "FLEXIBLE" }), holder.release)).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      await expect(blockedUntil(() => finance.updateReceivable(current.identity.id, current.school.id, first, uuid(), uuid(), { kind: "FLEXIBLE", reason: "Điều chỉnh khoản thu" }), holder.release)).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
       await holder.done;
       expect(await prisma.receivable.findUniqueOrThrow({ where: { id: first } })).toMatchObject({ groupId: expect.not.stringMatching(flexible.id) });
 
@@ -771,7 +771,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.receivable.findUniqueOrThrow({ where: { id: second }, include: { group: true } })).toMatchObject({ group: { kind: "FLEXIBLE" } });
       expect(await prisma.collectionRunTemplateLine.count({ where: { schoolId: current.school.id, receivableId: second } })).toBe(1);
       // Once used, the kind is locked for good.
-      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, second, uuid(), uuid(), { kind: "FIXED" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, second, uuid(), uuid(), { kind: "FIXED", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
     });
 
     it("serializes kind change against invoice-line creation in both directions", async () => {
@@ -787,7 +787,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${first}::uuid AND "schoolId" = ${current.school.id}::uuid FOR SHARE`;
         await tx.$executeRaw`INSERT INTO "InvoiceLine" SELECT * FROM jsonb_populate_record(NULL::"InvoiceLine", to_jsonb((SELECT l FROM "InvoiceLine" l WHERE l."id" = ${source.id}::uuid)) || jsonb_build_object('id', gen_random_uuid(), 'receivableId', ${first}::text))`;
       });
-      await expect(blockedUntil(() => finance.updateReceivableKind(current.identity.id, current.school.id, first, uuid(), uuid(), { kind: "FLEXIBLE" }), holder.release)).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      await expect(blockedUntil(() => finance.updateReceivable(current.identity.id, current.school.id, first, uuid(), uuid(), { kind: "FLEXIBLE", reason: "Điều chỉnh khoản thu" }), holder.release)).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
       await holder.done;
       expect(await prisma.receivable.findUniqueOrThrow({ where: { id: first }, include: { group: true } })).toMatchObject({ group: { kind: "FIXED" } });
 
@@ -802,7 +802,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(added.status).toBe("COMPLETED");
       expect(await prisma.invoiceLine.count({ where: { schoolId: current.school.id, invoiceId: invoice.id, receivableId: second } })).toBe(1);
       expect(await prisma.receivable.findUniqueOrThrow({ where: { id: second }, include: { group: true } })).toMatchObject({ group: { kind: "FLEXIBLE" } });
-      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, second, uuid(), uuid(), { kind: "FIXED" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, second, uuid(), uuid(), { kind: "FIXED", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
     });
 
     it("keeps refund price <= default price when edits race, answering the loser with a controlled 400", async () => {
@@ -810,7 +810,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await group(current);
       const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { kind: "FIXED", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "100000", refundUnitPrice: "0" }));
       const edit = (price: string, name = "Tiền ăn") => finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { displayName: name, unitLabel: "ngày", defaultUnitPrice: price, reason: "Đổi giá" });
-      const refund = (value: string) => finance.updateReceivableRefundPrice(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { refundUnitPrice: value });
+      const refund = (value: string) => finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { refundUnitPrice: value, reason: "Điều chỉnh khoản thu" });
       const invariant = async () => { const row = await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId } }); expect(row.refundUnitPrice <= row.defaultUnitPrice).toBe(true); return row; };
 
       // A refund raise is in flight (row locked, uncommitted): lowering the price waits, then sees it and is refused.
@@ -1381,7 +1381,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(before[0]).toMatchObject({ receivableNameSnapshot: "Học phí", unitLabelSnapshot: "tháng", defaultUnitPriceSnapshot: 100000n });
 
       // The default price may not drop below the current refund price (amendment A1).
-      await finance.updateReceivableRefundPrice(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { refundUnitPrice: "90000" });
+      await finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { refundUnitPrice: "90000", reason: "Điều chỉnh khoản thu" });
       await expect(finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { ...body, defaultUnitPrice: "89999" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { defaultUnitPrice: expect.any(String) } } });
       await finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { ...body, defaultUnitPrice: "90000" });
       for (const invalid of [{ displayName: " " }, { unitLabel: "123" }, { defaultUnitPrice: "0" }, { defaultUnitPrice: "1.5" }, { defaultUnitPrice: "9007199254740992" }, { reason: "" }]) {
@@ -1417,16 +1417,19 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await group(foreign);
       const receivableId = outcomeId(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { kind: "FIXED", displayName: "Phí", unitLabel: "lần", defaultUnitPrice: "100" }));
       const foreignReceivableId = outcomeId(await finance.createReceivable(foreign.identity.id, foreign.school.id, uuid(), uuid(), { kind: "FIXED", displayName: "Phí foreign", unitLabel: "lần", defaultUnitPrice: "100" }));
-      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, foreignReceivableId, uuid(), uuid(), { kind: "FLEXIBLE" })).rejects.toMatchObject({ status: 404, response: { code: "RECEIVABLE_NOT_FOUND" } });
-      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FIXED" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { kind: expect.any(String) } } });
-      const changed = await finance.updateReceivableKind(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FLEXIBLE" });
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, foreignReceivableId, uuid(), uuid(), { kind: "FLEXIBLE", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 404, response: { code: "RECEIVABLE_NOT_FOUND" } });
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FIXED", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { displayName: "Không có thay đổi để lưu." } } });
+      const changed = await finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FLEXIBLE", reason: "Điều chỉnh khoản thu" });
       expect(changed.outcome).toMatchObject({ id: receivableId, kind: "FLEXIBLE", kindLocked: false });
       expect(await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId }, include: { group: true } })).toMatchObject({ group: { schoolId: current.school.id, kind: "FLEXIBLE" } });
-      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "RECEIVABLE_KIND_CHANGED" } })).toMatchObject({ provenance: { operationId: changed.id, oldValue: { kind: "FIXED" }, newValue: { kind: "FLEXIBLE" } } });
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.school.id, action: "RECEIVABLE_EDITED" } })).toMatchObject({ provenance: { operationId: changed.id, oldValue: { kind: "FIXED" }, newValue: { kind: "FLEXIBLE" } } });
 
       const runId = outcomeId(await finance.openRun(current.identity.id, current.school.id, uuid(), uuid(), { schoolYearId: current.year.id, billingMonth: "2026-09" }));
       await finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { receivableId, quantity: "1", expectedVersion: 1 });
-      await expect(finance.updateReceivableKind(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FIXED" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FIXED", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      // One command: a refused kind change also discards the other fields sent with it.
+      await expect(finance.updateReceivable(current.identity.id, current.school.id, receivableId, uuid(), uuid(), { kind: "FIXED", defaultUnitPrice: "200", taxCategory: "VAT_5", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+      expect(await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId } })).toMatchObject({ defaultUnitPrice: 100n, taxCategory: "NOT_DECLARED" });
       await expect(prisma.receivable.update({ where: { id: receivableId }, data: { groupId: outcomeId(await group(current, "FIXED")) } })).rejects.toThrow(/kind cannot change/);
       expect((await finance.read(current.identity.id, current.school.id)).receivables).toEqual([expect.objectContaining({ id: receivableId, kind: "FLEXIBLE", kindLocked: true })]);
       expect(await prisma.receivable.findUniqueOrThrow({ where: { id: receivableId } })).toMatchObject({ groupId: expect.any(String) });

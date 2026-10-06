@@ -31,7 +31,7 @@ describe('FinanceService validation', () => {
     const base = { displayName: 'Phí', unitLabel: 'lần', defaultUnitPrice: '1000' };
     await expect(service.createReceivable('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { ...base, kind: 'CUSTOM' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { kind: expect.any(String) } } });
     await expect(service.createReceivable('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), base)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { kind: expect.any(String) } } });
-    await expect(service.updateReceivableKind('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { kind: 'NOPE' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.updateReceivable('identity', crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), { kind: 'NOPE', reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ status: 400 });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
   it('validates a direct Receivable edit before any Operation or write', async () => {

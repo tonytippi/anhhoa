@@ -32,9 +32,6 @@ const routes = {
   extracurricularMembershipAdd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships",
   extracurricularMembershipEnd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships/end",
   receivableEdit: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId",
-  receivableKind: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/kind",
-  receivableTax: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/tax-category",
-  receivableRefund: "PUT /api/app/schools/:schoolId/finance/receivables/:receivableId/refund-price",
   openRun: "POST /api/app/schools/:schoolId/finance/collection-runs",
   template:
     "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/template-lines",
@@ -1400,19 +1397,53 @@ export class FinanceService {
       },
     );
   }
-  // Decision 2026-10-02 §3.5: direct edit of name, unit label and default price. InvoiceLines keep their snapshots;
-  // DRAFT previews go stale because the template snapshot (name, unit, price) is part of the preview fingerprint.
+  // Decision 2026-10-02 §3.5, amended 2026-10-06: one edit command for name, unit, default price, kind, tax category and refund
+  // price. Omitted fields keep their value; the reason is always required and one audit records before/after. InvoiceLines keep
+  // their snapshots; DRAFT previews go stale because the template snapshot is part of the preview fingerprint.
   async updateReceivable(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
-    const input = { displayName: this.text(body?.displayName, "displayName")!, unitLabel: this.unitLabel(body?.unitLabel), defaultUnitPrice: this.price(body?.defaultUnitPrice), reason: this.text(body?.reason, "reason", true, 500)! };
-    return this.mutate(actor, identityId, schoolId, routes.receivableEdit, key, operationId, { receivableId, ...input, defaultUnitPrice: input.defaultUnitPrice.toString() }, async (tx, operation) => {
+    const given = (field: string) => body?.[field] !== undefined;
+    const input = {
+      displayName: given("displayName") ? this.text(body.displayName, "displayName")! : undefined,
+      unitLabel: given("unitLabel") ? this.unitLabel(body.unitLabel) : undefined,
+      defaultUnitPrice: given("defaultUnitPrice") ? this.price(body.defaultUnitPrice) : undefined,
+      kind: given("kind") ? this.groupKind(body.kind, true)! : undefined,
+      taxCategory: given("taxCategory") ? this.taxCategory(body.taxCategory) : undefined,
+      refundUnitPrice: given("refundUnitPrice") ? this.refundPrice(body.refundUnitPrice) : undefined,
+      reason: this.text(body?.reason, "reason", true, 500)!,
+    };
+    const payload = { receivableId, ...input, defaultUnitPrice: input.defaultUnitPrice?.toString(), refundUnitPrice: input.refundUnitPrice?.toString() };
+    return this.mutate(actor, identityId, schoolId, routes.receivableEdit, key, operationId, payload, async (tx, operation) => {
       const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
       await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
-      if (item.displayName === input.displayName && item.unitLabel === input.unitLabel && item.defaultUnitPrice === input.defaultUnitPrice) throw validation("displayName", "Không có thay đổi để lưu.");
-      if (input.defaultUnitPrice < item.refundUnitPrice) throw validation("defaultUnitPrice", `Đơn giá thu không được thấp hơn giá hoàn trả (${item.refundUnitPrice.toLocaleString("vi-VN")} đ).`);
-      const updated = await tx.receivable.update({ where: { id: item.id }, data: { displayName: input.displayName, unitLabel: input.unitLabel, defaultUnitPrice: input.defaultUnitPrice }, include }).catch((error: unknown) => this.catalogConstraintError(error));
+      const next = {
+        displayName: input.displayName ?? item.displayName,
+        unitLabel: input.unitLabel ?? item.unitLabel,
+        defaultUnitPrice: input.defaultUnitPrice ?? item.defaultUnitPrice,
+        taxCategory: input.taxCategory ?? item.taxCategory,
+        refundUnitPrice: input.refundUnitPrice ?? item.refundUnitPrice,
+      };
+      const kindChanged = input.kind !== undefined && input.kind !== item.group.kind;
+      const detailsChanged = (Object.keys(next) as Array<keyof typeof next>).some((field) => next[field] !== item[field]);
+      if (!detailsChanged && !kindChanged) throw validation("displayName", "Không có thay đổi để lưu.");
+      // Decision 2026-10-02 §3.1: a Receivable keeps its kind once an InvoiceLine, collection template line or class uses it.
+      if (kindChanged) {
+        const [invoiceLines, templateLines, classes] = await Promise.all([
+          tx.invoiceLine.count({ where: { schoolId, receivableId: item.id } }),
+          tx.collectionRunTemplateLine.count({ where: { schoolId, receivableId: item.id } }),
+          tx.extracurricularClass.count({ where: { schoolId, receivableId: item.id } }),
+        ]);
+        if (invoiceLines + templateLines + classes > 0) throw new ConflictException({ code: "RECEIVABLE_KIND_LOCKED", message: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn, đợt thu hoặc lớp ngoại khóa." });
+      }
+      // Amendment A1 2026-10-01: the refund price never exceeds the charged price; name the field the user actually changed.
+      if (next.refundUnitPrice > next.defaultUnitPrice) {
+        if (next.refundUnitPrice !== item.refundUnitPrice) this.refundWithinPrice(next.refundUnitPrice, next.defaultUnitPrice);
+        throw validation("defaultUnitPrice", `Đơn giá thu không được thấp hơn giá hoàn trả (${next.refundUnitPrice.toLocaleString("vi-VN")} đ).`);
+      }
+      const groupId = kindChanged ? (await this.resolveGroup(tx, schoolId, { kind: input.kind!, groupId: null })).id : item.groupId;
+      const updated = await tx.receivable.update({ where: { id: item.id }, data: { ...next, groupId }, include }).catch((error: unknown) => this.catalogConstraintError(error));
       const outcome = this.receivableDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_EDITED", operation, this.receivableDto(item), outcome, input.reason);
       return outcome;
@@ -1433,29 +1464,6 @@ export class FinanceService {
     if (/Receivable_refundUnitPrice_within_price|refundUnitPrice.*defaultUnitPrice/i.test(text)) throw validation("defaultUnitPrice", "Đơn giá thu không được thấp hơn giá hoàn trả.");
     throw error;
   }
-  // Decision 2026-10-02 §3.1: a Receivable keeps its kind once an InvoiceLine or collection template line uses it.
-  async updateReceivableKind(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {
-    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
-    const kind = this.groupKind(body?.kind, true);
-    return this.mutate(actor, identityId, schoolId, routes.receivableKind, key, operationId, { receivableId, kind }, async (tx, operation) => {
-      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
-      await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
-      if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
-      if (item.group.kind === kind) throw validation("kind", "Khoản thu đã thuộc nhóm này.");
-      const [invoiceLines, templateLines, classes] = await Promise.all([
-        tx.invoiceLine.count({ where: { schoolId, receivableId: item.id } }),
-        tx.collectionRunTemplateLine.count({ where: { schoolId, receivableId: item.id } }),
-        tx.extracurricularClass.count({ where: { schoolId, receivableId: item.id } }),
-      ]);
-      if (invoiceLines + templateLines + classes > 0) throw new ConflictException({ code: "RECEIVABLE_KIND_LOCKED", message: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn, đợt thu hoặc lớp ngoại khóa." });
-      const group = await this.resolveGroup(tx, schoolId, { kind, groupId: null });
-      const updated = await tx.receivable.update({ where: { id: item.id }, data: { groupId: group.id }, include }).catch((error: unknown) => this.catalogConstraintError(error));
-      const outcome = this.receivableDto(updated);
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_KIND_CHANGED", operation, this.receivableDto(item), outcome);
-      return outcome;
-    });
-  }
   // A Class may name one active PERSONAL account that issue pre-selects for its untaxed notice parts.
   async setClassDefaultBankAccount(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(classId, "classId");
@@ -1471,39 +1479,6 @@ export class FinanceService {
       const updated = await tx.class.update({ where: { id: classroom.id }, data: { defaultBankAccountId: bankAccountId } });
       const outcome = { classId: updated.id, defaultBankAccountId: updated.defaultBankAccountId };
       await this.audit(tx, schoolId, identityId, actor.membershipId, "CLASS_DEFAULT_BANK_ACCOUNT_SET", operation, { classId, defaultBankAccountId: classroom.defaultBankAccountId }, outcome);
-      return outcome;
-    });
-  }
-  // Only the tax category of a catalog receivable may change; DRAFT lines keep their snapshot until regenerated.
-  async updateReceivableTaxCategory(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {
-    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
-    const taxCategory = this.taxCategory(body?.taxCategory);
-    return this.mutate(actor, identityId, schoolId, routes.receivableTax, key, operationId, { receivableId, taxCategory }, async (tx, operation) => {
-      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
-      await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
-      if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
-      if (item.taxCategory === taxCategory) throw validation("taxCategory", "Khoản thu đã có mức thuế suất này.");
-      const updated = await tx.receivable.update({ where: { id: item.id }, data: { taxCategory }, include });
-      const outcome = this.receivableDto(updated);
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_TAX_CATEGORY_CHANGED", operation, this.receivableDto(item), outcome);
-      return outcome;
-    });
-  }
-  // Decision 2026-10-01 D1: the refund price only affects DRAFT lines whose deduction is proposed afterwards.
-  async updateReceivableRefundPrice(identityId: string, schoolId: string, receivableId: string, key: string, operationId: string, body: any) {
-    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(receivableId, "receivableId");
-    const refundUnitPrice = this.refundPrice(body?.refundUnitPrice);
-    return this.mutate(actor, identityId, schoolId, routes.receivableRefund, key, operationId, { receivableId, refundUnitPrice: refundUnitPrice.toString() }, async (tx, operation) => {
-      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
-      await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-      const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
-      if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
-      if (item.refundUnitPrice === refundUnitPrice) throw validation("refundUnitPrice", "Khoản thu đã có giá hoàn trả này.");
-      this.refundWithinPrice(refundUnitPrice, item.defaultUnitPrice);
-      const updated = await tx.receivable.update({ where: { id: item.id }, data: { refundUnitPrice }, include }).catch((error: unknown) => this.catalogConstraintError(error));
-      const outcome = this.receivableDto(updated);
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_REFUND_PRICE_CHANGED", operation, this.receivableDto(item), outcome);
       return outcome;
     });
   }

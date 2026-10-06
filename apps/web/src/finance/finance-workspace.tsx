@@ -76,6 +76,22 @@ const taxCategoryOptions: Array<[TaxCategory, string]> = [
   ["VAT_8", "Thuế suất 8%"],
   ["VAT_10", "Thuế suất 10%"],
 ];
+type ReceivableEditValues = {
+  displayName: string;
+  unitLabel: string;
+  defaultUnitPrice: string;
+  refundUnitPrice: string;
+  taxCategory: TaxCategory;
+  kind: ReceivableKind;
+};
+// Only changed fields go to the edit command; a locked kind is never sent.
+function receivableEditChanges(edit: { values: ReceivableEditValues; original: ReceivableEditValues; locked: boolean }) {
+  return Object.fromEntries(
+    (Object.keys(edit.values) as Array<keyof ReceivableEditValues>)
+      .filter((key) => edit.values[key] !== edit.original[key] && !(key === "kind" && edit.locked))
+      .map((key) => [key, edit.values[key]]),
+  ) as Partial<ReceivableEditValues>;
+}
 const taxShortLabel: Record<TaxCategory, string> = {
   NOT_DECLARED: "Không kê khai",
   EXEMPT: "Không chịu thuế",
@@ -760,13 +776,6 @@ export function FinanceWorkspace({
     refundUnitPrice: "0",
     taxCategory: "NOT_DECLARED" as TaxCategory,
   });
-  const [taxChange, setTaxChange] = useState<{ id: string; name: string; taxCategory: TaxCategory }>();
-  const [refundChange, setRefundChange] = useState<{
-    id: string;
-    name: string;
-    unitLabel: string;
-    refundUnitPrice: string;
-  }>();
   const [settlements, setSettlements] = useState<{ runId: string; students: Settlement[] }>();
   const [deductionEdit, setDeductionEdit] = useState<{
     invoiceId: string;
@@ -780,15 +789,12 @@ export function FinanceWorkspace({
     reason: string;
   }>();
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
-  const [catalogDialog, setCatalogDialog] = useState<"receivable" | "receivable-kind">();
-  const [kindEdit, setKindEdit] = useState<{
+  const [catalogDialog, setCatalogDialog] = useState<"receivable" | "receivable-edit">();
+  const [receivableEdit, setReceivableEdit] = useState<{
     id: string;
     title: string;
-    displayName: string;
-    unitLabel: string;
-    defaultUnitPrice: string;
-    kind: ReceivableKind;
-    original: { displayName: string; unitLabel: string; defaultUnitPrice: string; kind: ReceivableKind };
+    values: ReceivableEditValues;
+    original: ReceivableEditValues;
     locked: boolean;
     reason: string;
   }>();
@@ -1130,7 +1136,7 @@ export function FinanceWorkspace({
     setAdjustLine(undefined);
     setRunClasses(undefined);
     resetReceivable();
-    setKindEdit(undefined);
+    setReceivableEdit(undefined);
     setLifecycle(undefined);
     setCatalogDialog(undefined);
     setPromotionDialog(undefined);
@@ -1697,95 +1703,40 @@ export function FinanceWorkspace({
       }
     }
   };
-  // Decision 2026-10-02 §3.5: name, unit and price go through the edit endpoint (reason required); a changed kind through its own endpoint, each audited.
-  // When the details are saved but the kind change fails or stays uncertain, the dialog is rebased to the saved values so a retry
-  // sends only the outstanding kind change (a pending Operation blocks any further command until it is reconciled).
-  const saveKind = async (event: FormEvent) => {
+  // Decision 2026-10-02 §3.5, amended 2026-10-06: one audited edit command carries every changed field, so a refusal (for example
+  // a locked kind) saves nothing; the kind is only sent while it can still change.
+  const editReceivable = (values: Partial<ReceivableEditValues>) =>
+    setReceivableEdit((current) => current && { ...current, values: { ...current.values, ...values } });
+  const saveReceivableEdit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!kindEdit) return;
-    const detailsChanged =
-      kindEdit.displayName !== kindEdit.original.displayName ||
-      kindEdit.unitLabel !== kindEdit.original.unitLabel ||
-      kindEdit.defaultUnitPrice !== kindEdit.original.defaultUnitPrice;
-    const kindChanged = !kindEdit.locked && kindEdit.kind !== kindEdit.original.kind;
-    if (!detailsChanged && !kindChanged) return;
-    if (detailsChanged && !kindEdit.reason.trim()) {
+    if (!receivableEdit) return;
+    const changed = receivableEditChanges(receivableEdit);
+    if (!Object.keys(changed).length) return;
+    if (!receivableEdit.reason.trim()) {
       setScope("receivable");
-      setErrors({ reason: "Cần nhập lý do khi đổi tên, đơn vị hoặc giá." });
+      setErrors({ reason: "Cần nhập lý do khi sửa khoản thu." });
       return;
     }
-    const base = `/api/app/schools/${schoolId}/finance/receivables/${kindEdit.id}`;
-    if (detailsChanged) {
-      if (
-        !(await command(
-          base,
-          "PUT",
-          {
-            displayName: kindEdit.displayName,
-            unitLabel: kindEdit.unitLabel,
-            defaultUnitPrice: kindEdit.defaultUnitPrice,
-            reason: kindEdit.reason,
-          },
-          "receivable",
-        ))
+    if (
+      await command(
+        `/api/app/schools/${schoolId}/finance/receivables/${receivableEdit.id}`,
+        "PUT",
+        { ...changed, reason: receivableEdit.reason },
+        "receivable",
       )
-        return;
-      const saved = {
-        displayName: kindEdit.displayName,
-        unitLabel: kindEdit.unitLabel,
-        defaultUnitPrice: kindEdit.defaultUnitPrice,
-      };
-      setKindEdit((current) => current && { ...current, original: { ...current.original, ...saved }, reason: "" });
-      if (kindChanged) {
-        try {
-          await load();
-        } catch {
-          /* the dialog keeps the saved values; the list refreshes on the next load */
-        }
-      }
+    ) {
+      closeManagedDialog(() => {
+        setCatalogDialog(undefined);
+        setReceivableEdit(undefined);
+      });
+      await load();
     }
-    if (kindChanged && !(await command(`${base}/kind`, "PUT", { kind: kindEdit.kind }, "receivable"))) return;
-    closeManagedDialog(() => {
-      setCatalogDialog(undefined);
-      setKindEdit(undefined);
-    });
-    await load();
   };
   const saveReceivable = async (event: FormEvent) => {
     event.preventDefault();
     if (await command(`/api/app/schools/${schoolId}/finance/receivables`, "POST", receivable, "receivable")) {
       resetReceivable();
       closeManagedDialog(() => setCatalogDialog(undefined));
-      await load();
-    }
-  };
-  const saveTaxCategory = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!taxChange) return;
-    if (
-      await command(
-        `/api/app/schools/${schoolId}/finance/receivables/${taxChange.id}/tax-category`,
-        "PUT",
-        { taxCategory: taxChange.taxCategory },
-        "receivable",
-      )
-    ) {
-      closeManagedDialog(() => setTaxChange(undefined));
-      await load();
-    }
-  };
-  const saveRefundPrice = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!refundChange) return;
-    if (
-      await command(
-        `/api/app/schools/${schoolId}/finance/receivables/${refundChange.id}/refund-price`,
-        "PUT",
-        { refundUnitPrice: refundChange.refundUnitPrice },
-        "receivable",
-      )
-    ) {
-      closeManagedDialog(() => setRefundChange(undefined));
       await load();
     }
   };
@@ -2564,24 +2515,25 @@ export function FinanceWorkspace({
                             onClick={() => {
                               dialogTrigger.current = rowMenuTrigger.current;
                               setErrors({});
-                              if (item.kind)
-                                setKindEdit({
-                                  id: item.id,
-                                  title: item.displayName,
+                              if (item.kind) {
+                                const values = {
                                   displayName: item.displayName,
                                   unitLabel: item.unitLabel,
                                   defaultUnitPrice: item.defaultUnitPrice,
+                                  refundUnitPrice: item.refundUnitPrice ?? "0",
+                                  taxCategory: item.taxCategory ?? "NOT_DECLARED",
                                   kind: item.kind,
-                                  original: {
-                                    displayName: item.displayName,
-                                    unitLabel: item.unitLabel,
-                                    defaultUnitPrice: item.defaultUnitPrice,
-                                    kind: item.kind,
-                                  },
+                                };
+                                setReceivableEdit({
+                                  id: item.id,
+                                  title: item.displayName,
+                                  values,
+                                  original: values,
                                   locked: Boolean(item.kindLocked),
                                   reason: "",
                                 });
-                              setCatalogDialog("receivable-kind");
+                              }
+                              setCatalogDialog("receivable-edit");
                             }}
                           >
                             Chỉnh sửa
@@ -2591,33 +2543,6 @@ export function FinanceWorkspace({
                               Xem lớp ngoại khóa
                             </AnchoredActionMenuItem>
                           )}
-                          <AnchoredActionMenuItem
-                            onClick={() => {
-                              dialogTrigger.current = rowMenuTrigger.current;
-                              setErrors({});
-                              setTaxChange({
-                                id: item.id,
-                                name: item.displayName,
-                                taxCategory: item.taxCategory ?? "NOT_DECLARED",
-                              });
-                            }}
-                          >
-                            Đổi mức thuế suất
-                          </AnchoredActionMenuItem>
-                          <AnchoredActionMenuItem
-                            onClick={() => {
-                              dialogTrigger.current = rowMenuTrigger.current;
-                              setErrors({});
-                              setRefundChange({
-                                id: item.id,
-                                name: item.displayName,
-                                unitLabel: item.unitLabel,
-                                refundUnitPrice: item.refundUnitPrice ?? "0",
-                              });
-                            }}
-                          >
-                            Đổi giá hoàn trả
-                          </AnchoredActionMenuItem>
                           <AnchoredActionMenuItem
                             onClick={() => {
                               dialogTrigger.current = rowMenuTrigger.current;
@@ -4832,87 +4757,127 @@ export function FinanceWorkspace({
           </div>
         </div>
       )}
-      {catalogDialog === "receivable-kind" && kindEdit && (
+      {catalogDialog === "receivable-edit" && receivableEdit && (
         <div className="dialog-backdrop">
           <div
             ref={catalogDialogRef}
             className="dialog dialog-wide"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="finance-receivable-kind-title"
+            aria-labelledby="finance-receivable-edit-title"
             onKeyDown={(event) =>
               handleManagedDialogKeyDown(
                 event,
                 () => setCatalogDialog(undefined),
-                () => setKindEdit(undefined),
+                () => setReceivableEdit(undefined),
               )
             }
           >
-            <form onSubmit={saveKind}>
-              <h3 id="finance-receivable-kind-title">Chỉnh sửa · {kindEdit.title}</h3>
+            <form onSubmit={saveReceivableEdit}>
+              <h3 id="finance-receivable-edit-title">Chỉnh sửa · {receivableEdit.title}</h3>
               <p className="muted">
-                Thay đổi chỉ áp dụng sau khi máy chủ xác nhận trong đúng Trường. Hóa đơn đã tạo giữ nguyên tên, đơn vị
-                và giá lúc tạo.
+                Thay đổi chỉ áp dụng sau khi máy chủ xác nhận trong đúng Trường. Hóa đơn đã tạo giữ nguyên tên, đơn vị,
+                giá và mức thuế lúc tạo.
               </p>
               <div className="dialog-grid">
                 <label>
                   Tên khoản thu
                   <input
-                    value={kindEdit.displayName}
-                    onChange={(event) => setKindEdit({ ...kindEdit, displayName: event.target.value })}
+                    value={receivableEdit.values.displayName}
+                    onChange={(event) => editReceivable({ displayName: event.target.value })}
                     {...field("receivable", "displayName")}
-                  />
-                </label>
-                <label>
-                  Giá / đơn vị (chưa VAT)
-                  <input
-                    inputMode="numeric"
-                    value={kindEdit.defaultUnitPrice}
-                    onChange={(event) => setKindEdit({ ...kindEdit, defaultUnitPrice: event.target.value })}
-                    {...field("receivable", "defaultUnitPrice")}
                   />
                 </label>
                 <label>
                   Đơn vị tính
                   <input
-                    value={kindEdit.unitLabel}
-                    onChange={(event) => setKindEdit({ ...kindEdit, unitLabel: event.target.value })}
+                    value={receivableEdit.values.unitLabel}
+                    onChange={(event) => editReceivable({ unitLabel: event.target.value })}
                     {...field("receivable", "unitLabel")}
-                  />
-                </label>
-                <label>
-                  Lý do
-                  <input
-                    placeholder="Bắt buộc khi đổi tên, đơn vị hoặc giá"
-                    value={kindEdit.reason}
-                    onChange={(event) => setKindEdit({ ...kindEdit, reason: event.target.value })}
-                    {...field("receivable", "reason")}
                   />
                 </label>
                 <fieldset
                   className="chip-group full"
-                  disabled={kindEdit.locked}
-                  aria-describedby="receivable-kind-edit-hint"
+                  disabled={receivableEdit.locked}
+                  aria-describedby="receivable-edit-kind-hint"
                 >
                   <legend>Nhóm khoản thu</legend>
                   {receivableKinds.map((item) => (
                     <label key={item.kind}>
                       <input
                         type="radio"
-                        name="receivable-kind-edit"
+                        name="receivable-edit-kind"
                         value={item.kind}
-                        checked={kindEdit.kind === item.kind}
-                        onChange={() => setKindEdit({ ...kindEdit, kind: item.kind })}
+                        checked={receivableEdit.values.kind === item.kind}
+                        onChange={() => editReceivable({ kind: item.kind })}
                       />
                       {item.label}
                     </label>
                   ))}
                 </fieldset>
-                <small className="muted full" id="receivable-kind-edit-hint">
-                  {kindEdit.locked
+                <small className="muted full" id="receivable-edit-kind-hint">
+                  {receivableEdit.locked
                     ? "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa."
-                    : receivableKinds.find((item) => item.kind === kindEdit.kind)?.hint}
+                    : receivableKinds.find((item) => item.kind === receivableEdit.values.kind)?.hint}
                 </small>
+                <label>
+                  Giá / đơn vị (chưa VAT)
+                  <input
+                    inputMode="numeric"
+                    value={receivableEdit.values.defaultUnitPrice}
+                    onChange={(event) => editReceivable({ defaultUnitPrice: event.target.value })}
+                    {...field("receivable", "defaultUnitPrice")}
+                  />
+                </label>
+                <div>
+                  <label>
+                    Giá hoàn trả / đơn vị (chưa VAT)
+                    <input
+                      inputMode="numeric"
+                      value={receivableEdit.values.refundUnitPrice}
+                      onChange={(event) => editReceivable({ refundUnitPrice: event.target.value })}
+                      aria-describedby="receivable-edit-refund-hint"
+                      {...field("receivable", "refundUnitPrice")}
+                    />
+                  </label>
+                  <small className="muted" id="receivable-edit-refund-hint">
+                    Số tiền trả lại cho mỗi đơn vị nghỉ có phép của tháng trước, không vượt giá thu. Để 0 nếu không hoàn
+                    trả.
+                  </small>
+                </div>
+                <div>
+                  <label>
+                    Mức thuế suất
+                    <select
+                      value={receivableEdit.values.taxCategory}
+                      onChange={(event) => editReceivable({ taxCategory: event.target.value as TaxCategory })}
+                      aria-describedby="receivable-edit-tax-hint"
+                      {...field("receivable", "taxCategory")}
+                    >
+                      {taxCategoryOptions.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <small className="muted" id="receivable-edit-tax-hint">
+                    {taxChannelHint(receivableEdit.values.taxCategory)}
+                  </small>
+                </div>
+                <label>
+                  Lý do
+                  <input
+                    placeholder="Bắt buộc"
+                    value={receivableEdit.reason}
+                    onChange={(event) => setReceivableEdit({ ...receivableEdit, reason: event.target.value })}
+                    {...field("receivable", "reason")}
+                  />
+                </label>
+                <p className="muted full">
+                  Đổi giá, giá hoàn trả hoặc mức thuế chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó; đợt thu
+                  còn nháp cần xem trước lại.
+                </p>
               </div>
               {scope === "receivable" &&
                 Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
@@ -4923,7 +4888,7 @@ export function FinanceWorkspace({
                   onClick={() =>
                     closeNewDialog(
                       () => setCatalogDialog(undefined),
-                      () => setKindEdit(undefined),
+                      () => setReceivableEdit(undefined),
                     )
                   }
                 >
@@ -4931,13 +4896,7 @@ export function FinanceWorkspace({
                 </button>
                 <button
                   className="primary-action"
-                  disabled={
-                    Boolean(pending) ||
-                    (kindEdit.displayName === kindEdit.original.displayName &&
-                      kindEdit.unitLabel === kindEdit.original.unitLabel &&
-                      kindEdit.defaultUnitPrice === kindEdit.original.defaultUnitPrice &&
-                      (kindEdit.locked || kindEdit.kind === kindEdit.original.kind))
-                  }
+                  disabled={Boolean(pending) || !Object.keys(receivableEditChanges(receivableEdit)).length}
                 >
                   Lưu thay đổi
                 </button>
@@ -5295,91 +5254,6 @@ export function FinanceWorkspace({
                   Lưu điều chỉnh
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {taxChange && (
-        <div className="dialog-backdrop">
-          <div
-            className="dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="finance-tax-title"
-            onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setTaxChange(undefined))}
-          >
-            <form onSubmit={saveTaxCategory}>
-              <h3 id="finance-tax-title">Đổi mức thuế suất · {taxChange.name}</h3>
-              <p>
-                Hóa đơn đã phát hành giữ nguyên. Dòng nháp hiện có giữ mức thuế cũ; xóa rồi thêm lại dòng để áp dụng mức
-                mới.
-              </p>
-              <label>
-                Mức thuế suất
-                <select
-                  autoFocus
-                  value={taxChange.taxCategory}
-                  onChange={(event) => setTaxChange({ ...taxChange, taxCategory: event.target.value as TaxCategory })}
-                  aria-describedby="tax-change-channel-hint"
-                >
-                  {taxCategoryOptions.map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <small className="muted" id="tax-change-channel-hint">
-                {taxChannelHint(taxChange.taxCategory)}
-              </small>
-              {scope === "receivable" &&
-                Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
-              <button disabled={Boolean(pending)}>Lưu mức thuế suất</button>
-              <button
-                type="button"
-                disabled={Boolean(pending)}
-                onClick={() => closeManagedDialog(() => setTaxChange(undefined))}
-              >
-                Hủy
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-      {refundChange && (
-        <div className="dialog-backdrop">
-          <div
-            className="dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="finance-refund-title"
-            onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setRefundChange(undefined))}
-          >
-            <form onSubmit={saveRefundPrice}>
-              <h3 id="finance-refund-title">Đổi giá hoàn trả · {refundChange.name}</h3>
-              <p>
-                Hóa đơn đã phát hành giữ nguyên. Giá mới chỉ dùng cho phần bớt đề xuất sau đó; dòng nháp hiện có dùng
-                "Dùng lại số đề xuất" để cập nhật.
-              </p>
-              <label>
-                Giá hoàn trả / {refundChange.unitLabel} (chưa VAT)
-                <input
-                  autoFocus
-                  inputMode="numeric"
-                  value={refundChange.refundUnitPrice}
-                  onChange={(event) => setRefundChange({ ...refundChange, refundUnitPrice: event.target.value })}
-                />
-              </label>
-              {scope === "receivable" &&
-                Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
-              <button disabled={Boolean(pending)}>Lưu giá hoàn trả</button>
-              <button
-                type="button"
-                disabled={Boolean(pending)}
-                onClick={() => closeManagedDialog(() => setRefundChange(undefined))}
-              >
-                Hủy
-              </button>
             </form>
           </div>
         </div>
