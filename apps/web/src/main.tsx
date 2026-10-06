@@ -11,6 +11,7 @@ import {
 import "@fontsource-variable/inter";
 import "./index.css";
 import { SchoolContext } from "./school-context";
+import { installNetworkErrorMessage } from "./network-error";
 export function AudienceShell({
   audience,
   heading,
@@ -131,6 +132,7 @@ export function AdminShell() {
 }
 
 const root = document.getElementById("root");
+if (root) installNetworkErrorMessage(window);
 if (root)
   createRoot(root).render(
     <StrictMode>

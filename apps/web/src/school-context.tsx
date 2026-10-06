@@ -204,7 +204,8 @@ export function SchoolContext({ clear, userIdentityId, registerHomeNavigation }:
   }, []);
   useEffect(() => {
     const refreshAuthorizedSchools = () => {
-        if (!hasPending()) void refreshChooser().catch((cause: Error) => setError(cause.message));
+        // An open workspace reports its own load failures; a background refresh only surfaces one when nothing else would.
+        if (!hasPending()) void refreshChooser().catch((cause: Error) => { if (!context) setError(cause.message); });
     };
     const onVisibilityChange = () => { if (document.visibilityState === "visible") refreshAuthorizedSchools(); };
     window.addEventListener("focus", refreshAuthorizedSchools);
