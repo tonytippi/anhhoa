@@ -132,6 +132,11 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
       expect(await prisma.staffClassAssignment.count({ where: { schoolId: school.id, schoolYearId: school.schoolYears[0]!.id } })).toBe(28);
        expect(await prisma.receivableGroup.count({ where: { schoolId: school.id } })).toBe(3);
        expect(await prisma.receivableGroupLifecycleTransition.count({ where: { schoolId: school.id } })).toBe(0);
+       const receivables = await prisma.receivable.findMany({ where: { schoolId: school.id }, include: { group: true } });
+       expect(receivables).toHaveLength(46);
+       expect(receivables.filter((item) => item.group.kind === 'FIXED').map((item) => item.displayName).sort()).toEqual(['HỌC PHÍ TIÊU CHUẨN THÁNG', 'Tiền ăn']);
+       expect(receivables.find((item) => item.code === 'KO-26112')).toMatchObject({ displayName: 'Tiền ăn', defaultUnitPrice: 50000n, refundUnitPrice: 40000n, autoLeaveDeduction: true, taxCategory: 'VAT_0' });
+       expect((await prisma.extracurricularClass.findMany({ where: { schoolId: school.id }, include: { receivable: { include: { group: true } } } })).map((item) => [item.name, item.receivable.group.kind]).sort()).toEqual([['Lớp MC', 'EXTRACURRICULAR'], ['Mỹ thuật', 'EXTRACURRICULAR'], ['Nhảy hiện đại', 'EXTRACURRICULAR'], ['Võ thuật', 'EXTRACURRICULAR']]);
        const defaultGroupsAfter = await prisma.receivableGroup.findMany({
          where: { schoolId: school.id },
          include: { lifecycleTransitions: true },
