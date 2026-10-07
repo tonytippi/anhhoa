@@ -5,7 +5,7 @@ import { audienceConfig, authSecrets, superadminEmail } from './auth.config.js';
 import { PrismaService } from '../identity/prisma.service.js';
 import { ParentsService } from '../parents/parents.service.js';
 
-type IdToken = { iss: string; aud: string | string[]; azp?: string; sub: string; email: string; email_verified: boolean | string; nonce: string; exp: number };
+type IdToken = { iss: string; aud: string | string[]; azp?: string; sub: string; email: string; email_verified: boolean | string; name?: string; picture?: string; nonce: string; exp: number };
 type Session = { aud: Audience; sub: string; email: string; exp: number };
 type Start = { authorizationUrl: string; correlation: string };
 const issuer = 'https://accounts.google.com';
@@ -28,7 +28,7 @@ export class AuthService {
     const state = random(); const correlation = random(); const nonce = random(); const { stateTtlSeconds } = authSecrets();
     await this.prisma.oAuthTransaction.create({ data: { audience, stateHash: hash(state), correlationHash: hash(correlation), nonce, redirect, expiresAt: new Date(Date.now() + stateTtlSeconds * 1000) } });
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-    url.searchParams.set('client_id', process.env.GOOGLE_CLIENT_ID ?? 'test-client-id'); url.searchParams.set('redirect_uri', config.callbackUrl); url.searchParams.set('response_type', 'code'); url.searchParams.set('scope', 'openid email'); url.searchParams.set('state', state); url.searchParams.set('nonce', nonce);
+    url.searchParams.set('client_id', process.env.GOOGLE_CLIENT_ID ?? 'test-client-id'); url.searchParams.set('redirect_uri', config.callbackUrl); url.searchParams.set('response_type', 'code'); url.searchParams.set('scope', 'openid email profile'); url.searchParams.set('state', state); url.searchParams.set('nonce', nonce);
     return { authorizationUrl: url.toString(), correlation };
   }
 
@@ -67,6 +67,7 @@ export class AuthService {
       if ((error as { code?: string }).code !== 'P2002') throw error;
       identity = await consumeAndBind();
     }
+    await this.saveProfile(identity.id, google);
     if (audience === 'ops') {
       if (identity.emailNormalized !== superadminEmail()) return { redirect: audienceConfig(audience).deniedRedirect };
       const existingGrant = await this.prisma.platformOperatorGrant.findUnique({ where: { userIdentityId: identity.id }, select: { revokedAt: true } });
@@ -94,6 +95,16 @@ export class AuthService {
     const clientId = process.env.GOOGLE_CLIENT_ID ?? 'test-client-id'; const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
     if ((payload.iss !== issuer && payload.iss !== 'accounts.google.com') || !audiences.includes(clientId) || (audiences.length > 1 && payload.azp !== clientId) || payload.nonce !== nonce || !Number.isFinite(payload.exp) || payload.exp * 1000 <= Date.now()) throw new UnauthorizedException({ code: 'OAUTH_DENIED', message: 'OIDC claims không hợp lệ.' });
     return payload;
+  }
+  // Profile is display-only; a failed refresh must never block sign-in.
+  private async saveProfile(id: string, google: IdToken): Promise<void> {
+    const displayName = google.name?.trim().slice(0, 200) || null;
+    const pictureUrl = google.picture?.startsWith('https://') ? google.picture.slice(0, 1000) : null;
+    await this.prisma.userIdentity.update({ where: { id }, data: { displayName, pictureUrl } }).catch(() => undefined);
+  }
+  async profile(userIdentityId: string): Promise<{ displayName: string | null; pictureUrl: string | null }> {
+    const row = await this.prisma.userIdentity.findUnique({ where: { id: userIdentityId }, select: { displayName: true, pictureUrl: true } }).catch(() => null);
+    return { displayName: row?.displayName ?? null, pictureUrl: row?.pictureUrl ?? null };
   }
   issueSession(aud: Audience, userIdentityId: string, email: string): string { return this.issue({ aud, sub: userIdentityId, email, exp: Date.now() + authSecrets().sessionTtlSeconds * 1000 }); }
   async platformOperatorGrant(userIdentityId: string): Promise<{ id: string } | null> { return this.prisma.platformOperatorGrant.findFirst({ where: { userIdentityId, revokedAt: null }, select: { id: true } }); }

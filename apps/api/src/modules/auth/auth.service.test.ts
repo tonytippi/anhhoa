@@ -6,7 +6,7 @@ const google = (nonce: string, overrides = {}) => Buffer.from(JSON.stringify({ i
 const database = () => {
   const transaction = { id: 'transaction-id', audience: 'app', correlationHash: '', nonce: '', redirect: 'http://localhost:5173', expiresAt: new Date(Date.now() + 60000), consumedAt: null };
   const oAuthTransaction = { create: vi.fn(async ({ data }) => { Object.assign(transaction, data); return transaction; }), findUnique: vi.fn(async () => transaction), updateMany: vi.fn(async () => ({ count: 1 })) };
-  const userIdentity = { findUnique: vi.fn().mockResolvedValue(null), findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'identity-id', emailNormalized: 'admin@example.com', googleSubject: 'google-123' }), create: vi.fn().mockResolvedValue({ id: 'identity-id', emailNormalized: 'admin@example.com', googleSubject: 'google-123' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }) };
+  const userIdentity = { findUnique: vi.fn().mockResolvedValue(null), findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'identity-id', emailNormalized: 'admin@example.com', googleSubject: 'google-123' }), create: vi.fn().mockResolvedValue({ id: 'identity-id', emailNormalized: 'admin@example.com', googleSubject: 'google-123' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }), update: vi.fn().mockResolvedValue({}) };
   const platformOperatorGrant = { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn() };
   return { oAuthTransaction, userIdentity, platformOperatorGrant, $transaction: vi.fn(async (work) => work({ oAuthTransaction, userIdentity })) };
 };

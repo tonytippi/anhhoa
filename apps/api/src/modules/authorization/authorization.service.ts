@@ -10,7 +10,7 @@ export const capabilityCatalog = [
 ] as const;
 export type Capability = typeof capabilityCatalog[number];
 export type SchoolAudience = 'app' | 'teacher';
-export type SchoolContext = { schoolId: string; schoolSlug: string; schoolName: string; membershipId: string; staffProfileId: string; capabilities: Capability[]; navigation: Array<{ id: string; label: string }> };
+export type SchoolContext = { schoolId: string; schoolSlug: string; schoolName: string; membershipId: string; staffProfileId: string; positionName: string; capabilities: Capability[]; navigation: Array<{ id: string; label: string }> };
 
 @Injectable()
 export class AuthorizationService {
@@ -64,6 +64,6 @@ export class AuthorizationService {
     if (!membership?.boundStaffProfile) throw new NotFoundException({ code: 'SCHOOL_CONTEXT_DENIED', message: 'Không thể truy cập ngữ cảnh trường này.' });
     const capabilities = this.capabilities(membership.boundStaffProfile.primaryPosition.grants, audience);
     if (!capabilities.includes(required)) throw new ForbiddenException({ code: 'CAPABILITY_DENIED', message: 'Bạn không có quyền thực hiện thao tác này.' });
-    return { schoolId, schoolSlug: membership.school.slug, schoolName: membership.school.name, membershipId: membership.id, staffProfileId: membership.boundStaffProfile.id, capabilities, navigation: this.navigation(capabilities, audience) };
+    return { schoolId, schoolSlug: membership.school.slug, schoolName: membership.school.name, membershipId: membership.id, staffProfileId: membership.boundStaffProfile.id, positionName: membership.boundStaffProfile.primaryPosition.name, capabilities, navigation: this.navigation(capabilities, audience) };
   }
 }

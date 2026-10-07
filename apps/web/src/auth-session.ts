@@ -1,5 +1,5 @@
 export type Audience = 'app' | 'teacher' | 'parent' | 'ops';
-export type Session = { audience: Audience; userIdentityId: string; email: string };
+export type Session = { audience: Audience; userIdentityId: string; email: string; displayName?: string | null; pictureUrl?: string | null };
 const apiUrl = typeof __API_URL__ === 'undefined' ? '' : __API_URL__;
 const csrfCookieName = typeof __CSRF_COOKIE_NAME__ === 'undefined' ? 'app_csrf' : __CSRF_COOKIE_NAME__;
 

@@ -11,7 +11,7 @@ import { SettingsWorkspace, type SettingsStatus } from "./settings/settings-work
 
 type School = { schoolId: string; schoolSlug: string; schoolName: string };
 type View = "overview" | "students" | "parents" | "staff" | "classes" | "transitions" | "years" | "positions" | "settings" | "leave-review" | FinancePage | "receipt-queue" | "finance-reports" | "extracurricular-classes";
-type Context = { schoolId: string; schoolSlug: string; schoolName: string; membershipId: string; capabilities: Array<"SCHOOL_CONTEXT_READ" | "ROSTER_MANAGE" | "SETTINGS_MANAGE" | "LEAVE_REQUEST_DECIDE" | "FINANCE_MANAGE" | "OPERATIONAL_QUEUE_READ">; navigation: Array<{ id: string; label: string }> };
+type Context = { schoolId: string; schoolSlug: string; schoolName: string; positionName?: string; membershipId: string; capabilities: Array<"SCHOOL_CONTEXT_READ" | "ROSTER_MANAGE" | "SETTINGS_MANAGE" | "LEAVE_REQUEST_DECIDE" | "FINANCE_MANAGE" | "OPERATIONAL_QUEUE_READ">; navigation: Array<{ id: string; label: string }> };
 type WorkspaceStatus = { dirty: boolean; pending: boolean; dialogOpen?: boolean; reconcile?: () => void };
 type Destination = { schoolSlug: string; page: View; runId?: string; invoiceId?: string };
 
@@ -56,7 +56,7 @@ function NavigationIcon({ name }: { name: NavigationIconName }) {
   return <svg className="school-context-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
-export function SchoolContext({ clear, userIdentityId, registerHomeNavigation }: { clear: () => void; userIdentityId: string; registerHomeNavigation?: (navigateHome: () => void) => void }) {
+export function SchoolContext({ clear, userIdentityId, registerHomeNavigation, onRoleChange }: { clear: () => void; userIdentityId: string; registerHomeNavigation?: (navigateHome: () => void) => void; onRoleChange?: (role: string | undefined) => void }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [schools, setSchools] = useState<School[]>();
@@ -286,6 +286,7 @@ export function SchoolContext({ clear, userIdentityId, registerHomeNavigation }:
     if (isRail) setRailGroup(undefined);
     requestDestination({ schoolSlug: context!.schoolSlug, page });
   };
+  useEffect(() => { onRoleChange?.(context?.positionName); }, [onRoleChange, context?.positionName]);
   useEffect(() => { registerHomeNavigation?.(() => requestPath("/")); }, [registerHomeNavigation, context, rosterStatus, settingsStatus, leaveReviewStatus, financeStatus]);
 
   if (!schools) return <section className="school-context school-context-loading" aria-live="polite"><p role={error ? "alert" : undefined}>{error || "Đang tải ngữ cảnh trường..."}</p>{error && <button type="button" onClick={retryRoute}>Thử lại</button>}</section>;

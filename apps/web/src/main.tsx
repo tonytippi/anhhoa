@@ -61,11 +61,16 @@ export function AudienceShell({
     </main>
   );
 }
+function initials(name: string): string {
+  const words = name.split(/[\s@.]+/).filter(Boolean);
+  return ((words[0]?.[0] ?? "") + (words.length > 1 ? words[words.length - 1]![0] : "")).toUpperCase() || "?";
+}
 export function AdminShell() {
   const [session, setSession] = useState<Session | undefined>();
   const [ready, setReady] = useState(false);
   const navigateHome = useRef<(() => void) | undefined>(undefined);
-  const clear = () => setSession(undefined);
+  const [role, setRole] = useState<string | undefined>();
+  const clear = () => { setSession(undefined); setRole(undefined); };
   useEffect(() => {
     const controller = new AbortController();
     let current = true;
@@ -112,10 +117,19 @@ export function AdminShell() {
         </button>
         <p className="admin-sidebar-copy">Quản trị vận hành trường</p>
         <div className="admin-sidebar-footer">
-          <span className="admin-session-label">Tài khoản đang đăng nhập</span>
-          <button className="account" onClick={() => void logout("app", clear)}>
-            <span className="avatar" aria-hidden="true">PE</span>
-            <span>Đăng xuất</span>
+          <div className="admin-profile" aria-label="Tài khoản đang đăng nhập">
+            <span className="avatar admin-profile-avatar" aria-hidden="true">
+              {session.pictureUrl ? <img src={session.pictureUrl} alt="" referrerPolicy="no-referrer" /> : initials(session.displayName ?? session.email)}
+            </span>
+            <span className="admin-profile-text">
+              <strong>{session.displayName ?? session.email}</strong>
+              {session.displayName && <span className="admin-profile-email">{session.email}</span>}
+              {role && <span className="admin-profile-role">{role}</span>}
+            </span>
+          </div>
+          <button className="admin-logout" type="button" onClick={() => void logout("app", clear)} aria-label="Đăng xuất" title="Đăng xuất">
+            <span aria-hidden="true">⎋</span>
+            <span className="admin-logout-label">Đăng xuất</span>
           </button>
         </div>
       </aside>
@@ -123,7 +137,7 @@ export function AdminShell() {
         <a className="admin-skip-link" href="#school-content">Bỏ qua điều hướng</a>
         <div id="school-content">
           <BrowserRouter>
-            <SchoolContext clear={clear} userIdentityId={session.userIdentityId} registerHomeNavigation={(navigate) => { navigateHome.current = navigate; }} />
+            <SchoolContext clear={clear} onRoleChange={setRole} userIdentityId={session.userIdentityId} registerHomeNavigation={(navigate) => { navigateHome.current = navigate; }} />
           </BrowserRouter>
         </div>
       </main>
