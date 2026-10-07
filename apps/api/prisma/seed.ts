@@ -442,22 +442,30 @@ export async function seed(): Promise<void> {
   }
 }
 
-// Finance fixtures for local testing of the two payment channels (decision 2026-09-30): one active School
-// account for taxed receivables, two personal accounts used as Class defaults, a finance policy and PeakLand's
-// real receivable catalog. Rows are created once and left untouched on later seeds.
+// PeakLand finance setup mirrored read-only from Kidsonline (school 2688) on 2026-10-07 so the switch-over keeps
+// what staff already use: the personal receiving accounts, the receivable catalog and the deductions as promotion
+// policies, plus a finance policy. Collection history is not migrated. Rows are created once and left untouched on
+// later seeds.
 const financeSeedKey = '8d5c7a52-3f0e-4c61-9d7b-2a41e6f0b9c3';
 const financeSeedRoute = 'development-seed/finance-fixtures';
+// Kidsonline lists seven non-taxable accounts, all held by Nguyễn Thị Hoan; PeakLand has no School account. The first
+// one becomes every Class default; Finance can change it per Class.
 const financeSeedAccounts = [
-  { key: 'school', kind: 'SCHOOL', receivingBank: 'Vietcombank', bankBin: '970436', accountNumber: '0123456789', accountHolderName: 'TRUONG MN PEAKLAND' },
-  { key: 'an', kind: 'PERSONAL', receivingBank: 'ABBANK', bankBin: '970425', accountNumber: '215000002088', accountHolderName: 'NGUYEN VAN AN' },
-  { key: 'binh', kind: 'PERSONAL', receivingBank: 'Techcombank', bankBin: '970407', accountNumber: '19036677889900', accountHolderName: 'TRAN THI BINH' },
-] as const;
-// Receivable catalog mirrored read-only from Kidsonline (finance/receivable, school 2688) on 2026-10-07 so the
-// switch-over keeps the names, units and prices staff already use. code = KO-<Kidsonline receivable id> to trace
-// rows back during migration. Kidsonline "Ngoại khóa" maps to EXTRACURRICULAR; only the two lines every Student
-// gets each month (HỌC PHÍ TIÊU CHUẨN THÁNG, Tiền ăn) are FIXED, everything else is FLEXIBLE. Tiền ăn is the only
-// Kidsonline item computed from attendance (Mon–Fri, refund 40.000 đ per absent day). The two 0 đ items
-// (Phụ Phí bé dưới 18 tháng, PHÍ TRÔNG MUỘN) are skipped: a Receivable price must be positive.
+  { receivingBank: 'ACB', bankBin: '970416', accountNumber: '50934947' },
+  { receivingBank: 'MBBank', bankBin: '970422', accountNumber: '0916612859' },
+  { receivingBank: 'Techcombank', bankBin: '970407', accountNumber: '1916612859' },
+  { receivingBank: 'TPBank', bankBin: '970423', accountNumber: '10005507047' },
+  { receivingBank: 'Vietcombank', bankBin: '970436', accountNumber: '1916612859' },
+  { receivingBank: 'VIB', bankBin: '970441', accountNumber: '163430' },
+  { receivingBank: 'VPBank', bankBin: '970432', accountNumber: '0916612859' },
+].map((account) => ({ ...account, kind: 'PERSONAL' as const, accountHolderName: 'NGUYEN THI HOAN' }));
+// Receivables keep Kidsonline names, units and prices; code = KO-<Kidsonline receivable id> to trace rows back during
+// migration. Kidsonline "Ngoại khóa" maps to EXTRACURRICULAR; only the two lines every Student gets each month
+// (HỌC PHÍ TIÊU CHUẨN THÁNG, Tiền ăn) are FIXED, everything else is FLEXIBLE. Tiền ăn is the only Kidsonline item
+// computed from attendance (Mon–Fri, refund 40.000 đ per absent day). Kidsonline marks Học phí and Tiền ăn "Thuế suất
+// 0%" only for e-invoices; its tax separation is off and every fee is paid into the personal accounts, so all items
+// are NOT_DECLARED here. Skipped: the two 0 đ items (Phụ Phí bé dưới 18 tháng, PHÍ TRÔNG MUỘN; a price must be
+// positive) and two deductions entered as receivables (VOCHER GIẢM GIÁ, GIẢM TRỪ HỌC PHÍ NGHỈ 2 TUẦN LIÊN TIẾP).
 const financeSeedReceivables = [
   { code: 'KO-41400', displayName: 'Lễ phục võ', unitLabel: 'bộ', defaultUnitPrice: 250000n, refundUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-40987', displayName: 'Bộ gymkid', unitLabel: 'bộ', defaultUnitPrice: 220000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
@@ -471,7 +479,7 @@ const financeSeedReceivables = [
   { code: 'KO-40583', displayName: 'PHÍ SỰ KIỆN NĂM HỌC 2026-2027 ĐỢT 2', unitLabel: 'lần', defaultUnitPrice: 500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-40582', displayName: 'PHÍ CƠ SỞ VẬT CHẤT NĂM HỌC 2026-2027', unitLabel: 'lần', defaultUnitPrice: 1500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-40410', displayName: 'HỌC PHÍ GRAPESEED', unitLabel: 'UNIT', defaultUnitPrice: 3500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
-  { code: 'KO-40388', displayName: 'Học phí', unitLabel: 'ngày', defaultUnitPrice: 210000n, taxCategory: 'VAT_0', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-40388', displayName: 'Học phí', unitLabel: 'ngày', defaultUnitPrice: 210000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-38937', displayName: 'Đón sớm', unitLabel: 'lần', defaultUnitPrice: 20000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-38588', displayName: 'Thu khác', unitLabel: 'tháng', defaultUnitPrice: 1000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-26115', displayName: 'Trông muộn Từ 17h30-18h00', unitLabel: '30 Phút', defaultUnitPrice: 20000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
@@ -485,8 +493,6 @@ const financeSeedReceivables = [
   { code: 'KO-26497', displayName: 'Phí đón sớm Từ 6h45-7h15', unitLabel: 'lần', defaultUnitPrice: 20000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-26495', displayName: 'Lễ phục', unitLabel: 'bộ', defaultUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-26484', displayName: 'Phí Phần mềm điện tử Kidsonline', unitLabel: 'năm', defaultUnitPrice: 360000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
-  { code: 'KO-38077', displayName: 'VOCHER GIẢM GIÁ', unitLabel: 'lần', defaultUnitPrice: 500000n, refundUnitPrice: 500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
-  { code: 'KO-37882', displayName: 'GIẢM TRỪ HỌC PHÍ NGHỈ 2 TUẦN LIÊN TIẾP', unitLabel: 'lần', defaultUnitPrice: 1449000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-37409', displayName: 'Đồng phục mua thêm', unitLabel: 'bộ', defaultUnitPrice: 250000n, refundUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-36948', displayName: 'Phí học phẩm theo quý', unitLabel: 'lần', defaultUnitPrice: 450000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-32403', displayName: 'Tiền sách Baby Grapeseed', unitLabel: 'bộ', defaultUnitPrice: 260000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
@@ -495,7 +501,7 @@ const financeSeedReceivables = [
   { code: 'KO-33306', displayName: 'Sách Giáo Khoa Grapeseed', unitLabel: 'bộ', defaultUnitPrice: 295000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-32452', displayName: 'Túi đựng chăn', unitLabel: 'cái', defaultUnitPrice: 150000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-26146', displayName: 'Chương trình học Thứ 7 full tháng', unitLabel: 'tháng', defaultUnitPrice: 890000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
-  { code: 'KO-26112', displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 50000n, refundUnitPrice: 40000n, autoLeaveDeduction: true, taxCategory: 'VAT_0', group: 'Khoản thu cố định' },
+  { code: 'KO-26112', displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 50000n, refundUnitPrice: 40000n, autoLeaveDeduction: true, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
   { code: 'KO-30002', displayName: 'Phí bảo lưu', unitLabel: 'tháng', defaultUnitPrice: 414000n, refundUnitPrice: 414000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-30009', displayName: 'Phí bảo lưu', unitLabel: 'tháng', defaultUnitPrice: 415000n, refundUnitPrice: 415000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-30391', displayName: 'Học phí chương trình BẠN LÀ KHÁCH', unitLabel: 'lần', defaultUnitPrice: 1980000n, refundUnitPrice: 1980000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
@@ -505,6 +511,44 @@ const financeSeedReceivables = [
   { code: 'KO-26148', displayName: 'Học phí thứ 7 đăng kí theo ngày', unitLabel: 'ngày', defaultUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
   { code: 'KO-37955', displayName: 'HỌC PHÍ TIÊU CHUẨN THÁNG', unitLabel: 'tháng', defaultUnitPrice: 6900000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
   { code: 'KO-30780', displayName: 'Phí Sự Kiện', unitLabel: 'năm', defaultUnitPrice: 2000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+] as const;
+// Kidsonline deductions ("Khoản giảm trừ") as DISCOUNT promotion policies on the same receivables, same VND or % value,
+// in Kidsonline's sort order (first = highest priority). Kidsonline picks deductions per invoice line, so there are no
+// standing Student assignments to migrate; Finance assigns Students here. Prepaid packages ("Gói 4 tặng 2"…) stay a
+// lump-sum discount on a multi-month quantity, as staff enter them today. Skipped: deductions whose only receivables
+// no longer exist in Kidsonline, ƯU ĐÃI VOCHER (its receivable is dropped), the one-off meal refunds (Nghỉ tết dương
+// lịch 1/1/2026, Hoàn trả 2 phiếu ăn…, Tiền ăn ngày nghỉ có phép tháng 9: leave deduction on Tiền ăn covers them) and
+// the three with no receivable.
+const financeSeedPromotions = [
+  { name: 'ĐÓNG 12 THÁNG GIẢM 37% HỌC PHÍ TIÊU CHUẨN', discountType: 'FIXED_VND', discountValue: 30000000n, targets: ['KO-37955'] },
+  { name: 'GIẢM 30% HỌC PHÍ TIÊU CHUẨN', discountType: 'FIXED_VND', discountValue: 6300000n, targets: ['KO-37955'] },
+  { name: 'Giảm 80% học phí tiêu chuẩn', discountType: 'PERCENTAGE', discountValue: 80n, targets: ['KO-37955'] },
+  { name: 'GÓI ƯU ĐÃI 4 TẶNG 2', discountType: 'FIXED_VND', discountValue: 13800000n, targets: ['KO-37955'] },
+  { name: 'ƯU ĐÃI GÓI 1 THÁNG CHO 20 SUẤT ĐẶC BIỆT THÁNG 3.2026', discountType: 'FIXED_VND', discountValue: 1550000n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi 30% cho đồng phục', discountType: 'PERCENTAGE', discountValue: 30n, targets: ['KO-36749'] },
+  { name: 'Ưu đãi giảm 20% phí sự kiện', discountType: 'PERCENTAGE', discountValue: 20n, targets: ['KO-30780'] },
+  { name: 'GÓI ĐÓNG 4 THÁNG TẶNG 2,5 THÁNG', discountType: 'FIXED_VND', discountValue: 17250000n, targets: ['KO-37955'] },
+  { name: 'ƯU ĐÃI COMBO THƯƠNG HIỆU', discountType: 'PERCENTAGE', discountValue: 30n, targets: ['KO-36749'] },
+  { name: 'Ưu đãi gói 5 tháng tặng 2 tháng.', discountType: 'FIXED_VND', discountValue: 13800000n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi con giáo viên nghỉ sinh 6 tháng', discountType: 'PERCENTAGE', discountValue: 50n, targets: ['KO-37955'] },
+  { name: 'ƯU ĐÃI GOM NHÓM', discountType: 'PERCENTAGE', discountValue: 3n, targets: ['KO-37955'] },
+  { name: 'CHƯƠNG TRÌNH BẠN LÀ KHÁCH', discountType: 'FIXED_VND', discountValue: 1980000n, targets: ['KO-30391'] },
+  { name: 'Ưu đãi 5% anh chị em ruột học cùng trường', discountType: 'PERCENTAGE', discountValue: 5n, targets: ['KO-37955'] },
+  { name: 'ƯU ĐÃI GÓI 3 THÁNG TẶNG 1.5 THÁNG', discountType: 'FIXED_VND', discountValue: 10350000n, targets: ['KO-37955'] },
+  { name: 'CON CÁN BỘ TÒA NHÀ', discountType: 'FIXED_VND', discountValue: 1000000n, targets: ['KO-26112'] },
+  { name: 'Ưu đãi HP CON GIÁO VIÊN CON CÔ NGÂN', discountType: 'PERCENTAGE', discountValue: 90n, targets: ['KO-37955'] },
+  { name: 'ƯU ĐÃI T7.2024', discountType: 'PERCENTAGE', discountValue: 38n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi gói 1 tháng CTT8.2024', discountType: 'PERCENTAGE', discountValue: 30n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi gói hp 12 tháng', discountType: 'PERCENTAGE', discountValue: 43n, targets: ['KO-37955'] },
+  { name: 'GÓI ƯU ĐÃI 6 TẶNG 3', discountType: 'FIXED_VND', discountValue: 20700000n, targets: ['KO-37955'] },
+  { name: 'ƯU ĐÃI HP GÓI 1 THÁNG', discountType: 'PERCENTAGE', discountValue: 20n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi 35% gói 1 tháng', discountType: 'PERCENTAGE', discountValue: 35n, targets: ['KO-37955'] },
+  { name: 'ƯU ĐÃI 50 HỌC SINH KHAI GIẢNG 2023', discountType: 'PERCENTAGE', discountValue: 40n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi giảm 7% cho hs gom nhom', discountType: 'PERCENTAGE', discountValue: 7n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi giảm 5% gom nhóm', discountType: 'PERCENTAGE', discountValue: 5n, targets: ['KO-37955'] },
+  { name: 'HOÀN TIỀN ĐẶT CỌC HỌC SINH MỚI', discountType: 'FIXED_VND', discountValue: 2000000n, targets: ['KO-38076'] },
+  { name: 'Ưu đãi gói 3 tháng tặng 2 tháng', discountType: 'FIXED_VND', discountValue: 13800000n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi phí sự kiện theo năm', discountType: 'FIXED_VND', discountValue: 1000000n, targets: ['KO-30780'] },
 ] as const;
 // Kidsonline bills these per session through receivables only (its extracurricular module is empty), so each
 // EXTRACURRICULAR receivable gets one empty class in SchoolYear 2026-2027 for staff to enrol Students into.
@@ -522,16 +566,15 @@ async function seedFinanceFixtures(tx: any, input: { schoolId: string; schoolYea
   if (!await tx.financePolicy.findFirst({ where: { schoolId } })) {
     await tx.financePolicy.create({ data: { schoolId, effectiveFrom: new Date('2026-08-01T00:00:00.000Z'), dueDaysAfterIssue: 10, taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: 'PeakLand development seed', actorIdentityId: ownerId, membershipId } });
   }
-  const accounts = new Map<string, string>();
-  for (const { key, ...account } of financeSeedAccounts) {
+  const accounts: string[] = [];
+  for (const account of financeSeedAccounts) {
     const existing = await tx.bankAccount.findFirst({ where: { schoolId, bankBin: account.bankBin, accountNumber: account.accountNumber } });
     const row = existing ?? await tx.bankAccount.create({ data: { schoolId, ...account, transferTemplate: '{{studentName}} {{className}}', actorIdentityId: ownerId, membershipId } });
     if (!existing) await tx.bankAccountLifecycleTransition.create({ data: { schoolId, bankAccountId: row.id, status: 'ACTIVE', actorIdentityId: ownerId, membershipId, operationId: operation.id, sequence: 1 } });
-    accounts.set(key, row.id);
+    accounts.push(row.id);
   }
-  // Alternate the two personal accounts across Classes so issue pre-selects a different default per Class.
-  for (const [index, classroom] of input.classrooms.entries()) {
-    if (!classroom.defaultBankAccountId) await tx.class.update({ where: { id: classroom.id }, data: { defaultBankAccountId: accounts.get(index % 2 === 0 ? 'an' : 'binh') } });
+  for (const classroom of input.classrooms) {
+    if (!classroom.defaultBankAccountId) await tx.class.update({ where: { id: classroom.id }, data: { defaultBankAccountId: accounts[0] } });
   }
   const groups = new Map<string, string>((await tx.receivableGroup.findMany({ where: { schoolId } })).map((group: { name: string; id: string }) => [group.name, group.id]));
   for (const { group, ...receivable } of financeSeedReceivables) {
@@ -544,6 +587,14 @@ async function seedFinanceFixtures(tx: any, input: { schoolId: string; schoolYea
     const receivable = await tx.receivable.findFirstOrThrow({ where: { schoolId, code } });
     const row = await tx.extracurricularClass.create({ data: { schoolId, schoolYearId: input.schoolYearId, name, receivableId: receivable.id } });
     await tx.extracurricularClassLifecycleTransition.create({ data: { schoolId, extracurricularClassId: row.id, status: 'ACTIVE', actorIdentityId: ownerId, membershipId, operationId: operation.id, sequence: 1 } });
+  }
+  for (const [index, { name, targets, ...value }] of financeSeedPromotions.entries()) {
+    if (await tx.promotionPolicy.findFirst({ where: { schoolId, name } })) continue;
+    const receivables = await tx.receivable.findMany({ where: { schoolId, code: { in: [...targets] } } });
+    const policy = await tx.promotionPolicy.create({ data: { schoolId, name } });
+    const version = await tx.promotionPolicyVersion.create({ data: { schoolId, policyId: policy.id, version: 1, status: 'DRAFT', ...value, priority: financeSeedPromotions.length - index, stackingMode: 'STACKABLE', fulfillmentMode: 'DISCOUNT', effectiveFrom: new Date('2026-08-01T00:00:00.000Z') } });
+    await tx.promotionPolicyTarget.createMany({ data: receivables.map((receivable: { id: string }) => ({ schoolId, versionId: version.id, receivableId: receivable.id })) });
+    await tx.promotionPolicyVersion.update({ where: { id: version.id }, data: { status: 'ACTIVE' } });
   }
 }
 

@@ -133,9 +133,17 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
        expect(await prisma.receivableGroup.count({ where: { schoolId: school.id } })).toBe(3);
        expect(await prisma.receivableGroupLifecycleTransition.count({ where: { schoolId: school.id } })).toBe(0);
        const receivables = await prisma.receivable.findMany({ where: { schoolId: school.id }, include: { group: true } });
-       expect(receivables).toHaveLength(46);
+       expect(receivables).toHaveLength(44);
        expect(receivables.filter((item) => item.group.kind === 'FIXED').map((item) => item.displayName).sort()).toEqual(['HỌC PHÍ TIÊU CHUẨN THÁNG', 'Tiền ăn']);
-       expect(receivables.find((item) => item.code === 'KO-26112')).toMatchObject({ displayName: 'Tiền ăn', defaultUnitPrice: 50000n, refundUnitPrice: 40000n, autoLeaveDeduction: true, taxCategory: 'VAT_0' });
+       expect(receivables.find((item) => item.code === 'KO-26112')).toMatchObject({ displayName: 'Tiền ăn', defaultUnitPrice: 50000n, refundUnitPrice: 40000n, autoLeaveDeduction: true, taxCategory: 'NOT_DECLARED' });
+       expect(receivables.some((item) => item.taxCategory !== 'NOT_DECLARED')).toBe(false);
+       const accounts = await prisma.bankAccount.findMany({ where: { schoolId: school.id } });
+       expect(accounts).toHaveLength(7);
+       expect(accounts.every((account) => account.kind === 'PERSONAL' && account.accountHolderName === 'NGUYEN THI HOAN')).toBe(true);
+       const promotions = await prisma.promotionPolicyVersion.findMany({ where: { schoolId: school.id }, include: { policy: true, targets: { include: { receivable: true } } } });
+       expect(promotions).toHaveLength(29);
+       expect(promotions.every((version) => version.status === 'ACTIVE' && version.fulfillmentMode === 'DISCOUNT' && version.targets.length > 0)).toBe(true);
+       expect(promotions.find((version) => version.policy.name === 'GÓI ƯU ĐÃI 6 TẶNG 3')).toMatchObject({ discountType: 'FIXED_VND', discountValue: 20700000n, targets: [expect.objectContaining({ receivable: expect.objectContaining({ code: 'KO-37955' }) })] });
        expect((await prisma.extracurricularClass.findMany({ where: { schoolId: school.id }, include: { receivable: { include: { group: true } } } })).map((item) => [item.name, item.receivable.group.kind]).sort()).toEqual([['Lớp MC', 'EXTRACURRICULAR'], ['Mỹ thuật', 'EXTRACURRICULAR'], ['Nhảy hiện đại', 'EXTRACURRICULAR'], ['Võ thuật', 'EXTRACURRICULAR']]);
        const defaultGroupsAfter = await prisma.receivableGroup.findMany({
          where: { schoolId: school.id },
