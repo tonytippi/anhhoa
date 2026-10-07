@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ReceivingAccountLabel, type ReceivingAccount } from "./receiving-account";
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 import { PaymentImagePanel } from "./payment-image-panel";
@@ -163,15 +163,6 @@ type RunExtracurricularClass = {
   transferredCount: number;
   excluded: boolean;
   receivableActive: boolean;
-};
-type AdjustLine = {
-  invoiceId: string;
-  lineId: string;
-  name: string;
-  flag: string;
-  quantity: string;
-  unitPrice: string;
-  reason: string;
 };
 type TemplateDialog = {
   lineId?: string;
@@ -661,6 +652,319 @@ const emptyInvoiceLine = {
   lateCareMinutes: "",
 };
 
+// Decision 2026-10-07: Finance edits the lines of a DRAFT notice inline, like a spreadsheet. The values typed are
+// sent to the server preview; every amount shown comes from the server, marked as not saved until Lưu thay đổi.
+type InvoiceLine = Invoice["lines"][number];
+type LineDraft = {
+  quantity: string;
+  unitPrice: string;
+  overrideReason: string;
+  deductionQuantity: string;
+  refundUnitPrice: string;
+  deductionReason: string;
+};
+const lineDraft = (line: InvoiceLine): LineDraft => ({
+  quantity: line.quantity,
+  unitPrice: line.unitPrice,
+  overrideReason: "",
+  deductionQuantity: line.deductionQuantity ?? "0",
+  refundUnitPrice: line.refundUnitPrice ?? "0",
+  deductionReason: line.deductionReason ?? "",
+});
+const priceChanged = (line: InvoiceLine, draft: LineDraft) => draft.unitPrice !== line.unitPrice;
+const deductionChanged = (line: InvoiceLine, draft: LineDraft) =>
+  draft.deductionQuantity !== (line.deductionQuantity ?? "0") ||
+  draft.refundUnitPrice !== (line.refundUnitPrice ?? "0") ||
+  draft.deductionReason !== (line.deductionReason ?? "");
+const deductionDiffersFromProposal = (line: InvoiceLine, draft: LineDraft) =>
+  draft.deductionQuantity !== (line.proposedDeductionQuantity ?? "0") ||
+  draft.refundUnitPrice !== (line.deductionSource?.proposedUnitPrice ?? "0");
+// Only the values Finance changed are sent for a line.
+const lineEdit = (line: InvoiceLine, draft: LineDraft | undefined) => {
+  if (!draft) return null;
+  const edit: Record<string, string> = { lineId: line.id };
+  if (draft.quantity !== line.quantity) edit.quantity = draft.quantity;
+  if (priceChanged(line, draft)) Object.assign(edit, { unitPrice: draft.unitPrice, overrideReason: draft.overrideReason });
+  if (deductionChanged(line, draft))
+    Object.assign(edit, {
+      deductionQuantity: draft.deductionQuantity,
+      refundUnitPrice: draft.refundUnitPrice,
+      deductionReason: draft.deductionReason,
+    });
+  return Object.keys(edit).length > 1 ? edit : null;
+};
+const lineEditable = (part: Invoice, line: InvoiceLine) =>
+  part.status === "DRAFT" && line.receivableId !== null && (line.kind ?? "NORMAL") === "NORMAL";
+
+function InvoiceLinesTable({
+  part,
+  caption,
+  totalLabel,
+  preview,
+  drafts,
+  errors,
+  disabled,
+  onDraft,
+  onSource,
+  onRemove,
+}: {
+  part: Invoice;
+  caption: string;
+  totalLabel?: string;
+  preview: Invoice | undefined;
+  drafts: Record<string, LineDraft>;
+  errors: Record<string, string>;
+  disabled: boolean;
+  onDraft: (line: InvoiceLine, draft: LineDraft) => void;
+  onSource: (line: InvoiceLine, trigger: HTMLButtonElement) => void;
+  onRemove: (line: InvoiceLine, trigger: HTMLButtonElement) => void;
+}) {
+  const previewPart = preview && (preview.id === part.id ? preview : preview.notice?.invoices?.find((item) => item.id === part.id));
+  const total = previewPart?.total ?? part.total;
+  const cell = (line: InvoiceLine, name: keyof LineDraft, label: string, extra: { className?: string; placeholder?: string } = {}) => {
+    const key = `lines.${line.id}.${name}`;
+    const draft = drafts[line.id] ?? lineDraft(line);
+    return (
+      <span className="finance-cell-field">
+        <input
+          className={extra.className}
+          aria-label={label}
+          placeholder={extra.placeholder}
+          inputMode={name.endsWith("Reason") ? undefined : "numeric"}
+          disabled={disabled}
+          value={draft[name]}
+          onChange={(event) => onDraft(line, { ...draft, [name]: event.target.value })}
+          {...(errors[key]
+            ? {
+                id: `invoice-invoice-${key}-field`,
+                "aria-invalid": true,
+                "aria-describedby": `invoice-invoice-${key}-error`,
+              }
+            : {})}
+        />
+        {errors[key] && <small id={`invoice-invoice-${key}-error`}>{errors[key]}</small>}
+      </span>
+    );
+  };
+  return (
+    <div className="table-scroll">
+      <table className="finance-lines-table">
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            <th>Khoản thu</th>
+            <th>Số lượng</th>
+            <th className="finance-money">Đơn giá (đ)</th>
+            <th className="finance-money">Tổng trước giảm (đ)</th>
+            <th className="finance-money">Ưu đãi (đ)</th>
+            <th className="finance-money">Bớt (đ)</th>
+            <th className="finance-money">Thuế GTGT (đ)</th>
+            <th className="finance-money">Tổng phải thu (đ)</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody>
+          {part.lines.map((item) => {
+            const editable = lineEditable(part, item);
+            const draft = drafts[item.id];
+            const edited = Boolean(lineEdit(item, draft));
+            const shown = (edited && previewPart?.lines.find((line) => line.id === item.id)) || item;
+            const value = edited ? "finance-preview-value" : undefined;
+            const needsPriceReason = Boolean(draft && priceChanged(item, draft));
+            const needsDeductionReason = Boolean(draft && deductionChanged(item, draft) && deductionDiffersFromProposal(item, draft));
+            const packageRefund = item.deductionSource?.type === "PREPAID_PACKAGE_V1";
+            const lineErrors = Object.keys(errors).filter((key) => key.startsWith(`lines.${item.id}.`));
+            return (
+              <Fragment key={item.id}>
+                <tr className={edited ? "finance-line-edited" : undefined}>
+                  <td>
+                    {item.receivableName}
+                    {item.sourceBadge && (
+                      <>
+                        {" "}
+                        <span className="badge neutral" title="Nguồn">
+                          {item.sourceBadge.label}
+                        </span>
+                        {(item.sourceBadge.flags ?? []).map((flag) => (
+                          <span key={flag.code} className="badge warning">
+                            {" "}
+                            {flag.label}
+                          </span>
+                        ))}
+                        {item.sourceBadge.detail && (
+                          <>
+                            <br />
+                            <small className="muted">{item.sourceBadge.detail}</small>
+                          </>
+                        )}
+                      </>
+                    )}
+                    {item.source && (
+                      <small>
+                        {" "}
+                        Nguồn:{" "}
+                        {[
+                          item.source.serviceDate,
+                          item.source.attendanceState,
+                          item.source.pickedUpAt,
+                          item.source.lateCareMinutes != null ? `${item.source.lateCareMinutes} phút` : null,
+                        ]
+                          .filter(Boolean)
+                          .join("; ") || "Máy chủ đã ghi nhận"}
+                        {item.sourceReason ? `; ${item.sourceReason}` : ""}
+                      </small>
+                    )}
+                    {item.source && (
+                      <details>
+                        <summary>Thông tin nguồn và kiểm tra</summary>
+                        <p>Thời điểm ghi nhận: {item.sourceRecordedAt ?? "Máy chủ không trả về"}</p>
+                        <p>Nguồn đã được máy chủ xác nhận cho dòng hóa đơn này.</p>
+                      </details>
+                    )}
+                    {item.overrideReason && !needsPriceReason && (
+                      <>
+                        <br />
+                        <small className="muted">Lý do đổi đơn giá: {item.overrideReason}</small>
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    {editable ? (
+                      <span className="finance-cell-unit">
+                        {cell(item, "quantity", `Số lượng · ${item.receivableName}`, { className: "finance-qty-input" })}
+                        <span>{item.unitLabel}</span>
+                      </span>
+                    ) : (
+                      `${item.quantity} ${item.unitLabel}`
+                    )}
+                  </td>
+                  <td className="finance-money">
+                    {editable
+                      ? cell(item, "unitPrice", `Đơn giá · ${item.receivableName}`, { className: "finance-money-input" })
+                      : vnd(item.unitPrice)}
+                  </td>
+                  <td className={value ? `finance-money ${value}` : "finance-money"}>
+                    {vnd(shown.grossAmount ?? shown.amount)}
+                  </td>
+                  <td className={value ? `finance-money ${value}` : "finance-money"}>
+                    {vnd(shown.discountAmount ?? "0")}
+                    {discountReasons(part.status, shown) && (
+                      <>
+                        <br />
+                        <small className="muted">{discountReasons(part.status, shown)}</small>
+                      </>
+                    )}
+                  </td>
+                  <td className="finance-money">
+                    {editable && (
+                      <span className="finance-cell-unit finance-deduction-inputs">
+                        {cell(item, "deductionQuantity", `Số lượng bớt · ${item.receivableName}`, {
+                          className: "finance-qty-input",
+                        })}
+                        <span>×</span>
+                        {cell(item, "refundUnitPrice", `Giá hoàn · ${item.receivableName}`, {
+                          className: "finance-money-input",
+                        })}
+                      </span>
+                    )}
+                    <span className={value}>
+                      {BigInt(shown.deductionAmount ?? "0") > 0n ? `-${vnd(shown.deductionAmount!)}` : "0"}
+                    </span>
+                    {BigInt(item.deductionAmount ?? "0") > 0n || item.deductionSource ? (
+                      <small className="finance-deduction-detail">
+                        {item.deductionSource?.type === "PREPAID_PACKAGE_V1"
+                          ? `Hoàn học phí nộp trước · gói ${item.deductionSource.months} tháng ${deductionMonthLabel(item.deductionSource.firstMonth)} - ${deductionMonthLabel(item.deductionSource.lastMonth)} · đã học ${item.deductionSource.usedMonths}/${item.deductionSource.months} tháng · đã nộp ${vnd(item.deductionSource.paidNet ?? "0")} - giá gốc tháng đã học ${vnd(item.deductionSource.listPriceUsed ?? "0")}${BigInt(item.deductionSource.priorRefundNet ?? "0") > 0n ? ` - đã hoàn ${vnd(item.deductionSource.priorRefundNet!)}` : ""}`
+                          : item.deductionSource?.month
+                            ? `Đề xuất ${item.proposedDeductionQuantity ?? "0"} ${item.unitLabel} × ${vnd(item.deductionSource.proposedUnitPrice ?? "0")} · nghỉ có phép ${deductionMonth(item.deductionSource)}${deductionDays(item.deductionSource) ? ` (${deductionDays(item.deductionSource)})` : ""}`
+                            : editable
+                              ? ""
+                              : `${item.deductionQuantity} ${item.unitLabel} × ${vnd(item.refundUnitPrice ?? "0")}`}
+                        {item.deductionReason && !needsDeductionReason ? ` · Lý do: ${item.deductionReason}` : ""}
+                      </small>
+                    ) : null}
+                  </td>
+                  <td className={value ? `finance-money ${value}` : "finance-money"}>
+                    {shown.vatRate != null ? (
+                      <>
+                        {vnd(shown.vatAmount ?? "0")}
+                        <br />
+                        <small className="muted">{shown.vatRate}%</small>
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className={value ? `finance-money ${value}` : "finance-money"}>
+                    {vnd(shown.amount)}
+                  </td>
+                  <td>
+                    {editable && (
+                      <span className="finance-row-actions">
+                        <button
+                          type="button"
+                          disabled={disabled || edited}
+                          onClick={(event) => onSource(item, event.currentTarget)}
+                        >
+                          Nguồn
+                        </button>
+                        <button
+                          type="button"
+                          disabled={disabled || edited}
+                          onClick={(event) => onRemove(item, event.currentTarget)}
+                        >
+                          Xóa
+                        </button>
+                      </span>
+                    )}
+                  </td>
+                </tr>
+                {editable && draft && (needsPriceReason || needsDeductionReason || lineErrors.length > 0) && (
+                  <tr className="finance-line-reasons">
+                    <td colSpan={9}>
+                      {needsPriceReason &&
+                        cell(item, "overrideReason", `Lý do đổi đơn giá · ${item.receivableName}`, {
+                          placeholder: "Lý do đổi đơn giá (bắt buộc)",
+                        })}
+                      {needsDeductionReason &&
+                        cell(item, "deductionReason", `Lý do sửa phần bớt · ${item.receivableName}`, {
+                          placeholder: "Lý do sửa phần bớt (bắt buộc khi khác số đề xuất)",
+                        })}
+                      {needsDeductionReason && !packageRefund && (
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          onClick={() =>
+                            onDraft(item, {
+                              ...draft,
+                              deductionQuantity: item.proposedDeductionQuantity ?? "0",
+                              refundUnitPrice: item.deductionSource?.proposedUnitPrice ?? "0",
+                              deductionReason: "",
+                            })
+                          }
+                        >
+                          Dùng số đề xuất
+                        </button>
+                      )}
+                      {errors[`lines.${item.id}.lines`] && <small role="alert">{errors[`lines.${item.id}.lines`]}</small>}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+          <tr>
+            <th colSpan={7}>{totalLabel ?? (BigInt(total) < 0n ? "Trường hoàn lại" : "Tổng cần thu")}</th>
+            <th className={previewPart ? "finance-money finance-preview-value" : "finance-money"}>
+              {BigInt(total) < 0n ? `Hoàn ${vnd((-BigInt(total)).toString())}` : vnd(total)}
+            </th>
+            <td />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function FinanceWorkspace({
   schoolId,
   schoolName,
@@ -731,6 +1035,14 @@ export function FinanceWorkspace({
   const [revisionReason, setRevisionReason] = useState("");
   const [line, setLine] = useState(emptyInvoiceLine);
   const [lineDialog, setLineDialog] = useState(false);
+  const [lineDrafts, setLineDrafts] = useState<Record<string, LineDraft>>({});
+  const [linePreview, setLinePreview] = useState<Invoice>();
+  const [previewErrors, setPreviewErrors] = useState<Record<string, string>>({});
+  const [previewMessage, setPreviewMessage] = useState("");
+  const [previewing, setPreviewing] = useState(false);
+  const previewRequest = useRef(0);
+  const shownInvoiceId = invoice?.id;
+  useEffect(() => setLineDrafts({}), [schoolId, shownInvoiceId]);
   const [editingLineId, setEditingLineId] = useState<string>();
   const [editingSource, setEditingSource] = useState(false);
   const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string; invoiceId: string }>();
@@ -748,9 +1060,7 @@ export function FinanceWorkspace({
     excluded: boolean;
     reason: string;
   }>();
-  const [adjustLine, setAdjustLine] = useState<AdjustLine>();
   const classExclusionRef = useRef<HTMLDivElement>(null);
-  const adjustDialogRef = useRef<HTMLDivElement>(null);
   const templateDialogRef = useRef<HTMLDivElement>(null);
   // Scope-picker requests: a response is applied only for the latest request of the current dialog instance, run and School.
   const scopeRequest = useRef({ token: 0, instance: 0 });
@@ -768,17 +1078,6 @@ export function FinanceWorkspace({
     taxCategory: "NOT_DECLARED" as TaxCategory,
   });
   const [settlements, setSettlements] = useState<{ runId: string; students: Settlement[] }>();
-  const [deductionEdit, setDeductionEdit] = useState<{
-    invoiceId: string;
-    lineId: string;
-    name: string;
-    unitLabel: string;
-    proposal: string;
-    packageRefund: boolean;
-    deductionQuantity: string;
-    refundUnitPrice: string;
-    reason: string;
-  }>();
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
   const [catalogDialog, setCatalogDialog] = useState<"receivable" | "receivable-edit">();
   const [receivableEdit, setReceivableEdit] = useState<{
@@ -1108,7 +1407,6 @@ export function FinanceWorkspace({
     setTemplateDialog(undefined);
     setTemplateRemoval(undefined);
     setClassExclusion(undefined);
-    setAdjustLine(undefined);
     setRunClasses(undefined);
     resetReceivable();
     setReceivableEdit(undefined);
@@ -1579,26 +1877,6 @@ export function FinanceWorkspace({
       await completeClassExclusion(outcome);
     }
   };
-  const completeAdjustLine = async (outcome: unknown) => {
-    closeManagedDialog(() => setAdjustLine(undefined));
-    await applyNoticeOutcome(outcome as Invoice);
-    setInvoiceQueue(undefined);
-  };
-  const saveAdjustLine = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!adjustLine) return;
-    completion.current = completeAdjustLine;
-    const outcome = await command(
-      `/api/app/schools/${schoolId}/finance/invoices/${adjustLine.invoiceId}/lines/${adjustLine.lineId}`,
-      "PUT",
-      { quantity: adjustLine.quantity, unitPrice: adjustLine.unitPrice, overrideReason: adjustLine.reason },
-      "invoice",
-    );
-    if (outcome) {
-      completion.current = undefined;
-      await completeAdjustLine(outcome);
-    }
-  };
   const loadPreview = async () => {
     if (!run) return;
     const runId = run.id;
@@ -1718,35 +1996,6 @@ export function FinanceWorkspace({
       resetReceivable();
       closeManagedDialog(() => setCatalogDialog(undefined));
       await load();
-    }
-  };
-  const saveDeduction = async (reset: boolean) => {
-    if (!deductionEdit) return;
-    const body = reset
-      ? { reset: true }
-      : {
-          deductionQuantity: deductionEdit.deductionQuantity,
-          refundUnitPrice: deductionEdit.refundUnitPrice,
-          reason: deductionEdit.reason,
-        };
-    const outcome = await command(
-      `/api/app/schools/${schoolId}/finance/invoices/${deductionEdit.invoiceId}/lines/${deductionEdit.lineId}/deduction`,
-      "PUT",
-      body,
-      "invoice",
-    );
-    if (outcome) {
-      closeManagedDialog(() => setDeductionEdit(undefined));
-      await applyNoticeOutcome(outcome as Invoice);
-      setInvoiceQueue(undefined);
-      if (run) {
-        try {
-          const refreshed = await refreshRun(run.id);
-          if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
-        } catch {
-          setMessage("Đã lưu phần bớt; chưa thể tải lại danh sách hóa đơn mới nhất.");
-        }
-      }
     }
   };
   const saveLifecycle = async (event: FormEvent) => {
@@ -1911,6 +2160,39 @@ export function FinanceWorkspace({
         setMessage(error.message || "Không thể mở hóa đơn đã chọn.");
       }
       return false;
+    }
+  };
+  const revertLineEdits = () => {
+    setLineDrafts({});
+    if (scope === "invoice") setErrors({});
+  };
+  const completeLineEdits = async (outcome: unknown) => {
+    setLineDrafts({});
+    await applyNoticeOutcome(outcome as Invoice);
+    setInvoiceQueue(undefined);
+    setNotice("Đã lưu thay đổi các dòng hóa đơn.");
+    if (run) {
+      try {
+        const refreshed = await refreshRun(run.id);
+        if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+      } catch {
+        setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất.");
+      }
+    }
+  };
+  const saveLineEdits = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!invoice || !pendingLineEdits.length) return;
+    completion.current = completeLineEdits;
+    const outcome = await command(
+      `/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/lines`,
+      "PUT",
+      { lines: pendingLineEdits },
+      "invoice",
+    );
+    if (outcome) {
+      completion.current = undefined;
+      await completeLineEdits(outcome);
     }
   };
   const resetLineForm = () => {
@@ -2168,6 +2450,69 @@ export function FinanceWorkspace({
           part.id !== invoice.revisesInvoiceId &&
           !(part.revisesInvoiceId && part.status === "DRAFT" && part.id !== invoice.id),
       );
+  const pendingLineEdits = noticeParts.flatMap((part) =>
+    part.lines.flatMap((line) => {
+      const edit = lineEditable(part, line) ? lineEdit(line, lineDrafts[line.id]) : null;
+      return edit ? [edit] : [];
+    }),
+  );
+  const previewKey = invoice && pendingLineEdits.length ? `${invoice.id}:${JSON.stringify(pendingLineEdits)}` : "";
+  // The server computes the typed values with the save rules and stores nothing; only the latest request is shown.
+  useEffect(() => {
+    const token = ++previewRequest.current;
+    setPreviewErrors({});
+    setPreviewMessage("");
+    if (!previewKey || !invoice) {
+      setLinePreview(undefined);
+      setPreviewing(false);
+      return;
+    }
+    setPreviewing(true);
+    const invoiceId = invoice.id;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/invoices/${invoiceId}/lines/preview`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? "") },
+          body: JSON.stringify({ lines: pendingLineEdits }),
+        });
+        if (token !== previewRequest.current || activeSchool.current !== schoolId) return;
+        if ([401, 403].includes(response.status)) {
+          denied();
+          return;
+        }
+        const payload = (await response.json()) as {
+          data?: Invoice;
+          error?: { message?: string; fieldErrors?: Record<string, string> };
+        };
+        if (token !== previewRequest.current) return;
+        if (response.ok && payload.data) {
+          setLinePreview(payload.data);
+        } else {
+          setLinePreview(undefined);
+          setPreviewErrors(payload.error?.fieldErrors ?? {});
+          setPreviewMessage(
+            payload.error?.fieldErrors ? "Sửa các ô báo lỗi để hệ thống tính lại." : (payload.error?.message ?? "Không tính được số dự kiến."),
+          );
+        }
+      } catch {
+        if (token === previewRequest.current) setPreviewMessage("Không tính được số dự kiến; thử lại.");
+      } finally {
+        if (token === previewRequest.current) setPreviewing(false);
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [previewKey]);
+  // Unsaved inline edits survive nothing but this page: leaving asks first.
+  useEffect(() => {
+    if (!pendingLineEdits.length) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [pendingLineEdits.length > 0]);
+  const keepLineEdits = () =>
+    !pendingLineEdits.length || window.confirm("Bỏ các thay đổi chưa lưu trên dòng hóa đơn?");
   const issueParts =
     !invoice || invoice.status !== "DRAFT"
       ? []
@@ -3541,17 +3886,17 @@ export function FinanceWorkspace({
                 </div>
                 <div className="finance-actions">
                   {onOpenInvoice && run && (
-                    <button type="button" onClick={() => onBackToRun?.(run.id)}>
+                    <button type="button" onClick={() => keepLineEdits() && onBackToRun?.(run.id)}>
                       Quay lại đợt thu
                     </button>
                   )}
                   {previousInvoiceId && (
-                    <button type="button" disabled={Boolean(pending)} onClick={() => reviewInvoice(previousInvoiceId)}>
+                    <button type="button" disabled={Boolean(pending)} onClick={() => keepLineEdits() && reviewInvoice(previousInvoiceId)}>
                       Học sinh trước
                     </button>
                   )}
                   {nextInvoiceId && (
-                    <button type="button" disabled={Boolean(pending)} onClick={() => reviewInvoice(nextInvoiceId)}>
+                    <button type="button" disabled={Boolean(pending)} onClick={() => keepLineEdits() && reviewInvoice(nextInvoiceId)}>
                       Học sinh tiếp theo
                     </button>
                   )}
@@ -3564,7 +3909,7 @@ export function FinanceWorkspace({
                     {invoice.status === "DRAFT" && (
                       <button
                         type="button"
-                        disabled={Boolean(pending)}
+                        disabled={Boolean(pending) || pendingLineEdits.length > 0}
                         onClick={(event) => {
                           dialogTrigger.current = event.currentTarget;
                           resetLineForm();
@@ -3576,254 +3921,91 @@ export function FinanceWorkspace({
                       </button>
                     )}
                   </div>
-                  {noticeParts.map((part, index) => (
-                    <div key={part.id} className="finance-notice-part" aria-labelledby={`notice-part-${part.id}`}>
-                      {noticeParts.length > 1 && (
-                        <div className="finance-title-row">
-                          <h3 id={`notice-part-${part.id}`}>
-                            Phần {index + 1} · Thu vào {channelAccountLabel(part.channel).toLocaleLowerCase("vi")}
-                          </h3>
-                          <span
-                            className={`finance-badge finance-badge-${part.status === "DRAFT" ? "warning" : "success"}`}
-                          >
-                            {invoiceStatusLabel(part.status)}
-                          </span>
-                        </div>
-                      )}
-                      <div className="table-scroll">
-                        <table>
-                          <caption>
-                            {noticeParts.length > 1
-                              ? `Dòng phần ${index + 1} do máy chủ tính`
-                              : "Dòng hóa đơn do máy chủ tính"}
-                          </caption>
-                          <thead>
-                            <tr>
-                              <th>Khoản thu</th>
-                              <th>Số lượng</th>
-                              <th>Đơn giá (đ)</th>
-                              <th>Tổng trước giảm (đ)</th>
-                              <th>Ưu đãi (đ)</th>
-                              <th>Bớt (đ)</th>
-                              <th>Thuế GTGT (đ)</th>
-                              <th>Tổng phải thu (đ)</th>
-                              <th>Thao tác</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {part.lines.map((item) => (
-                              <tr key={item.id}>
-                                <td>
-                                  {item.receivableName}
-                                  {item.sourceBadge && (
-                                    <>
-                                      {" "}
-                                      <span className="badge neutral" title="Nguồn">
-                                        {item.sourceBadge.label}
-                                      </span>
-                                      {(item.sourceBadge.flags ?? []).map((flag) => (
-                                        <span key={flag.code} className="badge warning">
-                                          {" "}
-                                          {flag.label}
-                                        </span>
-                                      ))}
-                                      {item.sourceBadge.detail && (
-                                        <>
-                                          <br />
-                                          <small className="muted">{item.sourceBadge.detail}</small>
-                                        </>
-                                      )}
-                                    </>
-                                  )}
-                                  {item.source && (
-                                    <small>
-                                      {" "}
-                                      Nguồn:{" "}
-                                      {[
-                                        item.source.serviceDate,
-                                        item.source.attendanceState,
-                                        item.source.pickedUpAt,
-                                        item.source.lateCareMinutes != null
-                                          ? `${item.source.lateCareMinutes} phút`
-                                          : null,
-                                      ]
-                                        .filter(Boolean)
-                                        .join("; ") || "Máy chủ đã ghi nhận"}
-                                      {item.sourceReason ? `; ${item.sourceReason}` : ""}
-                                    </small>
-                                  )}
-                                  {item.source && (
-                                    <details>
-                                      <summary>Thông tin nguồn và kiểm tra</summary>
-                                      <p>Thời điểm ghi nhận: {item.sourceRecordedAt ?? "Máy chủ không trả về"}</p>
-                                      <p>Nguồn đã được máy chủ xác nhận cho dòng hóa đơn này.</p>
-                                    </details>
-                                  )}
-                                </td>
-                                <td>
-                                  {item.quantity} {item.unitLabel}
-                                </td>
-                                <td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td>
-                                <td style={{ textAlign: "right" }}>{vnd(item.grossAmount ?? item.amount)}</td>
-                                <td style={{ textAlign: "right" }}>
-                                  {vnd(item.discountAmount ?? "0")}
-                                  {discountReasons(part.status, item) && (
-                                    <>
-                                      <br />
-                                      <small className="muted">{discountReasons(part.status, item)}</small>
-                                    </>
-                                  )}
-                                </td>
-                                <td style={{ textAlign: "right" }}>
-                                  {BigInt(item.deductionAmount ?? "0") > 0n ? (
-                                    <>
-                                      -{vnd(item.deductionAmount!)}
-                                      <br />
-                                      <small>
-                                        {item.deductionSource?.type === "PREPAID_PACKAGE_V1"
-                                          ? `Hoàn học phí nộp trước · gói ${item.deductionSource.months} tháng ${deductionMonthLabel(item.deductionSource.firstMonth)} - ${deductionMonthLabel(item.deductionSource.lastMonth)} · đã học ${item.deductionSource.usedMonths}/${item.deductionSource.months} tháng · đã nộp ${vnd(item.deductionSource.paidNet ?? "0")} - giá gốc tháng đã học ${vnd(item.deductionSource.listPriceUsed ?? "0")}${BigInt(item.deductionSource.priorRefundNet ?? "0") > 0n ? ` - đã hoàn ${vnd(item.deductionSource.priorRefundNet!)}` : ""}`
-                                          : `${item.deductionQuantity} ${item.unitLabel} × ${vnd(item.refundUnitPrice ?? "0")}`}
-                                        {item.deductionSource?.month
-                                          ? ` · nghỉ có phép ${deductionMonth(item.deductionSource)}`
-                                          : ""}
-                                        {deductionDays(item.deductionSource)
-                                          ? ` (${deductionDays(item.deductionSource)})`
-                                          : ""}
-                                        {item.deductionReason ? ` · Lý do: ${item.deductionReason}` : ""}
-                                      </small>
-                                    </>
-                                  ) : (
-                                    "0"
-                                  )}
-                                </td>
-                                <td style={{ textAlign: "right" }}>
-                                  {item.vatRate != null ? `${vnd(item.vatAmount ?? "0")} (${item.vatRate}%)` : "—"}
-                                </td>
-                                <td style={{ textAlign: "right" }}>{vnd(item.amount)}</td>
-                                <td>
-                                  {part.status === "DRAFT" && item.receivableId !== null && (
-                                    <>
-                                      {(item.sourceBadge?.flags ?? []).length > 0 && (
-                                        <button
-                                          type="button"
-                                          disabled={Boolean(pending)}
-                                          onClick={(event) => {
-                                            dialogTrigger.current = event.currentTarget;
-                                            setErrors({});
-                                            setAdjustLine({
-                                              invoiceId: part.id,
-                                              lineId: item.id,
-                                              name: item.receivableName,
-                                              flag: item.sourceBadge?.detail
-                                                ? `${item.sourceBadge.flags!.map((flag) => flag.label).join(", ")}: ${item.sourceBadge.detail}. Hệ thống tính giá mặc định cả tháng, không tự chia theo ngày.`
-                                                : "",
-                                              quantity: item.quantity,
-                                              unitPrice: item.unitPrice,
-                                              reason: "",
-                                            });
-                                          }}
-                                        >
-                                          Điều chỉnh
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        disabled={Boolean(pending)}
-                                        onClick={() => {
-                                          dialogTrigger.current = null;
-                                          setErrors({});
-                                          setDeductionEdit({
-                                            invoiceId: part.id,
-                                            lineId: item.id,
-                                            name: item.receivableName,
-                                            unitLabel: item.unitLabel,
-                                            proposal: item.deductionSource?.month
-                                              ? `Hệ thống đề xuất ${item.proposedDeductionQuantity ?? "0"} ${item.unitLabel} nghỉ có phép tháng ${deductionMonth(item.deductionSource)}${deductionDays(item.deductionSource) ? `: ${deductionDays(item.deductionSource)}` : ""}.`
-                                              : "Hệ thống không đề xuất bớt cho khoản này.",
-                                            packageRefund: item.deductionSource?.type === "PREPAID_PACKAGE_V1",
-                                            deductionQuantity: item.deductionQuantity ?? "0",
-                                            refundUnitPrice: item.refundUnitPrice ?? "0",
-                                            reason: item.deductionReason ?? "",
-                                          });
-                                        }}
-                                      >
-                                        Sửa bớt
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={Boolean(pending)}
-                                        onClick={(event) => {
-                                          dialogTrigger.current = event.currentTarget;
-                                          setErrors({});
-                                          setLineDialog(true);
-                                          setEditingLineId(item.id);
-                                          setEditingLineInvoiceId(part.id);
-                                          setEditingSource(Boolean(item.source));
-                                          setLine({
-                                            receivableId: item.receivableId ?? "",
-                                            quantity: item.quantity,
-                                            unitPrice: item.overrideReason ? item.unitPrice : "",
-                                            overrideReason: item.overrideReason ?? "",
-                                            sourceReason: item.sourceReason ?? "",
-                                            serviceDate: item.source?.serviceDate ?? "",
-                                            attendanceState: item.source?.attendanceState ?? "",
-                                            pickedUpAt: item.source?.pickedUpAt ?? "",
-                                            lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "",
-                                          });
-                                        }}
-                                      >
-                                        Sửa
-                                      </button>
-                                      <button
-                                        ref={removeTrigger}
-                                        type="button"
-                                        disabled={Boolean(pending)}
-                                        onClick={() =>
-                                          setRemoveConfirmation({
-                                            id: item.id,
-                                            name: item.receivableName,
-                                            invoiceId: part.id,
-                                          })
-                                        }
-                                      >
-                                        Xóa
-                                      </button>
-                                    </>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                            <tr>
-                              <th colSpan={7}>
-                                {noticeParts.length > 1
-                                  ? `Tổng phần ${index + 1}`
-                                  : BigInt(part.total) < 0n
-                                    ? "Trường hoàn lại"
-                                    : "Tổng cần thu"}
-                              </th>
-                              <th style={{ textAlign: "right" }}>
-                                {BigInt(part.total) < 0n
-                                  ? `Hoàn ${vnd((-BigInt(part.total)).toString())}`
-                                  : vnd(part.total)}
-                              </th>
-                              <td />
-                            </tr>
-                          </tbody>
-                        </table>
+                  <form className="finance-lines-form" onSubmit={saveLineEdits}>
+                    {noticeParts.map((part, index) => (
+                      <div key={part.id} className="finance-notice-part" aria-labelledby={`notice-part-${part.id}`}>
+                        {noticeParts.length > 1 && (
+                          <div className="finance-title-row">
+                            <h3 id={`notice-part-${part.id}`}>
+                              Phần {index + 1} · Thu vào {channelAccountLabel(part.channel).toLocaleLowerCase("vi")}
+                            </h3>
+                            <span
+                              className={`finance-badge finance-badge-${part.status === "DRAFT" ? "warning" : "success"}`}
+                            >
+                              {invoiceStatusLabel(part.status)}
+                            </span>
+                          </div>
+                        )}
+                        <InvoiceLinesTable
+                          part={part}
+                          caption={
+                            noticeParts.length > 1 ? `Dòng phần ${index + 1} do máy chủ tính` : "Dòng hóa đơn do máy chủ tính"
+                          }
+                          totalLabel={noticeParts.length > 1 ? `Tổng phần ${index + 1}` : undefined}
+                          preview={linePreview}
+                          drafts={lineDrafts}
+                          errors={{ ...(scope === "invoice" ? errors : {}), ...previewErrors }}
+                          disabled={Boolean(pending)}
+                          onDraft={(item, draft) => {
+                            if (scope === "invoice") setErrors({});
+                            setLineDrafts((current) => ({ ...current, [item.id]: draft }));
+                          }}
+                          onSource={(item, trigger) => {
+                            dialogTrigger.current = trigger;
+                            setErrors({});
+                            setLineDialog(true);
+                            setEditingLineId(item.id);
+                            setEditingLineInvoiceId(part.id);
+                            setEditingSource(Boolean(item.source));
+                            setLine({
+                              receivableId: item.receivableId ?? "",
+                              quantity: item.quantity,
+                              unitPrice: item.overrideReason ? item.unitPrice : "",
+                              overrideReason: item.overrideReason ?? "",
+                              sourceReason: item.sourceReason ?? "",
+                              serviceDate: item.source?.serviceDate ?? "",
+                              attendanceState: item.source?.attendanceState ?? "",
+                              pickedUpAt: item.source?.pickedUpAt ?? "",
+                              lateCareMinutes: item.source?.lateCareMinutes?.toString() ?? "",
+                            });
+                          }}
+                          onRemove={(item, trigger) => {
+                            removeTrigger.current = trigger;
+                            setRemoveConfirmation({ id: item.id, name: item.receivableName, invoiceId: part.id });
+                          }}
+                        />
                       </div>
-                    </div>
-                  ))}
-                  {noticeParts.length > 1 && (
-                    <p className="finance-payment-total">
-                      <span>
-                        {BigInt(invoice.noticeTotal ?? "0") < 0n
-                          ? "Trường hoàn lại cho phụ huynh"
-                          : "Tổng cần thu do hệ thống xác nhận"}{" "}
-                        <small>{noticeParts.length} phần</small>
-                      </span>
-                      <b>{signedVnd(invoice.noticeTotal ?? "0")}</b>
-                    </p>
-                  )}
+                    ))}
+                    {noticeParts.length > 1 && (
+                      <p className="finance-payment-total">
+                        <span>
+                          {BigInt((linePreview ?? invoice).noticeTotal ?? "0") < 0n
+                            ? "Trường hoàn lại cho phụ huynh"
+                            : "Tổng cần thu do hệ thống xác nhận"}{" "}
+                          <small>{noticeParts.length} phần</small>
+                        </span>
+                        <b className={linePreview ? "finance-preview-value" : undefined}>
+                          {signedVnd((linePreview ?? invoice).noticeTotal ?? "0")}
+                        </b>
+                      </p>
+                    )}
+                    {pendingLineEdits.length > 0 && (
+                      <div className="finance-save-bar" role="region" aria-label="Thay đổi chưa lưu">
+                        <span role="status">
+                          {pendingLineEdits.length} dòng đã sửa ·{" "}
+                          {previewing
+                            ? "Đang tính lại…"
+                            : previewMessage || "Số in nghiêng là số dự kiến do hệ thống tính, chưa lưu."}
+                        </span>
+                        <button type="button" disabled={Boolean(pending)} onClick={revertLineEdits}>
+                          Hoàn tác
+                        </button>
+                        <button className="primary-action" disabled={Boolean(pending)}>
+                          Lưu thay đổi
+                        </button>
+                      </div>
+                    )}
+                  </form>
                   {invoice.status !== "DRAFT" && (
                     <p>
                       Hóa đơn {invoiceStatusLabel(invoice.status).toLocaleLowerCase("vi")} chỉ đọc; dòng hóa đơn không
@@ -4038,7 +4220,8 @@ export function FinanceWorkspace({
                         ref={issueTrigger}
                         className="primary-action"
                         type="button"
-                        disabled={Boolean(pending) || !issueParts.length}
+                        disabled={Boolean(pending) || !issueParts.length || pendingLineEdits.length > 0}
+                        title={pendingLineEdits.length ? "Lưu hoặc hoàn tác thay đổi trên dòng trước khi phát hành." : undefined}
                         onClick={() => void openIssueConfirmation()}
                       >
                         {issueActionLabel}
@@ -5082,85 +5265,6 @@ export function FinanceWorkspace({
           </div>
         </div>
       )}
-      {adjustLine && (
-        <div className="dialog-backdrop">
-          <div
-            ref={adjustDialogRef}
-            className="dialog dialog-wide"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="finance-adjust-title"
-            onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setAdjustLine(undefined))}
-          >
-            <form onSubmit={saveAdjustLine}>
-              <h3 id="finance-adjust-title">Điều chỉnh dòng · {adjustLine.name}</h3>
-              {adjustLine.flag && <p className="muted">{adjustLine.flag}</p>}
-              <div className="dialog-grid">
-                <label>
-                  Số lượng
-                  <input
-                    autoFocus
-                    type="number"
-                    min={1}
-                    step={1}
-                    required
-                    inputMode="numeric"
-                    value={adjustLine.quantity}
-                    onChange={(event) => setAdjustLine({ ...adjustLine, quantity: event.target.value })}
-                  />
-                </label>
-                <label>
-                  Đơn giá (đ)
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    required
-                    inputMode="numeric"
-                    value={adjustLine.unitPrice}
-                    onChange={(event) => setAdjustLine({ ...adjustLine, unitPrice: event.target.value })}
-                  />
-                </label>
-                <label className="full">
-                  Lý do điều chỉnh
-                  <input
-                    required
-                    placeholder="Ví dụ: Vào lớp từ 14/10, thu nửa tháng"
-                    value={adjustLine.reason}
-                    onChange={(event) => setAdjustLine({ ...adjustLine, reason: event.target.value })}
-                  />
-                </label>
-              </div>
-              <p className="muted">
-                Hệ thống tính lại thành tiền, thuế GTGT và tổng phần, ghi lịch sử điều chỉnh của dòng.
-              </p>
-              {scope === "invoice" &&
-                Object.entries(errors).map(([name, error]) => (
-                  <small key={name} role="alert">
-                    {error}
-                  </small>
-                ))}
-              <div className="dialog-actions">
-                <button
-                  type="button"
-                  disabled={Boolean(pending)}
-                  onClick={() =>
-                    closeNewDialog(
-                      () => setAdjustLine(undefined),
-                      () => {},
-                    )
-                  }
-                >
-                  Hủy
-                </button>
-                <button className="primary-action" disabled={Boolean(pending)}>
-                  Lưu điều chỉnh
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
       {lineDialog && invoice?.status === "DRAFT" && (
         <div className="dialog-backdrop">
           <div
@@ -5172,9 +5276,11 @@ export function FinanceWorkspace({
           >
             <form onSubmit={saveLine}>
               <h3 id="finance-line-title">{editingLineId
-                  ? `Sửa dòng · ${noticeParts.flatMap((part) => part.lines).find((item) => item.id === editingLineId)?.receivableName ?? ""}`
+                  ? `Nguồn giải thích · ${noticeParts.flatMap((part) => part.lines).find((item) => item.id === editingLineId)?.receivableName ?? ""}`
                   : "Thêm dòng"}</h3>
               <div className="dialog-grid">
+                {!editingLineId && (
+                  <>
                 <div className="full">
                   <label>
                     Khoản thu
@@ -5203,7 +5309,6 @@ export function FinanceWorkspace({
                   <label>
                     Số lượng
                     <input
-                      autoFocus={Boolean(editingLineId)}
                       inputMode="numeric"
                       value={line.quantity}
                       onChange={(event) => setLine({ ...line, quantity: event.target.value })}
@@ -5241,9 +5346,12 @@ export function FinanceWorkspace({
                     <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>
                   )}
                 </div>
+                  </>
+                )}
                 <details
                   className="full"
                   open={Boolean(
+                    editingLineId ||
                     line.serviceDate || line.attendanceState || line.pickedUpAt || line.lateCareMinutes || line.sourceReason,
                   )}
                 >
@@ -5252,6 +5360,7 @@ export function FinanceWorkspace({
                     <label>
                       Ngày dịch vụ
                       <input
+                        autoFocus={Boolean(editingLineId)}
                         type="date"
                         value={line.serviceDate}
                         onChange={(event) => setLine({ ...line, serviceDate: event.target.value })}
@@ -5293,7 +5402,11 @@ export function FinanceWorkspace({
                   </div>
                 </details>
               </div>
-              <p className="muted">Hệ thống tính lại ưu đãi, thuế GTGT và tổng phần sau khi lưu.</p>
+              <p className="muted">
+                {editingLineId
+                  ? "Số lượng, đơn giá và phần bớt sửa trực tiếp trên dòng."
+                  : "Hệ thống tính lại ưu đãi, thuế GTGT và tổng phần sau khi lưu."}
+              </p>
               {scope === "invoice" && message && <p className="finance-alert">{message}</p>}
               <div className="dialog-actions">
                 <button
@@ -5304,77 +5417,9 @@ export function FinanceWorkspace({
                   Hủy
                 </button>
                 <button className="primary-action" disabled={Boolean(pending)}>
-                  {editingLineId ? "Lưu dòng" : "Thêm dòng"}
+                  {editingLineId ? "Lưu nguồn" : "Thêm dòng"}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {deductionEdit && (
-        <div className="dialog-backdrop">
-          <div
-            className="dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="finance-deduction-title"
-            onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setDeductionEdit(undefined))}
-          >
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void saveDeduction(false);
-              }}
-            >
-              <h3 id="finance-deduction-title">Sửa phần bớt · {deductionEdit.name}</h3>
-              <p>{deductionEdit.proposal}</p>
-              <label>
-                Số lượng bớt ({deductionEdit.unitLabel})
-                <input
-                  autoFocus
-                  inputMode="numeric"
-                  value={deductionEdit.deductionQuantity}
-                  onChange={(event) => setDeductionEdit({ ...deductionEdit, deductionQuantity: event.target.value })}
-                />
-              </label>
-              <label>
-                Giá hoàn trả / {deductionEdit.unitLabel} (đ)
-                <input
-                  inputMode="numeric"
-                  value={deductionEdit.refundUnitPrice}
-                  onChange={(event) => setDeductionEdit({ ...deductionEdit, refundUnitPrice: event.target.value })}
-                  aria-describedby={deductionEdit.packageRefund ? undefined : "deduction-price-hint"}
-                />
-              </label>
-              {!deductionEdit.packageRefund && (
-                <small className="muted" id="deduction-price-hint">
-                  Không vượt đơn giá thu của dòng.
-                </small>
-              )}
-              <label>
-                Lý do điều chỉnh
-                <input
-                  placeholder="Bắt buộc khi khác số hệ thống đề xuất"
-                  value={deductionEdit.reason}
-                  onChange={(event) => setDeductionEdit({ ...deductionEdit, reason: event.target.value })}
-                />
-              </label>
-              <p className="muted">
-                Hệ thống tính lại số tiền bớt, thuế GTGT và tổng phần. Phần bớt đã sửa được giữ khi làm mới hóa đơn
-                nháp.
-              </p>
-              {scope === "invoice" && Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}
-              <button type="button" disabled={Boolean(pending)} onClick={() => void saveDeduction(true)}>
-                Dùng lại số đề xuất
-              </button>
-              <button disabled={Boolean(pending)}>Lưu phần bớt</button>
-              <button
-                type="button"
-                disabled={Boolean(pending)}
-                onClick={() => closeManagedDialog(() => setDeductionEdit(undefined))}
-              >
-                Hủy
-              </button>
             </form>
           </div>
         </div>

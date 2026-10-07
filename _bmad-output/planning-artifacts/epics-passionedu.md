@@ -660,6 +660,24 @@ Source: sprint-change-proposal-2026-10-06-invoice-review-lines-first.
 **When** Finance clicks `Xem ảnh hóa đơn`
 **Then** a dialog shows the server PNG with `Tải ảnh hóa đơn`; `Tải ảnh hóa đơn` is also on the page, and the PNG is requested only when viewed or downloaded.
 
+### Story 5.43: Sửa dòng hóa đơn trực tiếp trên bảng
+
+As a Finance user,
+I want to edit quantity, unit price and Bớt directly on the invoice rows and save them once,
+So that I review a notice like a spreadsheet and see the server-computed amounts before saving.
+
+Source: sprint-change-proposal-2026-10-07-invoice-lines-inline-edit.
+
+**Acceptance Criteria:**
+
+**Given** a DRAFT notice on the review page
+**When** Finance types a quantity, unit price or Bớt on a row
+**Then** the server preview returns the recomputed lines and totals without storing anything, and the page shows them as not saved.
+
+**And** `Lưu thay đổi` saves every changed line of the notice in one idempotent Operation, all or nothing, with the same audits as the single-line commands; a missing reason or invalid value is reported on its row.
+
+**And** while edits are unsaved, issue/add/remove are locked and leaving the page asks first.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

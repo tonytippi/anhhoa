@@ -61,7 +61,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await expect(classDialog).toBeHidden();
   await expect(page.getByRole('table', { name: /Lớp ngoại khóa/ })).toContainText('Tiếng Anh A1 (T2-T4)');
   await page.getByRole('link', { name: 'Xem thành viên' }).click();
-  await expect(page.getByRole('heading', { name: /^Tiếng Anh A1 \(T2-T4\) · /, level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Tiếng Anh A1 \(T2-T4\)/, level: 1 })).toBeVisible();
   await page.getByRole('button', { name: 'Thêm học sinh' }).click();
   const addDialog = page.getByRole('dialog', { name: /^Thêm học sinh/ });
   await addDialog.getByRole('checkbox', { name: 'Chọn tất cả học sinh có thể thêm' }).check();
@@ -136,7 +136,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await createRun.click();
   const runDialog = page.getByRole('dialog', { name: 'Tạo hoặc mở đợt thu' });
   await runDialog.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
-  await runDialog.getByLabel('Tháng thu').fill('2026-10');
+  await runDialog.getByLabel('Tháng thu').selectOption('2026-10');
   await runDialog.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
    await expect(page.getByRole('dialog', { name: 'Rời không gian làm việc?' })).toHaveCount(0);
    await expect(page).toHaveURL(/\/schools\/[^/]+\/collection-runs\/[^/]+/);
@@ -345,7 +345,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' }).getByRole('button', { name: 'Tạo đợt thu' }).click();
   const novDialog = page.getByRole('dialog', { name: 'Tạo hoặc mở đợt thu' });
   await novDialog.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
-  await novDialog.getByLabel('Tháng thu').fill('2026-11');
+  await novDialog.getByLabel('Tháng thu').selectOption('2026-11');
   await novDialog.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
   await expect(page.getByRole('heading', { name: 'Đợt thu tháng 11/2026 · Nháp' })).toBeVisible();
   const novTemplate = page.getByRole('table', { name: 'Khoản thu mẫu của đợt' });
@@ -382,19 +382,20 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await expect(novSecond.getByTitle('Nguồn').filter({ hasText: 'Ngoại khóa · Tiếng Anh A1 (T2-T4) → Tiếng Anh A2 (T3-T5)' })).toBeVisible();
   await expect(novSecond.getByText('Chuyển lớp trong tháng')).toBeVisible();
   await expect(novSecond.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' }).getByRole('row').filter({ hasText: 'Tiếng Anh Release 1' })).toHaveCount(1);
-  await novSecond.getByRole('button', { name: 'Điều chỉnh' }).click();
-  const adjust = page.getByRole('dialog', { name: /Điều chỉnh dòng · Tiếng Anh Release 1/ });
-  await adjust.getByLabel('Đơn giá (đ)').fill('300000');
-  await adjust.getByLabel('Lý do điều chỉnh').fill('Nghỉ lớp 15/11, thu nửa tháng');
+  // Decision 2026-10-07: the price is edited on the row; the server preview shows the amounts before saving.
+  await novSecond.getByLabel('Đơn giá · Tiếng Anh Release 1').fill('300000');
+  await novSecond.getByLabel('Lý do đổi đơn giá · Tiếng Anh Release 1').fill('Nghỉ lớp 15/11, thu nửa tháng');
+  await expect(novSecond.getByRole('region', { name: 'Thay đổi chưa lưu' })).toContainText('1 dòng đã sửa');
+  await expect(novSecond.locator('.finance-preview-value').first()).toBeVisible();
   const dotted = (value: string) => value.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  const adjustedResponse = page.waitForResponse((response) => /\/finance\/invoices\/[^/]+\/lines\/[^/]+$/.test(response.url()) && response.request().method() === 'PUT');
-  await adjust.getByRole('button', { name: 'Lưu điều chỉnh' }).click();
+  const adjustedResponse = page.waitForResponse((response) => /\/finance\/invoices\/[^/]+\/lines$/.test(response.url()) && response.request().method() === 'PUT');
+  await novSecond.getByRole('button', { name: 'Lưu thay đổi' }).click();
   const adjustedBody = await (await adjustedResponse).json();
   const adjustedInvoice = adjustedBody.data.outcome ?? adjustedBody.data;
   const serverTotal = String(adjustedInvoice.total);
   expect(serverTotal).toMatch(/^\d+$/);
   expect(adjustedInvoice.lines.find((line: { receivableName: string }) => line.receivableName === 'Tiếng Anh Release 1').unitPrice).toBe('300000');
-  await expect(adjust).toBeHidden();
+  await expect(novSecond.getByRole('button', { name: 'Lưu thay đổi' })).toHaveCount(0);
   await expect(novSecond.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('300.000');
   // The refreshed invoice total is the server figure from the PUT, rendered verbatim in the payment part.
   await expect(novSecond.locator('.finance-payment-total').first()).toContainText(`${dotted(serverTotal)} `);

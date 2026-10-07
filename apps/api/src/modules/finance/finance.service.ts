@@ -49,6 +49,7 @@ const routes = {
   editInvoiceLine: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
   removeInvoiceLine: "DELETE /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId",
   lineDeduction: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines/:lineId/deduction",
+  editInvoiceLines: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/lines",
   invoiceCoverage: "PUT /api/app/schools/:schoolId/finance/invoices/:invoiceId/coverage",
   issueInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue",
   prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
@@ -69,6 +70,24 @@ const validation = (field: string, message: string) =>
     message: "Dữ liệu không hợp lệ.",
     fieldErrors: { [field]: message },
   });
+
+// Field errors of one invoice line are keyed `lines.<lineId>.<field>` so the page shows them on that row.
+const lineFieldErrors = (lineId: string, error: unknown) => {
+  const response = error instanceof BadRequestException ? (error.getResponse() as any) : null;
+  if (!response?.fieldErrors) return error;
+  return new BadRequestException({ ...response, fieldErrors: Object.fromEntries(Object.entries(response.fieldErrors).map(([field, message]) => [`lines.${lineId}.${field}`, message])) });
+};
+// Carries a preview outcome out of the transaction it was computed in, so the transaction rolls back.
+class PreviewRollback {
+  constructor(readonly outcome: unknown) {}
+}
+type LineEdit = {
+  lineId: string;
+  quantity: number | null;
+  unitPrice: bigint | null;
+  overrideReason: string | null;
+  deduction: { deductionQuantity: number; refundUnitPrice: bigint; reason: string | null } | null;
+};
 
 const promotionPolicyNameConstraints = new Set(["PromotionPolicy_schoolId_name_key"]);
 const promotionPolicyNameColumns = "schoolId,name";
@@ -1142,6 +1161,107 @@ export class FinanceService {
       await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_DEDUCTION_EDITED", operation, this.lineDto(existing), { line: this.lineDto(line), invoice: outcome }, fields.deductionReason ?? undefined);
       return outcome;
     });
+  }
+  // Decision 2026-10-07: the review page edits the lines of a notice inline. One command saves every changed line
+  // of the notice's DRAFT parts all or nothing; the preview runs the very same work in a transaction that rolls back.
+  async editInvoiceLines(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const edits = this.lineEdits(body);
+    return this.mutate(actor, identityId, schoolId, routes.editInvoiceLines, key, operationId, { invoiceId, lines: edits.map((edit) => ({ ...edit, unitPrice: edit.unitPrice?.toString() ?? null, deduction: edit.deduction && { ...edit.deduction, refundUnitPrice: edit.deduction.refundUnitPrice.toString() } })) }, async (tx, operation) => {
+      await this.promotionLock(tx, schoolId);
+      return this.applyLineEdits(tx, schoolId, invoiceId, edits, { identityId, membershipId: actor.membershipId, operation });
+    });
+  }
+  async previewInvoiceLines(identityId: string, schoolId: string, invoiceId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    // Reasons never change an amount, so the preview computes without them; the save requires them.
+    const edits = this.lineEdits(body, false);
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.transactionActor(tx, schoolId, identityId, actor.membershipId);
+        throw new PreviewRollback(await this.applyLineEdits(tx, schoolId, invoiceId, edits, null));
+      });
+    } catch (error) {
+      if (error instanceof PreviewRollback) return error.outcome;
+      throw error;
+    }
+    throw new Error("Preview transaction did not roll back.");
+  }
+  private async lineErrors<T>(lineId: string, work: () => T | Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      throw lineFieldErrors(lineId, error);
+    }
+  }
+  private lineEdits(body: any, requireReasons = true): LineEdit[] {
+    const items = body?.lines;
+    if (!Array.isArray(items) || !items.length || items.length > 200) throw validation("lines", "Cần từ 1 đến 200 dòng thay đổi.");
+    const seen = new Set<string>();
+    return items.map((item: any) => {
+      const lineId = this.identifier(item?.lineId, "lines");
+      if (seen.has(lineId)) throw validation("lines", "Mỗi dòng chỉ được gửi một lần.");
+      seen.add(lineId);
+      try {
+        const hasPrice = item.unitPrice != null;
+        const hasDeduction = item.deductionQuantity != null || item.refundUnitPrice != null;
+        return {
+          lineId,
+          quantity: item.quantity == null ? null : this.quantity(item.quantity),
+          unitPrice: hasPrice ? this.linePrice(item.unitPrice) : null,
+          overrideReason: hasPrice ? this.text(item.overrideReason, "overrideReason", requireReasons, 500) : null,
+          deduction: hasDeduction ? { deductionQuantity: this.deductionQuantity(item.deductionQuantity), refundUnitPrice: this.refundPrice(item.refundUnitPrice), reason: this.text(item.deductionReason, "deductionReason", false, 500) } : null,
+        };
+      } catch (error) {
+        throw lineFieldErrors(lineId, error);
+      }
+    });
+  }
+  // Same rules as editInvoiceLine and editLineDeduction, applied together: the refund price is checked against the final line price.
+  private async applyLineEdits(tx: any, schoolId: string, invoiceId: string, edits: LineEdit[], audit: { identityId: string; membershipId: string; operation: string } | null) {
+    const opened = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId } });
+    if (!opened) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+    for (const edit of edits) {
+      await this.lineErrors(edit.lineId, async () => {
+        const found = await tx.invoiceLine.findFirst({ where: { id: edit.lineId, schoolId }, select: { invoiceId: true } });
+        // A line belongs to one part of the same notice: same Student and collection run.
+        const part = found && await tx.invoice.findFirst({ where: { id: found.invoiceId, schoolId, studentId: opened.studentId, collectionRunId: opened.collectionRunId }, select: { id: true } });
+        if (!part) throw new NotFoundException({ code: "INVOICE_LINE_NOT_FOUND", message: "Không tìm thấy dòng hóa đơn." });
+        const invoice = await this.draftInvoice(tx, schoolId, part.id);
+        const existing = await tx.invoiceLine.findFirstOrThrow({ where: { id: edit.lineId, schoolId } });
+        if (existing.kind !== "NORMAL") throw new ConflictException({ code: "PRIOR_DEBT_IMMUTABLE", message: "Dòng công nợ kỳ trước không thể sửa." });
+        const quantity = edit.quantity ?? existing.quantity;
+        const unitPrice = edit.unitPrice ?? BigInt(existing.unitPrice);
+        const chargeChanged = quantity !== existing.quantity || (edit.unitPrice != null && edit.unitPrice !== BigInt(existing.unitPrice));
+        const packageSource = (existing.deductionSource as any)?.type === "PREPAID_PACKAGE_V1" ? existing.deductionSource as any : null;
+        let deduction: any = null;
+        if (edit.deduction) {
+          const proposedUnitPrice = BigInt((existing.deductionSource as any)?.proposedUnitPrice ?? 0);
+          const differs = edit.deduction.deductionQuantity !== existing.proposedDeductionQuantity || edit.deduction.refundUnitPrice !== proposedUnitPrice;
+          if (differs && !edit.deduction.reason && audit) throw validation("deductionReason", "Nhập lý do khi phần bớt khác số hệ thống đề xuất.");
+          deduction = { refundUnitPriceSnapshot: edit.deduction.refundUnitPrice, deductionQuantity: edit.deduction.deductionQuantity, deductionAmount: this.amount(edit.deduction.refundUnitPrice, edit.deduction.deductionQuantity), deductionReason: differs ? edit.deduction.reason : null };
+          if (packageSource && deduction.deductionAmount > BigInt(packageSource.maxRefundNet)) throw new ConflictException({ code: "SETTLEMENT_REFUND_EXCEEDS_PAID", message: "Số hoàn vượt phần học phí nộp trước còn lại chưa hoàn." });
+          if (deduction.refundUnitPriceSnapshot === BigInt(existing.refundUnitPriceSnapshot ?? 0) && deduction.deductionQuantity === existing.deductionQuantity && deduction.deductionReason === existing.deductionReason) deduction = null;
+        }
+        if (!chargeChanged && !deduction) return;
+        const refund = BigInt(deduction?.refundUnitPriceSnapshot ?? existing.refundUnitPriceSnapshot ?? 0);
+        if (!packageSource && refund > unitPrice) {
+          if (deduction) this.refundWithinPrice(refund, unitPrice);
+          throw validation("unitPrice", "Đơn giá thu không được thấp hơn giá hoàn trả của phần bớt; hãy sửa phần bớt trước.");
+        }
+        const evaluated = chargeChanged ? await this.evaluateDraftPromotion(tx, schoolId, invoice, { receivableId: existing.receivableId, receivableName: existing.receivableNameSnapshot, amount: this.amount(unitPrice, quantity) }) : null;
+        const charged = evaluated ? BigInt(evaluated.netAmount) : BigInt(existing.grossAmount) - BigInt(existing.discountAmount);
+        const netAmount = charged - BigInt(deduction?.deductionAmount ?? existing.deductionAmount ?? 0);
+        const line = await tx.invoiceLine.update({ where: { id: existing.id }, data: {
+          ...(evaluated ? { quantity, unitPrice, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason: edit.unitPrice == null ? existing.overrideReason : edit.overrideReason } : {}),
+          ...(deduction ?? {}), netAmount, ...taxedLine(netAmount, existing.taxCategorySnapshot ?? "NOT_DECLARED"),
+        } });
+        if (!audit) return;
+        if (evaluated) await this.audit(tx, schoolId, audit.identityId, audit.membershipId, "INVOICE_LINE_EDITED", audit.operation, this.lineDto(existing), { line: this.lineDto(line), invoiceId: part.id });
+        if (deduction) await this.audit(tx, schoolId, audit.identityId, audit.membershipId, "INVOICE_LINE_DEDUCTION_EDITED", audit.operation, this.lineDto(existing), { line: this.lineDto(line), invoiceId: part.id }, deduction.deductionReason ?? undefined);
+      });
+    }
+    return this.refreshInvoice(tx, schoolId, invoiceId);
   }
   // Decision 2026-10-01 D4: the run of month N refunds the approved leave days of month N-1.
   private previousMonth(billingMonth: string) {

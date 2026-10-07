@@ -212,6 +212,60 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     expect(created.outcome).toMatchObject({ kind: "SETTLEMENT", total: "-420000" });
   });
 
+  // Decision 2026-10-07: inline line editing saves every changed line of the notice at once; the preview computes the same result and stores nothing.
+  it("previews and saves inline edits across both notice parts all or nothing", async () => {
+    const current = await school();
+    const foreign = await school();
+    const pupil = await student(current);
+    const tuition = await receivable(current, "Học phí", "1000000", { taxCategory: "VAT_5", refundUnitPrice: "50000" });
+    const meals = await receivable(current, "Tiền ăn", "35000", { refundUnitPrice: "28000" });
+    await leave(current, pupil.id, ["2026-09-04", "2026-09-05"]);
+    const { runId } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "20" }], "2026-10");
+    const parts = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: runId }, include: { lines: true }, orderBy: { channel: "asc" } });
+    const schoolPart = parts.find((part) => part.channel === "SCHOOL")!;
+    const personalPart = parts.find((part) => part.channel === "PERSONAL")!;
+    const tuitionLine = schoolPart.lines[0]!;
+    const mealLine = personalPart.lines[0]!;
+    const body = { lines: [
+      { lineId: tuitionLine.id, quantity: "1", deductionQuantity: "3", refundUnitPrice: "50000", deductionReason: "Nghỉ thêm một ngày" },
+      { lineId: mealLine.id, quantity: "22", unitPrice: "30000", overrideReason: "Giá ưu đãi bán trú" },
+    ] };
+    const operations = () => prisma.operation.count({ where: { schoolId: current.school.id } });
+    const before = await operations();
+    const preview: any = await finance.previewInvoiceLines(current.identity.id, current.school.id, schoolPart.id, body);
+    // 1.000.000 - 3 x 50.000 = 850.000 + VAT 5% 42.500; 22 x 30.000 - 2 x 28.000 = 604.000.
+    expect(preview.lines[0]).toMatchObject({ id: tuitionLine.id, deductionAmount: "150000", amount: "892500" });
+    expect(preview.notice.invoices.find((part: any) => part.id === personalPart.id).lines[0]).toMatchObject({ id: mealLine.id, quantity: "22", unitPrice: "30000", amount: "604000" });
+    expect(preview.noticeTotal).toBe("1496500");
+    // Nothing was stored: no line change, no Operation, no audit.
+    expect(await prisma.invoiceLine.findUniqueOrThrow({ where: { id: mealLine.id } })).toMatchObject({ quantity: 20, unitPrice: 35000n });
+    expect(await operations()).toBe(before);
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: { in: ["INVOICE_LINE_EDITED", "INVOICE_LINE_DEDUCTION_EDITED"] } } })).toBe(0);
+    // Errors are keyed by line; one invalid line stores none of the lines.
+    // Reasons never change an amount: the preview computes without them, the save requires them.
+    expect(await finance.previewInvoiceLines(current.identity.id, current.school.id, schoolPart.id, { lines: [{ lineId: tuitionLine.id, deductionQuantity: "3", refundUnitPrice: "50000" }, { lineId: mealLine.id, unitPrice: "30000" }] })).toMatchObject({ lines: [expect.objectContaining({ deductionAmount: "150000" })] });
+    await expect(finance.editInvoiceLines(current.identity.id, current.school.id, schoolPart.id, uuid(), uuid(), { lines: [{ lineId: tuitionLine.id, deductionQuantity: "3", refundUnitPrice: "50000" }] })).rejects.toMatchObject({ response: { fieldErrors: { [`lines.${tuitionLine.id}.deductionReason`]: expect.any(String) } } });
+    await expect(finance.editInvoiceLines(current.identity.id, current.school.id, schoolPart.id, uuid(), uuid(), { lines: [{ lineId: mealLine.id, unitPrice: "30000" }] })).rejects.toMatchObject({ response: { fieldErrors: { [`lines.${mealLine.id}.overrideReason`]: expect.any(String) } } });
+    await expect(finance.editInvoiceLines(current.identity.id, current.school.id, schoolPart.id, uuid(), uuid(), { lines: [body.lines[0], { lineId: mealLine.id, unitPrice: "20000", overrideReason: "Sai" }] })).rejects.toMatchObject({ response: { fieldErrors: { [`lines.${mealLine.id}.unitPrice`]: expect.any(String) } } });
+    expect(await prisma.invoiceLine.findUniqueOrThrow({ where: { id: tuitionLine.id } })).toMatchObject({ deductionQuantity: 2 });
+    // The save stores exactly what the preview showed, in one Operation with one audit per kind of change.
+    const saved: any = await finance.editInvoiceLines(current.identity.id, current.school.id, schoolPart.id, uuid(), uuid(), body);
+    expect(saved.status).toBe("COMPLETED");
+    expect(saved.outcome.noticeTotal).toBe(preview.noticeTotal);
+    expect(saved.outcome.notice).toEqual(preview.notice);
+    expect(await operations()).toBe(before + 1);
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "INVOICE_LINE_EDITED" } })).toBe(1);
+    expect(await prisma.auditRecord.count({ where: { schoolId: current.school.id, action: "INVOICE_LINE_DEDUCTION_EDITED" } })).toBe(1);
+    expect(await prisma.invoiceLine.findUniqueOrThrow({ where: { id: mealLine.id } })).toMatchObject({ quantity: 22, unitPrice: 30000n, overrideReason: "Giá ưu đãi bán trú", deductionQuantity: 2 });
+    // Another School's line is not found through this School, nor through an Invoice of another notice.
+    await student(foreign);
+    const foreignMeals = await receivable(foreign, "Tiền ăn", "35000");
+    const foreignRun = await generatedRun(foreign, [{ receivableId: foreignMeals, quantity: "20" }], "2026-10");
+    const foreignInvoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: foreign.school.id, collectionRunId: foreignRun.runId }, include: { lines: true } });
+    await expect(finance.previewInvoiceLines(current.identity.id, current.school.id, schoolPart.id, { lines: [{ lineId: foreignInvoice.lines[0]!.id, quantity: "1" }] })).rejects.toMatchObject({ status: 404 });
+    await expect(finance.editInvoiceLines(current.identity.id, current.school.id, foreignInvoice.id, uuid(), uuid(), { lines: [{ lineId: foreignInvoice.lines[0]!.id, quantity: "1" }] })).rejects.toMatchObject({ status: 404 });
+  });
+
   it("refuses editing the deduction of another School's Invoice", async () => {
     const current = await school();
     const foreign = await school();
