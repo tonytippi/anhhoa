@@ -640,6 +640,26 @@ Source: sprint-change-proposal-2026-10-06-extracurricular-class-receivable-edit.
 **When** Finance opens `Sửa giá`
 **Then** the same `Chỉnh sửa khoản thu` dialog and command as the Khoản thu page are used, the dialog lists the extracurricular classes using the Receivable, and the class page shows the new price after saving.
 
+### Story 5.42: Trang rà soát hóa đơn ưu tiên dòng hóa đơn
+
+As a Finance user,
+I want the invoice lines first and editable row by row, with the payment image behind a button,
+So that I review and fix lines like in a spreadsheet without scrolling past payment details.
+
+Source: sprint-change-proposal-2026-10-06-invoice-review-lines-first.
+
+**Acceptance Criteria:**
+
+**Given** the `Rà soát hóa đơn` route
+**When** the page opens
+**Then** the line tables of each part are shown first at full width, the promotion reason sits under the discount amount, and the issue/payment panel follows below in a compact horizontal layout.
+
+**And** `Thêm dòng` (section heading) and `Sửa` (row) open one line dialog; no line form sits under the table; the line commands are unchanged.
+
+**Given** an issued notice with an unsettled part
+**When** Finance clicks `Xem ảnh hóa đơn`
+**Then** a dialog shows the server PNG with `Tải ảnh hóa đơn`; `Tải ảnh hóa đơn` is also on the page, and the PNG is requested only when viewed or downloaded.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

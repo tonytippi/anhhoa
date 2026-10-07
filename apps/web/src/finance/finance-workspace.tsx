@@ -416,6 +416,11 @@ type Invoice = {
   };
 };
 type Pending = { id: string; schoolId: string };
+// Draft lines show the live promotion evaluation; issued lines show the snapshot taken at issue.
+const discountReasons = (status: string, line: Invoice["lines"][number]) =>
+  (status === "DRAFT" ? line.promotionEvaluation?.applications : line.promotionApplicationSnapshot)
+    ?.map((application) => application.assignmentReason)
+    .join(", ");
 // Decision 2026-10-01 D9: Students who left last month are settled in this run.
 type Settlement = {
   studentId: string;
@@ -644,6 +649,18 @@ const defaultPromotion = () => ({
   effectiveTo: "",
 });
 
+const emptyInvoiceLine = {
+  receivableId: "",
+  quantity: "",
+  unitPrice: "",
+  overrideReason: "",
+  sourceReason: "",
+  serviceDate: "",
+  attendanceState: "",
+  pickedUpAt: "",
+  lateCareMinutes: "",
+};
+
 export function FinanceWorkspace({
   schoolId,
   schoolName,
@@ -712,17 +729,8 @@ export function FinanceWorkspace({
   const [issueBankAccountId, setIssueBankAccountId] = useState("");
   const [revisionConfirmation, setRevisionConfirmation] = useState(false);
   const [revisionReason, setRevisionReason] = useState("");
-  const [line, setLine] = useState({
-    receivableId: "",
-    quantity: "",
-    unitPrice: "",
-    overrideReason: "",
-    sourceReason: "",
-    serviceDate: "",
-    attendanceState: "",
-    pickedUpAt: "",
-    lateCareMinutes: "",
-  });
+  const [line, setLine] = useState(emptyInvoiceLine);
+  const [lineDialog, setLineDialog] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string>();
   const [editingSource, setEditingSource] = useState(false);
   const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string; invoiceId: string }>();
@@ -1092,19 +1100,8 @@ export function FinanceWorkspace({
     setIssueBankAccountId("");
     setRevisionConfirmation(false);
     setRevisionReason("");
-    setLine({
-      receivableId: "",
-      quantity: "",
-      unitPrice: "",
-      overrideReason: "",
-      sourceReason: "",
-      serviceDate: "",
-      attendanceState: "",
-      pickedUpAt: "",
-      lateCareMinutes: "",
-    });
-    setEditingLineId(undefined);
-    setEditingSource(false);
+    resetLineForm();
+    setLineDialog(false);
     setOpen({ schoolYearId: "", billingMonth: "" });
     setRunDialog(false);
     setInvoiceQueue(undefined);
@@ -1916,9 +1913,30 @@ export function FinanceWorkspace({
       return false;
     }
   };
+  const resetLineForm = () => {
+    setEditingLineId(undefined);
+    setEditingLineInvoiceId(undefined);
+    setEditingSource(false);
+    setLine(emptyInvoiceLine);
+  };
+  const completeSaveLine = async (outcome: unknown) => {
+    closeManagedDialog(() => setLineDialog(false));
+    resetLineForm();
+    await applyNoticeOutcome(outcome as Invoice);
+    setInvoiceQueue(undefined);
+    if (run) {
+      try {
+        const refreshed = await refreshRun(run.id);
+        if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+      } catch {
+        setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất.");
+      }
+    }
+  };
   const saveLine = async (event: FormEvent) => {
     event.preventDefault();
     if (!invoice) return;
+    completion.current = completeSaveLine;
     const body: Record<string, unknown> = { receivableId: line.receivableId, quantity: line.quantity };
     if (line.unitPrice) {
       body.unitPrice = line.unitPrice;
@@ -1940,30 +1958,8 @@ export function FinanceWorkspace({
       "invoice",
     );
     if (outcome) {
-      await applyNoticeOutcome(outcome as Invoice);
-      setInvoiceQueue(undefined);
-      setEditingLineId(undefined);
-      setEditingLineInvoiceId(undefined);
-      setEditingSource(false);
-      setLine({
-        receivableId: "",
-        quantity: "",
-        unitPrice: "",
-        overrideReason: "",
-        sourceReason: "",
-        serviceDate: "",
-        attendanceState: "",
-        pickedUpAt: "",
-        lateCareMinutes: "",
-      });
-      if (run) {
-        try {
-          const refreshed = await refreshRun(run.id);
-          if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
-        } catch {
-          setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất.");
-        }
-      }
+      completion.current = undefined;
+      await completeSaveLine(outcome);
     }
   };
   const removeLine = async (lineId: string, invoiceId: string) => {
@@ -3541,10 +3537,6 @@ export function FinanceWorkspace({
                       không được hoàn.
                     </p>
                   )}
-                  <p>
-                    Ưu đãi, phần bớt đề xuất và thuế GTGT theo từng khoản thu do hệ thống tính. Không sửa trực tiếp giá
-                    trị ưu đãi hay thuế; phần bớt sửa được kèm lý do.
-                  </p>
                   {invoiceQueueIndex >= 0 && invoiceQueue && <p className="muted">Học sinh {invoiceQueueIndex + 1}/{invoiceQueue.ids.length}</p>}
                 </div>
                 <div className="finance-actions">
@@ -3567,9 +3559,22 @@ export function FinanceWorkspace({
               </header>
               <div className="finance-invoice-split">
                 <section aria-labelledby="invoice-lines-title">
-                  <div className="finance-card-heading">
+                  <div className="finance-section-heading">
                     <h2 id="invoice-lines-title">Chi tiết hóa đơn</h2>
-                    <p>Dòng, chính sách và số tiền được chốt khi phát hành.</p>
+                    {invoice.status === "DRAFT" && (
+                      <button
+                        type="button"
+                        disabled={Boolean(pending)}
+                        onClick={(event) => {
+                          dialogTrigger.current = event.currentTarget;
+                          resetLineForm();
+                          setErrors({});
+                          setLineDialog(true);
+                        }}
+                      >
+                        Thêm dòng
+                      </button>
+                    )}
                   </div>
                   {noticeParts.map((part, index) => (
                     <div key={part.id} className="finance-notice-part" aria-labelledby={`notice-part-${part.id}`}>
@@ -3602,7 +3607,6 @@ export function FinanceWorkspace({
                               <th>Bớt (đ)</th>
                               <th>Thuế GTGT (đ)</th>
                               <th>Tổng phải thu (đ)</th>
-                              <th>Lý do ưu đãi</th>
                               <th>Thao tác</th>
                             </tr>
                           </thead>
@@ -3661,7 +3665,15 @@ export function FinanceWorkspace({
                                 </td>
                                 <td style={{ textAlign: "right" }}>{vnd(item.unitPrice)}</td>
                                 <td style={{ textAlign: "right" }}>{vnd(item.grossAmount ?? item.amount)}</td>
-                                <td style={{ textAlign: "right" }}>{vnd(item.discountAmount ?? "0")}</td>
+                                <td style={{ textAlign: "right" }}>
+                                  {vnd(item.discountAmount ?? "0")}
+                                  {discountReasons(part.status, item) && (
+                                    <>
+                                      <br />
+                                      <small className="muted">{discountReasons(part.status, item)}</small>
+                                    </>
+                                  )}
+                                </td>
                                 <td style={{ textAlign: "right" }}>
                                   {BigInt(item.deductionAmount ?? "0") > 0n ? (
                                     <>
@@ -3688,14 +3700,6 @@ export function FinanceWorkspace({
                                   {item.vatRate != null ? `${vnd(item.vatAmount ?? "0")} (${item.vatRate}%)` : "—"}
                                 </td>
                                 <td style={{ textAlign: "right" }}>{vnd(item.amount)}</td>
-                                <td>
-                                  {(part.status === "DRAFT"
-                                    ? item.promotionEvaluation?.applications
-                                    : item.promotionApplicationSnapshot
-                                  )
-                                    ?.map((application) => application.assignmentReason)
-                                    .join(", ") || "Không áp dụng"}
-                                </td>
                                 <td>
                                   {part.status === "DRAFT" && item.receivableId !== null && (
                                     <>
@@ -3748,7 +3752,10 @@ export function FinanceWorkspace({
                                       <button
                                         type="button"
                                         disabled={Boolean(pending)}
-                                        onClick={() => {
+                                        onClick={(event) => {
+                                          dialogTrigger.current = event.currentTarget;
+                                          setErrors({});
+                                          setLineDialog(true);
                                           setEditingLineId(item.id);
                                           setEditingLineInvoiceId(part.id);
                                           setEditingSource(Boolean(item.source));
@@ -3799,7 +3806,7 @@ export function FinanceWorkspace({
                                   ? `Hoàn ${vnd((-BigInt(part.total)).toString())}`
                                   : vnd(part.total)}
                               </th>
-                              <td colSpan={2} />
+                              <td />
                             </tr>
                           </tbody>
                         </table>
@@ -3817,135 +3824,7 @@ export function FinanceWorkspace({
                       <b>{signedVnd(invoice.noticeTotal ?? "0")}</b>
                     </p>
                   )}
-                  {invoice.status === "DRAFT" ? (
-                    <form className="finance-form-grid" onSubmit={saveLine}>
-                      <h4>{editingLineId ? "Sửa dòng" : "Thêm dòng"}</h4>
-                      <label>
-                        Khoản thu
-                        <select
-                          disabled={Boolean(editingLineId)}
-                          value={line.receivableId}
-                          onChange={(event) => setLine({ ...line, receivableId: event.target.value })}
-                          {...invoiceField("receivableId")}
-                        >
-                          <option value="">Chọn khoản thu</option>
-                          {(catalog?.receivables ?? [])
-                            .filter((item) => item.available)
-                            .map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.displayName}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      {scope === "invoice" && errors.receivableId && (
-                        <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>
-                      )}
-                      <label>
-                        Số lượng
-                        <input
-                          inputMode="numeric"
-                          value={line.quantity}
-                          onChange={(event) => setLine({ ...line, quantity: event.target.value })}
-                          {...invoiceField("quantity")}
-                        />
-                      </label>
-                      {scope === "invoice" && errors.quantity && (
-                        <small id="invoice-invoice-quantity-error">{errors.quantity}</small>
-                      )}
-                      <label>
-                        Đơn giá điều chỉnh (đ, không bắt buộc)
-                        <input
-                          inputMode="numeric"
-                          value={line.unitPrice}
-                          onChange={(event) => setLine({ ...line, unitPrice: event.target.value })}
-                          {...invoiceField("unitPrice")}
-                        />
-                      </label>
-                      {scope === "invoice" && errors.unitPrice && (
-                        <small id="invoice-invoice-unitPrice-error">{errors.unitPrice}</small>
-                      )}
-                      <label>
-                        Lý do điều chỉnh
-                        <input
-                          value={line.overrideReason}
-                          onChange={(event) => setLine({ ...line, overrideReason: event.target.value })}
-                          {...invoiceField("overrideReason")}
-                        />
-                      </label>
-                      {scope === "invoice" && errors.overrideReason && (
-                        <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>
-                      )}
-                      <fieldset>
-                        <legend>Nguồn giải thích thủ công</legend>
-                        <label>
-                          Ngày dịch vụ
-                          <input
-                            type="date"
-                            value={line.serviceDate}
-                            onChange={(event) => setLine({ ...line, serviceDate: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          Điểm danh
-                          <select
-                            value={line.attendanceState}
-                            onChange={(event) => setLine({ ...line, attendanceState: event.target.value })}
-                          >
-                            <option value="">Không có</option>
-                            <option value="PRESENT">Có mặt</option>
-                            <option value="ABSENT">Vắng mặt</option>
-                          </select>
-                        </label>
-                        <label>
-                          Giờ đón (HH:MM)
-                          <input
-                            value={line.pickedUpAt}
-                            onChange={(event) => setLine({ ...line, pickedUpAt: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          Số phút trông muộn
-                          <input
-                            inputMode="numeric"
-                            value={line.lateCareMinutes}
-                            onChange={(event) => setLine({ ...line, lateCareMinutes: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          Lý do nguồn giải thích
-                          <input
-                            value={line.sourceReason}
-                            onChange={(event) => setLine({ ...line, sourceReason: event.target.value })}
-                          />
-                        </label>
-                      </fieldset>
-                      <button disabled={Boolean(pending)}>{editingLineId ? "Lưu dòng" : "Thêm dòng"}</button>
-                      {editingLineId && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingLineId(undefined);
-                            setEditingLineInvoiceId(undefined);
-                            setEditingSource(false);
-                            setLine({
-                              receivableId: "",
-                              quantity: "",
-                              unitPrice: "",
-                              overrideReason: "",
-                              sourceReason: "",
-                              serviceDate: "",
-                              attendanceState: "",
-                              pickedUpAt: "",
-                              lateCareMinutes: "",
-                            });
-                          }}
-                        >
-                          Hủy sửa
-                        </button>
-                      )}
-                    </form>
-                  ) : (
+                  {invoice.status !== "DRAFT" && (
                     <p>
                       Hóa đơn {invoiceStatusLabel(invoice.status).toLocaleLowerCase("vi")} chỉ đọc; dòng hóa đơn không
                       thể thay đổi.
@@ -3976,19 +3855,27 @@ export function FinanceWorkspace({
                               {displayDate(paymentParts[0]!.issue!.dueOn)}
                             </p>
                           </div>
-                          <p className="finance-payment-total">
-                            <span>Tổng cần nộp</span>
-                            <b>{vnd(paymentParts[0]!.issue!.obligationTotal)} đ</b>
-                          </p>
                           <dl className="finance-payment-facts">
-                            <dt>Ngân hàng</dt>
-                            <dd>{paymentParts[0]!.issue!.bankAccount.receivingBank}</dd>
-                            <dt>Số tài khoản</dt>
-                            <dd>{paymentParts[0]!.issue!.bankAccount.accountNumber}</dd>
-                            <dt>Chủ tài khoản</dt>
-                            <dd>{paymentParts[0]!.issue!.bankAccount.accountHolderName}</dd>
-                            <dt>Nội dung chuyển khoản</dt>
-                            <dd>{paymentParts[0]!.issue!.transferContent}</dd>
+                            <div>
+                              <dt>Tổng cần nộp</dt>
+                              <dd className="finance-payment-amount">{vnd(paymentParts[0]!.issue!.obligationTotal)} đ</dd>
+                            </div>
+                            <div>
+                              <dt>Ngân hàng</dt>
+                              <dd>{paymentParts[0]!.issue!.bankAccount.receivingBank}</dd>
+                            </div>
+                            <div>
+                              <dt>Số tài khoản</dt>
+                              <dd>{paymentParts[0]!.issue!.bankAccount.accountNumber}</dd>
+                            </div>
+                            <div>
+                              <dt>Chủ tài khoản</dt>
+                              <dd>{paymentParts[0]!.issue!.bankAccount.accountHolderName}</dd>
+                            </div>
+                            <div>
+                              <dt>Nội dung chuyển khoản</dt>
+                              <dd>{paymentParts[0]!.issue!.transferContent}</dd>
+                            </div>
                           </dl>
                         </>
                       )}
@@ -4009,54 +3896,54 @@ export function FinanceWorkspace({
                           khoản
                         </p>
                       </div>
-                      {noticeParts.map((part, index) => (
-                        <div key={part.id} className="finance-notice-part" aria-labelledby={`payment-part-${part.id}`}>
-                          <div className="finance-title-row">
-                            <b id={`payment-part-${part.id}`}>
-                              Phần {index + 1} · {channelAccountLabel(part.channel)}
-                            </b>
-                            <span
-                              className={`finance-badge finance-badge-${part.paymentImageAvailable ? "neutral" : "success"}`}
-                            >
-                              {part.paymentImageAvailable
-                                ? BigInt(part.issue?.obligationTotal ?? "0") < 0n
-                                  ? "Chờ chi hoàn"
-                                  : "Chưa thu"
-                                : invoiceStatusLabel(part.status)}
-                            </span>
+                      <div className="finance-notice-parts">
+                        {noticeParts.map((part, index) => (
+                          <div key={part.id} className="finance-notice-part" aria-labelledby={`payment-part-${part.id}`}>
+                            <div className="finance-title-row">
+                              <b id={`payment-part-${part.id}`}>
+                                Phần {index + 1} · {channelAccountLabel(part.channel)}
+                              </b>
+                              <span
+                                className={`finance-badge finance-badge-${part.paymentImageAvailable ? "neutral" : "success"}`}
+                              >
+                                {part.paymentImageAvailable
+                                  ? BigInt(part.issue?.obligationTotal ?? "0") < 0n
+                                    ? "Chờ chi hoàn"
+                                    : "Chưa thu"
+                                  : invoiceStatusLabel(part.status)}
+                              </span>
+                            </div>
+                            {part.issue && (
+                              <>
+                                <p>Mã hóa đơn {part.issue.obligationCode}</p>
+                                <p className="finance-payment-total">
+                                  <span>
+                                    {BigInt(part.issue.obligationTotal) < 0n
+                                      ? `Trường hoàn lại phần ${index + 1}`
+                                      : `Tổng phần ${index + 1}`}
+                                  </span>
+                                  <b>{signedVnd(part.issue.obligationTotal)}</b>
+                                </p>
+                                <p className="muted">
+                                  {part.issue.bankAccount.receivingBank} · {part.issue.bankAccount.accountNumber} ·{" "}
+                                  {part.issue.bankAccount.accountHolderName}
+                                </p>
+                              </>
+                            )}
                           </div>
-                          {part.issue && (
-                            <>
-                              <p>Mã hóa đơn {part.issue.obligationCode}</p>
-                              <p className="finance-payment-total">
-                                <span>
-                                  {BigInt(part.issue.obligationTotal) < 0n
-                                    ? `Trường hoàn lại phần ${index + 1}`
-                                    : `Tổng phần ${index + 1}`}
-                                </span>
-                                <b>{signedVnd(part.issue.obligationTotal)}</b>
-                              </p>
-                              <dl className="finance-payment-facts">
-                                <dt>Ngân hàng</dt>
-                                <dd>{part.issue.bankAccount.receivingBank}</dd>
-                                <dt>Số tài khoản</dt>
-                                <dd>{part.issue.bankAccount.accountNumber}</dd>
-                                <dt>Chủ tài khoản</dt>
-                                <dd>{part.issue.bankAccount.accountHolderName}</dd>
-                              </dl>
-                            </>
-                          )}
-                        </div>
-                      ))}
-                      <p className="finance-payment-total">
-                        <span>
-                          {BigInt(invoice.paymentTotal ?? "0") < 0n ? "Trường hoàn lại cho phụ huynh" : "Tổng cần nộp"}
-                        </span>
-                        <b>{signedVnd(invoice.paymentTotal ?? "0")}</b>
-                      </p>
+                        ))}
+                      </div>
                       <dl className="finance-payment-facts">
-                        <dt>Nội dung chuyển khoản</dt>
-                        <dd>{paymentParts[0]!.issue!.transferContent}</dd>
+                        <div>
+                          <dt>
+                            {BigInt(invoice.paymentTotal ?? "0") < 0n ? "Trường hoàn lại cho phụ huynh" : "Tổng cần nộp"}
+                          </dt>
+                          <dd className="finance-payment-amount">{signedVnd(invoice.paymentTotal ?? "0")}</dd>
+                        </div>
+                        <div>
+                          <dt>Nội dung chuyển khoản</dt>
+                          <dd>{paymentParts[0]!.issue!.transferContent}</dd>
+                        </div>
                       </dl>
                       <PaymentImagePanel
                         apiUrl={apiUrl}
@@ -4076,57 +3963,60 @@ export function FinanceWorkspace({
                       </p>
                     </div>
                   )}
-                  {invoice.status === "DRAFT" &&
-                    issueParts.map((part) => (
-                      <div key={part.id} className="finance-notice-part">
-                        <p className="finance-payment-total">
-                          <span>
-                            {issueParts.length > 1
-                              ? `Phần ${noticeParts.findIndex((item) => item.id === part.id) + 1} · ${channelAccountLabel(part.channel)}`
-                              : channelAccountLabel(part.channel)}
-                          </span>
-                          <b>{signedVnd(part.total)}</b>
-                        </p>
-                        {part.channel === "SCHOOL" ? (
-                          <>
-                            {schoolBankAccount ? (
-                              <p>
-                                {schoolBankAccount.receivingBank} · {schoolBankAccount.accountNumber} ·{" "}
-                                {schoolBankAccount.accountHolderName}
-                              </p>
-                            ) : (
-                              <p role="alert">Chưa cấu hình tài khoản trường để thu khoản có thuế.</p>
-                            )}
-                            <small>Hệ thống tự dùng tài khoản trường đang hiệu lực; không đổi tại đây.</small>
-                          </>
-                        ) : (
-                          <>
-                            <label>
-                              Tài khoản cá nhân
-                              <select
-                                value={issueBankAccountId}
-                                onChange={(event) => setIssueBankAccountId(event.target.value)}
-                                aria-describedby="personal-account-hint"
-                              >
-                                <option value="">Chọn tài khoản cá nhân</option>
-                                {personalBankAccounts.map((account) => (
-                                  <option key={account.id} value={account.id}>
-                                    {account.receivingBank} · {account.accountNumber} · {account.accountHolderName}
-                                    {account.id === invoice.notice?.classDefaultBankAccountId
-                                      ? ` (mặc định lớp ${invoice.student.className})`
-                                      : ""}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <small id="personal-account-hint">
-                              Chọn sẵn theo tài khoản mặc định của lớp; có thể chọn tài khoản cá nhân khác đang hiệu
-                              lực.
-                            </small>
-                          </>
-                        )}
-                      </div>
-                    ))}
+                  {invoice.status === "DRAFT" && (
+                    <div className="finance-notice-parts">
+                      {issueParts.map((part) => (
+                        <div key={part.id} className="finance-notice-part">
+                          <p className="finance-payment-total">
+                            <span>
+                              {issueParts.length > 1
+                                ? `Phần ${noticeParts.findIndex((item) => item.id === part.id) + 1} · ${channelAccountLabel(part.channel)}`
+                                : channelAccountLabel(part.channel)}
+                            </span>
+                            <b>{signedVnd(part.total)}</b>
+                          </p>
+                          {part.channel === "SCHOOL" ? (
+                            <>
+                              {schoolBankAccount ? (
+                                <p>
+                                  {schoolBankAccount.receivingBank} · {schoolBankAccount.accountNumber} ·{" "}
+                                  {schoolBankAccount.accountHolderName}
+                                </p>
+                              ) : (
+                                <p role="alert">Chưa cấu hình tài khoản trường để thu khoản có thuế.</p>
+                              )}
+                              <small>Hệ thống tự dùng tài khoản trường đang hiệu lực; không đổi tại đây.</small>
+                            </>
+                          ) : (
+                            <>
+                              <label>
+                                Tài khoản cá nhân
+                                <select
+                                  value={issueBankAccountId}
+                                  onChange={(event) => setIssueBankAccountId(event.target.value)}
+                                  aria-describedby="personal-account-hint"
+                                >
+                                  <option value="">Chọn tài khoản cá nhân</option>
+                                  {personalBankAccounts.map((account) => (
+                                    <option key={account.id} value={account.id}>
+                                      {account.receivingBank} · {account.accountNumber} · {account.accountHolderName}
+                                      {account.id === invoice.notice?.classDefaultBankAccountId
+                                        ? ` (mặc định lớp ${invoice.student.className})`
+                                        : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <small id="personal-account-hint">
+                                Chọn sẵn theo tài khoản mặc định của lớp; có thể chọn tài khoản cá nhân khác đang hiệu
+                                lực.
+                              </small>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {(invoice.revisesInvoiceId || invoice.replacementInvoiceId) && (
                     <p>
                       Liên kết điều chỉnh:{" "}
@@ -4320,6 +4210,14 @@ export function FinanceWorkspace({
                   ))}
                 </section>
               )}
+              <details className="finance-guide">
+                <summary>Hướng dẫn</summary>
+                <p>
+                  Ưu đãi, phần bớt đề xuất và thuế GTGT theo từng khoản thu do hệ thống tính. Không sửa trực tiếp giá
+                  trị ưu đãi hay thuế; phần bớt sửa được kèm lý do.
+                </p>
+                <p>Dòng, chính sách và số tiền được chốt khi phát hành.</p>
+              </details>
             </section>
           )}
           {removeConfirmation && (
@@ -5257,6 +5155,156 @@ export function FinanceWorkspace({
                 </button>
                 <button className="primary-action" disabled={Boolean(pending)}>
                   Lưu điều chỉnh
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {lineDialog && invoice?.status === "DRAFT" && (
+        <div className="dialog-backdrop">
+          <div
+            className="dialog dialog-wide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="finance-line-title"
+            onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setLineDialog(false), resetLineForm)}
+          >
+            <form onSubmit={saveLine}>
+              <h3 id="finance-line-title">{editingLineId
+                  ? `Sửa dòng · ${noticeParts.flatMap((part) => part.lines).find((item) => item.id === editingLineId)?.receivableName ?? ""}`
+                  : "Thêm dòng"}</h3>
+              <div className="dialog-grid">
+                <div className="full">
+                  <label>
+                    Khoản thu
+                    <select
+                      autoFocus={!editingLineId}
+                      disabled={Boolean(editingLineId)}
+                      value={line.receivableId}
+                      onChange={(event) => setLine({ ...line, receivableId: event.target.value })}
+                      {...invoiceField("receivableId")}
+                    >
+                      <option value="">Chọn khoản thu</option>
+                      {(catalog?.receivables ?? [])
+                        .filter((item) => item.available || item.id === line.receivableId)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.displayName}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {scope === "invoice" && errors.receivableId && (
+                    <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>
+                  )}
+                </div>
+                <div>
+                  <label>
+                    Số lượng
+                    <input
+                      autoFocus={Boolean(editingLineId)}
+                      inputMode="numeric"
+                      value={line.quantity}
+                      onChange={(event) => setLine({ ...line, quantity: event.target.value })}
+                      {...invoiceField("quantity")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.quantity && (
+                    <small id="invoice-invoice-quantity-error">{errors.quantity}</small>
+                  )}
+                </div>
+                <div>
+                  <label>
+                    Đơn giá điều chỉnh (đ, không bắt buộc)
+                    <input
+                      inputMode="numeric"
+                      value={line.unitPrice}
+                      onChange={(event) => setLine({ ...line, unitPrice: event.target.value })}
+                      {...invoiceField("unitPrice")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.unitPrice && (
+                    <small id="invoice-invoice-unitPrice-error">{errors.unitPrice}</small>
+                  )}
+                </div>
+                <div className="full">
+                  <label>
+                    Lý do điều chỉnh
+                    <input
+                      value={line.overrideReason}
+                      onChange={(event) => setLine({ ...line, overrideReason: event.target.value })}
+                      {...invoiceField("overrideReason")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.overrideReason && (
+                    <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>
+                  )}
+                </div>
+                <details
+                  className="full"
+                  open={Boolean(
+                    line.serviceDate || line.attendanceState || line.pickedUpAt || line.lateCareMinutes || line.sourceReason,
+                  )}
+                >
+                  <summary>Nguồn giải thích thủ công</summary>
+                  <div className="dialog-grid">
+                    <label>
+                      Ngày dịch vụ
+                      <input
+                        type="date"
+                        value={line.serviceDate}
+                        onChange={(event) => setLine({ ...line, serviceDate: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Điểm danh
+                      <select
+                        value={line.attendanceState}
+                        onChange={(event) => setLine({ ...line, attendanceState: event.target.value })}
+                      >
+                        <option value="">Không có</option>
+                        <option value="PRESENT">Có mặt</option>
+                        <option value="ABSENT">Vắng mặt</option>
+                      </select>
+                    </label>
+                    <label>
+                      Giờ đón (HH:MM)
+                      <input
+                        value={line.pickedUpAt}
+                        onChange={(event) => setLine({ ...line, pickedUpAt: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Số phút trông muộn
+                      <input
+                        inputMode="numeric"
+                        value={line.lateCareMinutes}
+                        onChange={(event) => setLine({ ...line, lateCareMinutes: event.target.value })}
+                      />
+                    </label>
+                    <label className="full">
+                      Lý do nguồn giải thích
+                      <input
+                        value={line.sourceReason}
+                        onChange={(event) => setLine({ ...line, sourceReason: event.target.value })}
+                      />
+                    </label>
+                  </div>
+                </details>
+              </div>
+              <p className="muted">Hệ thống tính lại ưu đãi, thuế GTGT và tổng phần sau khi lưu.</p>
+              {scope === "invoice" && message && <p className="finance-alert">{message}</p>}
+              <div className="dialog-actions">
+                <button
+                  type="button"
+                  disabled={Boolean(pending)}
+                  onClick={() => closeNewDialog(() => setLineDialog(false), resetLineForm)}
+                >
+                  Hủy
+                </button>
+                <button className="primary-action" disabled={Boolean(pending)}>
+                  {editingLineId ? "Lưu dòng" : "Thêm dòng"}
                 </button>
               </div>
             </form>

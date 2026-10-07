@@ -1790,18 +1790,11 @@ tbody tr:last-child td {
   background: transparent;
   padding: 0;
 }
-.finance-invoice-split {
-  display: grid;
-  grid-template-areas: "issue" "lines";
-  align-items: start;
-  gap: 16px;
-}
-.finance-invoice-split > section { grid-area: lines; min-width: 0; }
-.finance-invoice-split > aside { grid-area: issue; }
-/* Side-by-side only when the eight-column line table still fits beside the issue panel. */
-@media (min-width: 1440px) {
-  .finance-invoice-split { grid-template-areas: "lines issue"; grid-template-columns: minmax(0, 1fr) 320px; }
-}
+/* Lines first at full width, then a compact payment/issue panel; the payment image opens in a dialog. */
+.finance-invoice-split { display: grid; gap: 16px; }
+.finance-invoice-split > section { min-width: 0; }
+.finance-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.finance-section-heading h2 { margin: 0; }
 /* Route focus lands on non-interactive headings; they need no focus ring. */
 .finance-workspace :is(h1, h2)[tabindex="-1"]:focus { outline: none; }
 .finance-run-header > .finance-actions { flex: 0 0 auto; }
@@ -1819,14 +1812,21 @@ tbody tr:last-child td {
 .finance-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .finance-payment-total { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; }
 .finance-payment-total b { font-size: 1.5rem; }
-.finance-payment-facts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 0; }
+.finance-payment-facts { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 32px; margin: 0; }
 .finance-payment-facts dt { color: var(--muted, #5b6b63); font-size: .8125rem; }
-.finance-payment-facts dd { margin: 0 0 8px; font-weight: 700; overflow-wrap: anywhere; }
-.finance-payment-image { display: grid; gap: 12px; }
-.finance-payment-image p { margin: 0; color: #5b6b63; font-size: .875rem; }
-.finance-payment-total, .finance-payment-facts, .finance-payment-image { max-width: 480px; }
-.finance-payment-thumb { display: block; justify-self: start; width: min(100%, 300px); border: 1px solid var(--border, #d5ddd8); border-radius: 12px; overflow: hidden; }
-.finance-payment-thumb img { display: block; width: 100%; height: auto; }
+.finance-payment-facts dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.finance-payment-facts .finance-payment-amount { font-size: 1.25rem; }
+.finance-notice-parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.finance-notice-parts > .finance-notice-part { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid #d7e2dc; border-radius: 10px; }
+.finance-notice-parts p { margin: 0; }
+.finance-payment-image { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.finance-payment-image > p { margin: 0; color: #5b6b63; font-size: .875rem; }
+.finance-image-dialog { display: grid; gap: 12px; }
+.finance-image-dialog h3, .finance-image-dialog p { margin: 0; }
+.finance-image-frame { display: grid; justify-items: center; min-height: 120px; max-height: calc(100dvh - 260px); overflow: auto; border: 1px solid var(--border, #d5ddd8); border-radius: 12px; background: #f6f8f7; }
+.finance-image-frame > a { display: block; justify-self: center; width: min(100%, 540px); }
+.finance-image-frame img { display: block; width: 100%; height: auto; }
+.finance-image-frame > p { align-self: center; color: #5b6b63; }
 .finance-list-dialog {
   display: grid;
   gap: 12px;
