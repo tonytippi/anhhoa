@@ -29,11 +29,59 @@ export const taxCategoryOptions: Array<[TaxCategory, string]> = [
 ];
 export const taxChannelHint = (category: TaxCategory) =>
   category === "NOT_DECLARED" ? "Thu vào tài khoản cá nhân" : "Thu vào tài khoản trường";
+// Decision 2026-10-07: the unit stays free text; these are suggestions so Finance types the same words.
+export const unitSuggestions = ["tháng", "năm", "ngày", "buổi", "unit", "lần", "bộ", "cái"];
+export function UnitSuggestions({ id }: { id: string }) {
+  return (
+    <datalist id={id}>
+      {unitSuggestions.map((unit) => (
+        <option key={unit} value={unit} />
+      ))}
+    </datalist>
+  );
+}
+// Bớt is proposed from last month's approved leave days only when this is on; otherwise Finance types Bớt on the invoice line.
+export function AutoLeaveDeductionField({
+  id,
+  checked,
+  refundUnitPrice,
+  onChange,
+  field,
+}: {
+  id: string;
+  checked: boolean;
+  refundUnitPrice: string;
+  onChange: (checked: boolean) => void;
+  field: (name: string) => object;
+}) {
+  const noRefund = !/^\d+$/.test(refundUnitPrice) || BigInt(refundUnitPrice) === 0n;
+  return (
+    <div className="full">
+      <label className="finance-checkbox">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={noRefund && !checked}
+          onChange={(event) => onChange(event.target.checked)}
+          aria-describedby={`${id}-hint`}
+          {...field("autoLeaveDeduction")}
+        />
+        Tự động trừ theo ngày nghỉ có phép
+      </label>
+      <small className="muted" id={`${id}-hint`}>
+        {noRefund
+          ? "Nhập giá hoàn trả để bật. Không bật thì kế toán nhập Bớt trên dòng hóa đơn khi cần."
+          : "Mỗi đợt thu đề xuất Bớt = số ngày nghỉ có phép tháng trước × giá hoàn trả. Không bật thì kế toán nhập Bớt trên dòng hóa đơn khi cần."}
+      </small>
+    </div>
+  );
+}
 export type ReceivableEditValues = {
   displayName: string;
   unitLabel: string;
   defaultUnitPrice: string;
   refundUnitPrice: string;
+  autoLeaveDeduction: boolean;
   taxCategory: TaxCategory;
   kind: ReceivableKind;
 };
@@ -50,6 +98,7 @@ export const receivableEditValues = (item: {
   unitLabel: string;
   defaultUnitPrice: string;
   refundUnitPrice?: string;
+  autoLeaveDeduction?: boolean;
   taxCategory?: TaxCategory;
   kind?: ReceivableKind | null;
 }): ReceivableEditValues => ({
@@ -57,6 +106,7 @@ export const receivableEditValues = (item: {
   unitLabel: item.unitLabel,
   defaultUnitPrice: item.defaultUnitPrice,
   refundUnitPrice: item.refundUnitPrice ?? "0",
+  autoLeaveDeduction: item.autoLeaveDeduction ?? false,
   taxCategory: item.taxCategory ?? "NOT_DECLARED",
   kind: item.kind ?? "FLEXIBLE",
 });
@@ -93,7 +143,13 @@ export function ReceivableEditFields({
       </label>
       <label>
         Đơn vị tính
-        <input value={values.unitLabel} onChange={(event) => onChange({ unitLabel: event.target.value })} {...field("unitLabel")} />
+        <input
+          list="receivable-edit-units"
+          value={values.unitLabel}
+          onChange={(event) => onChange({ unitLabel: event.target.value })}
+          {...field("unitLabel")}
+        />
+        <UnitSuggestions id="receivable-edit-units" />
       </label>
       <fieldset className="chip-group full" disabled={locked} aria-describedby="receivable-edit-kind-hint">
         <legend>Nhóm khoản thu</legend>
@@ -130,13 +186,16 @@ export function ReceivableEditFields({
           <input
             inputMode="numeric"
             value={values.refundUnitPrice}
-            onChange={(event) => onChange({ refundUnitPrice: event.target.value })}
+            onChange={(event) => {
+              const refundUnitPrice = event.target.value;
+              onChange({ refundUnitPrice, ...(/^0*$/.test(refundUnitPrice) ? { autoLeaveDeduction: false } : {}) });
+            }}
             aria-describedby="receivable-edit-refund-hint"
             {...field("refundUnitPrice")}
           />
         </label>
         <small className="muted" id="receivable-edit-refund-hint">
-          Số tiền trả lại cho mỗi đơn vị nghỉ có phép của tháng trước, không vượt giá thu. Để 0 nếu không hoàn trả.
+          Số tiền trả lại cho mỗi đơn vị bớt, không vượt giá thu. Để 0 nếu không hoàn trả.
         </small>
       </div>
       <div>
@@ -159,6 +218,13 @@ export function ReceivableEditFields({
           {taxChannelHint(values.taxCategory)}
         </small>
       </div>
+      <AutoLeaveDeductionField
+        id="receivable-edit-auto"
+        checked={values.autoLeaveDeduction}
+        refundUnitPrice={values.refundUnitPrice}
+        onChange={(autoLeaveDeduction) => onChange({ autoLeaveDeduction })}
+        field={field}
+      />
       <label>
         Lý do
         <input placeholder="Bắt buộc" value={reason} onChange={(event) => onReason(event.target.value)} {...field("reason")} />

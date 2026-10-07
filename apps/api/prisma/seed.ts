@@ -455,7 +455,7 @@ const financeSeedAccounts = [
 const financeSeedReceivables = [
   { code: 'HP', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: 3500000n, taxCategory: 'EXEMPT', group: 'Khoản thu cố định' },
   // Excused leave days are refunded at 28.000 đ/ngày on the next month's Invoice (decision 2026-10-01).
-  { code: 'AN', displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 35000n, refundUnitPrice: 28000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
+  { code: 'AN', displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 35000n, refundUnitPrice: 28000n, autoLeaveDeduction: true, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
   { code: 'TA', displayName: 'Tiếng Anh bản ngữ', unitLabel: 'tháng', defaultUnitPrice: 600000n, taxCategory: 'VAT_10', group: 'Ngoại khóa' },
   { code: 'NK', displayName: 'Năng khiếu vẽ', unitLabel: 'tháng', defaultUnitPrice: 450000n, taxCategory: 'VAT_8', group: 'Ngoại khóa' },
   { code: 'XE', displayName: 'Xe đưa đón', unitLabel: 'tháng', defaultUnitPrice: 800000n, taxCategory: 'VAT_5', group: 'Khoản thu cố định' },

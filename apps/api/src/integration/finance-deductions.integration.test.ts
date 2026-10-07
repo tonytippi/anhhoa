@@ -51,8 +51,10 @@ async function leave(input: School, studentId: string, days: string[], status: "
   await prisma.leaveDaySource.createMany({ data: days.map((day) => ({ schoolId: input.school.id, studentId, operatingOn: date(day), leaveRequestId: request.id, leaveStatus: status })) });
 }
 
-async function receivable(input: School, displayName: string, defaultUnitPrice: string, extra: Record<string, string> = {}) {
-  return id(await finance.createReceivable(input.identity.id, input.school.id, uuid(), uuid(), { groupId: input.groupId, displayName, unitLabel: "ngày", defaultUnitPrice, ...extra }));
+// A Receivable with a refund price refunds leave days automatically unless the test says otherwise (decision 2026-10-07).
+async function receivable(input: School, displayName: string, defaultUnitPrice: string, extra: Record<string, unknown> = {}) {
+  const auto = extra.refundUnitPrice != null && extra.refundUnitPrice !== "0";
+  return id(await finance.createReceivable(input.identity.id, input.school.id, uuid(), uuid(), { groupId: input.groupId, displayName, unitLabel: "ngày", defaultUnitPrice, autoLeaveDeduction: auto, ...extra }));
 }
 
 async function account(input: School, kind: "SCHOOL" | "PERSONAL", accountNumber: string) {
@@ -104,7 +106,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     await expect(finance.updateReceivable(current.identity.id, current.school.id, meals, uuid(), uuid(), { refundUnitPrice: "35000", reason: "Điều chỉnh khoản thu" })).rejects.toMatchObject({ response: { fieldErrors: { displayName: "Không có thay đổi để lưu." } } });
     // The catalog stays append-only apart from the tax category and the refund price.
     await expect(prisma.receivable.update({ where: { id: meals }, data: { defaultUnitPrice: 1n } })).rejects.toThrow(/append-only/);
-    await expect(prisma.receivable.update({ where: { id: meals }, data: { refundUnitPrice: -1n } })).rejects.toThrow(/Receivable_refundUnitPrice_nonnegative/);
+    await expect(prisma.receivable.update({ where: { id: meals }, data: { refundUnitPrice: -1n, autoLeaveDeduction: false } })).rejects.toThrow(/Receivable_refundUnitPrice_nonnegative/);
+    await expect(prisma.receivable.update({ where: { id: meals }, data: { refundUnitPrice: 0n } })).rejects.toThrow(/Receivable_autoLeaveDeduction_needs_refund_price/);
     await expect(prisma.receivable.update({ where: { id: meals }, data: { refundUnitPrice: 35001n } })).rejects.toThrow(/Receivable_refundUnitPrice_within_price/);
   });
 
@@ -264,6 +267,38 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     const foreignInvoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: foreign.school.id, collectionRunId: foreignRun.runId }, include: { lines: true } });
     await expect(finance.previewInvoiceLines(current.identity.id, current.school.id, schoolPart.id, { lines: [{ lineId: foreignInvoice.lines[0]!.id, quantity: "1" }] })).rejects.toMatchObject({ status: 404 });
     await expect(finance.editInvoiceLines(current.identity.id, current.school.id, foreignInvoice.id, uuid(), uuid(), { lines: [{ lineId: foreignInvoice.lines[0]!.id, quantity: "1" }] })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("proposes Bớt only for a Receivable with automatic leave deduction; others keep a typed Bớt", async () => {
+    const current = await school();
+    const pupil = await student(current);
+    await leave(current, pupil.id, ["2026-09-04", "2026-09-05"]);
+    const meals = await receivable(current, "Tiền ăn", "35000", { refundUnitPrice: "28000" });
+    const lessons = await receivable(current, "Năng khiếu", "100000", { refundUnitPrice: "50000", autoLeaveDeduction: false });
+    await expect(finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: current.groupId, displayName: "Sai", unitLabel: "buổi", defaultUnitPrice: "1000", autoLeaveDeduction: true })).rejects.toMatchObject({ response: { fieldErrors: { autoLeaveDeduction: expect.any(String) } } });
+    const { runId } = await generatedRun(current, [{ receivableId: meals, quantity: "20" }, { receivableId: lessons, quantity: "8" }], "2026-10");
+    const lines = await prisma.invoiceLine.findMany({ where: { schoolId: current.school.id, invoice: { collectionRunId: runId } } });
+    expect(lines.find((line) => line.receivableId === meals)).toMatchObject({ deductionQuantity: 2, deductionAmount: 56000n });
+    const lesson = lines.find((line) => line.receivableId === lessons)!;
+    expect(lesson).toMatchObject({ refundUnitPriceSnapshot: 50000n, deductionQuantity: 0, proposedDeductionQuantity: 0, deductionAmount: 0n, deductionSource: null });
+    // Finance still types a Bớt on that line, with a reason since nothing was proposed.
+    const saved: any = await finance.editInvoiceLines(current.identity.id, current.school.id, lesson.invoiceId, uuid(), uuid(), { lines: [{ lineId: lesson.id, deductionQuantity: "1", refundUnitPrice: "50000", deductionReason: "Nghỉ 1 buổi" }] });
+    expect(saved.status).toBe("COMPLETED");
+    expect(await prisma.invoiceLine.findUniqueOrThrow({ where: { id: lesson.id } })).toMatchObject({ deductionQuantity: 1, deductionAmount: 50000n, netAmount: 750000n });
+    // Turning the option off needs no refund price change; the next run proposes nothing for meals either.
+    await finance.updateReceivable(current.identity.id, current.school.id, meals, uuid(), uuid(), { autoLeaveDeduction: false, reason: "Tính bớt tay" });
+    expect((await finance.read(current.identity.id, current.school.id)).receivables.find((item) => item.id === meals)).toMatchObject({ autoLeaveDeduction: false, refundUnitPrice: "28000" });
+    await expect(finance.updateReceivable(current.identity.id, current.school.id, lessons, uuid(), uuid(), { refundUnitPrice: "0", autoLeaveDeduction: true, reason: "Sai" })).rejects.toMatchObject({ response: { fieldErrors: { autoLeaveDeduction: expect.any(String) } } });
+  });
+
+  it("accepts a prepaid package without discount but never a plain 0 discount", async () => {
+    const current = await school();
+    const tuition = await receivable(current, "Học phí", "3500000");
+    const prepaid: any = await finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { name: "Nộp trước 12 tháng", receivableIds: [tuition], discountType: "PERCENTAGE", discountValue: "0", priority: "1", stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 12, effectiveFrom: "2026-09-01" });
+    expect(prepaid.status).toBe("COMPLETED");
+    await expect(finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { name: "Giảm 0", receivableIds: [tuition], discountType: "PERCENTAGE", discountValue: "0", priority: "1", stackingMode: "EXCLUSIVE", effectiveFrom: "2026-09-01" })).rejects.toMatchObject({ response: { fieldErrors: { discountValue: expect.any(String) } } });
+    // PostgreSQL holds the same rule: 0 only for a prepaid package.
+    await expect(prisma.promotionPolicyVersion.updateMany({ where: { schoolId: current.school.id }, data: { fulfillmentMode: "DISCOUNT" } })).rejects.toThrow(/PromotionPolicyVersion_discount/);
   });
 
   it("refuses editing the deduction of another School's Invoice", async () => {

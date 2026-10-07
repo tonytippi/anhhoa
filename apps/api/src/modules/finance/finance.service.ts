@@ -294,6 +294,13 @@ export class FinanceService {
   private refundWithinPrice(refundUnitPrice: bigint, unitPrice: bigint, field = "refundUnitPrice") {
     if (refundUnitPrice > unitPrice) throw validation(field, `Giá hoàn trả không được vượt đơn giá thu (${unitPrice.toLocaleString("vi-VN")} đ).`);
   }
+  private flag(value: unknown, field: string) {
+    if (typeof value !== "boolean") throw validation(field, "Giá trị phải là có hoặc không.");
+    return value;
+  }
+  private autoLeaveNeedsRefund(auto: boolean, refundUnitPrice: bigint) {
+    if (auto && refundUnitPrice <= 0n) throw validation("autoLeaveDeduction", "Nhập giá hoàn trả lớn hơn 0 để tự động trừ theo ngày nghỉ có phép.");
+  }
   private deductionQuantity(value: unknown) {
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) > 2147483647n)
       throw validation("deductionQuantity", "Số lượng bớt phải là số nguyên không âm.");
@@ -352,6 +359,7 @@ export class FinanceService {
       unitLabel: value.unitLabel,
       defaultUnitPrice: value.defaultUnitPrice.toString(),
       refundUnitPrice: (value.refundUnitPrice ?? 0n).toString(),
+      autoLeaveDeduction: Boolean(value.autoLeaveDeduction),
       taxCategory: value.taxCategory ?? "NOT_DECLARED",
       channel: taxChannel(value.taxCategory ?? "NOT_DECLARED"),
       status,
@@ -1280,7 +1288,10 @@ export class FinanceService {
     return result;
   }
   // A line of a receivable with a refund price always records its proposal, even with no leave days.
-  private deductionProposal(refundUnitPrice: bigint, billingMonth: string, days: Array<{ date: string; leaveDaySourceId?: string }>, afterEndDays: string[] = []) {
+  // Decision 2026-10-07: only a Receivable with autoLeaveDeduction proposes Bớt from leave days; otherwise Bớt starts at 0 and
+  // Finance may still type it, with the Receivable's refund price kept as the line's refund price.
+  private deductionProposal(refundUnitPrice: bigint, billingMonth: string, days: Array<{ date: string; leaveDaySourceId?: string }>, afterEndDays: string[] = [], auto = true) {
+    if (!auto) return { refundUnitPriceSnapshot: refundUnitPrice, deductionQuantity: 0, proposedDeductionQuantity: 0, deductionAmount: 0n, deductionSource: null };
     const quantity = refundUnitPrice > 0n ? days.length : 0;
     return {
       refundUnitPriceSnapshot: refundUnitPrice, deductionQuantity: quantity, proposedDeductionQuantity: quantity, deductionAmount: refundUnitPrice * BigInt(quantity),
@@ -1294,6 +1305,7 @@ export class FinanceService {
   private async lineProposal(tx: any, schoolId: string, invoice: any, receivable: any, unitPrice: bigint) {
     const refund = BigInt(receivable.refundUnitPrice ?? 0) < unitPrice ? BigInt(receivable.refundUnitPrice ?? 0) : unitPrice;
     if (refund <= 0n) return this.deductionProposal(0n, invoice.billingMonth, []);
+    if (!receivable.autoLeaveDeduction) return this.deductionProposal(refund, invoice.billingMonth, [], [], false);
     if (invoice.kind === "SETTLEMENT" && invoice.enrollmentEndedOnSnapshot) {
       const days = await this.settlementDays(tx, schoolId, invoice.studentId, invoice.billingMonth, invoice.enrollmentEndedOnSnapshot);
       return this.deductionProposal(refund, invoice.billingMonth, days.days, days.afterEndDays);
@@ -1356,7 +1368,7 @@ export class FinanceService {
     const days = await this.leaveDeductionDays(client, schoolId, studentIds, billingMonth);
     const previous = new Map<string, Set<string>>();
     if (studentIds.length) {
-      const lines = await client.invoiceLine.findMany({ where: { schoolId, kind: "NORMAL", invoice: { studentId: { in: studentIds }, billingMonth: this.previousMonth(billingMonth).billingMonth, status: { in: ["ISSUED", "CLOSED"] } }, receivable: { refundUnitPrice: { gt: 0n } } }, select: { receivableId: true, invoice: { select: { studentId: true } } } });
+      const lines = await client.invoiceLine.findMany({ where: { schoolId, kind: "NORMAL", invoice: { studentId: { in: studentIds }, billingMonth: this.previousMonth(billingMonth).billingMonth, status: { in: ["ISSUED", "CLOSED"] } }, receivable: { autoLeaveDeduction: true } }, select: { receivableId: true, invoice: { select: { studentId: true } } } });
       for (const line of lines) previous.set(line.invoice.studentId, new Set([...(previous.get(line.invoice.studentId) ?? []), line.receivableId]));
     }
     const ids = [...new Set([...receivableIds, ...[...previous.values()].flatMap((set) => [...set])])];
@@ -1399,9 +1411,11 @@ export class FinanceService {
       unitLabel: this.unitLabel(body?.unitLabel),
       defaultUnitPrice: this.price(body?.defaultUnitPrice),
       refundUnitPrice: this.refundPrice(body?.refundUnitPrice ?? "0"),
+      autoLeaveDeduction: this.flag(body?.autoLeaveDeduction ?? false, "autoLeaveDeduction"),
       taxCategory: this.taxCategory(body?.taxCategory ?? "NOT_DECLARED"),
     };
     this.refundWithinPrice(input.refundUnitPrice, input.defaultUnitPrice);
+    this.autoLeaveNeedsRefund(input.autoLeaveDeduction, input.refundUnitPrice);
     return this.mutate(
       actor,
       identityId,
@@ -1533,6 +1547,7 @@ export class FinanceService {
       kind: given("kind") ? this.groupKind(body.kind, true)! : undefined,
       taxCategory: given("taxCategory") ? this.taxCategory(body.taxCategory) : undefined,
       refundUnitPrice: given("refundUnitPrice") ? this.refundPrice(body.refundUnitPrice) : undefined,
+      autoLeaveDeduction: given("autoLeaveDeduction") ? this.flag(body.autoLeaveDeduction, "autoLeaveDeduction") : undefined,
       reason: this.text(body?.reason, "reason", true, 500)!,
     };
     const payload = { receivableId, ...input, defaultUnitPrice: input.defaultUnitPrice?.toString(), refundUnitPrice: input.refundUnitPrice?.toString() };
@@ -1547,6 +1562,7 @@ export class FinanceService {
         defaultUnitPrice: input.defaultUnitPrice ?? item.defaultUnitPrice,
         taxCategory: input.taxCategory ?? item.taxCategory,
         refundUnitPrice: input.refundUnitPrice ?? item.refundUnitPrice,
+        autoLeaveDeduction: input.autoLeaveDeduction ?? item.autoLeaveDeduction,
       };
       const kindChanged = input.kind !== undefined && input.kind !== item.group.kind;
       const detailsChanged = (Object.keys(next) as Array<keyof typeof next>).some((field) => next[field] !== item[field]);
@@ -1565,6 +1581,7 @@ export class FinanceService {
         if (next.refundUnitPrice !== item.refundUnitPrice) this.refundWithinPrice(next.refundUnitPrice, next.defaultUnitPrice);
         throw validation("defaultUnitPrice", `Đơn giá thu không được thấp hơn giá hoàn trả (${next.refundUnitPrice.toLocaleString("vi-VN")} đ).`);
       }
+      this.autoLeaveNeedsRefund(next.autoLeaveDeduction, next.refundUnitPrice);
       const groupId = kindChanged ? (await this.resolveGroup(tx, schoolId, { kind: input.kind!, groupId: null })).id : item.groupId;
       const updated = await tx.receivable.update({ where: { id: item.id }, data: { ...next, groupId }, include }).catch((error: unknown) => this.catalogConstraintError(error));
       const outcome = this.receivableDto(updated);
@@ -1939,8 +1956,10 @@ export class FinanceService {
     date.setUTCDate(date.getUTCDate() - 1);
     return date.toISOString().slice(0, 10);
   }
-  private promotionValue(value: unknown, type: unknown) {
+  // Decision 2026-10-07: a prepaid package may carry no discount (0); a plain discount must be positive.
+  private promotionValue(value: unknown, type: unknown, prepaid = false) {
     if (type !== "FIXED_VND" && type !== "PERCENTAGE") throw validation("discountType", "Loại giảm không hợp lệ.");
+    if (prepaid && value === "0") return 0n;
     if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 9007199254740991n || (type === "PERCENTAGE" && BigInt(value) > 100n)) throw validation("discountValue", type === "PERCENTAGE" ? "Phần trăm phải từ 1 đến 100." : "Mức giảm VND phải là số nguyên dương an toàn.");
     return BigInt(value);
   }
@@ -2000,7 +2019,7 @@ export class FinanceService {
     const targetIds = Array.isArray(body?.receivableIds) ? body.receivableIds.map((id: unknown) => this.identifier(id, "receivableIds")) : [];
     if (!targetIds.length || new Set(targetIds).size !== targetIds.length) throw validation("receivableIds", "Chọn ít nhất một khoản thu không trùng lặp.");
     const prepaidTermMonths = body?.prepaidTermMonths === undefined || body?.prepaidTermMonths === null || body?.prepaidTermMonths === "" ? null : Number(body.prepaidTermMonths);
-    const input = { policyId: body?.policyId == null ? null : this.identifier(body.policyId, "policyId"), name: this.text(body?.name, "name")!, receivableIds: targetIds, discountType: body?.discountType, discountValue: this.promotionValue(body?.discountValue, body?.discountType), priority: Number(body?.priority), stackingMode: body?.stackingMode, fulfillmentMode: body?.fulfillmentMode ?? "DISCOUNT", prepaidTermMonths, effectiveFrom: this.date(body?.effectiveFrom, "effectiveFrom")!, effectiveTo: this.inclusiveEnd(body?.effectiveTo, "effectiveTo") };
+    const input = { policyId: body?.policyId == null ? null : this.identifier(body.policyId, "policyId"), name: this.text(body?.name, "name")!, receivableIds: targetIds, discountType: body?.discountType, discountValue: this.promotionValue(body?.discountValue, body?.discountType, body?.fulfillmentMode === "PREPAID_COVERAGE"), priority: Number(body?.priority), stackingMode: body?.stackingMode, fulfillmentMode: body?.fulfillmentMode ?? "DISCOUNT", prepaidTermMonths, effectiveFrom: this.date(body?.effectiveFrom, "effectiveFrom")!, effectiveTo: this.inclusiveEnd(body?.effectiveTo, "effectiveTo") };
     if (!Number.isInteger(input.priority) || input.priority < 1) throw validation("priority", "Ưu tiên phải là số nguyên dương.");
     if (input.stackingMode !== "STACKABLE" && input.stackingMode !== "EXCLUSIVE") throw validation("stackingMode", "Quy tắc kết hợp không hợp lệ.");
     if (!["DISCOUNT", "PREPAID_COVERAGE"].includes(input.fulfillmentMode)) throw validation("fulfillmentMode", "Cách thực hiện ưu đãi không hợp lệ.");
@@ -3369,7 +3388,8 @@ export class FinanceService {
   private async previewDeductions<T extends { eligible: any[] }>(client: any, schoolId: string, run: any, preview: T) {
     const context = await this.deductionContext(client, schoolId, run.billingMonth, preview.eligible.map((row) => row.studentId), [...new Set<string>(preview.eligible.flatMap((row) => row.lines.map((line: any) => line.receivableId)))]);
     return { ...preview, eligible: preview.eligible.map((row) => ({ ...row, lines: row.lines.map((line: any) => {
-      const proposal = this.deductionProposal(BigInt(context.receivables.get(line.receivableId)?.refundUnitPrice ?? 0), run.billingMonth, context.days.get(row.studentId) ?? []);
+      const receivable = context.receivables.get(line.receivableId);
+      const proposal = this.deductionProposal(BigInt(receivable?.refundUnitPrice ?? 0), run.billingMonth, context.days.get(row.studentId) ?? [], [], Boolean(receivable?.autoLeaveDeduction));
       if (!proposal.deductionAmount) return { ...line, deductionQuantity: "0", deductionAmount: "0" };
       const netAmount = BigInt(line.netAmount) - proposal.deductionAmount;
       const tax = taxedLine(netAmount, line.taxCategory ?? "NOT_DECLARED");
@@ -3706,7 +3726,7 @@ export class FinanceService {
       const days = await this.settlementDays(tx, schoolId, studentId, run.billingMonth, enrollment.endedOn);
       const context = await this.deductionContext(tx, schoolId, run.billingMonth, [studentId], []);
       const mealLines = [...(context.previous.get(studentId) ?? [])].map((receivableId) => context.receivables.get(receivableId)).filter(Boolean).map((receivable: any) => {
-        const proposal = this.deductionProposal(BigInt(receivable.refundUnitPrice), run.billingMonth, days.days, days.afterEndDays);
+        const proposal = this.deductionProposal(BigInt(receivable.refundUnitPrice), run.billingMonth, days.days, days.afterEndDays, receivable.autoLeaveDeduction);
         const tax = taxedLine(-proposal.deductionAmount, receivable.taxCategory);
         return { channel: taxChannel(receivable.taxCategory), data: { schoolId, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice: receivable.defaultUnitPrice, quantity: 0, grossAmount: 0n, discountAmount: 0n, ...this.deductionData(proposal), netAmount: -proposal.deductionAmount, ...tax, promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [] } } };
       }).filter((line) => line.data.deductionQuantity > 0);
@@ -3776,7 +3796,8 @@ export class FinanceService {
     const days = context?.days.get(item.studentId) ?? [];
     // Snapshots are JSON: BigInt values are stored as strings and a missing source is omitted.
     const deduction = (receivableId: string) => {
-      const proposal = this.deductionProposal(BigInt(context?.receivables.get(receivableId)?.refundUnitPrice ?? 0), run.billingMonth, days);
+      const receivable = context?.receivables.get(receivableId);
+      const proposal = this.deductionProposal(BigInt(receivable?.refundUnitPrice ?? 0), run.billingMonth, days, [], Boolean(receivable?.autoLeaveDeduction));
       return { refundUnitPriceSnapshot: proposal.refundUnitPriceSnapshot.toString(), deductionQuantity: proposal.deductionQuantity, proposedDeductionQuantity: proposal.proposedDeductionQuantity, deductionAmount: proposal.deductionAmount.toString(), ...(proposal.deductionSource ? { deductionSource: proposal.deductionSource } : {}) };
     };
     const templateIds = new Set([...templateLines.map((line: any) => line.receivableId), ...(item.extracurricularLines ?? []).map((line: any) => line.receivableId)]);

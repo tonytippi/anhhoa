@@ -218,7 +218,7 @@ describe('FinanceService validation', () => {
   it('replays an existing idempotent result and rejects an operation ID collision', async () => {
     const operation = { id: crypto.randomUUID(), fingerprint: expect.any(String), status: 'COMPLETED', outcome: { id: 'group' } };
     const prisma = { operation: { findFirst: vi.fn().mockResolvedValueOnce({ ...operation, fingerprint: undefined }).mockResolvedValueOnce(null) }, $transaction: vi.fn() };
-    const key = crypto.randomUUID(); const body = { kind: 'FIXED', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000' }; const input = { kind: 'FIXED', groupId: null, code: null, displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000', refundUnitPrice: '0', taxCategory: 'NOT_DECLARED' };
+    const key = crypto.randomUUID(); const body = { kind: 'FIXED', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000' }; const input = { kind: 'FIXED', groupId: null, code: null, displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: '1000', refundUnitPrice: '0', autoLeaveDeduction: false, taxCategory: 'NOT_DECLARED' };
     prisma.operation.findFirst.mockReset().mockResolvedValueOnce({ ...operation, fingerprint: JSON.stringify(input) });
     const { requestFingerprint } = await import('../common/mutation-protection.js');
     prisma.operation.findFirst.mockReset().mockResolvedValueOnce({ ...operation, fingerprint: requestFingerprint(input) });

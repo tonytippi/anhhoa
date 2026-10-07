@@ -678,6 +678,26 @@ Source: sprint-change-proposal-2026-10-07-invoice-lines-inline-edit.
 
 **And** while edits are unsaved, issue/add/remove are locked and leaving the page asks first.
 
+### Story 5.44: Tự động trừ theo ngày nghỉ là lựa chọn của khoản thu
+
+As a Finance user,
+I want to choose which receivables refund leave days automatically, keep units free and sell prepaid packages without discount,
+So that a per-session or per-unit receivable is not refunded by leave days and a multi-month charge is handled on purpose.
+
+Source: sprint-change-proposal-2026-10-07-receivable-auto-leave-deduction.
+
+**Acceptance Criteria:**
+
+**Given** a Receivable with a refund price
+**When** Finance turns on `Tự động trừ theo ngày nghỉ có phép`
+**Then** runs propose Bớt from last month's approved leave days as before; without it Bớt starts at 0 and can be typed on the line.
+
+**And** turning it on without a refund price is refused by the API and PostgreSQL.
+
+**And** a prepaid package version may have discount 0, a plain discount may not.
+
+**And** a DRAFT line of a receivable sold as an active prepaid package warns, without blocking, when its quantity is above 1.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

@@ -86,7 +86,7 @@ describe("FinanceWorkspace", () => {
       groups: [{ id: "group-a", name: "Khoản thu cố định", kind: "FIXED" as const }, { id: "group-b", name: "Khoản thu linh hoạt", kind: "FLEXIBLE" as const }],
       receivables: [
         { id: "receivable-a", groupId: "group-a", kind: "FIXED" as const, kindLocked: true, code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "1500000", refundUnitPrice: "0", taxCategory: "VAT_5" as const, channel: "SCHOOL" as const, status: "ACTIVE" as const, available: true },
-        { id: "receivable-c", groupId: "group-a", kind: "FIXED" as const, code: "TA", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", refundUnitPrice: "28000", taxCategory: "NOT_DECLARED" as const, channel: "PERSONAL" as const, status: "ACTIVE" as const, available: true },
+        { id: "receivable-c", groupId: "group-a", kind: "FIXED" as const, code: "TA", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", refundUnitPrice: "28000", autoLeaveDeduction: true, taxCategory: "NOT_DECLARED" as const, channel: "PERSONAL" as const, status: "ACTIVE" as const, available: true },
         { id: "receivable-b", groupId: "group-b", kind: "FLEXIBLE" as const, code: null, displayName: "Dã ngoại", unitLabel: "lần", defaultUnitPrice: "350000", status: "INACTIVE" as const, available: false },
       ],
     };
@@ -96,7 +96,7 @@ describe("FinanceWorkspace", () => {
     expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Khoản thu", "Mã", "Đơn giá mặc định (chưa VAT)", "Giá hoàn trả", "Thuế", "Trạng thái", "Tùy chọn"]);
     const rows = within(table).getAllByRole("row");
     expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Học phíKhoản thu cố định", "HP", "1.500.000 đ / tháng", "—", "5%Tài khoản trường", "Đang áp dụng", "..."]);
-    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Tiền ănKhoản thu cố định · đơn vị ngày", "TA", "35.000 đ / ngày", "28.000 đ / ngày", "Không kê khaiTài khoản cá nhân", "Đang áp dụng", "..."]);
+    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Tiền ănKhoản thu cố định · đơn vị ngày", "TA", "35.000 đ / ngày", "28.000 đTự trừ theo ngày nghỉ", "Không kê khaiTài khoản cá nhân", "Đang áp dụng", "..."]);
     expect(within(rows[3]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Dã ngoạiKhoản thu linh hoạt · đơn vị lần", "-", "350.000 đ / lần", "—", "Không kê khaiTài khoản cá nhân", "Ngừng áp dụng", "..."]);
     expect(table.parentElement?.classList.contains("table-scroll")).toBe(true);
   });
@@ -180,9 +180,13 @@ describe("FinanceWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Đơn vị tính"), { target: { value: "tháng" } });
     fireEvent.change(screen.getByLabelText("Giá / đơn vị (chưa VAT)"), { target: { value: "600000" } });
     expect((screen.getByLabelText("Giá hoàn trả / đơn vị (chưa VAT)") as HTMLInputElement).value).toBe("0");
+    // Decision 2026-10-07: the unit is free text with suggestions; automatic leave deduction needs a refund price.
+    expect(Array.from(document.querySelectorAll("#receivable-units option")).map((option) => (option as HTMLOptionElement).value)).toEqual(["tháng", "năm", "ngày", "buổi", "unit", "lần", "bộ", "cái"]);
+    expect(screen.getByLabelText("Tự động trừ theo ngày nghỉ có phép")).toHaveProperty("disabled", true);
     fireEvent.change(screen.getByLabelText("Giá hoàn trả / đơn vị (chưa VAT)"), { target: { value: "700000" } });
+    fireEvent.click(screen.getByLabelText("Tự động trừ theo ngày nghỉ có phép"));
     fireEvent.click(screen.getByRole("button", { name: "Lưu khoản thu" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables") && options?.method === "POST" && JSON.parse(String(options.body)).taxCategory === "VAT_10" && JSON.parse(String(options.body)).refundUnitPrice === "700000" && JSON.parse(String(options.body)).kind === "EXTRACURRICULAR" && !("groupId" in JSON.parse(String(options.body))))).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/receivables") && options?.method === "POST" && JSON.parse(String(options.body)).taxCategory === "VAT_10" && JSON.parse(String(options.body)).refundUnitPrice === "700000" && JSON.parse(String(options.body)).autoLeaveDeduction === true && JSON.parse(String(options.body)).kind === "EXTRACURRICULAR" && !("groupId" in JSON.parse(String(options.body))))).toBe(true));
     fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Học phí" }), { key: "ArrowDown" });
     const menu = await screen.findByRole("menu");
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Chỉnh sửa", "Ngừng áp dụng"]);
@@ -1502,6 +1506,19 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
     expect((await screen.findAllByText("200")).length).toBeGreaterThanOrEqual(2);
     expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-a/lines") && (options as RequestInit).method === "PUT" && (options as RequestInit).body === JSON.stringify({ lines: [{ lineId: "line-a", quantity: "3" }] }))).toBe(true);
+  });
+  it("warns, without blocking, when a receivable sold as a prepaid package is billed for several months", async () => {
+    const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "3500000" }] };
+    const line = { id: "line-fee", receivableId: "fee", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "3500000", quantity: "1", amount: "3500000", grossAmount: "3500000", discountAmount: "0", netAmount: "3500000", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null, promotionEvaluation: null, promotionApplicationSnapshot: null };
+    const draft = { id: "invoice-a", status: "DRAFT", total: "3500000", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [line] };
+    const prepaid = { id: "policy", name: "Nộp trước 12 tháng", versions: [{ id: "version", version: 1, status: "ACTIVE", discountType: "PERCENTAGE", discountValue: "0", priority: 1, stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 12, effectiveFrom: "2026-09-01", effectiveTo: null, targets: [{ id: "target", receivableId: "fee", receivableName: "Học phí" }], assignments: [] }] };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.endsWith("/lines/preview") || url.endsWith("/invoices/invoice-a") ? response(draft) : url.endsWith(`/collection-runs/${run.id}`) ? response(routedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [routedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [prepaid] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-a" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} />);
+    const quantity = await screen.findByLabelText("Số lượng · Học phí");
+    expect(screen.queryByText(/bằng số lượng thì các tháng sau vẫn bị thu/)).toBeNull();
+    fireEvent.change(quantity, { target: { value: "12" } });
+    expect(await screen.findByText(/Thu 12 tháng bằng số lượng thì các tháng sau vẫn bị thu/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Lưu thay đổi" })).toHaveProperty("disabled", false);
   });
   it("reconciles an uncertain Invoice add with the Operation outcome and run summary", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "0" }] };

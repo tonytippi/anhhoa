@@ -12,6 +12,8 @@ import {
   type ReceivableEditValues,
   type ReceivableKind,
   type TaxCategory,
+  AutoLeaveDeductionField,
+  UnitSuggestions,
 } from "./receivable-edit-fields";
 
 type Group = { id: string; name: string; kind: ReceivableKind };
@@ -31,6 +33,7 @@ type Receivable = {
   unitLabel: string;
   defaultUnitPrice: string;
   refundUnitPrice?: string;
+  autoLeaveDeduction?: boolean;
   taxCategory?: TaxCategory;
   channel?: PaymentChannel;
   status: "ACTIVE" | "INACTIVE" | null;
@@ -701,6 +704,7 @@ function InvoiceLinesTable({
   caption,
   totalLabel,
   preview,
+  prepaidReceivableIds,
   drafts,
   errors,
   disabled,
@@ -712,6 +716,7 @@ function InvoiceLinesTable({
   caption: string;
   totalLabel?: string;
   preview: Invoice | undefined;
+  prepaidReceivableIds: Set<string>;
   drafts: Record<string, LineDraft>;
   errors: Record<string, string>;
   disabled: boolean;
@@ -774,6 +779,11 @@ function InvoiceLinesTable({
             const needsDeductionReason = Boolean(draft && deductionChanged(item, draft) && deductionDiffersFromProposal(item, draft));
             const packageRefund = item.deductionSource?.type === "PREPAID_PACKAGE_V1";
             const lineErrors = Object.keys(errors).filter((key) => key.startsWith(`lines.${item.id}.`));
+            // Decision 2026-10-07: quantity is Finance's call; a multi-period quantity on a receivable sold as a prepaid package is
+            // only warned about, because later runs still charge it and a withdrawal does not refund it.
+            const quantity = draft?.quantity ?? item.quantity;
+            const multiPeriod =
+              editable && item.receivableId !== null && prepaidReceivableIds.has(item.receivableId) && /^\d+$/.test(quantity) && Number(quantity) > 1;
             return (
               <Fragment key={item.id}>
                 <tr className={edited ? "finance-line-edited" : undefined}>
@@ -918,9 +928,15 @@ function InvoiceLinesTable({
                     )}
                   </td>
                 </tr>
-                {editable && draft && (needsPriceReason || needsDeductionReason || lineErrors.length > 0) && (
+                {editable && (multiPeriod || (draft && (needsPriceReason || needsDeductionReason || lineErrors.length > 0))) && (
                   <tr className="finance-line-reasons">
                     <td colSpan={9}>
+                      {multiPeriod && (
+                        <p className="finance-line-warning">
+                          Thu {quantity} {item.unitLabel} bằng số lượng thì các tháng sau vẫn bị thu và không được hoàn khi học
+                          sinh nghỉ học. Thu nhiều tháng nên dùng gói nộp trước ở mục Quản lý ưu đãi nộp trước bên dưới.
+                        </p>
+                      )}
                       {needsPriceReason &&
                         cell(item, "overrideReason", `Lý do đổi đơn giá · ${item.receivableName}`, {
                           placeholder: "Lý do đổi đơn giá (bắt buộc)",
@@ -935,7 +951,7 @@ function InvoiceLinesTable({
                           disabled={disabled}
                           onClick={() =>
                             onDraft(item, {
-                              ...draft,
+                              ...(draft ?? lineDraft(item)),
                               deductionQuantity: item.proposedDeductionQuantity ?? "0",
                               refundUnitPrice: item.deductionSource?.proposedUnitPrice ?? "0",
                               deductionReason: "",
@@ -1075,6 +1091,7 @@ export function FinanceWorkspace({
     unitLabel: "",
     defaultUnitPrice: "",
     refundUnitPrice: "0",
+    autoLeaveDeduction: false,
     taxCategory: "NOT_DECLARED" as TaxCategory,
   });
   const [settlements, setSettlements] = useState<{ runId: string; students: Settlement[] }>();
@@ -1139,6 +1156,11 @@ export function FinanceWorkspace({
   const promotionVersions = promotionPolicies.flatMap((policy) =>
     (policy.versions ?? []).map((version) => ({ policy, version })),
   );
+  const prepaidReceivableIds = new Set(
+    promotionVersions
+      .filter(({ version }) => version.status === "ACTIVE" && version.fulfillmentMode === "PREPAID_COVERAGE")
+      .flatMap(({ version }) => version.targets.map((target) => target.receivableId)),
+  );
   const currentAssignments = promotionVersions.flatMap(({ policy, version }) =>
     (version.assignments ?? []).filter(activeAssignment).map((item) => ({ policy, version, item })),
   );
@@ -1150,6 +1172,7 @@ export function FinanceWorkspace({
       unitLabel: "",
       defaultUnitPrice: "",
       refundUnitPrice: "0",
+      autoLeaveDeduction: false,
       taxCategory: "NOT_DECLARED",
     });
   const resetPromotion = () => setPromotion(defaultPromotion());
@@ -2848,9 +2871,17 @@ export function FinanceWorkspace({
                         {vnd(item.defaultUnitPrice)} đ / {item.unitLabel}
                       </td>
                       <td className="money">
-                        {BigInt(item.refundUnitPrice ?? "0") > 0n
-                          ? `${vnd(item.refundUnitPrice!)} đ / ${item.unitLabel}`
-                          : "—"}
+                        {BigInt(item.refundUnitPrice ?? "0") > 0n ? (
+                          <>
+                            {vnd(item.refundUnitPrice!)} đ
+                            <br />
+                            <small className="muted">
+                              {item.autoLeaveDeduction ? "Tự trừ theo ngày nghỉ" : "Bớt nhập tay"}
+                            </small>
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td>
                         {taxShortLabel[item.taxCategory ?? "NOT_DECLARED"]}
@@ -3943,6 +3974,7 @@ export function FinanceWorkspace({
                           }
                           totalLabel={noticeParts.length > 1 ? `Tổng phần ${index + 1}` : undefined}
                           preview={linePreview}
+                          prepaidReceivableIds={prepaidReceivableIds}
                           drafts={lineDrafts}
                           errors={{ ...(scope === "invoice" ? errors : {}), ...previewErrors }}
                           disabled={Boolean(pending)}
@@ -4799,25 +4831,39 @@ export function FinanceWorkspace({
                     <input
                       inputMode="numeric"
                       value={receivable.refundUnitPrice}
-                      onChange={(event) => setReceivable({ ...receivable, refundUnitPrice: event.target.value })}
+                      onChange={(event) =>
+                        setReceivable({
+                          ...receivable,
+                          refundUnitPrice: event.target.value,
+                          autoLeaveDeduction: /^0*$/.test(event.target.value) ? false : receivable.autoLeaveDeduction,
+                        })
+                      }
                       aria-describedby="receivable-refund-hint"
                       {...field("receivable", "refundUnitPrice")}
                     />
                   </label>
                   <small className="muted" id="receivable-refund-hint">
-                    Số tiền trả lại cho mỗi đơn vị nghỉ có phép của tháng trước, không vượt giá thu. Để 0 nếu không hoàn
-                    trả.
+                    Số tiền trả lại cho mỗi đơn vị bớt, không vượt giá thu. Để 0 nếu không hoàn trả.
                   </small>
                 </div>
                 <label>
                   Đơn vị tính
                   <input
+                    list="receivable-units"
                     placeholder="Ví dụ: tháng, ngày, buổi"
                     value={receivable.unitLabel}
                     onChange={(event) => setReceivable({ ...receivable, unitLabel: event.target.value })}
                     {...field("receivable", "unitLabel")}
                   />
+                  <UnitSuggestions id="receivable-units" />
                 </label>
+                <AutoLeaveDeductionField
+                  id="receivable-auto"
+                  checked={receivable.autoLeaveDeduction}
+                  refundUnitPrice={receivable.refundUnitPrice}
+                  onChange={(autoLeaveDeduction) => setReceivable({ ...receivable, autoLeaveDeduction })}
+                  field={(name) => field("receivable", name)}
+                />
                 <div>
                   <label>
                     Mức thuế suất
@@ -5523,6 +5569,9 @@ export function FinanceWorkspace({
                 {...promotionField("discountValue")}
               />
             </label>
+            {promotion.fulfillmentMode === "PREPAID_COVERAGE" && (
+              <small className="muted finance-policy-full">Gói nộp trước có thể để mức giảm 0 nếu trường không giảm giá.</small>
+            )}
             {scope === "promotion" && errors.discountValue && (
               <small id="invoice-promotion-discountValue-error" className="finance-policy-full">
                 {errors.discountValue}

@@ -1492,6 +1492,7 @@ model Receivable {
   defaultUnitPrice       BigInt                          @db.BigInt
   taxCategory            ReceivableTaxCategory           @default(NOT_DECLARED)
   refundUnitPrice        BigInt                          @default(0) @db.BigInt
+  autoLeaveDeduction     Boolean                         @default(false)
   createdAt              DateTime                        @default(now()) @db.Timestamptz(3)
   school                 School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   group                  ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)

@@ -1845,6 +1845,9 @@ tbody tr:last-child td {
 .finance-line-reasons > td { background: #fffbeb; }
 .finance-line-reasons td { display: table-cell; }
 .finance-line-reasons .finance-cell-field { margin-right: 12px; }
+.finance-line-warning { margin: 0 0 6px; color: #92400e; font-size: .8125rem; }
+.finance-checkbox { display: flex; align-items: center; gap: 8px; }
+.finance-checkbox input { width: auto; min-height: 0; }
 .finance-line-reasons input { width: min(420px, 60vw); }
 .finance-save-bar { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid #f5d38a; border-radius: 10px; background: #fffbeb; box-shadow: 0 -4px 12px rgb(36 38 31 / 8%); }
 .finance-save-bar > span { flex: 1 1 260px; }
