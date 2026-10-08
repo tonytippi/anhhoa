@@ -117,7 +117,7 @@ async function roster(input: Awaited<ReturnType<typeof graph>>) {
 async function enrolled(
   input: Awaited<ReturnType<typeof roster>>,
   options: {
-    lifecycle?: "ENROLLED" | "TRIAL";
+    lifecycle?: "ENROLLED" | "TRIAL" | "EXTRACURRICULAR_ONLY";
     classId?: string;
     assignment?: boolean;
     effectiveFrom?: string;
@@ -133,24 +133,26 @@ async function enrolled(
     },
   });
   const classId = options.classId ?? input.activeClass.id;
+  const extracurricularOnly = options.lifecycle === "EXTRACURRICULAR_ONLY";
   const enrollment = await prisma.studentEnrollment.create({
     data: {
       schoolId: input.school.id,
       studentId: student.id,
       schoolYearId: input.year.id,
-      classId,
+      classId: extracurricularOnly ? null : classId,
       lifecycle: options.lifecycle ?? "ENROLLED",
       effectiveFrom: date("2026-01-01"),
       schoolYearName: input.year.name,
       schoolYearStartsOn: input.year.startsOn,
       schoolYearEndsOn: input.year.endsOn,
-      className:
-        classId === input.archivedClass.id
+      className: extracurricularOnly
+        ? null
+        : classId === input.archivedClass.id
           ? input.archivedClass.name
           : input.activeClass.name,
     },
   });
-  if (options.assignment !== false)
+  if (options.assignment !== false && !extracurricularOnly)
     await prisma.enrollmentClassAssignment.create({
       data: {
         schoolId: input.school.id,
@@ -1227,6 +1229,51 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       // Positive control: the same row with own-School provenance is accepted (and removed again).
       const row = await insert({});
       await prisma.collectionRunExtracurricularExclusion.delete({ where: { id: row.id } });
+    });
+
+    it("bills an extracurricular-only Student only its extracurricular and named lines, without a class snapshot, and needs a chosen account at issue", async () => {
+      const x = await extraFixture();
+      const trip = outcomeId(await finance.createReceivable(x.current.identity.id, x.current.school.id, uuid(), uuid(), { kind: "FLEXIBLE", displayName: "Dã ngoại", unitLabel: "lần", defaultUnitPrice: "300" }));
+      const camp = outcomeId(await finance.createReceivable(x.current.identity.id, x.current.school.id, uuid(), uuid(), { kind: "FLEXIBLE", displayName: "Trại hè", unitLabel: "lần", defaultUnitPrice: "500" }));
+      const official = await enrolled(x.current);
+      const only = await enrolled(x.current, { lifecycle: "EXTRACURRICULAR_ONLY" });
+      const idle = await enrolled(x.current, { lifecycle: "EXTRACURRICULAR_ONLY" });
+      await x.join(x.a1, [official.enrollment.id, only.enrollment.id]);
+      // The member list and picker name the Student's class `Chỉ ngoại khóa` and filter on it.
+      const members: any = await finance.extracurricularClass(x.current.identity.id, x.current.school.id, x.a1, { month: "2026-09", officialClassId: "EXTRACURRICULAR_ONLY" });
+      expect(members.members.map((row: any) => [row.enrollmentId, row.officialClassName])).toEqual([[only.enrollment.id, "Chỉ ngoại khóa"]]);
+      const candidates: any = await finance.extracurricularCandidates(x.current.identity.id, x.current.school.id, x.ve, { officialClassId: "EXTRACURRICULAR_ONLY" });
+      expect(candidates.candidates.map((row: any) => row.enrollmentId).sort()).toEqual([only.enrollment.id, idle.enrollment.id].sort());
+      expect(candidates.officialClasses).toContainEqual({ id: "EXTRACURRICULAR_ONLY", name: "Chỉ ngoại khóa" });
+      const runId = await x.openFreshRun(true);
+      const version = async () => (await finance.run(x.current.identity.id, x.current.school.id, runId)).version;
+      await finance.saveTemplateLine(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { receivableId: trip, quantity: "1", scope: { type: "STUDENTS", studentIds: [only.student.id] }, expectedVersion: await version() });
+      await finance.saveTemplateLine(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { receivableId: camp, quantity: "1", scope: { type: "ALL" }, expectedVersion: await version() });
+      const preview: any = await previewOf(x, runId);
+      const receivables = (studentId: string) => linesByStudent(preview, studentId).map((line: any) => line.receivableId).sort();
+      expect(receivables(official.student.id)).toEqual([x.fee, x.english, camp].sort());
+      expect(receivables(only.student.id)).toEqual([x.english, trip].sort());
+      expect(preview.eligible.find((row: any) => row.studentId === only.student.id)).toMatchObject({ classId: null, className: "Chỉ ngoại khóa", totals: { amount: "900" } });
+      expect(preview.skips.find((skip: any) => skip.studentId === idle.student.id)).toMatchObject({ reason: "NO_APPLICABLE_LINES" });
+      // The scope picker offers extracurricular-only Students under their label.
+      const options: any = await finance.runScopeOptions(x.current.identity.id, x.current.school.id, runId, { officialClassId: "EXTRACURRICULAR_ONLY" });
+      expect(options.students.map((item: any) => [item.id, item.className]).sort()).toEqual([[only.student.id, "Chỉ ngoại khóa"], [idle.student.id, "Chỉ ngoại khóa"]].sort());
+      await finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: preview.fingerprint });
+      expect(await generate(x.current, runId)).toMatchObject({ status: "COMPLETED" });
+      const invoice = await prisma.invoice.findFirstOrThrow({ where: { schoolId: x.current.school.id, collectionRunId: runId, studentId: only.student.id }, include: { lines: true } });
+      expect(invoice).toMatchObject({ classIdSnapshot: null, classNameSnapshot: null, classAssignmentIdSnapshot: null, enrollmentLifecycleSnapshot: "EXTRACURRICULAR_ONLY", total: 900n });
+      expect(invoice.lines.map((line) => line.receivableId).sort()).toEqual([x.english, trip].sort());
+      // No class default account: issuing the personal part needs an account chosen by Finance.
+      const operationId = uuid();
+      await prisma.operation.create({ data: { id: operationId, schoolId: x.current.school.id, membershipId: x.current.membership.id, actorIdentityId: x.current.identity.id, actorType: "SCHOOL_MEMBERSHIP", actorReference: x.current.membership.id, route: "fixture", fingerprint: "fixture", idempotencyKey: uuid(), status: "COMPLETED" } });
+      const bank = await prisma.bankAccount.create({ data: { schoolId: x.current.school.id, receivingBank: "Ngân hàng Ánh Hoa", bankBin: "970436", accountNumber: "123456789", accountHolderName: "Ánh Hoa", transferTemplate: "{{studentName}} {{className}}", actorIdentityId: x.current.identity.id, membershipId: x.current.membership.id } });
+      await prisma.bankAccountLifecycleTransition.create({ data: { schoolId: x.current.school.id, bankAccountId: bank.id, status: "ACTIVE", actorIdentityId: x.current.identity.id, membershipId: x.current.membership.id, operationId, sequence: 1 } });
+      await prisma.financePolicy.create({ data: { schoolId: x.current.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", actorIdentityId: x.current.identity.id, membershipId: x.current.membership.id } });
+      await expect(finance.issueInvoice(x.current.identity.id, x.current.school.id, invoice.id, uuid(), uuid(), {})).rejects.toMatchObject({ status: 409, response: { code: "PERSONAL_BANK_ACCOUNT_REQUIRED" } });
+      await finance.issueInvoice(x.current.identity.id, x.current.school.id, invoice.id, uuid(), uuid(), { bankAccountId: bank.id });
+      expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).toMatchObject({ status: "ISSUED", transferContentSnapshot: "Hoc sinh Finance" });
+      const queue: any = await finance.receiptQueue(x.current.identity.id, x.current.school.id, { billingMonth: "2026-09", classIdSnapshot: "EXTRACURRICULAR_ONLY" });
+      expect(queue.invoices.map((row: any) => [row.id, row.class])).toEqual([[invoice.id, { id: "EXTRACURRICULAR_ONLY", name: "Chỉ ngoại khóa" }]]);
     });
 
     it("generates extracurricular lines with immutable provenance, applies promotions, never rewrites after GENERATED, and adds a Student from live memberships and the snapshot", async () => {

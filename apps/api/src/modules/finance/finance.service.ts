@@ -18,7 +18,12 @@ import { transferContent, vietQrBankCode, vietQrPayload } from "./vietqr.js";
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 // Decision 2026-10-02: pre-registered (SCHEDULED_TO_START) Students may join; billing eligibility stays with the run.
-const membershipLifecycles = ["ENROLLED", "SCHEDULED_TO_START"] as const;
+const membershipLifecycles = ["ENROLLED", "SCHEDULED_TO_START", "EXTRACURRICULAR_ONLY"] as const;
+// Decision 2026-10-08: an EXTRACURRICULAR_ONLY enrollment has no official class; filters use this value and DTOs this label.
+const EXTRACURRICULAR_ONLY = "EXTRACURRICULAR_ONLY" as const;
+const extracurricularOnlyLabel = "Chỉ ngoại khóa";
+const classLabel = (name: string | null | undefined) => name ?? extracurricularOnlyLabel;
+const officialClassFilter = (value: unknown) => (value === EXTRACURRICULAR_ONLY ? EXTRACURRICULAR_ONLY : null);
 const receivableGroupKinds = ["FIXED", "FLEXIBLE", "EXTRACURRICULAR"] as const;
 const routes = {
   receivable: "POST /api/app/schools/:schoolId/finance/receivables",
@@ -196,8 +201,8 @@ export class FinanceService {
     const cash = filters.groupName ? [] : events;
     const months = [...new Set<string>(issued.map((item: any) => item.billingMonth).filter(Boolean))].sort().slice(-6);
     const byMonth = months.map((month) => ({ billingMonth: month, netBilled: sum(issued.filter((item: any) => item.billingMonth === month), obligation).toString(), actualReceipt: sum(cash.filter((item: any) => item.type === "RECEIPT_POSTED" && item.billingMonth === month), (item: any) => BigInt(item.amount ?? 0)).toString() }));
-    const classes = [...new Set<string>(currentInvoices.map((item: any) => item.className ?? "Chưa có lớp"))].sort((a, b) => a.localeCompare(b, "vi"));
-    const byClass = classes.map((className) => { const items = currentInvoices.filter((item: any) => (item.className ?? "Chưa có lớp") === className); return { className, netBilled: sum(items, (item: any) => BigInt(item.netAmount)).toString(), actualReceipt: sum(items, (item: any) => BigInt(item.actualReceipt)).toString(), outstanding: sum(items, (item: any) => BigInt(item.outstanding)).toString() }; });
+    const classes = [...new Set<string>(currentInvoices.map((item: any) => classLabel(item.className)))].sort((a, b) => a.localeCompare(b, "vi"));
+    const byClass = classes.map((className) => { const items = currentInvoices.filter((item: any) => classLabel(item.className) === className); return { className, netBilled: sum(items, (item: any) => BigInt(item.netAmount)).toString(), actualReceipt: sum(items, (item: any) => BigInt(item.actualReceipt)).toString(), outstanding: sum(items, (item: any) => BigInt(item.outstanding)).toString() }; });
     const outcomeOf = (invoiceId: string) => cash.find((item: any) => item.invoiceId === invoiceId && item.type === "RECEIPT_POSTED")?.provenance?.outcome ?? (cash.some((item: any) => item.invoiceId === invoiceId && item.type === "PAYOUT_POSTED") ? "REFUNDED" : null);
     const runIds = [...new Set<string>(issued.map((item: any) => item.collectionRunId).filter(Boolean))];
     const runStatus = runIds.map((collectionRunId) => {
@@ -213,7 +218,7 @@ export class FinanceService {
     const bucket = (from: number, to: number | null) => sum(open.filter((item: any) => { const days = overdueDays(item.invoiceId); return days >= from && (to === null || days <= to); }), (item: any) => BigInt(item.outstanding)).toString();
     const aging = [{ key: "NOT_DUE", amount: sum(open.filter((item: any) => overdueDays(item.invoiceId) <= 0), (item: any) => BigInt(item.outstanding)).toString() }, { key: "1_15", amount: bucket(1, 15) }, { key: "16_30", amount: bucket(16, 30) }, { key: "OVER_30", amount: bucket(31, null) }];
     const debtors = new Map<string, { studentId: string; studentCode: string; studentName: string; className: string; outstanding: bigint; invoices: number; maxOverdueDays: number }>();
-    for (const item of open) { const invoice = byId.get(item.invoiceId); if (!invoice) continue; const current = debtors.get(invoice.studentId) ?? { studentId: invoice.studentId, studentCode: invoice.studentCodeSnapshot, studentName: invoice.studentNameSnapshot, className: invoice.classNameSnapshot, outstanding: 0n, invoices: 0, maxOverdueDays: 0 }; current.outstanding += BigInt(item.outstanding); current.invoices += 1; current.maxOverdueDays = Math.max(current.maxOverdueDays, overdueDays(item.invoiceId)); debtors.set(invoice.studentId, current); }
+    for (const item of open) { const invoice = byId.get(item.invoiceId); if (!invoice) continue; const current = debtors.get(invoice.studentId) ?? { studentId: invoice.studentId, studentCode: invoice.studentCodeSnapshot, studentName: invoice.studentNameSnapshot, className: classLabel(invoice.classNameSnapshot), outstanding: 0n, invoices: 0, maxOverdueDays: 0 }; current.outstanding += BigInt(item.outstanding); current.invoices += 1; current.maxOverdueDays = Math.max(current.maxOverdueDays, overdueDays(item.invoiceId)); debtors.set(invoice.studentId, current); }
     const topDebtors = [...debtors.values()].sort((a, b) => (b.outstanding > a.outstanding ? 1 : b.outstanding < a.outstanding ? -1 : a.studentCode.localeCompare(b.studentCode))).slice(0, 10).map((item) => ({ ...item, outstanding: item.outstanding.toString() }));
     // Cash moves by business week (Monday, Asia/Ho_Chi_Minh) of their posting time.
     const weekOf = (date: Date) => { const local = new Date(date.getTime() + 7 * 3_600_000); const day = (local.getUTCDay() + 6) % 7; return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - day)).toISOString().slice(0, 10); };
@@ -520,7 +525,7 @@ export class FinanceService {
       id: invoice.id, status: invoice.status, total: invoice.total.toString(), billingMonth: invoice.billingMonth,
       channel: invoice.channel ?? "PERSONAL", kind: invoice.kind ?? "NORMAL", collectionRunId: invoice.collectionRunId,
       enrollmentEndedOn: invoice.enrollmentEndedOnSnapshot?.toISOString().slice(0, 10) ?? null,
-      student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot, className: invoice.classNameSnapshot },
+      student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot, className: classLabel(invoice.classNameSnapshot) },
       lines: (invoice.lines ?? []).map((line: any) => this.lineDto(line, invoice.status !== "DRAFT")).sort(this.amountDescending),
       revisesInvoiceId: invoice.revisesInvoiceId ?? null,
       revisionReason: invoice.revisionReason ?? null,
@@ -571,7 +576,7 @@ export class FinanceService {
     const profile = await this.prisma.schoolProfileVersion.findFirst({ where: { schoolId, effectiveFrom: { lte: new Date(`${issuedDay}T00:00:00.000Z`) } }, orderBy: { effectiveFrom: "desc" } });
     const png = await renderPaymentImage({
       schoolName: profile?.schoolName ?? invoice.school.name, billingMonth: invoice.billingMonth,
-      studentCode: invoice.studentCodeSnapshot, studentName: invoice.studentNameSnapshot, className: invoice.classNameSnapshot,
+      studentCode: invoice.studentCodeSnapshot, studentName: invoice.studentNameSnapshot, className: classLabel(invoice.classNameSnapshot),
       dueOn: parts.map((part) => part.dueOn.toISOString().slice(0, 10)).sort()[0]!,
       parts: parts.map((part) => this.paymentImagePart(part)),
     });
@@ -613,8 +618,8 @@ export class FinanceService {
     const value = (type: string) => parts.find((part) => part.type === type)!.value;
     return new Date(Date.UTC(Number(value("year")), Number(value("month")) - 1, Number(value("day"))));
   }
-  private transferContent(studentName: string, className: string) {
-    return transferContent(studentName, className);
+  private transferContent(studentName: string, className: string | null) {
+    return transferContent(studentName, className ?? "");
   }
   private async obligationCode(tx: any, schoolId: string, issuedAt: Date) {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).formatToParts(issuedAt);
@@ -690,7 +695,7 @@ export class FinanceService {
   // A payment notice is every Invoice of the Student in the run; each part keeps its own settlement.
   private async invoiceWithNotice(client: any, invoice: any) {
     const parts = await client.invoice.findMany({ where: { schoolId: invoice.schoolId, studentId: invoice.studentId, collectionRunId: invoice.collectionRunId, status: { not: "CANCELLED" } }, include: this.invoiceInclude, orderBy: [{ channel: "asc" }, { createdAt: "asc" }] });
-    const classroom = await client.class?.findFirst({ where: { id: invoice.classIdSnapshot, schoolId: invoice.schoolId }, select: { defaultBankAccountId: true } });
+    const classroom = invoice.classIdSnapshot ? await client.class?.findFirst({ where: { id: invoice.classIdSnapshot, schoolId: invoice.schoolId }, select: { defaultBankAccountId: true } }) : null;
     // Server-owned totals of the notice (the browser never adds money): every live part, and the issued, still-unsettled parts the Parent is asked to pay.
     const live = (parts.length ? parts : [invoice]).filter((part: any) => part.id !== invoice.revisesInvoiceId && !(part.revisesInvoiceId && part.status === "DRAFT" && part.id !== invoice.id));
     const noticeTotal = live.reduce((total: bigint, part: any) => total + BigInt(part.total), 0n).toString();
@@ -705,7 +710,7 @@ export class FinanceService {
   private async receiptQueueFilters(schoolId: string, query: any) {
     const schoolYearId = query?.schoolYearId ? this.identifier(query.schoolYearId, "schoolYearId") : null;
     const billingMonth = query?.billingMonth === "ALL" ? "ALL" : query?.billingMonth == null || query.billingMonth === "" ? (await this.receiptQueueMonths(schoolId, schoolYearId))[0] ?? this.currentBillingMonth() : this.month(query.billingMonth);
-    const classIdSnapshot = query?.classIdSnapshot ? this.identifier(query.classIdSnapshot, "classIdSnapshot") : null;
+    const classIdSnapshot = query?.classIdSnapshot ? officialClassFilter(query.classIdSnapshot) ?? this.identifier(query.classIdSnapshot, "classIdSnapshot") : null;
     const student = query?.student == null || query.student === "" ? null : this.text(query.student, "student", false, 100);
     const direction = query?.direction == null || query.direction === "" ? null : query.direction === "COLLECT" || query.direction === "REFUND" ? query.direction as "COLLECT" | "REFUND" : (() => { throw validation("direction", "Loại không hợp lệ."); })();
     const bankAccountId = query?.bankAccountId ? this.identifier(query.bankAccountId, "bankAccountId") : null;
@@ -724,7 +729,7 @@ export class FinanceService {
     } catch { throw validation("cursor", "Con trỏ không hợp lệ."); }
   }
   private receiptQueueDto(invoice: any, transferred = 0n) {
-    return { id: invoice.id, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, account: this.accountDto(invoice), collectionRunId: invoice.collectionRunId, student: { id: invoice.studentId, code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, class: { id: invoice.classIdSnapshot, name: invoice.classNameSnapshot }, schoolYearId: invoice.schoolYearId, billingMonth: invoice.billingMonth, issuedAt: invoice.issuedAt.toISOString(), outstanding: (BigInt(invoice.obligationTotalSnapshot) - transferred).toString(), direction: BigInt(invoice.obligationTotalSnapshot) < 0n ? "REFUND" as const : "COLLECT" as const, status: "ISSUED" as const };
+    return { id: invoice.id, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, account: this.accountDto(invoice), collectionRunId: invoice.collectionRunId, student: { id: invoice.studentId, code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, class: { id: invoice.classIdSnapshot ?? EXTRACURRICULAR_ONLY, name: classLabel(invoice.classNameSnapshot) }, schoolYearId: invoice.schoolYearId, billingMonth: invoice.billingMonth, issuedAt: invoice.issuedAt.toISOString(), outstanding: (BigInt(invoice.obligationTotalSnapshot) - transferred).toString(), direction: BigInt(invoice.obligationTotalSnapshot) < 0n ? "REFUND" as const : "COLLECT" as const, status: "ISSUED" as const };
   }
   // The two parts of one Student's monthly notice stay adjacent, school account first: Student code, Student, month, channel, id.
   private static receiptQueueOrder = [{ studentCodeSnapshot: "asc" as const }, { studentId: "asc" as const }, { billingMonth: "asc" as const }, { channel: "asc" as const }, { id: "asc" as const }];
@@ -746,7 +751,7 @@ export class FinanceService {
     const limit = query?.limit == null ? 25 : Number(query.limit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw validation("limit", "Giới hạn phải từ 1 đến 100.");
     const cursor = this.receiptQueueCursor(query?.cursor, filters);
-    const baseWhere: any = { schoolId, status: "ISSUED", ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.classIdSnapshot ? { classIdSnapshot: filters.classIdSnapshot } : {}), ...(filters.bankAccountId ? { bankAccountIdSnapshot: filters.bankAccountId } : {}), ...(filters.student ? { OR: [{ studentCodeSnapshot: { contains: filters.student, mode: "insensitive" } }, { studentNameSnapshot: { contains: filters.student, mode: "insensitive" } }] } : {}), ...(filters.direction ? { obligationTotalSnapshot: filters.direction === "REFUND" ? { lt: 0n } : { gte: 0n } } : {}) };
+    const baseWhere: any = { schoolId, status: "ISSUED", ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.classIdSnapshot ? { classIdSnapshot: filters.classIdSnapshot === EXTRACURRICULAR_ONLY ? null : filters.classIdSnapshot } : {}), ...(filters.bankAccountId ? { bankAccountIdSnapshot: filters.bankAccountId } : {}), ...(filters.student ? { OR: [{ studentCodeSnapshot: { contains: filters.student, mode: "insensitive" } }, { studentNameSnapshot: { contains: filters.student, mode: "insensitive" } }] } : {}), ...(filters.direction ? { obligationTotalSnapshot: filters.direction === "REFUND" ? { lt: 0n } : { gte: 0n } } : {}) };
     const after = cursor ? await this.prisma.invoice.findFirst({ where: { ...baseWhere, id: cursor.id }, select: { id: true, studentId: true, studentCodeSnapshot: true, billingMonth: true, channel: true } }) : null;
     if (cursor && !after) throw validation("cursor", "Con trỏ không thuộc kết quả hiện tại.");
     const where = { ...baseWhere, ...(after ? { AND: [this.receiptQueueAfter(after)] } : {}) };
@@ -771,7 +776,7 @@ export class FinanceService {
     // Receiving-account filter options: each account snapshotted on the queue's Invoices, named by its latest snapshot.
     const accounts = await this.prisma.invoice.findMany({ where: { ...scope, bankAccountIdSnapshot: { not: null } }, distinct: ["bankAccountIdSnapshot"], select: { bankAccountIdSnapshot: true, channel: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true }, orderBy: [{ bankAccountIdSnapshot: "asc" }, { issuedAt: "desc" }] });
     return {
-      classes: values.map((item) => ({ id: item.classIdSnapshot, name: item.classNameSnapshot })),
+      classes: values.map((item) => ({ id: item.classIdSnapshot ?? EXTRACURRICULAR_ONLY, name: classLabel(item.classNameSnapshot) })),
       months: await this.receiptQueueMonths(schoolId, filters.schoolYearId),
       accounts: accounts.map((item) => this.accountDto(item)).filter((item) => item !== null).sort((a, b) => (a.kind === b.kind ? `${a.bankCode} ${a.accountHolderName}`.localeCompare(`${b.bankCode} ${b.accountHolderName}`, "vi") : a.kind === "SCHOOL" ? -1 : 1)),
       filters: { schoolYearId: filters.schoolYearId, billingMonth: filters.billingMonth },
@@ -936,7 +941,7 @@ export class FinanceService {
   }
   // SCHOOL parts always use the School's single active School account; PERSONAL parts use the
   // requested account or the Class default. Every account is re-checked in this School and locked.
-  private async issueBankAccount(tx: any, schoolId: string, channel: PaymentChannel, requestedId: string | null, classId: string) {
+  private async issueBankAccount(tx: any, schoolId: string, channel: PaymentChannel, requestedId: string | null, classId: string | null) {
     const active = async (where: any) => (await tx.bankAccount.findMany({ where: { schoolId, kind: channel, ...where }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } }, orderBy: { createdAt: "asc" } })).filter((account: any) => account.lifecycleTransitions[0]?.status === "ACTIVE");
     let bank: any;
     if (channel === "SCHOOL") {
@@ -944,7 +949,8 @@ export class FinanceService {
       [bank] = await active({});
       if (!bank) throw new ConflictException({ code: "SCHOOL_BANK_ACCOUNT_REQUIRED", message: "Chưa cấu hình tài khoản trường để thu khoản có thuế." });
     } else {
-      const classroom = await tx.class.findFirst({ where: { id: classId, schoolId }, select: { defaultBankAccountId: true } });
+      // A Student without an official class has no class default; Finance chooses the account at issue.
+      const classroom = classId ? await tx.class.findFirst({ where: { id: classId, schoolId }, select: { defaultBankAccountId: true } }) : null;
       const id = requestedId ?? classroom?.defaultBankAccountId ?? null;
       if (id) {
         await tx.$queryRaw`SELECT 1 FROM "BankAccount" WHERE "id" = ${id}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
@@ -1643,8 +1649,14 @@ export class FinanceService {
   private classStatus(item: any) {
     return item.lifecycleTransitions?.[0]?.status ?? null;
   }
+  // `Điểm danh riêng` (decision 2026-10-08) is stored and shown only.
+  private separateAttendance(value: unknown) {
+    if (value === undefined) return undefined;
+    if (typeof value !== "boolean") throw validation("separateAttendance", "Điểm danh riêng phải là có hoặc không.");
+    return value;
+  }
   private extracurricularClassDto(item: any, extra: Record<string, unknown> = {}) {
-    return { id: item.id, schoolYearId: item.schoolYearId, name: item.name, receivableId: item.receivableId, status: this.classStatus(item), ...extra };
+    return { id: item.id, schoolYearId: item.schoolYearId, name: item.name, receivableId: item.receivableId, separateAttendance: Boolean(item.separateAttendance), status: this.classStatus(item), ...extra };
   }
   private monthFilter(value: unknown) {
     if (value == null || value === "") {
@@ -1704,7 +1716,7 @@ export class FinanceService {
     await this.actor(identityId, schoolId);
     const month = this.monthFilter(query?.month);
     const statusFilter = ["COUNTED", "CURRENT", "ENDED", "ALL"].includes(query?.status) ? query.status : "COUNTED";
-    const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
+    const officialClassId = query?.officialClassId ? officialClassFilter(query.officialClassId) ?? this.identifier(query.officialClassId, "officialClassId") : null;
     const search = typeof query?.q === "string" ? query.q.trim().toLocaleLowerCase("vi").slice(0, 100) : "";
     const found = await this.extracurricularClassFor(this.prisma, schoolId, classId);
     const [year, monthNumber] = month.split("-").map(Number) as [number, number];
@@ -1713,7 +1725,7 @@ export class FinanceService {
     const today = this.localIssueDate(new Date());
     const memberships = await this.prisma.extracurricularMembership.findMany({
       where: { schoolId, extracurricularClassId: found.id },
-      include: { enrollment: { select: { id: true, classId: true, className: true, student: { select: { studentCode: true, fullName: true } } } } },
+      include: { enrollment: { select: { id: true, classId: true, className: true, lifecycle: true, student: { select: { studentCode: true, fullName: true } } } } },
       orderBy: [{ effectiveFrom: "asc" }, { id: "asc" }],
     });
     const sibling = await this.prisma.extracurricularMembership.findMany({
@@ -1732,8 +1744,8 @@ export class FinanceService {
         enrollmentId: item.enrollmentId,
         studentCode: item.enrollment.student.studentCode,
         fullName: item.enrollment.student.fullName,
-        officialClassId: item.enrollment.classId,
-        officialClassName: item.enrollment.className,
+        officialClassId: item.enrollment.classId ?? (item.enrollment.lifecycle === EXTRACURRICULAR_ONLY ? EXTRACURRICULAR_ONLY : null),
+        officialClassName: item.enrollment.className ?? (item.enrollment.lifecycle === EXTRACURRICULAR_ONLY ? extracurricularOnlyLabel : null),
         effectiveFrom: item.effectiveFrom.toISOString().slice(0, 10),
         effectiveTo: this.inclusiveDate(item.effectiveTo),
         open: !item.effectiveTo,
@@ -1766,14 +1778,14 @@ export class FinanceService {
     schoolId = this.school(schoolId);
     await this.actor(identityId, schoolId);
     const found = await this.extracurricularClassFor(this.prisma, schoolId, classId);
-    const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
+    const officialClassId = query?.officialClassId ? officialClassFilter(query.officialClassId) ?? this.identifier(query.officialClassId, "officialClassId") : null;
     const search = typeof query?.q === "string" ? query.q.trim().slice(0, 100) : "";
     const today = this.localIssueDate(new Date());
     const base = { schoolId, schoolYearId: found.schoolYearId, lifecycle: { in: [...membershipLifecycles] } };
     const [officialClasses, enrollments] = await Promise.all([
       this.prisma.studentEnrollment.findMany({ where: { ...base, classId: { not: null } }, distinct: ["classId"], select: { classId: true, className: true }, orderBy: { className: "asc" } }),
       this.prisma.studentEnrollment.findMany({
-        where: { ...base, ...(officialClassId ? { classId: officialClassId } : {}), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) },
+        where: { ...base, ...this.officialClassWhere(officialClassId), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) },
         include: { student: { select: { studentCode: true, fullName: true } } },
         orderBy: [{ student: { studentCode: "asc" } }],
         take: 200,
@@ -1782,14 +1794,14 @@ export class FinanceService {
     const members = await this.prisma.extracurricularMembership.findMany({ where: { schoolId, extracurricularClassId: found.id, enrollmentId: { in: enrollments.map((item) => item.id) }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: today } }] }, select: { enrollmentId: true } });
     const memberIds = new Set(members.map((item) => item.enrollmentId));
     return {
-      officialClasses: officialClasses.map((item) => ({ id: item.classId, name: item.className ?? "" })),
-      candidates: enrollments.map((item) => ({ enrollmentId: item.id, studentCode: item.student.studentCode, fullName: item.student.fullName, officialClassName: item.className, member: memberIds.has(item.id) })),
+      officialClasses: [...officialClasses.map((item) => ({ id: item.classId, name: item.className ?? "" })), ...(await this.prisma.studentEnrollment.count({ where: { ...base, lifecycle: EXTRACURRICULAR_ONLY } }) ? [{ id: EXTRACURRICULAR_ONLY, name: extracurricularOnlyLabel }] : [])],
+      candidates: enrollments.map((item) => ({ enrollmentId: item.id, studentCode: item.student.studentCode, fullName: item.student.fullName, officialClassName: item.className ?? (item.lifecycle === EXTRACURRICULAR_ONLY ? extracurricularOnlyLabel : null), member: memberIds.has(item.id) })),
     };
   }
   async createExtracurricularClass(identityId: string, schoolId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId);
     const actor = await this.actor(identityId, schoolId);
-    const input = { name: this.text(body?.name, "name")!, schoolYearId: this.identifier(body?.schoolYearId, "schoolYearId"), receivableId: this.identifier(body?.receivableId, "receivableId") };
+    const input = { name: this.text(body?.name, "name")!, schoolYearId: this.identifier(body?.schoolYearId, "schoolYearId"), receivableId: this.identifier(body?.receivableId, "receivableId"), separateAttendance: this.separateAttendance(body?.separateAttendance) ?? false };
     return this.mutate(actor, identityId, schoolId, routes.extracurricularClass, key, operationId, input, async (tx, operation) => {
       const year = await tx.schoolYear.findFirst({ where: { id: input.schoolYearId, schoolId } });
       if (!year) throw new NotFoundException({ code: "SCHOOL_YEAR_NOT_FOUND", message: "Không tìm thấy năm học." });
@@ -1800,7 +1812,7 @@ export class FinanceService {
       if (receivable.group.kind !== "EXTRACURRICULAR") throw validation("receivableId", "Chỉ chọn khoản thu thuộc nhóm Ngoại khóa.");
       if (receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu đã ngừng áp dụng.");
       try {
-        const created = await tx.extracurricularClass.create({ data: { schoolId, schoolYearId: year.id, name: input.name, receivableId: receivable.id } });
+        const created = await tx.extracurricularClass.create({ data: { schoolId, schoolYearId: year.id, name: input.name, receivableId: receivable.id, separateAttendance: input.separateAttendance } });
         const transition = await tx.extracurricularClassLifecycleTransition.create({ data: { schoolId, extracurricularClassId: created.id, status: "ACTIVE", actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 1 } });
         const outcome = this.extracurricularClassDto({ ...created, lifecycleTransitions: [transition] });
         await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_CLASS_CREATED", operation, null, outcome);
@@ -1839,14 +1851,16 @@ export class FinanceService {
     this.identifier(classId, "classId");
     const name = body?.name === undefined ? undefined : this.text(body.name, "name")!;
     const receivableId = body?.receivableId === undefined ? undefined : this.identifier(body.receivableId, "receivableId");
+    const separateAttendance = this.separateAttendance(body?.separateAttendance);
     const reason = this.text(body?.reason, "reason", true, 500)!;
-    if (name === undefined && receivableId === undefined) throw validation("name", "Không có thay đổi để lưu.");
-    return this.mutate(actor, identityId, schoolId, routes.extracurricularEdit, key, operationId, { classId, name, receivableId, reason }, async (tx, operation) => {
+    if (name === undefined && receivableId === undefined && separateAttendance === undefined) throw validation("name", "Không có thay đổi để lưu.");
+    return this.mutate(actor, identityId, schoolId, routes.extracurricularEdit, key, operationId, { classId, name, receivableId, separateAttendance, reason }, async (tx, operation) => {
       await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const found = await this.extracurricularClassFor(tx, schoolId, classId);
       const nameChanged = name !== undefined && name !== found.name;
       const receivableChanged = receivableId !== undefined && receivableId !== found.receivableId;
-      if (!nameChanged && !receivableChanged) throw validation(receivableId !== undefined ? "receivableId" : "name", "Không có thay đổi để lưu.");
+      const attendanceChanged = separateAttendance !== undefined && separateAttendance !== found.separateAttendance;
+      if (!nameChanged && !receivableChanged && !attendanceChanged) throw validation(receivableId !== undefined ? "receivableId" : "name", "Không có thay đổi để lưu.");
       let receivable = found.receivable;
       if (receivableChanged) {
         await this.lockReceivablesShared(tx, schoolId, [receivableId]);
@@ -1857,8 +1871,8 @@ export class FinanceService {
       }
       const fact = (item: any, rec: any) => ({ ...this.extracurricularClassDto(item), receivableName: rec.displayName, defaultUnitPrice: rec.defaultUnitPrice.toString(), unitLabel: rec.unitLabel });
       try {
-        const updated = await tx.extracurricularClass.update({ where: { id: found.id }, data: { ...(nameChanged ? { name } : {}), ...(receivableChanged ? { receivableId } : {}) } });
-        const outcome = this.extracurricularClassDto({ ...found, name: updated.name, receivableId: updated.receivableId });
+        const updated = await tx.extracurricularClass.update({ where: { id: found.id }, data: { ...(nameChanged ? { name } : {}), ...(receivableChanged ? { receivableId } : {}), ...(attendanceChanged ? { separateAttendance } : {}) } });
+        const outcome = this.extracurricularClassDto({ ...found, name: updated.name, receivableId: updated.receivableId, separateAttendance: updated.separateAttendance });
         await this.audit(tx, schoolId, identityId, actor.membershipId, "EXTRACURRICULAR_CLASS_EDITED", operation, fact(found, found.receivable), fact({ ...found, ...updated }, receivable), reason);
         return outcome;
       } catch (error) {
@@ -1997,7 +2011,7 @@ export class FinanceService {
   async promotionStudents(identityId: string, schoolId: string, query: any) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
     const versionId = this.identifier(query?.versionId, "versionId");
-    const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
+    const officialClassId = query?.officialClassId ? officialClassFilter(query.officialClassId) ?? this.identifier(query.officialClassId, "officialClassId") : null;
     const search = typeof query?.q === "string" ? query.q.trim().slice(0, 100) : "";
     const version = await this.prisma.promotionPolicyVersion.findFirst({ where: { id: versionId, schoolId } });
     if (!version) throw new NotFoundException({ code: "PROMOTION_POLICY_VERSION_NOT_FOUND", message: "Không tìm thấy phiên bản ưu đãi." });
@@ -2013,7 +2027,7 @@ export class FinanceService {
     const [officialClasses, enrollments] = await Promise.all([
       this.prisma.studentEnrollment.findMany({ where: { ...base, classId: { not: null } }, distinct: ["classId"], select: { classId: true, className: true } }),
       this.prisma.studentEnrollment.findMany({
-        where: { ...base, ...(officialClassId ? { classId: officialClassId } : {}), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) },
+        where: { ...base, ...this.officialClassWhere(officialClassId), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) },
         include: { student: { select: { id: true, studentCode: true, fullName: true } } },
       }),
     ]);
@@ -2122,7 +2136,7 @@ export class FinanceService {
       templateLines: (run.templateLines ?? []).map((line: any) => this.templateLineDto(line)).sort(this.amountDescending),
       invoices: (run.invoices ?? []).map((invoice: any) => ({
         id: invoice.id, studentId: invoice.studentId, studentCode: invoice.studentCodeSnapshot,
-        studentName: invoice.studentNameSnapshot, className: invoice.classNameSnapshot,
+        studentName: invoice.studentNameSnapshot, className: classLabel(invoice.classNameSnapshot),
         status: invoice.status, total: invoice.total.toString(), channel: invoice.channel ?? "PERSONAL", kind: invoice.kind ?? "NORMAL",
       })),
       notices: this.runNotices(run.invoices ?? []),
@@ -2162,7 +2176,7 @@ export class FinanceService {
             : settledParts ? "PARTLY_SETTLED" as const : "ISSUED" as const;
       const first = shown[0]!;
       return {
-        invoiceId: first.id, studentId: first.studentId, studentCode: first.studentCodeSnapshot, studentName: first.studentNameSnapshot, className: first.classNameSnapshot,
+        invoiceId: first.id, studentId: first.studentId, studentCode: first.studentCodeSnapshot, studentName: first.studentNameSnapshot, className: classLabel(first.classNameSnapshot),
         kind: shown.some((part) => (part.kind ?? "NORMAL") === "SETTLEMENT") ? "SETTLEMENT" as const : "NORMAL" as const,
         status, settledParts, partCount: basis.length,
         total: live.reduce((total: bigint, part) => total + BigInt(part.total), 0n).toString(),
@@ -2230,16 +2244,16 @@ export class FinanceService {
     const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId }, select: { schoolYearId: true } });
     if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
     const search = typeof query?.q === "string" ? query.q.trim().slice(0, 100) : "";
-    const officialClassId = query?.officialClassId ? this.identifier(query.officialClassId, "officialClassId") : null;
+    const officialClassId = query?.officialClassId ? officialClassFilter(query.officialClassId) ?? this.identifier(query.officialClassId, "officialClassId") : null;
     const natural = (left: string | null, right: string | null) => (left ?? "\uffff").localeCompare(right ?? "\uffff", "vi", { numeric: true, sensitivity: "base" });
     const [classes, enrollments] = await Promise.all([
       this.prisma.class.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ACTIVE" }, select: { id: true, name: true } }),
-      this.prisma.studentEnrollment.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, lifecycle: "ENROLLED", ...(officialClassId ? { classId: officialClassId } : {}), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) }, include: { student: { select: { id: true, studentCode: true, fullName: true } } } }),
+      this.prisma.studentEnrollment.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, lifecycle: { in: ["ENROLLED", EXTRACURRICULAR_ONLY] }, ...this.officialClassWhere(officialClassId), ...(search ? { student: { OR: [{ studentCode: { contains: search, mode: "insensitive" } }, { fullName: { contains: search, mode: "insensitive" } }] } } : {}) }, include: { student: { select: { id: true, studentCode: true, fullName: true } } } }),
     ]);
     return {
       classes: classes.sort((left, right) => natural(left.name, right.name)),
       students: enrollments
-        .map((item) => ({ id: item.student.id, studentCode: item.student.studentCode, fullName: item.student.fullName, className: item.className }))
+        .map((item) => ({ id: item.student.id, studentCode: item.student.studentCode, fullName: item.student.fullName, className: item.lifecycle === EXTRACURRICULAR_ONLY ? extracurricularOnlyLabel : item.className }))
         .sort((left, right) => natural(left.className, right.className) || natural(left.studentCode, right.studentCode)),
     };
   }
@@ -2302,9 +2316,15 @@ export class FinanceService {
     const label = type === "ALL" ? "Toàn bộ" : type === "CLASSES" ? `Lớp chính thức: ${names.join(", ")}` : `Học sinh cụ thể: ${names.length > 3 ? `${names.slice(0, 3).join(", ")} và ${names.length - 3} học sinh khác` : names.join(", ")}`;
     return { type, label, classes: type === "CLASSES" ? classes : [], students: type === "STUDENTS" ? students : [] };
   }
+  // Picker filter on the official class; EXTRACURRICULAR_ONLY selects the Students without one.
+  private officialClassWhere(officialClassId: string | null) {
+    return officialClassId === EXTRACURRICULAR_ONLY ? { lifecycle: "EXTRACURRICULAR_ONLY" as const } : officialClassId ? { classId: officialClassId } : {};
+  }
   // A Student receives a template line when it is ALL, or the Student's class effective on the first day of the month is named, or the Student is named.
-  private inScope(line: any, item: { studentId: string; classId?: string | null }) {
+  // Decision 2026-10-08: an extracurricular-only Student receives only lines that name them.
+  private inScope(line: any, item: { studentId: string; classId?: string | null; extracurricularOnly?: boolean }) {
     const scope = line.scope;
+    if (item.extracurricularOnly) return scope?.type === "STUDENTS" && scope.students.some((target: any) => target.id === item.studentId);
     if (!scope || scope.type === "ALL") return true;
     return scope.type === "CLASSES" ? scope.classes.some((target: any) => target.id === item.classId) : scope.students.some((target: any) => target.id === item.studentId);
   }
@@ -2734,6 +2754,18 @@ export class FinanceService {
         (enrollment.endedOn && enrollment.endedOn <= asOf)
       )
         skipped("ENROLLMENT_NOT_EFFECTIVE");
+      // Decision 2026-10-08: an extracurricular-only Student is eligible without a class, for the lines that apply to them only.
+      else if (enrollment.lifecycle === EXTRACURRICULAR_ONLY)
+        eligible.push({
+          studentId: enrollment.studentId,
+          studentCode: enrollment.student.studentCode,
+          fullName: enrollment.student.fullName,
+          classId: null,
+          className: extracurricularOnlyLabel,
+          extracurricularOnly: true,
+          enrollment,
+          assignment: null,
+        });
       else if (enrollment.lifecycle !== "ENROLLED") skipped("NOT_ENROLLED");
       else if (!assignment) skipped("NO_CLASS_ASSIGNMENT");
       else if (assignment.classroom.status !== "ACTIVE") skipped("CLASS_INACTIVE");
@@ -2751,6 +2783,7 @@ export class FinanceService {
         sources.push({
           studentId,
           enrollmentId: enrollment.id,
+          lifecycle: enrollment.lifecycle,
           enrollmentInterval: [
             enrollment.effectiveFrom.toISOString(),
             enrollment.endedOn?.toISOString() ?? null,
@@ -3658,7 +3691,7 @@ export class FinanceService {
       const insertedStudentIds = await this.insertInvoices(tx, items.map((item) => item.snapshot));
       const createdStudentIds = items.filter((item) => insertedStudentIds.has(item.studentId)).map((item) => item.studentId);
       const createdInvoiceIds = this.noticeInvoiceIds(await tx.invoice.findMany({ where: { schoolId: generation.schoolId, collectionRunId: run.id, studentId: { in: createdStudentIds }, revisesInvoiceId: null }, select: { id: true, studentId: true, channel: true } }));
-      const generationItemDto = (item: any) => ({ studentId: item.studentId, studentCode: item.snapshot.studentCodeSnapshot, fullName: item.snapshot.studentNameSnapshot, className: item.snapshot.classNameSnapshot });
+      const generationItemDto = (item: any) => ({ studentId: item.studentId, studentCode: item.snapshot.studentCodeSnapshot, fullName: item.snapshot.studentNameSnapshot, className: classLabel(item.snapshot.classNameSnapshot) });
       const created = items.filter((item) => insertedStudentIds.has(item.studentId)).map((item) => ({ ...generationItemDto(item), invoiceId: createdInvoiceIds.get(item.studentId)?.[0], invoiceIds: createdInvoiceIds.get(item.studentId) ?? [] }));
       const existing = items.filter((item) => !insertedStudentIds.has(item.studentId)).map((item) => ({ ...generationItemDto(item), reason: "INVOICE_EXISTS" }));
       const skipped = await tx.collectionRunGenerationItem.findMany({ where: { schoolId: generation.schoolId, generationId, status: "SKIPPED" }, orderBy: { ordinal: "asc" } });
@@ -3761,7 +3794,7 @@ export class FinanceService {
           studentCodeSnapshot: enrollment.student.studentCode, studentNameSnapshot: enrollment.student.fullName,
           enrollmentIdSnapshot: enrollment.id, enrollmentLifecycleSnapshot: enrollment.lifecycle, enrollmentEffectiveFromSnapshot: enrollment.effectiveFrom, enrollmentEndedOnSnapshot: enrollment.endedOn,
           classAssignmentIdSnapshot: assignment?.id ?? null, classAssignmentEffectiveFromSnapshot: assignment?.effectiveFrom ?? null, classAssignmentEffectiveToSnapshot: assignment?.effectiveTo ?? null,
-          classIdSnapshot: assignment?.classId ?? enrollment.classId, classNameSnapshot: assignment?.classroom?.name ?? enrollment.className ?? "",
+          classIdSnapshot: assignment?.classId ?? enrollment.classId ?? null, classNameSnapshot: assignment?.classroom?.name ?? enrollment.className ?? null,
           selectionProvenance: { policy: "SETTLEMENT_AFTER_ENROLLMENT_END_V1", runId: run.id, billingMonth: run.billingMonth, enrollmentId: enrollment.id, lifecycle: enrollment.lifecycle, endedOn: enrollment.endedOn.toISOString().slice(0, 10) },
         } });
         for (const line of mealLines.filter((item) => item.channel === channel)) await tx.invoiceLine.create({ data: { ...line.data, invoiceId: invoice.id } });
@@ -3834,13 +3867,13 @@ export class FinanceService {
       studentCodeSnapshot: enrollment.student.studentCode, studentNameSnapshot: enrollment.student.fullName,
       enrollmentIdSnapshot: enrollment.id, enrollmentLifecycleSnapshot: enrollment.lifecycle,
       enrollmentEffectiveFromSnapshot: enrollment.effectiveFrom, enrollmentEndedOnSnapshot: enrollment.endedOn,
-      classAssignmentIdSnapshot: assignment.id, classAssignmentEffectiveFromSnapshot: assignment.effectiveFrom,
-      classAssignmentEffectiveToSnapshot: assignment.effectiveTo, classIdSnapshot: assignment.classId,
-      classNameSnapshot: assignment.classroom.name,
+      classAssignmentIdSnapshot: assignment?.id ?? null, classAssignmentEffectiveFromSnapshot: assignment?.effectiveFrom ?? null,
+      classAssignmentEffectiveToSnapshot: assignment?.effectiveTo ?? null, classIdSnapshot: assignment?.classId ?? null,
+      classNameSnapshot: assignment?.classroom.name ?? null,
        selectionProvenance: { policy: "COLLECTION_RUN_DEFAULT_ROSTER_V1", runId: run.id, billingMonth: run.billingMonth,
         rosterAsOf: this.asOf(run.billingMonth).toISOString(), enrollmentId: enrollment.id,
         enrollmentInterval: [enrollment.effectiveFrom.toISOString(), enrollment.endedOn?.toISOString() ?? null],
-        assignmentId: assignment.id, assignmentInterval: [assignment.effectiveFrom.toISOString(), assignment.effectiveTo?.toISOString() ?? null] },
+        assignmentId: assignment?.id ?? null, assignmentInterval: assignment ? [assignment.effectiveFrom.toISOString(), assignment.effectiveTo?.toISOString() ?? null] : null },
       lines: [...templateLines, ...(item.extracurricularLines ?? [])].filter((line: any) => !item.calculatedLines || item.calculatedLines.some((candidate: any) => candidate.receivableId === line.receivableId)).map((line: any) => {
         const calculated = item.calculatedLines?.find((candidate: any) => candidate.receivableId === line.receivableId) ?? this.evaluatePromotionLine(item.studentId, line, []);
         const category: TaxCategory = line.taxCategory ?? "NOT_DECLARED";

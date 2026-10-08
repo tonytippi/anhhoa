@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtracurricularClassesWorkspace } from "./extracurricular-classes-workspace";
 
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
-const klass = (overrides = {}) => ({ id: "class-a1", schoolYearId: "year", name: "Tiếng Anh A1 (T2-T4)", receivableId: "english", status: "ACTIVE", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", sharedWith: ["Tiếng Anh A2 (T3-T5)"], currentMembers: 18, ...overrides });
+const klass = (overrides = {}) => ({ id: "class-a1", schoolYearId: "year", name: "Tiếng Anh A1 (T2-T4)", receivableId: "english", separateAttendance: false, status: "ACTIVE", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", sharedWith: ["Tiếng Anh A2 (T3-T5)"], currentMembers: 18, ...overrides });
 const list = { schoolYears: [{ id: "year", name: "2026-2027", startsOn: "2026-08-01", endsOn: "2027-08-01", closedAt: null }], classes: [klass(), klass({ id: "class-a2", name: "Tiếng Anh A2 (T3-T5)", sharedWith: ["Tiếng Anh A1 (T2-T4)"], currentMembers: 15 }), klass({ id: "draw", name: "Vẽ thiếu nhi", receivableId: "drawing", receivableName: "Năng khiếu vẽ", defaultUnitPrice: "400000", sharedWith: [], currentMembers: 12, status: "INACTIVE" })], receivables: [{ id: "english", displayName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", status: "ACTIVE", sharedWith: ["Tiếng Anh A1 (T2-T4)", "Tiếng Anh A2 (T3-T5)"] }, { id: "drawing", displayName: "Năng khiếu vẽ", unitLabel: "tháng", defaultUnitPrice: "400000", status: "ACTIVE", sharedWith: [] }, { id: "old", displayName: "Võ cũ", unitLabel: "tháng", defaultUnitPrice: "1", status: "INACTIVE", sharedWith: [] }] };
 const member = (overrides = {}) => ({ id: "m1", enrollmentId: "e1", studentCode: "AH-121", fullName: "Bé Tuấn Huy", officialClassId: "c1", officialClassName: "Chồi 3B", effectiveFrom: "2026-09-01", effectiveTo: null, open: true, state: "ACTIVE", flags: [], transferNote: null, ...overrides });
 const detail = (overrides = {}) => ({ class: { ...klass(), schoolYearName: "2026-2027" }, month: { month: "2026-10", current: 2, counted: 4, midMonth: 2 }, officialClasses: [{ id: "c1", name: "Chồi 3B" }], total: 4, members: [member(), member({ id: "m2", enrollmentId: "e2", studentCode: "AH-104", fullName: "Bé Minh Anh", effectiveTo: "2026-10-15", open: false, flags: ["LEFT_IN_MONTH"], transferNote: "Chuyển sang Tiếng Anh A2 (T3-T5) từ 16/10/2026" }), member({ id: "m3", enrollmentId: "e3", studentCode: "AH-133", fullName: "Bé An Nhiên", effectiveFrom: "2026-10-14", flags: ["JOINED_IN_MONTH"] }), member({ id: "m4", enrollmentId: "e4", studentCode: "AH-090", fullName: "Bé Khôi Nguyên", effectiveTo: "2026-09-30", open: false, state: "ENDED" })], ...overrides });
@@ -51,10 +51,11 @@ describe("ExtracurricularClassesWorkspace", () => {
     fireEvent.change(receivable, { target: { value: "english" } });
     expect(within(dialog).getByText("Dùng chung với: Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5).")).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Tiếng Anh A3" } });
+    fireEvent.click(within(dialog).getByLabelText("Điểm danh riêng"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     const post = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
-    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ name: "Tiếng Anh A3", schoolYearId: "year", receivableId: "english" });
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ name: "Tiếng Anh A3", schoolYearId: "year", receivableId: "english", separateAttendance: true });
     const headers = (post[1] as RequestInit).headers as Record<string, string>;
     expect(headers["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/);
     expect(headers["x-operation-id"]).toMatch(/^[0-9a-f-]{36}$/);
@@ -311,6 +312,26 @@ describe("ExtracurricularClassesWorkspace", () => {
     expect(screen.queryByText("Bé Cũ Chậm")).toBeNull();
   });
 
+  it("shows and edits Điểm danh riêng, sending only that change with a reason", async () => {
+    const fetch = route({
+      "extracurricular-classes/class-a1": (_url, options) => (options?.method === "PUT" ? response({ status: "COMPLETED", outcome: {} }) : response(detail({ class: { ...klass({ separateAttendance: true }), schoolYearName: "2026-2027" } }))),
+      "extracurricular-classes?": () => response({ ...list, classes: [klass({ separateAttendance: true })] }),
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props("?class=class-a1")} />);
+    expect((await screen.findByRole("heading", { name: "Tiếng Anh A1 (T2-T4)", level: 1 })).parentElement!.textContent).toContain("Năm học 2026-2027 · Điểm danh riêng");
+    fireEvent.click(screen.getByRole("button", { name: "Chỉnh sửa" }));
+    const dialog = screen.getByRole("dialog", { name: "Chỉnh sửa · Tiếng Anh A1 (T2-T4)" });
+    const checkbox = within(dialog).getByLabelText("Điểm danh riêng") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(checkbox);
+    fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Học trong giờ" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu thay đổi" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([, options]) => (options as RequestInit | undefined)?.method === "PUT" && JSON.parse(String((options as RequestInit).body)).separateAttendance === false)).toBe(true));
+    const put = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "PUT")!;
+    expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({ separateAttendance: false, reason: "Học trong giờ" });
+  });
+
   it("edits the class name and Receivable in one dialog with a required reason through an idempotent PUT", async () => {
     let refuse = true;
     const fetch = route({
@@ -386,6 +407,6 @@ describe("ExtracurricularClassesWorkspace", () => {
     fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Vẽ 3" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(JSON.parse(String((posts(fetch)[0]![1] as RequestInit).body))).toEqual({ name: "Vẽ 3", schoolYearId: "year", receivableId: "drawing" });
+    expect(JSON.parse(String((posts(fetch)[0]![1] as RequestInit).body))).toEqual({ name: "Vẽ 3", schoolYearId: "year", receivableId: "drawing", separateAttendance: false });
   });
 });

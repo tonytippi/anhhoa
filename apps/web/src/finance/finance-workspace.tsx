@@ -555,7 +555,7 @@ function PreviewEligibleTable({ eligible }: { eligible: Preview["eligible"] }) {
   const rows = eligible.filter(
     (item) => (!className || item.className === className) && (!needle || foldSearch(`${item.studentCode} ${item.fullName}`).includes(needle)),
   );
-  const totalPages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.trunc((rows.length + PREVIEW_PAGE_SIZE - 1) / PREVIEW_PAGE_SIZE));
   const current = Math.min(page, totalPages);
   const shown = rows.slice((current - 1) * PREVIEW_PAGE_SIZE, current * PREVIEW_PAGE_SIZE);
   return (
@@ -5164,6 +5164,7 @@ export function FinanceWorkspace({
                             {item.name}
                           </option>
                         ))}
+                        <option value="EXTRACURRICULAR_ONLY">Chỉ ngoại khóa</option>
                       </select>
                     </label>
                     <label>

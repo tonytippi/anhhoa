@@ -5,7 +5,7 @@ import { DateInput } from "../components/date-input";
 // Story 5.34 (decision 2026-10-02 §3.3). Layout follows the reviewed mockup admin/extracurricular-classes.html.
 // The server owns eligibility, overlap, counts and flags; the browser only renders them.
 type Status = "ACTIVE" | "INACTIVE" | null;
-type ExtraClass = { id: string; schoolYearId: string; name: string; receivableId: string; status: Status; receivableName: string; unitLabel: string; defaultUnitPrice: string; sharedWith: string[]; currentMembers: number };
+type ExtraClass = { id: string; schoolYearId: string; name: string; receivableId: string; separateAttendance: boolean; status: Status; receivableName: string; unitLabel: string; defaultUnitPrice: string; sharedWith: string[]; currentMembers: number };
 type ReceivableOption = { id: string; displayName: string; unitLabel: string; defaultUnitPrice: string; status: Status; sharedWith: string[] };
 type Year = { id: string; name: string; startsOn: string; endsOn: string; closedAt: string | null };
 type ListData = { schoolYears: Year[]; classes: ExtraClass[]; receivables: ReceivableOption[] };
@@ -57,7 +57,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   const [memberApplied, setMemberApplied] = useState(memberFilters);
   const [selected, setSelected] = useState<string[]>([]);
   const [dialog, setDialog] = useState<Dialog>();
-  const [form, setForm] = useState({ name: "", schoolYearId: "", receivableId: "", effectiveFrom: today(), effectiveTo: "", reason: "" });
+  const [form, setForm] = useState({ name: "", schoolYearId: "", receivableId: "", separateAttendance: false, effectiveFrom: today(), effectiveTo: "", reason: "" });
   const [candidates, setCandidates] = useState<Candidates>();
   const [candidateFilter, setCandidateFilter] = useState({ q: "", officialClassId: "" });
   const [picked, setPicked] = useState<string[]>([]);
@@ -124,13 +124,13 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
     trigger.current = source;
     setErrors({});
     setMessage("");
-    setForm({ name: "", schoolYearId: applied.schoolYearId || list?.schoolYears[0]?.id || "", receivableId: "", effectiveFrom: today(), effectiveTo: "", reason: "" });
+    setForm({ name: "", schoolYearId: applied.schoolYearId || list?.schoolYears[0]?.id || "", receivableId: "", separateAttendance: false, effectiveFrom: today(), effectiveTo: "", reason: "" });
     setCandidates(undefined);
     setCandidateFilter({ q: "", officialClassId: "" });
     setPicked([]);
     setPriceEdit(undefined);
     if (kind === "edit" && detail) {
-      setForm((current) => ({ ...current, name: detail.class.name, receivableId: detail.class.receivableId }));
+      setForm((current) => ({ ...current, name: detail.class.name, receivableId: detail.class.receivableId, separateAttendance: detail.class.separateAttendance }));
       setReceivableOptions(undefined);
       const requested = classId;
       request<ListData>(`${base}${query({ schoolYearId: detail.class.schoolYearId })}`)
@@ -243,7 +243,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
     event.preventDefault();
     // The dialog can open before the list (and its SchoolYears) has loaded; the select then shows the first open year, so submit that.
     const schoolYearId = form.schoolYearId || years.find((year) => !year.closedAt)?.id || "";
-    if (await command(base, { name: form.name, schoolYearId, receivableId: form.receivableId })) await finish();
+    if (await command(base, { name: form.name, schoolYearId, receivableId: form.receivableId, separateAttendance: form.separateAttendance })) await finish();
   };
   const addMembers = async (event: FormEvent) => {
     event.preventDefault();
@@ -258,7 +258,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   const editClass = async (event: FormEvent) => {
     event.preventDefault();
     if (!detail) return;
-    const changes = { ...(form.name !== detail.class.name ? { name: form.name } : {}), ...(form.receivableId !== detail.class.receivableId ? { receivableId: form.receivableId } : {}) };
+    const changes = { ...(form.name !== detail.class.name ? { name: form.name } : {}), ...(form.receivableId !== detail.class.receivableId ? { receivableId: form.receivableId } : {}), ...(form.separateAttendance !== detail.class.separateAttendance ? { separateAttendance: form.separateAttendance } : {}) };
     if (await command(`${base}/${classId}`, { ...changes, reason: form.reason }, "PUT")) await finish();
   };
   const savePrice = async (event: FormEvent) => {
@@ -296,7 +296,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
         <div>
           <p className="eyebrow">DANH BỘ › <a href="?" onClick={go("")}>Lớp ngoại khóa</a></p>
           <h1 id="xc-title">{cls.name}</h1>
-          <p className="muted"><span className={`badge ${inactive ? "neutral" : "success"}`}>{statusLabel(cls.status)}</span> Năm học {cls.schoolYearName} · {cls.receivableName} · {price(cls)}<button className="xc-inline-action" type="button" disabled={blocked} onClick={(event) => open("price", event.currentTarget)}>Sửa giá</button>{cls.sharedWith.length ? ` · Dùng chung với ${cls.sharedWith.join(", ")}` : ""}</p>
+          <p className="muted"><span className={`badge ${inactive ? "neutral" : "success"}`}>{statusLabel(cls.status)}</span> Năm học {cls.schoolYearName}{cls.separateAttendance ? " · Điểm danh riêng" : ""} · {cls.receivableName} · {price(cls)}<button className="xc-inline-action" type="button" disabled={blocked} onClick={(event) => open("price", event.currentTarget)}>Sửa giá</button>{cls.sharedWith.length ? ` · Dùng chung với ${cls.sharedWith.join(", ")}` : ""}</p>
         </div>
         <div className="finance-list-actions">
           <button className="primary-action" type="button" disabled={blocked || inactive} onClick={(event) => open("add", event.currentTarget)}>Thêm học sinh</button>
@@ -373,7 +373,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
       {dialog === "edit" && (() => {
         const options = (receivableOptions ?? []).filter((item) => item.status === "ACTIVE" || item.id === cls.receivableId);
         const shared = options.find((item) => item.id === form.receivableId)?.sharedWith.filter((name) => name !== cls.name) ?? [];
-        const unchanged = form.name === cls.name && form.receivableId === cls.receivableId;
+        const unchanged = form.name === cls.name && form.receivableId === cls.receivableId && form.separateAttendance === cls.separateAttendance;
         return <div className="dialog-backdrop"><div ref={dialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="xc-edit-title" onKeyDown={keyDown}>
           <form onSubmit={editClass}>
             <h3 id="xc-edit-title">Chỉnh sửa · {cls.name}</h3>
@@ -381,6 +381,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
               <div><label>Tên lớp<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
               <label>Năm học<input value={cls.schoolYearName} disabled /></label>
               <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-edit-receivable-help" : "xc-edit-receivable-help"}>{options.length ? options.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>) : <option value={cls.receivableId}>{cls.receivableName} · {price(cls)}</option>}</select></label><p id="xc-edit-receivable-help" className="muted">{shared.length ? `Dùng chung với: ${shared.join(", ")}.` : "Chỉ khoản thu Ngoại khóa đang áp dụng."}</p>{fieldError("receivableId")}</div>
+              <div className="full"><label><input type="checkbox" checked={form.separateAttendance} onChange={(event) => setForm({ ...form, separateAttendance: event.target.checked })} /> Điểm danh riêng</label></div>
               <div className="full"><label>Lý do<input placeholder="Ví dụ: Lớp chuyển sang chương trình nâng cao" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
               <p className="muted full">Đổi khoản thu chỉ áp dụng cho dòng hóa đơn tạo sau đó; hóa đơn đã tạo giữ nguyên, đợt thu còn nháp cần xem trước lại.</p>
             </div>
@@ -432,7 +433,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
         <thead><tr><th>Lớp ngoại khóa</th><th>Khoản thu</th><th>Học sinh hiện tại</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
         <tbody>
           {list ? (list.classes.length ? list.classes.map((item) => <tr key={item.id}>
-            <td><b>{item.name}</b></td>
+            <td><b>{item.name}</b>{item.separateAttendance && <><br /><small className="muted">Điểm danh riêng</small></>}</td>
             <td>{item.receivableName} · {price(item)}{item.sharedWith.length > 0 && <><br /><small className="muted">Dùng chung với {item.sharedWith.join(", ")}</small></>}</td>
             <td>{item.currentMembers} học sinh</td>
             <td><span className={`badge ${item.status === "ACTIVE" ? "success" : "neutral"}`}>{statusLabel(item.status)}</span></td>
@@ -455,6 +456,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
           <div><label>Năm học<select value={form.schoolYearId} onChange={(event) => setForm({ ...form, schoolYearId: event.target.value })} {...field("schoolYearId")}>{years.filter((year) => !year.closedAt).map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}</select></label>{fieldError("schoolYearId")}</div>
           <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-receivable-help" : "xc-receivable-help"}><option value="">Chọn khoản thu Ngoại khóa</option>{list?.receivables.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>)}</select></label>
             <p id="xc-receivable-help" className="muted">{chosenReceivable?.sharedWith.length ? `Dùng chung với: ${chosenReceivable.sharedWith.join(", ")}.` : "Chỉ khoản thu Ngoại khóa đang áp dụng."}</p>{fieldError("receivableId")}</div>
+          <div className="full"><label><input type="checkbox" checked={form.separateAttendance} onChange={(event) => setForm({ ...form, separateAttendance: event.target.checked })} /> Điểm danh riêng</label><p className="muted">Đánh dấu lớp cần điểm danh riêng (ví dụ lớp buổi tối). Chức năng điểm danh sẽ có sau.</p></div>
         </div>
         <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Lưu lớp ngoại khóa</button></div>
       </form>

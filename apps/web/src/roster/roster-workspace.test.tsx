@@ -5,7 +5,7 @@ import { RosterWorkspace } from "./roster-workspace";
 const year = { id: "year-a", name: "Năm 2026", startsOn: "2026-01-01", endsOn: "2027-01-01", isActive: true };
 const classroom = { id: "class-a", schoolYearId: "year-a", name: "Lớp Mầm", status: "ACTIVE", activeStudentCount: 1 };
 const row = { id: "student-a", studentCode: "S1", fullName: "Bé An", hasPhoto: false, enrollment: { id: "enrollment-a", lifecycle: "ENROLLED", effectiveFrom: "2026-01-01", classroom: { id: "class-a", name: "Lớp Mầm" } }, relatives: { mother: "Mai Trần", father: "Minh Trần", otherRelativeCount: 2 } };
-const list = (data = [row], meta = { page: 1, pageSize: 25, totalItems: 27, totalPages: 2 }) => ({ data, meta });
+const list = (data: unknown[] = [row], meta = { page: 1, pageSize: 25, totalItems: 27, totalPages: 2 }) => ({ data, meta });
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
 const pagedResponse = (page: unknown = list()) => new Response(JSON.stringify(page));
 const parentRow = { id: "parent-a", fullName: "Mai Trần", phone: "0900", email: null, children: [{ linkId: "link-a", studentName: "Bé An", className: "Lớp Mầm", relationshipLabel: "Mẹ" }] };

@@ -321,6 +321,20 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("extracurricular c
     await expect(prisma.extracurricularClass.update({ where: { id: a1 }, data: { schoolYearId: s.nextYear.id } })).rejects.toThrow(/append-only/);
   });
 
+  it("stores Điểm danh riêng on create and edit with audit, and changes nothing else (decision 2026-10-08)", async () => {
+    const s = await setup();
+    const created = await finance.createExtracurricularClass(s.identity.id, s.school.id, uuid(), uuid(), { name: "Tiếng Anh tối", schoolYearId: s.year.id, receivableId: s.english, separateAttendance: true });
+    expect(created.outcome).toMatchObject({ separateAttendance: true });
+    const classId = id(created);
+    expect(id(await createClass(s, "Tiếng Anh sáng"))).toBeTruthy();
+    expect((await prisma.extracurricularClass.findFirstOrThrow({ where: { schoolId: s.school.id, name: "Tiếng Anh sáng" } })).separateAttendance).toBe(false);
+    const edited = await finance.editExtracurricularClass(s.identity.id, s.school.id, classId, uuid(), uuid(), { separateAttendance: false, reason: "Học trong giờ" });
+    expect(edited.outcome).toMatchObject({ name: "Tiếng Anh tối", receivableId: s.english, separateAttendance: false });
+    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: s.school.id, action: "EXTRACURRICULAR_CLASS_EDITED" } })).toMatchObject({ reason: "Học trong giờ", provenance: { oldValue: { separateAttendance: true }, newValue: { separateAttendance: false } } });
+    await expect(finance.editExtracurricularClass(s.identity.id, s.school.id, classId, uuid(), uuid(), { separateAttendance: false, reason: "x" })).rejects.toMatchObject({ status: 400 });
+    await expect(finance.editExtracurricularClass(s.identity.id, s.school.id, classId, uuid(), uuid(), { separateAttendance: "yes", reason: "x" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { separateAttendance: expect.any(String) } } });
+  });
+
   it("serializes competing commands: one concurrent membership add, class creation and rename wins, the rest get controlled 4xx", async () => {
     const s = await setup();
     const classId = id(await createClass(s, "Tiếng Anh A1"));
