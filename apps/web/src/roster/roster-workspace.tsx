@@ -326,6 +326,7 @@ export function RosterWorkspace({
   const staffIntakeDialog = useRef<HTMLDivElement>(null);
   const staffIntakeTrigger = useRef<HTMLButtonElement>(null);
   const classIntakeDialog = useRef<HTMLDivElement>(null);
+  const classAccountDialog = useRef<HTMLDivElement>(null);
   const classIntakeTrigger = useRef<HTMLButtonElement>(null);
   const endTrigger = useRef<HTMLButtonElement>(null);
   const restoreEndFocus = useRef(false);
@@ -1601,6 +1602,19 @@ export function RosterWorkspace({
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   };
   useEffect(() => { if (classIntakeOpen) classIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus(); }, [classIntakeOpen]);
+  const trapClassAccountDialog = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      setClassAccount(undefined);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(classAccountDialog.current?.querySelectorAll<HTMLElement>("select:not([disabled]), button:not([disabled])") ?? [])];
+    if (!focusable.length) return;
+    const first = focusable[0]!;
+    const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
   useEffect(() => { if (staffIntakeOpen) staffIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus(); }, [staffIntakeOpen]);
   useEffect(() => {
     if (!studentDetail || detailLoading) return;
@@ -2917,8 +2931,8 @@ export function RosterWorkspace({
         </div>
       )}
       {classAccount && (
-        <div role="dialog" aria-modal="true" aria-labelledby="class-account-title">
-          <form onSubmit={submitClassAccount}>
+        <div className="student-intake-backdrop"><div ref={classAccountDialog} className="student-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="class-account-title" onKeyDown={trapClassAccountDialog}>
+          <form className="roster-form student-intake-form" onSubmit={submitClassAccount}>
             <h3 id="class-account-title">Tài khoản thu mặc định · {classAccount.classroom.name}</h3>
             <label>
               Tài khoản trường mặc định
@@ -2937,12 +2951,9 @@ export function RosterWorkspace({
             </label>
             <small id="class-account-help">Dùng sẵn cho phần khoản không kê khai. Chỉ tài khoản đang hiệu lực của Trường; kế toán có thể chọn tài khoản khác khi phát hành.</small>
             {classAccount.error && <p role="alert">{classAccount.error}</p>}
-            <button type="button" onClick={() => setClassAccount(undefined)}>
-              Hủy
-            </button>
-            <button disabled={disabled || classAccount.saving || !classAccount.accounts}>Lưu tài khoản thu</button>
+            <div className="student-intake-actions"><button type="button" onClick={() => setClassAccount(undefined)}>Hủy</button><button disabled={disabled || classAccount.saving || !classAccount.accounts}>Lưu tài khoản thu</button></div>
           </form>
-        </div>
+        </div></div>
       )}
       {rename && (
         <div role="dialog" aria-modal="true" aria-labelledby="rename-title">
