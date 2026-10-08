@@ -3959,6 +3959,19 @@ export function FinanceWorkspace({
           )}
           {!invoiceRouteActive && run?.status === "GENERATED" && (
             <section aria-labelledby="run-invoices-title">
+              {run.previousOpenRun && (
+                <div className="finance-actions finance-actions-split">
+                  <p className="finance-alert">
+                    Đợt thu tháng {billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước
+                    khi phát hành hóa đơn đợt này.
+                  </p>
+                  {onOpenRun && (
+                    <button type="button" onClick={() => onOpenRun(run.previousOpenRun!.id)}>
+                      Mở đợt thu {billingMonthLabel(run.previousOpenRun.billingMonth)}
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="finance-actions finance-actions-split">
                 <div className="finance-card-heading">
                   <h2 id="run-invoices-title">Hóa đơn trong đợt</h2>
@@ -4096,19 +4109,6 @@ export function FinanceWorkspace({
                     </table>
                   </div>
                 </section>
-              )}
-              {run.previousOpenRun && (
-                <div className="finance-actions finance-actions-split">
-                  <p className="finance-alert">
-                    Đợt thu tháng {billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước
-                    khi phát hành hóa đơn đợt này.
-                  </p>
-                  {onOpenRun && (
-                    <button type="button" onClick={() => onOpenRun(run.previousOpenRun!.id)}>
-                      Mở đợt thu {billingMonthLabel(run.previousOpenRun.billingMonth)}
-                    </button>
-                  )}
-                </div>
               )}
               <div className="finance-actions finance-actions-split">
                 {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? (

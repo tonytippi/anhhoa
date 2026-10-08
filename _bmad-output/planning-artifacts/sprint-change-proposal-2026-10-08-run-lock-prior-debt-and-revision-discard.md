@@ -45,3 +45,8 @@ amends: Story 6.4 (chuyển prior debt), Story 5.x đóng đợt thu (`Đóng đ
 - **Story 5.47: Khóa đợt trước khi phát hành đợt mới.** Given đợt tháng sớm hơn chưa đóng When phát hành hóa đơn đợt mới Then `409 PREVIOUS_RUN_NOT_CLOSED`, giao diện báo trước; khi đợt trước đã đóng thì phát hành bình thường.
 - **Story 5.48: Chuyển công nợ kỳ trước.** Given hóa đơn đã phát hành chưa thu của đợt đã đóng When kế toán chuyển một hoặc tất cả Then mỗi nguồn thành dòng `Công nợ kỳ trước` trên phần cùng tài khoản, nguồn rời hàng đợi Thu tiền, thao tác idempotent và tất cả hoặc không.
 - **Story 5.49: Hủy bản điều chỉnh nháp.** Given bản điều chỉnh nháp When hủy với lý do Then bản nháp bị xóa, hóa đơn gốc không đổi, có audit, và chuẩn bị lại được.
+
+## 5. Ghi chú triển khai
+
+- Bản triển khai đầu của §1.1 (server `closeRun` và trigger DB `enforce_collection_run_close_finality`) đòi mọi hóa đơn phải đã thu (`CLOSED`) hoặc `CANCELLED` mới đóng được đợt, trái với quyết định: đóng đợt chỉ cần mọi hóa đơn đã phát hành.
+- Đã sửa cho khớp §1.1 (migration `20261008000007_close_run_with_issued_invoices`): đóng đợt cho phép hóa đơn `ISSUED`, `CLOSED`, `CANCELLED` hoặc `DRAFT` tổng 0; hóa đơn `DRAFT` khác 0 (kể cả bản điều chỉnh nháp) vẫn chặn. Trên đợt đã đóng, DB chỉ cho phép chuyển `ISSUED` sang `CLOSED` (ghi thực nhận, ghi nhận đã chi); thêm hóa đơn, sửa dòng, phát hành, điều chỉnh, hủy vẫn bị cấm.

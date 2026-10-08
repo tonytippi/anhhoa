@@ -211,7 +211,7 @@ async function issueFixture(price = "9007199254740991") {
   return { current, student, receivableId, invoice, bank, operationId };
 }
 
-// Test shortcut for the run lock: the earlier run still has open notices, so a real Đóng đợt thu would be refused.
+// Test shortcut for a run that was only opened (never generated), which a real Đóng đợt thu refuses.
 async function closeRunDirectly(runId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
@@ -2360,6 +2360,30 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(prisma.invoice.delete({ where: { id: fixture.invoice.id } })).rejects.toThrow(/deletion is forbidden/);
     });
 
+    it("keeps settling a closed run: receipts and carries still post, while edits, revisions and issuing stay refused", async () => {
+      // Decision 2026-10-08 1.1: the lock needs every invoice issued, not paid.
+      const fixture = await issueFixture(); const { current, invoice, bank } = fixture; const schoolId = current.school.id; const runId = invoice.collectionRunId;
+      await expect(finance.closeRun(current.identity.id, schoolId, runId, uuid(), uuid(), { reason: "Còn bản nháp" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
+      await finance.issueInvoice(current.identity.id, schoolId, invoice.id, uuid(), uuid(), { bankAccountId: bank.id });
+      await expect(finance.closeRun(current.identity.id, schoolId, runId, uuid(), uuid(), { reason: "Đã phát hành hết" })).resolves.toMatchObject({ outcome: { status: "CLOSED" } });
+      expect(await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).toMatchObject({ status: "ISSUED" });
+      // The run is locked for editing.
+      await expect(finance.addInvoiceLine(current.identity.id, schoolId, invoice.id, uuid(), uuid(), { receivableId: fixture.receivableId, quantity: "1" })).rejects.toMatchObject({ status: 409 });
+      await expect(finance.prepareRevision(current.identity.id, schoolId, invoice.id, uuid(), uuid(), { reason: "Sau khi khóa" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_CLOSED" } });
+      await expect(finance.issueInvoice(current.identity.id, schoolId, invoice.id, uuid(), uuid(), { bankAccountId: bank.id })).rejects.toMatchObject({ status: 409 });
+      const line = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId, invoiceId: invoice.id } });
+      await expect(prisma.invoiceLine.update({ where: { id: line.id }, data: { quantity: 2 } })).rejects.toThrow();
+      await expect(prisma.invoice.update({ where: { id: invoice.id }, data: { status: "CANCELLED" } })).rejects.toThrow();
+      // Receipts keep working: a shortfall settles the ISSUED invoice and carries into the next run.
+      await expect(finance.closeInvoice(current.identity.id, schoolId, invoice.id, uuid(), uuid(), { actualAmount: "9007199254740981" })).resolves.toMatchObject({ outcome: { status: "CLOSED", receipt: { outcome: "SHORTFALL", difference: { signedAmount: "10" } } } });
+      const nextRunId = outcomeId(await open(current, "2026-10"));
+      const nextPreview = await finance.preview(current.identity.id, schoolId, nextRunId);
+      await finance.readyRun(current.identity.id, schoolId, nextRunId, uuid(), uuid(), { previewFingerprint: nextPreview.fingerprint });
+      await generate(current, nextRunId);
+      expect(await prisma.invoice.findFirstOrThrow({ where: { schoolId, collectionRunId: nextRunId, studentId: fixture.student.student.id }, include: { settlementCarries: true } })).toMatchObject({ status: "DRAFT", total: 11n, settlementCarries: [expect.objectContaining({ type: "SHORTFALL_CARRY", amount: 10n })] });
+      expect(await prisma.collectionRun.findUniqueOrThrow({ where: { id: runId } })).toMatchObject({ status: "CLOSED" });
+    });
+
     it("locks issuing until every earlier MONTHLY run of the same School is closed", async () => {
       const fixture = await issueFixture(); const { current } = fixture; const schoolId = current.school.id;
       const earlier = outcomeId(await open(current, "2026-08"));
@@ -2847,15 +2871,14 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.auditRecord.count({ where: { schoolId: fixture.current.school.id, action: "INVOICE_ISSUED" } })).toBe(0);
     });
 
-    it("closes only a fully terminal generated run atomically, replays the outcome, and database guards preserve the lock", async () => {
+    it("closes a generated run once every invoice is issued, atomically, replays the outcome, and database guards preserve the lock", async () => {
       const { current, invoice, bank } = await issueFixture();
       const runId = invoice.collectionRunId;
       const key = uuid(); const operationId = uuid();
       await expect(finance.closeRun(current.identity.id, current.school.id, runId, key, operationId, { reason: "Đã rà soát" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
       expect(await prisma.collectionRunLifecycleTransition.count({ where: { schoolId: current.school.id, collectionRunId: runId, status: "CLOSED" } })).toBe(0);
       await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { bankAccountId: bank.id });
-      await expect(finance.closeRun(current.identity.id, current.school.id, runId, key, operationId, { reason: "Đã rà soát" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
-      await finance.closeInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { actualAmount: "9007199254740991" });
+      // Decision 2026-10-08 1.1: issued but unpaid invoices do not block the lock.
       const closed = await finance.closeRun(current.identity.id, current.school.id, runId, key, operationId, { reason: "Đã rà soát" });
       expect(closed).toMatchObject({ id: operationId, status: "COMPLETED", outcome: { id: runId, status: "CLOSED" } });
       await expect(finance.closeRun(current.identity.id, current.school.id, runId, key, uuid(), { reason: "Đã rà soát" })).resolves.toEqual(closed);
@@ -2866,7 +2889,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(prisma.collectionRun.update({ where: { id: runId }, data: { status: "GENERATED" } })).rejects.toThrow();
     });
 
-    it("closes a run with an issued revision and its cancelled source, but keeps nonterminal invoices blocking", async () => {
+    it("closes a run with an issued revision and its cancelled source, but keeps a non-zero DRAFT blocking", async () => {
       const fixture = await issueFixture();
       await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
       const prepared = await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Sửa số tiền" });
@@ -2875,8 +2898,6 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect((await prisma.invoiceLine.findMany({ where: { invoiceId: replacementId }, orderBy: { amount: "desc" } })).map(({ receivableId, quantity, unitPrice, amount }) => ({ receivableId, quantity, unitPrice, amount }))).toEqual((await prisma.invoiceLine.findMany({ where: { invoiceId: fixture.invoice.id }, orderBy: { amount: "desc" } })).map(({ receivableId, quantity, unitPrice, amount }) => ({ receivableId, quantity, unitPrice, amount })));
       await expect(finance.closeRun(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { reason: "Còn bản nháp" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
       await finance.issueRevision(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { bankAccountId: fixture.bank.id });
-      await expect(finance.closeRun(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { reason: "Còn hóa đơn đã phát hành" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
-      await finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { actualAmount: "9007199254740991" });
       await expect(finance.closeRun(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { reason: "Đã kiểm tra bản điều chỉnh" })).resolves.toMatchObject({ outcome: { status: "CLOSED" } });
       await expect(prisma.collectionRun.findUniqueOrThrow({ where: { id: fixture.invoice.collectionRunId } })).resolves.toMatchObject({ status: "CLOSED" });
     });
@@ -3293,7 +3314,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await expect(finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, target.id, uuid(), uuid(), { reason: "Không được sửa đích debt" })).rejects.toMatchObject({ status: 409, response: { code: "DEBT_TRANSFER_REVISION_FORBIDDEN" } });
       await finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { actualAmount: "19" });
        expect(await prisma.settlementDifference.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } })).toMatchObject({ signedAmount: 1n });
-      await closeRunDirectly(fixture.invoice.collectionRunId);
+      await finance.closeRun(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { reason: "Khóa đợt thu" });
       await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, target.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
        await expect(finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, target.id, uuid(), uuid(), { actualAmount: "82" })).resolves.toMatchObject({ outcome: { receipt: { outcome: "OVERPAYMENT", difference: { signedAmount: "-1" } } } });
       await expect(prisma.debtTransfer.update({ where: { id: debt.id }, data: { amount: 1n } })).rejects.toThrow(/append-only/);
@@ -3340,7 +3361,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
     it("never offers a coverage-backed source as manual prior debt", async () => {
       const coverage = await coverageFixture(); const { current } = coverage;
       await finance.issueInvoice(current.identity.id, current.school.id, coverage.invoice.id, uuid(), uuid(), { bankAccountId: coverage.bank.id });
-      await closeRunDirectly(coverage.invoice.collectionRunId);
+      await finance.closeRun(current.identity.id, current.school.id, coverage.invoice.collectionRunId, uuid(), uuid(), { reason: "Khóa đợt thu" });
       const targetRun = outcomeId(await open(current, "2026-10")); const preview = await finance.preview(current.identity.id, current.school.id, targetRun);
       await finance.readyRun(current.identity.id, current.school.id, targetRun, uuid(), uuid(), { previewFingerprint: preview.fingerprint }); await generate(current, targetRun);
       expect(await finance.priorDebts(current.identity.id, current.school.id, targetRun)).toEqual({ total: "0", debts: [] });

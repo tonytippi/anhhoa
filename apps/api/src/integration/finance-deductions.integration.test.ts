@@ -74,7 +74,7 @@ async function generatedRun(input: School, lines: Array<{ receivableId: string; 
   return { runId, preview };
 }
 
-// Test shortcut for the run lock: the earlier run still has open notices, so a real Đóng đợt thu would be refused.
+// Test shortcut for the run lock where another Student's DRAFT notice stays open on purpose, so a real Đóng đợt thu would be refused.
 async function closeRunDirectly(runId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
@@ -427,7 +427,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     await finance.closeInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { actualAmount: issued.obligationTotalSnapshot!.toString() });
     expect(await prisma.studentPromotionalCoverage.count({ where: { studentId: pupil.id } })).toBe(12);
     // August: tuition is covered, meals are charged in advance; two excused leave days.
-    await closeRunDirectly(march.runId);
+    for (let draft; (draft = await prisma.invoice.findFirst({ where: { schoolId: current.school.id, collectionRunId: march.runId, status: "DRAFT", total: { gt: 0 } } }));) await finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), { personalBankAccountId: personal });
+    await finance.closeRun(current.identity.id, current.school.id, march.runId, uuid(), uuid(), { reason: "Khóa đợt thu" });
     const august = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "21" }], "2026-08");
     const augustMeals = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: august.runId, studentId: pupil.id, channel: "PERSONAL" }, include: { lines: true } });
     expect(augustMeals.lines.map((line) => line.receivableId)).toEqual([meals]);

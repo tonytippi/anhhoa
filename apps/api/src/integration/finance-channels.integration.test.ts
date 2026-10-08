@@ -61,15 +61,6 @@ async function generatedRun(input: School, lines: Array<{ receivableId: string; 
   return { runId, preview, generated };
 }
 
-// Test shortcut for the run lock: the earlier run still has open notices, so a real Đóng đợt thu would be refused.
-async function closeRunDirectly(runId: string) {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
-    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    await tx.collectionRun.update({ where: { id: runId }, data: { status: "CLOSED" } });
-  });
-}
-
 afterEach(async () => {
   const ids = schools.splice(0);
   if (!ids.length) return;
@@ -202,7 +193,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     await finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), {});
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).bankAccountIdSnapshot).toBe(second);
     // An explicit choice wins over the Class default.
-    await closeRunDirectly(draft.collectionRunId);
+    await finance.closeRun(current.identity.id, current.school.id, draft.collectionRunId, uuid(), uuid(), { reason: "Khóa đợt thu" });
     const { runId: october } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-10");
     const next = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: october } });
     await finance.issueInvoice(current.identity.id, current.school.id, next.id, uuid(), uuid(), { schoolBankAccountId: first });
@@ -314,7 +305,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     const list = () => finance.priorDebts(current.identity.id, current.school.id, september);
     // The earlier run is still open: nothing is a candidate.
     expect(await list()).toEqual({ total: "0", debts: [] });
-    await closeRunDirectly(august);
+    await finance.closeRun(current.identity.id, current.school.id, august, uuid(), uuid(), { reason: "Khóa đợt thu" });
     const listed: any = await list();
     const unpaidParts = augustParts.filter((part) => part.studentId === unpaid.id);
     expect(listed.debts.map((row: any) => [row.sourceInvoiceId, row.channel]).sort()).toEqual(unpaidParts.map((part) => [part.id, part.channel]).sort());
@@ -349,7 +340,12 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     await expect(finance.receiptQueueDetail(current.identity.id, current.school.id, first!)).rejects.toMatchObject({ status: 404 });
     await expect(finance.paymentImage(current.identity.id, current.school.id, first!)).rejects.toBeDefined();
     // A closed target run refuses further transfers.
-    await closeRunDirectly(september);
+    while (true) {
+      const draft = await prisma.invoice.findFirst({ where: { schoolId: current.school.id, collectionRunId: september, status: "DRAFT", total: { gt: 0 } } });
+      if (!draft) break;
+      await finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), {});
+    }
+    await finance.closeRun(current.identity.id, current.school.id, september, uuid(), uuid(), { reason: "Khóa đợt thu" });
     await expect(finance.transferPriorDebts(current.identity.id, current.school.id, september, uuid(), uuid(), { sourceInvoiceIds: [first] })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_CLOSED" } });
   });
 

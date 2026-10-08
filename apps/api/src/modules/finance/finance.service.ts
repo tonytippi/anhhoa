@@ -3942,6 +3942,7 @@ export class FinanceService {
       return outcome;
     });
   }
+  // Decision 2026-10-08 1.1: the run locks once every Invoice is issued; Receipts and payouts keep settling its ISSUED Invoices afterwards.
   async closeRun(
     identityId: string,
     schoolId: string,
@@ -3959,8 +3960,8 @@ export class FinanceService {
       if (locked.status !== "GENERATED")
         throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ có thể đóng đợt thu đã tạo hóa đơn." });
       const invoices = await tx.invoice.findMany({ where: { schoolId, collectionRunId: runId }, select: { status: true, total: true } });
-      if (invoices.some((invoice: { status: string; total: bigint }) => !["CLOSED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === 0n)))
-        throw new ConflictException({ code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL", message: "Chỉ có thể đóng khi mọi hóa đơn đã phát hành hoặc đã kết thúc." });
+      if (invoices.some((invoice: { status: string; total: bigint }) => !["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status) && !(invoice.status === "DRAFT" && invoice.total === 0n)))
+        throw new ConflictException({ code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL", message: "Chỉ có thể đóng khi mọi hóa đơn đã phát hành." });
       const updated = await tx.collectionRun.update({ where: { id: locked.id }, data: { status: "CLOSED", version: { increment: 1 } } });
       await tx.collectionRunLifecycleTransition.create({
         data: { schoolId, collectionRunId: locked.id, previousStatus: "GENERATED", status: "CLOSED", actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 4 },

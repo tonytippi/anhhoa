@@ -4,7 +4,7 @@ summary: Khóa đợt thu khi mọi hóa đơn đã phát hành; phải đóng �
 order: 13
 requires: collection-runs
 ---
-Đóng đợt thu khi đã phát hành xong mọi hóa đơn trong tháng. Sau khi đóng, không thể thêm học sinh, tạo hoặc sửa hóa đơn trong đợt; việc ghi thực nhận vẫn tiếp tục bình thường ở trang `Thu tiền`.
+Đóng (khóa) đợt thu khi đã **phát hành** xong mọi hóa đơn trong tháng; không cần chờ phụ huynh đóng đủ tiền. Sau khi đóng, không thể thêm học sinh, tạo hoặc sửa hóa đơn trong đợt; việc ghi thực nhận và ghi nhận đã chi vẫn tiếp tục bình thường ở trang `Thu tiền`.
 
 ## Khóa đợt thu
 
@@ -26,6 +26,6 @@ Tháng sau vẫn **tạo đợt, xem trước và tạo hóa đơn nháp** đư�
 > [!WARNING]
 > Đóng đợt thu không thể mở lại. Hãy chắc chắn đã xử lý xong học sinh nhập học muộn và các điều chỉnh của tháng.
 
-Hóa đơn của đợt đã đóng mà phụ huynh chưa đóng tiền vẫn ghi thực nhận bình thường. Nếu muốn thu cùng hóa đơn tháng sau, dùng [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
+Hóa đơn của đợt đã đóng mà phụ huynh chưa đóng tiền vẫn ghi thực nhận bình thường ở `Thu tiền` (xem [Ghi nhận thu tiền](guide:thu-tien)), và phiếu hoàn tiền vẫn ghi nhận đã chi. Nếu muốn thu cùng hóa đơn tháng sau, chuyển hóa đơn chưa thu sang tháng sau bằng [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
 
 Sau khi đóng, nếu phát hiện sai sót thì không điều chỉnh hóa đơn của đợt đã đóng. Sửa ở hóa đơn tháng sau: thêm dòng thu thêm hoặc dùng phần `Bớt` để trừ lại.

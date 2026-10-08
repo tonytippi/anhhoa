@@ -44,6 +44,10 @@ Tháng sau, khoản chênh lệch hiện thành một dòng riêng trên hóa đ
 
 > Hóa đơn có gói nộp trước chỉ ghi được khi thực nhận **đúng bằng** số phải thu.
 
+## Đợt thu đã đóng
+
+Đóng (khóa) đợt thu chỉ cần mọi hóa đơn đã phát hành, không cần đã thu đủ. Sau khi đợt đã đóng, bạn vẫn ghi thực nhận và ghi nhận đã chi cho hóa đơn của đợt đó ở `Thu tiền` như bình thường; chỉ việc thêm học sinh, sửa hay điều chỉnh hóa đơn là bị khóa. Hóa đơn chưa thu có thể chuyển sang tháng sau bằng [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
+
 ## Ghi nhận đã chi (phiếu hoàn tiền)
 
 Dòng có trạng thái `Chờ chi hoàn` là tiền trường phải trả lại phụ huynh (thường do học sinh nghỉ học, xem [Học sinh nghỉ học](guide:quyet-toan-nghi-hoc)). Sau khi chuyển tiền:
