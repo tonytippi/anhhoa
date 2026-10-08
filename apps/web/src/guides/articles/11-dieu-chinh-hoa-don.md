@@ -27,8 +27,12 @@ Hóa đơn đã phát hành không sửa và không hủy trực tiếp. Cách d
 
 > Trong lúc chuẩn bị, hóa đơn gốc **vẫn giữ nguyên hiệu lực**. Mở lại phiếu thu từ đợt thu sẽ tự vào bản điều chỉnh đang dở để bạn làm tiếp.
 
+## Hủy bản điều chỉnh đang dở
+
+Chuẩn bị nhầm hoặc đổi ý thì bấm `Hủy bản điều chỉnh` cạnh `Phát hành bản thay thế`, nhập `Lý do hủy` (bắt buộc) và xác nhận. Bản điều chỉnh bị xóa; **hóa đơn gốc giữ nguyên** như chưa từng chuẩn bị. Sau đó hệ thống mở lại hóa đơn gốc, bạn có thể `Chuẩn bị bản điều chỉnh` lại nếu cần.
+
 > [!WARNING]
-> Bản điều chỉnh đã chuẩn bị **không xóa được**. Nếu đổi ý, hãy phát hành bản thay thế giữ nguyên các dòng (giống hệt bản gốc). Đợt thu không đóng được khi còn bản điều chỉnh nháp.
+> Chỉ hủy được bản điều chỉnh **chưa phát hành**. Bản thay thế đã phát hành không hủy được; muốn sửa tiếp, chuẩn bị bản điều chỉnh mới. Đợt thu không đóng được khi còn bản điều chỉnh nháp.
 
 ## Giới hạn
 

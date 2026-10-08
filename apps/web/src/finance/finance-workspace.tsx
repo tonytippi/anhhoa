@@ -187,6 +187,7 @@ type Run = {
   type: "MONTHLY";
   status: "DRAFT" | "READY" | "GENERATED" | "CLOSED";
   version: number;
+  previousOpenRun?: { id: string; billingMonth: string } | null;
   templateLines: Array<TemplateLine>;
   coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
   invoices?: Array<{
@@ -1187,6 +1188,8 @@ export function FinanceWorkspace({
   const [revisionConfirmation, setRevisionConfirmation] = useState(false);
   const [revisionReason, setRevisionReason] = useState("");
   const [revisionPartId, setRevisionPartId] = useState("");
+  const [discardConfirmation, setDiscardConfirmation] = useState(false);
+  const [discardReason, setDiscardReason] = useState("");
   const [line, setLine] = useState(emptyInvoiceLine);
   const [lineDialog, setLineDialog] = useState(false);
   const [lineDrafts, setLineDrafts] = useState<Record<string, LineDraft>>({});
@@ -1272,6 +1275,8 @@ export function FinanceWorkspace({
   const issueTrigger = useRef<HTMLButtonElement>(null);
   const revisionDialog = useRef<HTMLDivElement>(null);
   const revisionTrigger = useRef<HTMLButtonElement>(null);
+  const discardDialog = useRef<HTMLDivElement>(null);
+  const discardTrigger = useRef<HTMLButtonElement>(null);
   const closeDialog = useRef<HTMLDivElement>(null);
   const closeTrigger = useRef<HTMLButtonElement>(null);
   const dialogTrigger = useRef<HTMLButtonElement | null>(null);
@@ -1688,6 +1693,10 @@ export function FinanceWorkspace({
     if (revisionConfirmation) revisionDialog.current?.querySelector<HTMLButtonElement>("[data-dialog-cancel]")?.focus();
     else revisionTrigger.current?.focus();
   }, [revisionConfirmation]);
+  useEffect(() => {
+    if (discardConfirmation) discardDialog.current?.querySelector<HTMLButtonElement>("[data-dialog-cancel]")?.focus();
+    else discardTrigger.current?.focus();
+  }, [discardConfirmation]);
   useEffect(() => {
     if (closeConfirmation) closeDialog.current?.querySelector<HTMLButtonElement>("[data-dialog-cancel]")?.focus();
     else closeTrigger.current?.focus();
@@ -2509,6 +2518,22 @@ export function FinanceWorkspace({
       }
     }
   };
+  const discardRevision = async () => {
+    if (!invoice?.revisesInvoiceId || !discardReason.trim()) return;
+    const sourceId = invoice.revisesInvoiceId;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/discard-revision`, "POST", { reason: discardReason }, "invoice");
+    if (outcome) {
+      setDiscardConfirmation(false);
+      setDiscardReason("");
+      if (!(await openInvoice(sourceId, run))) setInvoice(undefined);
+      try {
+        await load();
+        setNotice("Đã hủy bản điều chỉnh.");
+      } catch {
+        setMessage("Đã hủy bản điều chỉnh; chưa thể tải lại dữ liệu mới nhất.");
+      }
+    }
+  };
   const openIssueConfirmation = async () => {
     if (!invoice) return;
     setMessage("");
@@ -2583,6 +2608,24 @@ export function FinanceWorkspace({
     if (event.key === "Escape" && !pending) { event.preventDefault(); setCloseConfirmation(false); return; }
     if (event.key !== "Tab") return;
     const items = [...(closeDialog.current?.querySelectorAll<HTMLElement>("textarea, button") ?? [])].filter(
+      (item) => !item.hasAttribute("disabled"),
+    );
+    const first = items[0],
+      last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    }
+    if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+  const trapDiscardFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && !pending) { event.preventDefault(); setDiscardConfirmation(false); return; }
+    if (event.key !== "Tab") return;
+    const items = [...(discardDialog.current?.querySelectorAll<HTMLElement>("textarea, input, button") ?? [])].filter(
       (item) => !item.hasAttribute("disabled"),
     );
     const first = items[0],
@@ -2729,6 +2772,11 @@ export function FinanceWorkspace({
       : issueParts.length > 1
         ? "Phát hành phiếu thu"
         : "Phát hành hóa đơn";
+  // Run lock (decision 2026-10-08): the server refuses issuing while an earlier MONTHLY run is open; a revision is exempt.
+  const previousRunMessage =
+    run?.previousOpenRun && !invoice?.revisesInvoiceId
+      ? `Đợt thu tháng ${billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước khi phát hành hóa đơn đợt này.`
+      : "";
   // Amendment A4: a negative monthly part closes at issue and its credit carries into next month.
   const negativeMonthlyPart = issueParts.find((part) => part.kind !== "SETTLEMENT" && BigInt(part.total) < 0n);
   const paymentParts = noticeParts.filter((part) => part.paymentImageAvailable && part.issue);
@@ -3958,6 +4006,19 @@ export function FinanceWorkspace({
                   </div>
                 </section>
               )}
+              {run.previousOpenRun && (
+                <div className="finance-actions finance-actions-split">
+                  <p className="finance-alert">
+                    Đợt thu tháng {billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước
+                    khi phát hành hóa đơn đợt này.
+                  </p>
+                  {onOpenRun && (
+                    <button type="button" onClick={() => onOpenRun(run.previousOpenRun!.id)}>
+                      Mở đợt thu {billingMonthLabel(run.previousOpenRun.billingMonth)}
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="finance-actions finance-actions-split">
                 {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? (
                   <p>
@@ -4394,17 +4455,31 @@ export function FinanceWorkspace({
                       vào hóa đơn tháng sau. Hóa đơn tự đóng khi phát hành.
                     </p>
                   )}
+                  {invoice.status === "DRAFT" && previousRunMessage && <p className="finance-alert">{previousRunMessage}</p>}
                   <div className="finance-actions">
                     {invoice.status === "DRAFT" && (
                       <button
                         ref={issueTrigger}
                         className="primary-action"
                         type="button"
-                        disabled={Boolean(pending) || !issueParts.length || pendingLineEdits.length > 0}
-                        title={pendingLineEdits.length ? "Lưu hoặc hoàn tác thay đổi trên dòng trước khi phát hành." : undefined}
+                        disabled={Boolean(pending) || !issueParts.length || pendingLineEdits.length > 0 || Boolean(previousRunMessage)}
+                        title={previousRunMessage || (pendingLineEdits.length ? "Lưu hoặc hoàn tác thay đổi trên dòng trước khi phát hành." : undefined)}
                         onClick={() => void openIssueConfirmation()}
                       >
                         {issueActionLabel}
+                      </button>
+                    )}
+                    {invoice.status === "DRAFT" && invoice.revisesInvoiceId && (
+                      <button
+                        ref={discardTrigger}
+                        type="button"
+                        disabled={Boolean(pending)}
+                        onClick={() => {
+                          setDiscardReason("");
+                          setDiscardConfirmation(true);
+                        }}
+                      >
+                        Hủy bản điều chỉnh
                       </button>
                     )}
                     {!invoice.revisesInvoiceId && revisionParts.length > 0 && (
@@ -4724,6 +4799,42 @@ export function FinanceWorkspace({
                     onClick={() => void prepareRevision()}
                   >
                     Chuẩn bị bản điều chỉnh
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+          {discardConfirmation && invoice && (
+            <>
+              <div className="dialog-backdrop" aria-hidden="true" />
+              <div
+                ref={discardDialog}
+                className="dialog finance-confirm-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="finance-discard-title"
+                onKeyDown={trapDiscardFocus}
+              >
+                <h3 id="finance-discard-title">
+                  Hủy bản điều chỉnh cho {invoice.student.code} / {invoice.student.name} · tháng{" "}
+                  {billingMonthLabel(invoice.billingMonth)}
+                </h3>
+                <p>Bản điều chỉnh sẽ bị xóa; hóa đơn đã phát hành giữ nguyên.</p>
+                <label>
+                  Lý do hủy
+                  <textarea value={discardReason} onChange={(event) => setDiscardReason(event.target.value)} />
+                </label>
+                <div className="dialog-actions">
+                  <button data-dialog-cancel type="button" disabled={Boolean(pending)} onClick={() => setDiscardConfirmation(false)}>
+                    Không hủy
+                  </button>
+                  <button
+                    className="primary-action"
+                    type="button"
+                    disabled={Boolean(pending) || !discardReason.trim()}
+                    onClick={() => void discardRevision()}
+                  >
+                    Hủy bản điều chỉnh
                   </button>
                 </div>
               </div>
