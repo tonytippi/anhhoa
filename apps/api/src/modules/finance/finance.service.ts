@@ -3398,7 +3398,9 @@ export class FinanceService {
     const extracurricular = await this.runResolution(this.prisma, schoolId, run);
     const preview = await this.previewDeductions(this.prisma, schoolId, run, await this.selectionPreview(this.prisma, schoolId, run, undefined, templateLines, extracurricular));
     const lineSummaries = [...this.previewLineSummaries(templateLines, preview.eligible), ...this.previewExtracurricularSummaries(extracurricular, preview.eligible)];
-    return { ...preview, summary: this.previewSummary(preview), lineSummaries, extracurricularClasses: this.previewExtracurricularClasses(extracurricular, preview.eligible), lineTotal: lineSummaries.reduce((total: bigint, line: any) => total + BigInt(line.subtotal), 0n).toString() };
+    // Per-Student totals let the admin preview show one row per Student without summing VND in the browser.
+    const eligible = preview.eligible.map((row: any) => ({ ...row, totals: this.previewTotals(row.lines ?? []) }));
+    return { ...preview, eligible, summary: this.previewSummary(preview), lineSummaries, extracurricularClasses: this.previewExtracurricularClasses(extracurricular, preview.eligible), lineTotal: lineSummaries.reduce((total: bigint, line: any) => total + BigInt(line.subtotal), 0n).toString() };
   }
   // The preview shows the leave-day deduction proposed from current facts; it is not part of the READY
   // fingerprint because generation re-reads leave days and refund prices at generation time.

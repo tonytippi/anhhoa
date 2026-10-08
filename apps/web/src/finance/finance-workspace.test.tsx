@@ -1072,12 +1072,28 @@ describe("FinanceWorkspace", () => {
     ).toBeTruthy();
     expect(screen.queryByText("CLASS_INACTIVE")).toBeNull();
   });
-  it("renders distinct server-returned promotion line values and assignment reasons without deriving totals", async () => {
-    const preview = { run, fingerprint: "server-fingerprint", eligible: [{ studentId: fixtureStudentId, studentCode: "HS001", fullName: "Bé An", className: "Lá 1", lines: [{ receivableId: "meal", receivableName: "Tiền ăn", grossAmount: "100", discountAmount: "25", netAmount: "75", promotionEvaluation: { applications: [{ assignmentReason: "Con nhân viên", appliedDiscount: "25" }] } }, { receivableId: "tuition", receivableName: "Học phí", grossAmount: "200", discountAmount: "0", netAmount: "200", promotionEvaluation: { applications: [] } }] }], skips: [] };
+  it("renders one row per Student with server-returned totals and assignment reasons without deriving totals", async () => {
+    const preview = { run, fingerprint: "server-fingerprint", eligible: [{ studentId: fixtureStudentId, studentCode: "HS001", fullName: "Bé An", className: "Lá 1", totals: { grossAmount: "300", discountAmount: "25", deductionAmount: "0", vatAmount: "0", amount: "275" }, lines: [{ receivableId: "meal", receivableName: "Tiền ăn", grossAmount: "100", discountAmount: "25", netAmount: "75", promotionEvaluation: { applications: [{ assignmentReason: "Con nhân viên", appliedDiscount: "25" }] } }, { receivableId: "tuition", receivableName: "Học phí", grossAmount: "200", discountAmount: "0", netAmount: "200", promotionEvaluation: { applications: [] } }] }], skips: [] };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/preview") ? response(preview) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [run] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
-    expect(await screen.findByText("Con nhân viên")).toBeTruthy(); expect(screen.getByText("75 đ")).toBeTruthy(); expect(screen.getAllByText("200 đ")).toHaveLength(2); expect(screen.queryByText("275 đ")).toBeNull();
+    expect(await screen.findByText("Con nhân viên")).toBeTruthy();
+    const rows = within(screen.getByRole("table", { name: "Học sinh đủ điều kiện" })).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent))).toEqual([["HS001 / Bé An", "Lá 1", "300 đ", "25 đ", "0 đ", "0 đ", "275 đ", "Con nhân viên"]]);
+  });
+  it("searches and pages the eligible Students of a large preview", async () => {
+    const student = (index: number) => ({ studentId: `s${index}`, studentCode: `HS${String(index).padStart(3, "0")}`, fullName: index === 30 ? "Bé Đức" : `Bé ${index}`, className: "Lá 1", totals: { grossAmount: "100", discountAmount: "0", deductionAmount: "0", vatAmount: "0", amount: "100" }, lines: [] });
+    const preview = { run, fingerprint: "large", eligible: Array.from({ length: 30 }, (_, index) => student(index + 1)), skips: [] };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/preview") ? response(preview) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [run] }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun(); fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
+    const table = await screen.findByRole("table", { name: "Học sinh đủ điều kiện" });
+    expect(within(table).getAllByRole("row")).toHaveLength(1 + 25);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Phân trang học sinh đủ điều kiện" })).getByRole("button", { name: "2" }));
+    expect(within(table).getAllByRole("row")).toHaveLength(1 + 5);
+    fireEvent.change(screen.getByPlaceholderText("Tên, mã học sinh hoặc lớp"), { target: { value: "duc" } });
+    expect(within(table).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[0]!.textContent)).toEqual(["HS030 / Bé Đức"]);
+    expect(screen.queryByRole("navigation", { name: "Phân trang học sinh đủ điều kiện" })).toBeNull();
   });
   it("keeps a stale preview error and selection for refresh", async () => {
     vi.stubGlobal(
@@ -2054,7 +2070,7 @@ describe("FinanceWorkspace", () => {
       // The footer reconciles to the server summary: gross − discount − deduction + VAT = Cần thu dự kiến.
       expect(rowCells(within(perLine).getByText("Tổng cộng").closest("tr")!).slice(4)).toEqual(["5.900.000 đ", "-100.000 đ", "0 đ", "65.000 đ", "5.865.000 đ"]);
       expect(within(screen.getByLabelText("Tổng quan do máy chủ tính")).getByText("5.865.000 đ")).toBeTruthy();
-      expect(within(screen.getByRole("table", { name: "Học sinh đủ điều kiện" })).getAllByRole("row")).toHaveLength(1 + 5);
+      expect(within(screen.getByRole("table", { name: "Học sinh đủ điều kiện" })).getAllByRole("row")).toHaveLength(1 + 3);
       expect(screen.getByText("AH-009 / Bé Bình").closest("tr, li, p, details")!.textContent).toContain("Không có khoản thu áp dụng.");
       expect(screen.getByText("Hướng dẫn").closest("details")!.open).toBe(false);
     });

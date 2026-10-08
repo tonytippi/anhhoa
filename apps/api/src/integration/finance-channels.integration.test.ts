@@ -107,6 +107,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     expect(preview.lineSummaries.find((line: any) => line.receivableId === tuition)).toMatchObject({ subtotal: "3500000", discountAmount: "350000", deductionAmount: "0", vatAmount: "157500", totalAmount: "3307500" });
     for (const line of preview.lineSummaries) reconciles(line, line.totalAmount);
     expect(preview.lineSummaries.reduce((total: bigint, line: any) => total + BigInt(line.totalAmount), 0n)).toBe(BigInt(preview.summary.expectedTotal));
+    for (const row of preview.eligible) reconciles(row.totals, row.totals.amount);
+    expect(preview.eligible.reduce((total: bigint, row: any) => total + BigInt(row.totals.amount), 0n)).toBe(BigInt(preview.summary.expectedTotal));
     const invoices = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: runId }, include: { lines: true }, orderBy: { channel: "asc" } });
     expect(invoices.map((invoice) => [invoice.channel, invoice.total])).toEqual([["SCHOOL", 3150000n + 157500n + 333333n + 26667n], ["PERSONAL", 770000n]]);
     expect(invoices[0]!.lines.find((line) => line.receivableId === tuition)).toMatchObject({ grossAmount: 3500000n, discountAmount: 350000n, netAmount: 3150000n, taxCategorySnapshot: "VAT_5", vatRateSnapshot: 5, vatAmount: 157500n, amount: 3307500n });

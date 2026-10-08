@@ -241,6 +241,7 @@ type Preview = {
     studentCode: string;
     fullName: string;
     className: string;
+    totals?: { grossAmount: string; discountAmount: string; deductionAmount: string; vatAmount: string; amount: string };
     lines: Array<{
       receivableId: string;
       receivableName: string;
@@ -540,6 +541,99 @@ const noticeStatus = (notice: RunNotice): [string, "neutral" | "info" | "success
         : notice.status === "CANCELLED"
           ? ["Đã hủy", "warning"]
           : ["Đã phát hành", "success"];
+
+const PREVIEW_PAGE_SIZE = 25;
+const foldSearch = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/g, "d").replace(/Đ/g, "d").toLowerCase();
+
+// One row per Student with server-computed totals; search and paging keep a whole-school run readable.
+function PreviewEligibleTable({ eligible }: { eligible: Preview["eligible"] }) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const needle = foldSearch(query.trim());
+  const rows = needle ? eligible.filter((item) => foldSearch(`${item.studentCode} ${item.fullName} ${item.className}`).includes(needle)) : eligible;
+  const totalPages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
+  const current = Math.min(page, totalPages);
+  const shown = rows.slice((current - 1) * PREVIEW_PAGE_SIZE, current * PREVIEW_PAGE_SIZE);
+  return (
+    <>
+      {eligible.length > PREVIEW_PAGE_SIZE && (
+        <div className="roster-list-filters">
+          <label className="roster-filter-search">
+            Tìm kiếm
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Tên, mã học sinh hoặc lớp"
+            />
+          </label>
+        </div>
+      )}
+      <div className="table-scroll">
+        <table>
+          <caption>Học sinh đủ điều kiện</caption>
+          <thead>
+            <tr>
+              <th>Học sinh</th>
+              <th>Lớp</th>
+              <th className="finance-money">Tổng trước giảm</th>
+              <th className="finance-money">Ưu đãi</th>
+              <th className="finance-money">Bớt</th>
+              <th className="finance-money">Thuế GTGT</th>
+              <th className="finance-money">Tổng phải thu</th>
+              <th>Lý do ưu đãi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.length ? (
+              shown.map((item) => (
+                <tr key={item.studentId}>
+                  <td>
+                    {item.studentCode} / {item.fullName}
+                  </td>
+                  <td>{item.className}</td>
+                  <td className="finance-money">{vnd(item.totals?.grossAmount ?? "0")} đ</td>
+                  <td className="finance-money">{vnd(item.totals?.discountAmount ?? "0")} đ</td>
+                  <td className="finance-money">{vnd(item.totals?.deductionAmount ?? "0")} đ</td>
+                  <td className="finance-money">{vnd(item.totals?.vatAmount ?? "0")} đ</td>
+                  <td className="finance-money">{vnd(item.totals?.amount ?? "0")} đ</td>
+                  <td>
+                    {[...new Set((item.lines ?? []).flatMap((line) => line.promotionEvaluation.applications.map((application) => application.assignmentReason)))].join(", ") ||
+                      "Không áp dụng"}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={8}>{eligible.length ? "Không có học sinh khớp tìm kiếm." : "Không có học sinh đủ điều kiện."}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {totalPages > 1 && (
+        <nav className="pagination" aria-label="Phân trang học sinh đủ điều kiện">
+          <button type="button" disabled={current === 1} onClick={() => setPage(current - 1)}>
+            Trước
+          </button>
+          {Array.from({ length: Math.min(5, totalPages) }, (_, index) =>
+            totalPages <= 5 ? index + 1 : Math.min(totalPages - 4, Math.max(1, current - 2)) + index,
+          ).map((item) => (
+            <button key={item} type="button" disabled={item === current} aria-current={item === current ? "page" : undefined} onClick={() => setPage(item)}>
+              {item}
+            </button>
+          ))}
+          <button type="button" disabled={current === totalPages} onClick={() => setPage(current + 1)}>
+            Sau
+          </button>
+        </nav>
+      )}
+    </>
+  );
+}
 
 function RunNoticeTable({
   notices,
@@ -3498,53 +3592,7 @@ export function FinanceWorkspace({
                       </tbody>
                     </table>
                   </div>
-                  <div className="table-scroll">
-                    <table>
-                      <caption>Học sinh đủ điều kiện</caption>
-                      <thead>
-                        <tr>
-                          <th>Học sinh</th>
-                          <th>Lớp</th>
-                          <th>Khoản thu</th>
-                          <th className="finance-money">Tổng trước giảm</th>
-                          <th className="finance-money">Ưu đãi</th>
-                          <th className="finance-money">Bớt</th>
-                          <th className="finance-money">Thuế GTGT</th>
-                          <th className="finance-money">Tổng phải thu</th>
-                          <th>Lý do ưu đãi</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {preview.eligible.length ? (
-                          preview.eligible.flatMap((item) =>
-                            (item.lines ?? []).map((line) => (
-                              <tr key={`${item.studentId}-${line.receivableId}`}>
-                                <td>
-                                  {item.studentCode} / {item.fullName}
-                                </td>
-                                <td>{item.className}</td>
-                                <td>{line.receivableName}</td>
-                                <td className="finance-money">{vnd(line.grossAmount)} đ</td>
-                                <td className="finance-money">{vnd(line.discountAmount)} đ</td>
-                                <td className="finance-money">{vnd(line.deductionAmount ?? "0")} đ</td>
-                                <td className="finance-money">{vnd(line.vatAmount ?? "0")} đ</td>
-                                <td className="finance-money">{vnd(line.amount ?? line.netAmount)} đ</td>
-                                <td>
-                                  {line.promotionEvaluation.applications
-                                    .map((application) => application.assignmentReason)
-                                    .join(", ") || "Không áp dụng"}
-                                </td>
-                              </tr>
-                            )),
-                          )
-                        ) : (
-                          <tr>
-                            <td colSpan={9}>Không có học sinh đủ điều kiện.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                  <PreviewEligibleTable key={preview.fingerprint} eligible={preview.eligible} />
                   {(preview.futureCoverageFacts ?? []).length > 0 && (
                     <div className="table-scroll">
                       <table>
