@@ -449,8 +449,9 @@ export async function seed(): Promise<void> {
 // later seeds.
 const financeSeedKey = '8d5c7a52-3f0e-4c61-9d7b-2a41e6f0b9c3';
 const financeSeedRoute = 'development-seed/finance-fixtures';
-// Kidsonline lists seven non-taxable accounts, all held by Nguyễn Thị Hoan; PeakLand has no School account. The first
-// one becomes every Class default; Finance can change it per Class.
+// Kidsonline lists seven non-taxable accounts, all held by Nguyễn Thị Hoan, plus two business accounts (BIDV, TPBank)
+// that PeakLand also receives on; PeakLand has no School account, so all nine are PERSONAL. The first one becomes
+// every Class default; Finance can change it per Class.
 const financeSeedAccounts = [
   { receivingBank: 'ACB', bankBin: '970416', accountNumber: '50934947' },
   { receivingBank: 'MBBank', bankBin: '970422', accountNumber: '0916612859' },
@@ -459,7 +460,10 @@ const financeSeedAccounts = [
   { receivingBank: 'Vietcombank', bankBin: '970436', accountNumber: '1916612859' },
   { receivingBank: 'VIB', bankBin: '970441', accountNumber: '163430' },
   { receivingBank: 'VPBank', bankBin: '970432', accountNumber: '0916612859' },
-].map((account) => ({ ...account, kind: 'PERSONAL' as const, accountHolderName: 'NGUYEN THI HOAN' }));
+].map((account) => ({ ...account, kind: 'PERSONAL' as const, accountHolderName: 'NGUYEN THI HOAN' })).concat([
+  { receivingBank: 'BIDV', bankBin: '970418', accountNumber: '8827839003', kind: 'PERSONAL' as const, accountHolderName: 'LOP MAM NON DOC LAP GIAO DUC DINH CAO' },
+  { receivingBank: 'TPBank', bankBin: '970423', accountNumber: '88888882026', kind: 'PERSONAL' as const, accountHolderName: 'HKD NHOM TRE, LOP MAM NON DOC LAP KY LAN' },
+]);
 // Receivables keep Kidsonline names, units and prices; code = KO-<Kidsonline receivable id> to trace rows back during
 // migration. Kidsonline "Ngoại khóa" maps to EXTRACURRICULAR; only the two lines every Student gets each month
 // (HỌC PHÍ TIÊU CHUẨN THÁNG, Tiền ăn) are FIXED, everything else is FLEXIBLE. Tiền ăn is the only Kidsonline item
