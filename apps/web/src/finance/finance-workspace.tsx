@@ -548,9 +548,13 @@ const foldSearch = (value: string) => value.normalize("NFD").replace(/\p{Diacrit
 // One row per Student with server-computed totals; search and paging keep a whole-school run readable.
 function PreviewEligibleTable({ eligible }: { eligible: Preview["eligible"] }) {
   const [query, setQuery] = useState("");
+  const [className, setClassName] = useState("");
   const [page, setPage] = useState(1);
+  const classNames = [...new Set(eligible.map((item) => item.className))].sort((a, b) => a.localeCompare(b, "vi"));
   const needle = foldSearch(query.trim());
-  const rows = needle ? eligible.filter((item) => foldSearch(`${item.studentCode} ${item.fullName} ${item.className}`).includes(needle)) : eligible;
+  const rows = eligible.filter(
+    (item) => (!className || item.className === className) && (!needle || foldSearch(`${item.studentCode} ${item.fullName}`).includes(needle)),
+  );
   const totalPages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
   const current = Math.min(page, totalPages);
   const shown = rows.slice((current - 1) * PREVIEW_PAGE_SIZE, current * PREVIEW_PAGE_SIZE);
@@ -567,8 +571,25 @@ function PreviewEligibleTable({ eligible }: { eligible: Preview["eligible"] }) {
                 setQuery(event.target.value);
                 setPage(1);
               }}
-              placeholder="Tên, mã học sinh hoặc lớp"
+              placeholder="Tên hoặc mã học sinh"
             />
+          </label>
+          <label>
+            Lớp
+            <select
+              value={className}
+              onChange={(event) => {
+                setClassName(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">Tất cả lớp</option>
+              {classNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
       )}
@@ -608,7 +629,7 @@ function PreviewEligibleTable({ eligible }: { eligible: Preview["eligible"] }) {
               ))
             ) : (
               <tr>
-                <td colSpan={8}>{eligible.length ? "Không có học sinh khớp tìm kiếm." : "Không có học sinh đủ điều kiện."}</td>
+                <td colSpan={8}>{eligible.length ? "Không có học sinh khớp bộ lọc." : "Không có học sinh đủ điều kiện."}</td>
               </tr>
             )}
           </tbody>

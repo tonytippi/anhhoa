@@ -1081,8 +1081,8 @@ describe("FinanceWorkspace", () => {
     const rows = within(screen.getByRole("table", { name: "Học sinh đủ điều kiện" })).getAllByRole("row").slice(1);
     expect(rows.map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent))).toEqual([["HS001 / Bé An", "Lá 1", "300 đ", "25 đ", "0 đ", "0 đ", "275 đ", "Con nhân viên"]]);
   });
-  it("searches and pages the eligible Students of a large preview", async () => {
-    const student = (index: number) => ({ studentId: `s${index}`, studentCode: `HS${String(index).padStart(3, "0")}`, fullName: index === 30 ? "Bé Đức" : `Bé ${index}`, className: "Lá 1", totals: { grossAmount: "100", discountAmount: "0", deductionAmount: "0", vatAmount: "0", amount: "100" }, lines: [] });
+  it("searches, filters by class and pages the eligible Students of a large preview", async () => {
+    const student = (index: number) => ({ studentId: `s${index}`, studentCode: `HS${String(index).padStart(3, "0")}`, fullName: index === 30 ? "Bé Đức" : `Bé ${index}`, className: index % 10 === 0 ? "Chồi 2" : "Lá 1", totals: { grossAmount: "100", discountAmount: "0", deductionAmount: "0", vatAmount: "0", amount: "100" }, lines: [] });
     const preview = { run, fingerprint: "large", eligible: Array.from({ length: 30 }, (_, index) => student(index + 1)), skips: [] };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/preview") ? response(preview) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [run] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
@@ -1091,9 +1091,14 @@ describe("FinanceWorkspace", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(1 + 25);
     fireEvent.click(within(screen.getByRole("navigation", { name: "Phân trang học sinh đủ điều kiện" })).getByRole("button", { name: "2" }));
     expect(within(table).getAllByRole("row")).toHaveLength(1 + 5);
-    fireEvent.change(screen.getByPlaceholderText("Tên, mã học sinh hoặc lớp"), { target: { value: "duc" } });
-    expect(within(table).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[0]!.textContent)).toEqual(["HS030 / Bé Đức"]);
+    const names = () => within(table).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[0]!.textContent);
+    fireEvent.change(screen.getByLabelText("Lớp"), { target: { value: "Chồi 2" } });
+    expect(names()).toEqual(["HS010 / Bé 10", "HS020 / Bé 20", "HS030 / Bé Đức"]);
     expect(screen.queryByRole("navigation", { name: "Phân trang học sinh đủ điều kiện" })).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Tên hoặc mã học sinh"), { target: { value: "duc" } });
+    expect(names()).toEqual(["HS030 / Bé Đức"]);
+    fireEvent.change(screen.getByLabelText("Lớp"), { target: { value: "Lá 1" } });
+    expect(within(table).getByText("Không có học sinh khớp bộ lọc.")).toBeTruthy();
   });
   it("keeps a stale preview error and selection for refresh", async () => {
     vi.stubGlobal(
