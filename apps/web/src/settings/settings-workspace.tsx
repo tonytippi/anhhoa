@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
+import { DateInput } from "../components/date-input";
 
 type Holiday = { id?: string; name: string; startsOn: string; endsOn: string };
 type EvidenceMode = "REQUIRED" | "OPTIONAL";
@@ -680,14 +681,14 @@ export function SettingsWorkspace({
                 <div className="settings-field">
                   <label>
                     Ngày bắt đầu
-                    <input type="date" value={holiday.startsOn} onChange={(event) => setHoliday({ ...holiday, startsOn: event.target.value })} {...field("calendar", "startsOn")} />
+                    <DateInput value={holiday.startsOn} onChange={(event) => setHoliday({ ...holiday, startsOn: event.target.value })} {...field("calendar", "startsOn")} />
                   </label>
                   {fieldError("calendar", "startsOn")}
                 </div>
                 <div className="settings-field">
                   <label>
                     Ngày kết thúc
-                    <input type="date" value={holiday.endsOn} onChange={(event) => setHoliday({ ...holiday, endsOn: event.target.value })} {...field("calendar", "endsOn")} />
+                    <DateInput value={holiday.endsOn} onChange={(event) => setHoliday({ ...holiday, endsOn: event.target.value })} {...field("calendar", "endsOn")} />
                   </label>
                   {fieldError("calendar", "endsOn")}
                 </div>
@@ -735,7 +736,7 @@ export function SettingsWorkspace({
               <div className="settings-field">
                 <label>
                   Ngày hiệu lực
-                  <input type="date" value={financePolicy.effectiveFrom || today} onChange={(event) => setFinancePolicy({ ...financePolicy, effectiveFrom: event.target.value })} {...field("financePolicy", "effectiveFrom")} />
+                  <DateInput value={financePolicy.effectiveFrom || today} onChange={(event) => setFinancePolicy({ ...financePolicy, effectiveFrom: event.target.value })} {...field("financePolicy", "effectiveFrom")} />
                 </label>
                 {fieldError("financePolicy", "effectiveFrom")}
               </div>
@@ -934,7 +935,7 @@ export function SettingsWorkspace({
                   <div className="settings-field">
                     <label>
                       Ngày hiệu lực
-                      <input type="date" value={policy.effectiveFrom || today} onChange={(event) => setPolicy({ ...policy, effectiveFrom: event.target.value })} {...field(scope, "effectiveFrom")} />
+                      <DateInput value={policy.effectiveFrom || today} onChange={(event) => setPolicy({ ...policy, effectiveFrom: event.target.value })} {...field(scope, "effectiveFrom")} />
                     </label>
                     {fieldError(scope, "effectiveFrom")}
                   </div>
@@ -982,7 +983,7 @@ export function SettingsWorkspace({
               <div className="settings-field">
                 <label>
                   Ngày hiệu lực
-                  <input type="date" value={dailyJournalPolicy.effectiveFrom || today} onChange={(event) => setDailyJournalPolicy({ ...dailyJournalPolicy, effectiveFrom: event.target.value })} {...field("dailyJournalPolicy", "effectiveFrom")} />
+                  <DateInput value={dailyJournalPolicy.effectiveFrom || today} onChange={(event) => setDailyJournalPolicy({ ...dailyJournalPolicy, effectiveFrom: event.target.value })} {...field("dailyJournalPolicy", "effectiveFrom")} />
                 </label>
                 {fieldError("dailyJournalPolicy", "effectiveFrom")}
               </div>

@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { ReceivableEditFields, receivableEditChanges, receivableEditValues, type ReceivableEditValues, type ReceivableKind, type TaxCategory } from "./receivable-edit-fields";
+import { DateInput } from "../components/date-input";
 
 // Story 5.34 (decision 2026-10-02 §3.3). Layout follows the reviewed mockup admin/extracurricular-classes.html.
 // The server owns eligibility, overlap, counts and flags; the browser only renders them.
@@ -349,7 +350,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
             </table></div>
             <p className="muted full" aria-live="polite">{picked.length ? `Đã chọn ${picked.length} học sinh.` : "Chưa chọn học sinh nào."}</p>
             {fieldError("enrollmentIds")}
-            <div><label>Hiệu lực từ<input type="date" value={form.effectiveFrom} onChange={(event) => setForm({ ...form, effectiveFrom: event.target.value })} {...field("effectiveFrom")} /></label>{fieldError("effectiveFrom")}</div>
+            <div><label>Hiệu lực từ<DateInput value={form.effectiveFrom} onChange={(event) => setForm({ ...form, effectiveFrom: event.target.value })} {...field("effectiveFrom")} /></label>{fieldError("effectiveFrom")}</div>
             <div><label>Lý do<input placeholder="Ví dụ: Đăng ký học kỳ 1" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
           </div>
           <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Thêm học sinh đã chọn</button></div>
@@ -361,7 +362,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
           <h3 id="xc-end-title">Kết thúc tham gia · {cls.name}</h3>
           <div className="dialog-grid">
             <p className="full">Kết thúc tham gia cho {selected.length} học sinh đã chọn với cùng ngày kết thúc và lý do.</p>
-            <div><label>Ngày kết thúc<input type="date" value={form.effectiveTo} onChange={(event) => setForm({ ...form, effectiveTo: event.target.value })} {...field("effectiveTo")} /></label>{fieldError("effectiveTo")}</div>
+            <div><label>Ngày kết thúc<DateInput value={form.effectiveTo} onChange={(event) => setForm({ ...form, effectiveTo: event.target.value })} {...field("effectiveTo")} /></label>{fieldError("effectiveTo")}</div>
             <div><label>Lý do<input placeholder="Ví dụ: Phụ huynh xin nghỉ" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
             <p className="muted full">Học sinh vẫn được tính tháng có ngày tham gia cuối.</p>
           </div>

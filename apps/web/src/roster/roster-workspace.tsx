@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { CapabilityCatalog, PositionDraft, PositionRow, PositionsPanel } from "./positions-panel";
+import { DateInput } from "../components/date-input";
 
 type SchoolYear = {
   id: string;
@@ -1622,7 +1623,7 @@ export function RosterWorkspace({
         <legend>Thông tin cơ bản</legend>
         <label>Họ và tên<input value={student.fullName} onChange={(event) => setStudent({ ...student, fullName: event.target.value })} {...field(studentErrors, "fullName")} /></label>
         {studentErrors.fullName && <small id="fullName-error">{studentErrors.fullName}</small>}
-        <label>Ngày sinh<input type="date" value={student.dateOfBirth} onChange={(event) => setStudent({ ...student, dateOfBirth: event.target.value })} {...field(studentErrors, "dateOfBirth")} /></label>
+        <label>Ngày sinh<DateInput value={student.dateOfBirth} onChange={(event) => setStudent({ ...student, dateOfBirth: event.target.value })} {...field(studentErrors, "dateOfBirth")} /></label>
         {studentErrors.dateOfBirth && <small id="dateOfBirth-error">{studentErrors.dateOfBirth}</small>}
       </fieldset>
       <fieldset>
@@ -1646,7 +1647,7 @@ export function RosterWorkspace({
         </div>
         {student.intakeStatus === "PLACED" && <label>Lớp<select value={student.classId} onChange={(event) => setStudent({ ...student, classId: event.target.value })} {...field(studentErrors, "classId")}><option value="">Chọn lớp</option>{classes.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         {studentErrors.classId && <small id="classId-error">{studentErrors.classId}</small>}
-        <label>Ngày hiệu lực<input type="date" value={student.effectiveFrom} onChange={(event) => setStudent({ ...student, effectiveFrom: event.target.value })} {...field(studentErrors, "effectiveFrom")} /></label>
+        <label>Ngày hiệu lực<DateInput value={student.effectiveFrom} onChange={(event) => setStudent({ ...student, effectiveFrom: event.target.value })} {...field(studentErrors, "effectiveFrom")} /></label>
         {studentErrors.effectiveFrom && <small id="effectiveFrom-error">{studentErrors.effectiveFrom}</small>}
       </fieldset>
       <fieldset>
@@ -1752,8 +1753,7 @@ export function RosterWorkspace({
         )}
         <label>
           Ngày sinh nhân sự
-          <input
-            type="date"
+          <DateInput
             value={staffInput.dateOfBirth}
             onChange={(event) =>
               setStaffInput({ ...staffInput, dateOfBirth: event.target.value })
@@ -1870,8 +1870,7 @@ export function RosterWorkspace({
         {yearErrors.name && <small id="name-error">{yearErrors.name}</small>}
         <label>
           Ngày bắt đầu
-          <input
-            type="date"
+          <DateInput
             value={year.startsOn}
             onChange={(event) =>
               setYear({ ...year, startsOn: event.target.value })
@@ -1884,8 +1883,7 @@ export function RosterWorkspace({
         )}
         <label>
           Ngày kết thúc
-          <input
-            type="date"
+          <DateInput
             value={year.endsOn}
             onChange={(event) =>
               setYear({ ...year, endsOn: event.target.value })
@@ -2006,8 +2004,7 @@ export function RosterWorkspace({
               )}
               <label>
                 Ngày hiệu lực phân công
-                <input
-                  type="date"
+                <DateInput
                   value={assignment.effectiveFrom}
                   onChange={(event) =>
                     setAssignment({
@@ -2027,8 +2024,7 @@ export function RosterWorkspace({
                 <>
                   <label>
                     Ngày kết thúc phân công
-                    <input
-                      type="date"
+                    <DateInput
                       value={assignment.effectiveTo}
                       onChange={(event) =>
                         setAssignment({
@@ -2403,8 +2399,7 @@ export function RosterWorkspace({
                 <div className="roster-transition-field">
                   <label>
                     Ngày hiệu lực
-                    <input
-                      type="date"
+                    <DateInput
                       value={transition.effectiveFrom}
                       {...field(transitionErrors, "effectiveFrom", "transition-")}
                       onChange={(event) => {
@@ -2631,8 +2626,7 @@ export function RosterWorkspace({
               </p>
               <label>
                 Ngày đóng năm học
-                <input
-                  type="date"
+                <DateInput
                   value={closeYear.effectiveTo}
                   onChange={(event) => {
                     setCloseYear({
@@ -2861,8 +2855,7 @@ export function RosterWorkspace({
             </p>
             <label>
               Ngày kết thúc phân công
-              <input
-                type="date"
+              <DateInput
                 value={endingInput.effectiveTo}
                 onChange={(event) =>
                   setEndingInput({
@@ -2965,7 +2958,7 @@ export function RosterWorkspace({
             {detailLoading ? <p role="status">Đang tải hồ sơ học sinh...</p> : studentDetail && <>
               <div className="student-list-toolbar"><h3 id="student-detail-title">Hồ sơ {studentDetail.fullName}</h3><button type="button" disabled={disabled} onClick={closeStudentDetail}>Đóng</button></div>
               <p>Mã học sinh: {studentDetail.studentCode}</p>
-              <section><h4>Ghi danh</h4>{studentDetail.enrollments.map((enrollment) => <div key={enrollment.id}><p>{enrollment.classroom?.name ?? "Chưa xếp lớp"} · {lifecycleLabel[enrollment.lifecycle]} · {enrollment.effectiveFrom}{enrollment.endedOn ? ` - ${enrollment.endedOn}` : ""}</p>{enrollment.lifecycle === "WAITING_FOR_CLASS" && <fieldset><label>Lớp<select value={detailPlacement.classId} onChange={(event) => setDetailPlacement({ ...detailPlacement, classId: event.target.value })}><option value="">Chọn lớp</option>{classes.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Ngày hiệu lực xếp lớp<input type="date" value={detailPlacement.effectiveFrom} onChange={(event) => setDetailPlacement({ ...detailPlacement, effectiveFrom: event.target.value })} /></label><button type="button" disabled={disabled} onClick={() => void placeDetailEnrollment(enrollment.id)}>Xếp lớp</button></fieldset>}<label>Ngày kết thúc<input type="date" value={detailEndedOn[enrollment.id] ?? enrollment.endedOn ?? ""} onChange={(event) => setDetailEndedOn({ ...detailEndedOn, [enrollment.id]: event.target.value })} /></label><label>Đổi trạng thái<select value={enrollment.lifecycle} disabled={disabled} onChange={(event) => void changeDetailLifecycle(enrollment, event.target.value)}>{Object.entries(lifecycleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>)}</section>
+              <section><h4>Ghi danh</h4>{studentDetail.enrollments.map((enrollment) => <div key={enrollment.id}><p>{enrollment.classroom?.name ?? "Chưa xếp lớp"} · {lifecycleLabel[enrollment.lifecycle]} · {enrollment.effectiveFrom}{enrollment.endedOn ? ` - ${enrollment.endedOn}` : ""}</p>{enrollment.lifecycle === "WAITING_FOR_CLASS" && <fieldset><label>Lớp<select value={detailPlacement.classId} onChange={(event) => setDetailPlacement({ ...detailPlacement, classId: event.target.value })}><option value="">Chọn lớp</option>{classes.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Ngày hiệu lực xếp lớp<DateInput value={detailPlacement.effectiveFrom} onChange={(event) => setDetailPlacement({ ...detailPlacement, effectiveFrom: event.target.value })} /></label><button type="button" disabled={disabled} onClick={() => void placeDetailEnrollment(enrollment.id)}>Xếp lớp</button></fieldset>}<label>Ngày kết thúc<DateInput value={detailEndedOn[enrollment.id] ?? enrollment.endedOn ?? ""} onChange={(event) => setDetailEndedOn({ ...detailEndedOn, [enrollment.id]: event.target.value })} /></label><label>Đổi trạng thái<select value={enrollment.lifecycle} disabled={disabled} onChange={(event) => void changeDetailLifecycle(enrollment, event.target.value)}>{Object.entries(lifecycleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>)}</section>
               <section><h4>Liên kết người thân</h4><ul>{parentLinks.map((link) => <li key={link.id}>{link.parent.fullName} · {link.relationshipLabel} · {link.parent.email} · {link.status === "ACTIVE" ? (link.parent.bound ? "Đã xác nhận" : "Đang chờ") : "Đã thu hồi"}{link.status === "ACTIVE" && <button type="button" disabled={disabled} onClick={() => void revokeParentLink(link)}>Thu hồi</button>}</li>)}</ul>
                 <form onSubmit={saveParentLink}><label>Họ và tên người thân<input value={parentInput.fullName} onChange={(event) => setParentInput({ ...parentInput, fullName: event.target.value })} /></label><label>Email người thân<input type="email" value={parentInput.email} onChange={(event) => setParentInput({ ...parentInput, email: event.target.value })} /></label><label>Số điện thoại người thân<input value={parentInput.phone} onChange={(event) => setParentInput({ ...parentInput, phone: event.target.value })} /></label><label>Quan hệ<input value={parentInput.relationshipLabel} onChange={(event) => setParentInput({ ...parentInput, relationshipLabel: event.target.value })} placeholder="Ví dụ: Mẹ, Bố, Ông, Bà" {...field(studentErrors, "relationshipLabel", "parent-")} /></label>{studentErrors.relationshipLabel && <small id="parent-relationshipLabel-error">{studentErrors.relationshipLabel}</small>}<button disabled={disabled}>Tạo liên kết</button></form>
               </section>

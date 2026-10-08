@@ -2,6 +2,7 @@ import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 import type { FinanceStatus } from "./finance-workspace";
 import { ReceivingAccountLabel, receivingAccountName, type ReceivingAccount } from "./receiving-account";
+import { DateInput } from "../components/date-input";
 
 // Decision 2026-10-01: a negative Invoice is a refund the School pays back; it is closed by one exact payout.
 type Direction = "COLLECT" | "REFUND";
@@ -540,8 +541,7 @@ export function ReceiptQueueWorkspace({
             </p>
             <label>
               Ngày chi
-              <input
-                type="date"
+              <DateInput
                 value={payout.paidOn}
                 onChange={(event) => setPayout({ ...payout, paidOn: event.target.value })}
               />

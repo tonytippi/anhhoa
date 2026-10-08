@@ -893,7 +893,7 @@ describe("FinanceWorkspace", () => {
     expect(screen.queryByLabelText("Chính sách hiện có (để tạo phiên bản mới)")).toBeNull();
     const effectiveFromInput = screen.getByLabelText("Hiệu lực từ") as HTMLInputElement;
     const effectiveToInput = screen.getByLabelText("Hiệu lực đến (bao gồm)") as HTMLInputElement;
-    expect(effectiveFromInput.value).toBe(todayInVietnam);
+    expect(effectiveFromInput.value).toBe(todayInVietnam.split("-").reverse().join("/"));
     expect(effectiveFromInput.value.length).toBeGreaterThan(0);
     expect(effectiveToInput.value).toBe("");
     expect(effectiveToInput.required).toBe(false);
@@ -985,7 +985,7 @@ describe("FinanceWorkspace", () => {
     expect(screen.queryByText("ID không hợp lệ.")).toBeNull();
     const effectiveFromInput = screen.getByLabelText("Hiệu lực từ") as HTMLInputElement;
     const effectiveToInput = screen.getByLabelText("Hiệu lực đến (bao gồm)") as HTMLInputElement;
-    expect(effectiveFromInput.value).toBe(todayInVietnam);
+    expect(effectiveFromInput.value).toBe(todayInVietnam.split("-").reverse().join("/"));
     expect(effectiveFromInput.value.length).toBeGreaterThan(0);
     expect(effectiveToInput.value).toBe("");
     expect(effectiveToInput.required).toBe(false);

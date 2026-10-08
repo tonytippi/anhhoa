@@ -15,6 +15,7 @@ import {
   AutoLeaveDeductionField,
   UnitSuggestions,
 } from "./receivable-edit-fields";
+import { DateInput } from "../components/date-input";
 
 type Group = { id: string; name: string; kind: ReceivableKind };
 const kindShortLabel = (kind: ReceivableKind | null | undefined) =>
@@ -5405,9 +5406,8 @@ export function FinanceWorkspace({
                   <div className="dialog-grid">
                     <label>
                       Ngày dịch vụ
-                      <input
+                      <DateInput
                         autoFocus={Boolean(editingLineId)}
-                        type="date"
                         value={line.serviceDate}
                         onChange={(event) => setLine({ ...line, serviceDate: event.target.value })}
                       />
@@ -5579,16 +5579,14 @@ export function FinanceWorkspace({
             )}
             <label>
               Hiệu lực từ
-              <input
-                type="date"
+              <DateInput
                 value={promotion.effectiveFrom}
                 onChange={(event) => setPromotion({ ...promotion, effectiveFrom: event.target.value })}
               />
             </label>
             <label>
               Hiệu lực đến (bao gồm)
-              <input
-                type="date"
+              <DateInput
                 value={promotion.effectiveTo}
                 onChange={(event) => setPromotion({ ...promotion, effectiveTo: event.target.value })}
               />
@@ -5764,16 +5762,14 @@ export function FinanceWorkspace({
                 </label>
                 <label>
                   Áp dụng từ
-                  <input
-                    type="date"
+                  <DateInput
                     value={assignment.effectiveFrom}
                     onChange={(event) => setAssignment({ ...assignment, effectiveFrom: event.target.value })}
                   />
                 </label>
                 <label>
                   Áp dụng đến (bao gồm)
-                  <input
-                    type="date"
+                  <DateInput
                     value={assignment.effectiveTo}
                     onChange={(event) => setAssignment({ ...assignment, effectiveTo: event.target.value })}
                   />
@@ -5922,9 +5918,8 @@ export function FinanceWorkspace({
             <h3 id="finance-end-assignment-title">Kết thúc áp dụng ưu đãi</h3>
             <label>
               Ngày kết thúc (bao gồm)
-              <input
+              <DateInput
                 autoFocus
-                type="date"
                 value={endingAssignment.effectiveTo}
                 onChange={(event) => setEndingAssignment({ ...endingAssignment, effectiveTo: event.target.value })}
               />

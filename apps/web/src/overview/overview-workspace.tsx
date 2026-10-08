@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DateInput } from "../components/date-input";
 
 type Facts = { students: number; staff: number; present: number; approvedLeave: number; pickedUp: number; unresolved: { label: string; count: number }; notRecorded: number };
 type ClassFacts = Omit<Facts, "staff">;
@@ -47,7 +48,7 @@ export function OverviewWorkspace({ schoolId, schoolName, selectedDate, setSelec
   };
   useEffect(() => { setDateInput(selectedDate ?? ""); void load(); return () => { generation.current += 1; }; }, [schoolId, selectedDate]);
   useEffect(() => { heading.current?.focus(); }, [schoolId, overview, error]);
-  const dateControl = <label className="overview-date">Ngày xem<input aria-label="Ngày xem tổng quan" type="date" value={dateInput} onChange={(event) => { const next = event.target.value; setDateInput(next); if (!next || validDate(next)) setSelectedDate(next || undefined); }} /></label>;
+  const dateControl = <label className="overview-date">Ngày xem<DateInput aria-label="Ngày xem tổng quan" value={dateInput} onChange={(event) => { const next = event.target.value; setDateInput(next); if (!next || validDate(next)) setSelectedDate(next || undefined); }} /></label>;
   if (error) return <section className="overview-workspace" aria-labelledby="overview-title"><header className="overview-heading"><div><h1 ref={heading} id="overview-title" tabIndex={-1}>Tổng quan vận hành</h1></div>{dateControl}</header><div className="overview-state" role="alert"><p>{error}</p><button type="button" onClick={() => void load()}>Thử lại</button></div></section>;
   if (!overview) return <section className="overview-workspace" aria-labelledby="overview-title"><header className="overview-heading"><div><h1 ref={heading} id="overview-title" tabIndex={-1}>Tổng quan vận hành</h1></div>{dateControl}</header><div className="overview-state overview-loading" aria-live="polite">Đang tải tình hình vận hành...</div></section>;
   const labels = overview.isToday ? [overview.metrics.unresolved.label] : [overview.metrics.unresolved.label, "Chưa ghi nhận"];

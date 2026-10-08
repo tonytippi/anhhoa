@@ -2344,3 +2344,11 @@ tbody tr:last-child td {
 .finance-money .receiving-account { display: grid; justify-content: end; margin-top: 4px; font-size: 13px; font-weight: 400; }
 .picker-scroll { max-height: min(360px, 45dvh); overflow-y: auto; border: 1px solid #e4e2d8; border-radius: 9px; }
 .picker-scroll thead th { position: sticky; top: 0; z-index: 1; background: #fff; }
+
+/* Vietnamese date field (components/date-input.tsx): dd/mm/yyyy text input with a calendar button opening the browser picker. */
+.date-input { position: relative; display: block; width: 100%; min-width: 150px; }
+.school-context-workspace .date-input > input[type="text"] { padding-right: 38px; font-variant-numeric: tabular-nums; }
+.date-input-picker { position: absolute; top: 50%; right: 4px; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; min-height: 0; padding: 0; transform: translateY(-50%); border: 0; border-radius: 6px; background: transparent; color: #35524a; cursor: pointer; }
+.date-input-picker:hover:not(:disabled) { background: #eef5f1; }
+.date-input-picker:disabled { cursor: not-allowed; opacity: 0.5; }
+.school-context-workspace .date-input > input.date-input-native:not([type="checkbox"]):not([type="radio"]) { position: absolute; bottom: 0; left: 0; width: 1px; min-width: 0; height: 1px; min-height: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }

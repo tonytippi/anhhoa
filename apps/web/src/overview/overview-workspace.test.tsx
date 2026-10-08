@@ -15,7 +15,7 @@ describe('OverviewWorkspace', () => {
     expect(screen.getByText('Tổng học sinh')).toBeTruthy(); expect(screen.getByText('Mầm')).toBeTruthy(); expect(screen.getAllByText('2')).toHaveLength(2);
     expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/overview', expect.objectContaining({ credentials: 'include' }));
     expect(fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET')).toBe(true);
-    expect((screen.getByLabelText('Ngày xem tổng quan') as HTMLInputElement).value).toBe('2026-02-09');
+    expect((screen.getByLabelText('Ngày xem tổng quan') as HTMLInputElement).value).toBe('09/02/2026');
   });
   it('uses a valid selected date in its request and reports date selection to the route owner', async () => {
     const setSelectedDate = vi.fn(); const fetch = vi.fn().mockResolvedValue(response(data)); vi.stubGlobal('fetch', fetch);
