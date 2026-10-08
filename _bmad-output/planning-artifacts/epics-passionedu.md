@@ -698,6 +698,26 @@ Source: sprint-change-proposal-2026-10-07-receivable-auto-leave-deduction.
 
 **And** a DRAFT line of a receivable sold as an active prepaid package warns, without blocking, when its quantity is above 1.
 
+### Story 5.45: Ngày học trong tuần cho khoản thu theo ngày
+
+As a Finance user,
+I want the finance policy to name the school days of the week,
+So that a per-day receivable such as meals opens each run at the month's school days and only leave on school days is refunded.
+
+Source: sprint-change-proposal-2026-10-08-school-days-for-daily-receivables.
+
+**Acceptance Criteria:**
+
+**Given** a finance policy with `Ngày học trong tuần` Thứ 2–Thứ 6 and a holiday in the month
+**When** Finance opens a run
+**Then** each FIXED receivable with `Tự động trừ theo ngày nghỉ có phép` starts at the month's school days minus holidays; other FIXED receivables start at 1.
+
+**And** Bớt counts only approved leave days on school days, and a settlement refunds only school days after the enrollment end.
+
+**And** existing policies keep Thứ 2–Thứ 7; the API and PostgreSQL refuse an empty set or Sunday.
+
+**And** attendance, leave requests and prepaid package refunds keep the operating days.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

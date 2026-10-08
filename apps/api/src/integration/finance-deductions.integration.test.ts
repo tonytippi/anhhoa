@@ -81,7 +81,7 @@ afterEach(async () => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "issuedPromotionApplication", "debtTransfer", "settlementTransfer", "invoicePayout", "coverageReversal", "studentPromotionalCoverage", "invoicePromotionCoverageFact", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "receivableLifecycleTransition", "receivableGroupLifecycleTransition", "receivable", "studentPromotionAssignment", "promotionPolicyTarget", "promotionPolicyVersion", "promotionPolicy", "receivableGroup", "leaveDaySource", "leaveRequestDay", "leaveRequest", "studentParent", "schoolCalendarVersion", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
+    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "issuedPromotionApplication", "debtTransfer", "settlementTransfer", "invoicePayout", "coverageReversal", "studentPromotionalCoverage", "invoicePromotionCoverageFact", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "receivableLifecycleTransition", "receivableGroupLifecycleTransition", "receivable", "studentPromotionAssignment", "promotionPolicyTarget", "promotionPolicyVersion", "promotionPolicy", "receivableGroup", "leaveDaySource", "leaveRequestDay", "leaveRequest", "studentParent", "schoolCalendarHoliday", "schoolCalendarVersion", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
       await (tx as any)[model].deleteMany({ where: { schoolId: { in: ids } } });
     await tx.parentProfile.deleteMany({ where: { id: { in: parentIds } } });
     await tx.school.deleteMany({ where: { id: { in: ids } } });
@@ -133,6 +133,27 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     // A receivable without a refund price has no proposal and no source.
     const tuitionLine = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: current.school.id, receivableId: tuition, invoice: { studentId: pupil.id, collectionRunId: runId } } });
     expect(tuitionLine).toMatchObject({ deductionQuantity: 0, deductionAmount: 0n, deductionSource: null });
+  });
+
+  it("opens a per-day FIXED receivable at the month's school days and refunds only leave on school days", async () => {
+    const current = await school();
+    const pupil = await student(current);
+    // Decision 2026-10-08: from September the School works Monday–Friday; October has a two-day holiday (Thu 15, Fri 16).
+    await prisma.financePolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-09-01"), dueDaysAfterIssue: 7, schoolWeekdays: [1, 2, 3, 4, 5], taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+    const calendar = await prisma.schoolCalendarVersion.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-10-01"), actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+    await prisma.schoolCalendarHoliday.create({ data: { schoolId: current.school.id, calendarVersionId: calendar.id, name: "Nghỉ giữa kỳ", startsOn: date("2026-10-15"), endsOn: date("2026-10-16") } });
+    const fixedGroupId = (await prisma.receivableGroup.findFirstOrThrow({ where: { schoolId: current.school.id, kind: "FIXED" } })).id;
+    const meals = id(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: fixedGroupId, displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "50000", refundUnitPrice: "40000", autoLeaveDeduction: true }));
+    const tuition = id(await finance.createReceivable(current.identity.id, current.school.id, uuid(), uuid(), { groupId: fixedGroupId, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "6900000" }));
+    await leave(current, pupil.id, ["2026-09-11", "2026-09-12"]); // Friday is a school day, Saturday no longer is
+    const { runId } = await generatedRun(current, [], "2026-10");
+    const template = (await finance.run(current.identity.id, current.school.id, runId)).templateLines;
+    // October 2026 has 22 weekdays Monday–Friday, minus the two holidays.
+    expect(template.find((line: any) => line.receivableId === meals)).toMatchObject({ quantity: "20" });
+    expect(template.find((line: any) => line.receivableId === tuition)).toMatchObject({ quantity: "1" });
+    const line = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: current.school.id, receivableId: meals, invoice: { collectionRunId: runId } } });
+    expect(line).toMatchObject({ quantity: 20, grossAmount: 1000000n, deductionQuantity: 1, deductionAmount: 40000n });
+    expect(line.deductionSource).toMatchObject({ days: ["2026-09-11"] });
   });
 
   it("adds a Thu 0 line for a receivable refunded on last month's issued Invoice but not charged this month", async () => {

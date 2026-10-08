@@ -137,6 +137,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
        expect(receivables.filter((item) => item.group.kind === 'FIXED').map((item) => item.displayName).sort()).toEqual(['HỌC PHÍ TIÊU CHUẨN THÁNG', 'Tiền ăn']);
        expect(receivables.find((item) => item.code === 'KO-26112')).toMatchObject({ displayName: 'Tiền ăn', defaultUnitPrice: 50000n, refundUnitPrice: 40000n, autoLeaveDeduction: true, taxCategory: 'NOT_DECLARED' });
        expect(receivables.some((item) => item.taxCategory !== 'NOT_DECLARED')).toBe(false);
+       expect(await prisma.financePolicy.findFirstOrThrow({ where: { schoolId: school.id } })).toMatchObject({ schoolWeekdays: [1, 2, 3, 4, 5] });
        const accounts = await prisma.bankAccount.findMany({ where: { schoolId: school.id } });
        expect(accounts).toHaveLength(7);
        expect(accounts.every((account) => account.kind === 'PERSONAL' && account.accountHolderName === 'NGUYEN THI HOAN')).toBe(true);

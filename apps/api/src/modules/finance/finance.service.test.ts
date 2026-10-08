@@ -16,14 +16,16 @@ describe('FinanceService validation', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
   it('proposes Bớt only from approved, uncontradicted leave days of the previous month in the same School', async () => {
-    const findMany = vi.fn().mockResolvedValue([{ id: 'source-1', studentId: 'student', operatingOn: new Date('2026-09-04T00:00:00Z') }]);
+    // 2025-12-04 is a Thursday, 2025-12-06 a Saturday; the policy makes Monday–Friday the school days (decision 2026-10-08).
+    const findMany = vi.fn().mockResolvedValue([{ id: 'source-1', studentId: 'student', operatingOn: new Date('2025-12-04T00:00:00Z') }, { id: 'source-2', studentId: 'student', operatingOn: new Date('2025-12-06T00:00:00Z') }]);
+    const client = { leaveDaySource: { findMany }, schoolCalendarVersion: { findMany: vi.fn().mockResolvedValue([]) }, financePolicy: { findMany: vi.fn().mockResolvedValue([{ effectiveFrom: new Date('2025-01-01T00:00:00Z'), schoolWeekdays: [1, 2, 3, 4, 5] }]) } };
     const service = new FinanceService({} as never, authorization as never) as any;
-    const days = await service.leaveDeductionDays({ leaveDaySource: { findMany } }, 'school', ['student'], '2026-01');
+    const days = await service.leaveDeductionDays(client, 'school', ['student'], '2026-01');
     // January's run refunds December of the previous year.
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { schoolId: 'school', studentId: { in: ['student'] }, operatingOn: { gte: new Date('2025-12-01T00:00:00Z'), lt: new Date('2026-01-01T00:00:00Z') }, leaveStatus: { in: ['AUTO_APPROVED', 'APPROVED'] }, exclusions: { none: {} } } }));
-    expect(days.get('student')).toEqual([{ date: '2026-09-04', leaveDaySourceId: 'source-1' }]);
-    expect(service.deductionProposal(28000n, '2026-10', days.get('student'))).toMatchObject({ deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: 28000n, deductionSource: { month: '2026-09', days: ['2026-09-04'], proposedUnitPrice: '28000' } });
-    expect(service.deductionProposal(0n, '2026-10', days.get('student'))).toMatchObject({ deductionQuantity: 0, deductionAmount: 0n, deductionSource: null });
+    expect(days.get('student')).toEqual([{ date: '2025-12-04', leaveDaySourceId: 'source-1' }]);
+    expect(service.deductionProposal(28000n, '2026-01', days.get('student'))).toMatchObject({ deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: 28000n, deductionSource: { month: '2025-12', days: ['2025-12-04'], proposedUnitPrice: '28000' } });
+    expect(service.deductionProposal(0n, '2026-01', days.get('student'))).toMatchObject({ deductionQuantity: 0, deductionAmount: 0n, deductionSource: null });
   });
   it('refuses a kind outside the three fixed kinds and requires a kind or group before writes', async () => {
     const prisma = { operation: { findFirst: vi.fn() }, $transaction: vi.fn() };

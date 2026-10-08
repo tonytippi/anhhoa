@@ -2261,6 +2261,9 @@ tbody tr:last-child td {
   .settings-card-head { flex-direction: column; }
 }
 .settings-field { display: grid; gap: 5px; align-content: start; }
+.settings-weekdays { margin: 0; padding: 0; border: 0; min-width: 0; }
+.settings-weekdays legend { padding: 0; margin-bottom: 5px; }
+.settings-weekday-options { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 
 /* Visual finance report (decision 2026-10-01): KPI tiles, server-series charts and a table view per chart. */
 .finance-report { display: grid; gap: 16px; }

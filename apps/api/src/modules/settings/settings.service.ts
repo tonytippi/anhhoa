@@ -144,6 +144,7 @@ export class SettingsService {
         id: value.id,
         effectiveFrom: value.effectiveFrom.toISOString().slice(0, 10),
         dueDaysAfterIssue: value.dueDaysAfterIssue,
+        schoolWeekdays: value.schoolWeekdays,
         taxTreatment: value.taxTreatment,
         debtScope: value.debtScope,
         reversalMode: value.reversalMode,
@@ -478,6 +479,14 @@ export class SettingsService {
         message: "Dữ liệu không hợp lệ.",
         fieldErrors: { dueDaysAfterIssue: "Cần là số nguyên từ 0 đến 365." },
       });
+    // Decision 2026-10-08: school days of the week for per-day receivables; omitted keeps Monday–Saturday.
+    const schoolWeekdays = body?.schoolWeekdays ?? [1, 2, 3, 4, 5, 6];
+    if (!Array.isArray(schoolWeekdays) || !schoolWeekdays.length || new Set(schoolWeekdays).size !== schoolWeekdays.length || schoolWeekdays.some((day: unknown) => !Number.isInteger(day) || (day as number) < 1 || (day as number) > 6))
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Dữ liệu không hợp lệ.",
+        fieldErrors: { schoolWeekdays: "Chọn ít nhất một ngày từ Thứ 2 đến Thứ 7." },
+      });
     // Tax now belongs to each receivable (decision 2026-09-30); the School-level label is kept only as a snapshot default.
     const taxTreatment = body?.taxTreatment ?? "NOT_APPLICABLE";
     const debtScope = body?.debtScope;
@@ -497,6 +506,7 @@ export class SettingsService {
     const input = {
       effectiveFrom: this.date(body?.effectiveFrom, "effectiveFrom"),
       dueDaysAfterIssue,
+      schoolWeekdays: [...schoolWeekdays].sort((a: number, b: number) => a - b),
       taxTreatment,
       debtScope,
       reversalMode,

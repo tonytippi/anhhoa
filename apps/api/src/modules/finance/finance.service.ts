@@ -1278,14 +1278,35 @@ export class FinanceService {
     return { start, end: new Date(Date.UTC(year!, month! - 1, 1)), billingMonth: start.toISOString().slice(0, 7) };
   }
   // Approved leave days of the previous month that attendance has not contradicted with a confirmed PRESENT.
-  // Leave days are issued only on operating days, so Sundays and holidays never appear here.
+  // Leave days are issued only on operating days; decision 2026-10-08 also drops those outside the school weekdays.
   private async leaveDeductionDays(client: any, schoolId: string, studentIds: string[], billingMonth: string) {
     const result = new Map<string, Array<{ date: string; leaveDaySourceId: string }>>();
     if (!studentIds.length) return result;
     const { start, end } = this.previousMonth(billingMonth);
     const sources = await client.leaveDaySource.findMany({ where: { schoolId, studentId: { in: studentIds }, operatingOn: { gte: start, lt: end }, leaveStatus: { in: ["AUTO_APPROVED", "APPROVED"] }, exclusions: { none: {} } }, select: { id: true, studentId: true, operatingOn: true }, orderBy: [{ studentId: "asc" }, { operatingOn: "asc" }] });
-    for (const source of sources) result.set(source.studentId, [...(result.get(source.studentId) ?? []), { date: source.operatingOn.toISOString().slice(0, 10), leaveDaySourceId: source.id }]);
+    const schoolDays = new Set(await this.schoolDays(client, schoolId, start, end));
+    for (const source of sources) {
+      const date = source.operatingOn.toISOString().slice(0, 10);
+      if (schoolDays.has(date)) result.set(source.studentId, [...(result.get(source.studentId) ?? []), { date, leaveDaySourceId: source.id }]);
+    }
     return result;
+  }
+  // Decision 2026-10-08: the school days of [start, end) are the weekdays of the finance policy effective that day
+  // (Monday–Saturday without a policy) minus the holidays of the calendar effective that day.
+  private async schoolDays(client: any, schoolId: string, start: Date, end: Date) {
+    const [calendars, policies] = await Promise.all([
+      client.schoolCalendarVersion.findMany({ where: { schoolId, effectiveFrom: { lt: end } }, include: { holidays: true }, orderBy: { effectiveFrom: "desc" } }),
+      client.financePolicy.findMany({ where: { schoolId, effectiveFrom: { lt: end } }, select: { effectiveFrom: true, schoolWeekdays: true }, orderBy: { effectiveFrom: "desc" } }),
+    ]);
+    const days: string[] = [];
+    for (let cursor = new Date(start); cursor < end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+      const weekdays: number[] = policies.find((item: any) => item.effectiveFrom <= cursor)?.schoolWeekdays ?? [1, 2, 3, 4, 5, 6];
+      const calendar = calendars.find((item: any) => item.effectiveFrom <= cursor);
+      if (!weekdays.includes(cursor.getUTCDay())) continue;
+      if (calendar?.holidays.some((holiday: any) => holiday.startsOn <= cursor && holiday.endsOn >= cursor)) continue;
+      days.push(cursor.toISOString().slice(0, 10));
+    }
+    return days;
   }
   // A line of a receivable with a refund price always records its proposal, even with no leave days.
   // Decision 2026-10-07: only a Receivable with autoLeaveDeduction proposes Bớt from leave days; otherwise Bớt starts at 0 and
@@ -1313,20 +1334,13 @@ export class FinanceService {
     const days = (await this.leaveDeductionDays(tx, schoolId, [invoice.studentId], invoice.billingMonth)).get(invoice.studentId) ?? [];
     return this.deductionProposal(refund, invoice.billingMonth, days);
   }
-  // D9: a settlement refunds the approved leave days of the previous month plus every operating day of
+  // D9: a settlement refunds the approved leave days of the previous month plus every school day of
   // that month from the first day without enrollment (meals paid in advance but not eaten).
   private async settlementDays(tx: any, schoolId: string, studentId: string, billingMonth: string, endedOn: Date) {
     const { start, end } = this.previousMonth(billingMonth);
     const leave = (await this.leaveDeductionDays(tx, schoolId, [studentId], billingMonth)).get(studentId) ?? [];
     const afterEndDays: string[] = [];
-    if (endedOn < end) {
-      const calendars = await tx.schoolCalendarVersion.findMany({ where: { schoolId, effectiveFrom: { lt: end } }, include: { holidays: true }, orderBy: { effectiveFrom: "desc" } });
-      for (let cursor = new Date(endedOn > start ? endedOn : start); cursor < end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-        const calendar = calendars.find((item: any) => item.effectiveFrom <= cursor);
-        if (!calendar || cursor.getUTCDay() === 0 || calendar.holidays.some((holiday: any) => holiday.startsOn <= cursor && holiday.endsOn >= cursor)) continue;
-        afterEndDays.push(cursor.toISOString().slice(0, 10));
-      }
-    }
+    if (endedOn < end) afterEndDays.push(...await this.schoolDays(tx, schoolId, endedOn > start ? endedOn : start, end));
     const byDate = new Map<string, { date: string; leaveDaySourceId?: string }>(afterEndDays.map((date) => [date, { date }]));
     for (const day of leave) byDate.set(day.date, day);
     return { days: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)), afterEndDays: afterEndDays.filter((date) => !leave.some((day) => day.date === date)) };
@@ -2523,7 +2537,10 @@ export class FinanceService {
       // lifecycle read below cannot interleave with a deactivation. The FOR SHARE lock on the seeded receivables is the extra line of defense that the line paths use.
       const fixed = (await tx.receivable.findMany({ where: { schoolId, group: { kind: "FIXED" } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } }, orderBy: { id: "asc" } })).filter((item: any) => item.lifecycleTransitions[0]?.status === "ACTIVE");
       await this.lockReceivablesShared(tx, schoolId, fixed.map((item: any) => item.id));
-      if (fixed.length) await tx.collectionRunTemplateLine.createMany({ data: fixed.map((item: any) => ({ schoolId, collectionRunId: run.id, receivableId: item.id, quantity: 1, scopeType: "ALL" as const })) });
+      // Decision 2026-10-08: a per-day receivable (autoLeaveDeduction) starts at the month's school days instead of 1.
+      const [runYear, runMonth] = input.billingMonth.split("-").map(Number);
+      const schoolDays = (await this.schoolDays(tx, schoolId, new Date(Date.UTC(runYear!, runMonth! - 1, 1)), new Date(Date.UTC(runYear!, runMonth!, 1)))).length || 1;
+      if (fixed.length) await tx.collectionRunTemplateLine.createMany({ data: fixed.map((item: any) => ({ schoolId, collectionRunId: run.id, receivableId: item.id, quantity: item.autoLeaveDeduction ? schoolDays : 1, scopeType: "ALL" as const })) });
       const seeded = await tx.collectionRun.findFirstOrThrow({ where: { id: run.id, schoolId }, include: this.runInclude });
       const outcome = this.runDto({ ...seeded, lifecycleTransitions: [transition] });
       await this.audit(

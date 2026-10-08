@@ -4,7 +4,7 @@ import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchor
 type Holiday = { id?: string; name: string; startsOn: string; endsOn: string };
 type EvidenceMode = "REQUIRED" | "OPTIONAL";
 type EvidencePolicy = { id: string; effectiveFrom: string; photoEvidenceMode: EvidenceMode; reason: string; createdAt?: string };
-type FinancePolicy = { id: string; effectiveFrom: string; dueDaysAfterIssue: number; taxTreatment: string; debtScope: string; reversalMode: string; reason: string | null; createdAt?: string };
+type FinancePolicy = { id: string; effectiveFrom: string; dueDaysAfterIssue: number; schoolWeekdays?: number[]; taxTreatment: string; debtScope: string; reversalMode: string; reason: string | null; createdAt?: string };
 type DailyJournalPolicy = { id: string; effectiveFrom: string; reason: string; parentRetentionDaysAfterEnrollmentEnded: number; acceptedImageMimeTypes: string[]; maxImageSizeBytes: number; imageCountLimit: null; createdAt?: string };
 type BankAccount = { id: string; kind?: "SCHOOL" | "PERSONAL"; receivingBank: string; bankBin?: string; accountNumber: string; accountHolderName: string; transferTemplate: string; status: "ACTIVE" | "INACTIVE"; createdAt?: string; lifecycleTransitions: { previousStatus: "ACTIVE" | "INACTIVE" | null; status: "ACTIVE" | "INACTIVE"; reason: string | null; changedAt: string }[] };
 type Settings = {
@@ -73,6 +73,14 @@ const tabFromHash = (): Tab => {
   const hash = typeof window === "undefined" ? "" : window.location.hash.slice(1);
   return tabs.some(([id]) => id === hash) ? (hash as Tab) : "school-information";
 };
+// Decision 2026-10-08: ISO weekdays (1 = Thứ 2 … 6 = Thứ 7) counted as school days for per-day receivables.
+const weekdayOptions = [1, 2, 3, 4, 5, 6];
+const defaultSchoolWeekdays = [1, 2, 3, 4, 5, 6];
+const weekdayLabel = (day: number) => `Thứ ${day + 1}`;
+const weekdaysLabel = (days: number[] = defaultSchoolWeekdays) =>
+  days.length > 2 && days.every((day, index) => index === 0 || day === days[index - 1]! + 1)
+    ? `${weekdayLabel(days[0]!)} – ${weekdayLabel(days[days.length - 1]!)}`
+    : days.map(weekdayLabel).join(", ");
 const reversalLabels: Record<string, string> = {
   DIRECT: "Thực hiện trực tiếp",
   SCHOOL_ADMIN_APPROVAL: "Cần quản trị viên trường duyệt",
@@ -117,7 +125,7 @@ const versionState = (
     ? (["Đang áp dụng", "finance-badge-success"] as const)
     : (["Đã thay thế", "finance-badge-neutral"] as const);
 };
-const emptyFinancePolicy = () => ({ effectiveFrom: "", dueDaysAfterIssue: "", taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", reason: "" });
+const emptyFinancePolicy = () => ({ effectiveFrom: "", dueDaysAfterIssue: "", schoolWeekdays: null as number[] | null, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", reason: "" });
 const emptyEvidencePolicy = () => ({ effectiveFrom: "", photoEvidenceMode: "" as "" | EvidenceMode, reason: "" });
 const emptyBankAccount = () => ({ kind: "PERSONAL" as "SCHOOL" | "PERSONAL", bankBin: "", accountNumber: "", accountHolderName: "", transferTemplate: "{{studentName}} {{className}}" });
 
@@ -281,7 +289,7 @@ export function SettingsWorkspace({
   const dirty = Boolean(
     profileDraft ||
       holiday ||
-      financePolicy.effectiveFrom || financePolicy.dueDaysAfterIssue || financePolicy.reason ||
+      financePolicy.effectiveFrom || financePolicy.dueDaysAfterIssue || financePolicy.schoolWeekdays || financePolicy.reason ||
       attendancePolicy.effectiveFrom || attendancePolicy.photoEvidenceMode || attendancePolicy.reason ||
       handoverPolicy.effectiveFrom || handoverPolicy.photoEvidenceMode || handoverPolicy.reason ||
       dailyJournalPolicy.effectiveFrom || dailyJournalPolicy.reason ||
@@ -459,6 +467,10 @@ export function SettingsWorkspace({
     ) : (
       <span className="settings-muted">—</span>
     );
+  // A new version starts from the current school days until Finance changes them.
+  const schoolWeekdays = financePolicy.schoolWeekdays ?? data?.financePolicy?.schoolWeekdays ?? defaultSchoolWeekdays;
+  const toggleSchoolWeekday = (day: number, checked: boolean) =>
+    setFinancePolicy({ ...financePolicy, schoolWeekdays: checked ? [...schoolWeekdays, day].sort((a, b) => a - b) : schoolWeekdays.filter((item) => item !== day) });
   const saveFinancePolicy = async (event: FormEvent) => {
     event.preventDefault();
     if (!financePolicy.dueDaysAfterIssue.trim()) {
@@ -467,7 +479,13 @@ export function SettingsWorkspace({
       setMessage("Dữ liệu không hợp lệ.");
       return;
     }
-    if (await post(`/api/app/schools/${schoolId}/settings/finance-policy-versions`, { ...financePolicy, effectiveFrom: financePolicy.effectiveFrom || today, dueDaysAfterIssue: Number(financePolicy.dueDaysAfterIssue) }, "financePolicy")) {
+    if (!schoolWeekdays.length) {
+      setErrorScope("financePolicy");
+      setErrors({ schoolWeekdays: "Chọn ít nhất một ngày học." });
+      setMessage("Dữ liệu không hợp lệ.");
+      return;
+    }
+    if (await post(`/api/app/schools/${schoolId}/settings/finance-policy-versions`, { ...financePolicy, effectiveFrom: financePolicy.effectiveFrom || today, dueDaysAfterIssue: Number(financePolicy.dueDaysAfterIssue), schoolWeekdays }, "financePolicy")) {
       setFinancePolicy(emptyFinancePolicy());
       setNotice("Đã tạo phiên bản chính sách tài chính.");
     }
@@ -692,7 +710,7 @@ export function SettingsWorkspace({
           <div className="table-scroll">
             <table>
               <caption>Phiên bản chính sách tài chính</caption>
-              <thead><tr><th>Hiệu lực</th><th>Hạn thanh toán</th><th>Hoàn tiền ưu đãi</th><th>Lý do</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
+              <thead><tr><th>Hiệu lực</th><th>Hạn thanh toán</th><th>Ngày học</th><th>Hoàn tiền ưu đãi</th><th>Lý do</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
               <tbody>
                 {data?.financePolicyVersions.length ? data.financePolicyVersions.map((policy) => {
                   const [label, tone] = versionState(policy, data.financePolicyVersions, today);
@@ -700,13 +718,14 @@ export function SettingsWorkspace({
                     <tr key={policy.id}>
                       <td>{formatDate(policy.effectiveFrom)}</td>
                       <td>{policy.dueDaysAfterIssue} ngày sau khi phát hành</td>
+                      <td>{weekdaysLabel(policy.schoolWeekdays)}</td>
                       <td>{reversalLabels[policy.reversalMode] ?? policy.reversalMode}</td>
                       <td>{policy.reason ?? ""}</td>
                       <td>{badge(label, tone)}</td>
                       <td>{deleteVersionCell("finance-policy-versions", "financePolicy", policy, "Chính sách tài chính")}</td>
                     </tr>
                   );
-                }) : <tr><td colSpan={6} role="status">Chưa có chính sách tài chính.</td></tr>}
+                }) : <tr><td colSpan={7} role="status">Chưa có chính sách tài chính.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -727,6 +746,19 @@ export function SettingsWorkspace({
                 </label>
                 {fieldError("financePolicy", "dueDaysAfterIssue")}
               </div>
+              <fieldset className="settings-field settings-field-wide settings-weekdays" aria-describedby="school-weekdays-hint">
+                <legend>Ngày học trong tuần</legend>
+                <div className="settings-weekday-options">
+                  {weekdayOptions.map((day) => (
+                    <label key={day} className="finance-checkbox">
+                      <input type="checkbox" checked={schoolWeekdays.includes(day)} onChange={(event) => toggleSchoolWeekday(day, event.target.checked)} />
+                      {weekdayLabel(day)}
+                    </label>
+                  ))}
+                </div>
+                <span id="school-weekdays-hint" className="settings-muted">Khoản thu tự trừ theo ngày nghỉ có phép (ví dụ tiền ăn) mở đợt thu với số ngày học của tháng, trừ ngày nghỉ lễ; chỉ ngày nghỉ phép vào ngày học mới được trừ.</span>
+                {fieldError("financePolicy", "schoolWeekdays")}
+              </fieldset>
               <label>
                 Hoàn tiền ưu đãi
                 <select value={financePolicy.reversalMode} onChange={(event) => setFinancePolicy({ ...financePolicy, reversalMode: event.target.value })}>

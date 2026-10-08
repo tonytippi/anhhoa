@@ -444,7 +444,8 @@ export async function seed(): Promise<void> {
 
 // PeakLand finance setup mirrored read-only from Kidsonline (school 2688) on 2026-10-07 so the switch-over keeps
 // what staff already use: the personal receiving accounts, the receivable catalog and the deductions as promotion
-// policies, plus a finance policy. Collection history is not migrated. Rows are created once and left untouched on
+// policies, plus a finance policy with Monday–Friday school days (Saturday is a separately paid programme whose
+// meals are in its fee). Collection history is not migrated. Rows are created once and left untouched on
 // later seeds.
 const financeSeedKey = '8d5c7a52-3f0e-4c61-9d7b-2a41e6f0b9c3';
 const financeSeedRoute = 'development-seed/finance-fixtures';
@@ -564,7 +565,7 @@ async function seedFinanceFixtures(tx: any, input: { schoolId: string; schoolYea
   const operation = await tx.operation.findFirst({ where: { schoolId, route: financeSeedRoute, idempotencyKey: financeSeedKey } })
     ?? await tx.operation.create({ data: { schoolId, membershipId, actorIdentityId: ownerId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membershipId, route: financeSeedRoute, fingerprint: 'peakland-finance-fixtures-v1', idempotencyKey: financeSeedKey, status: 'COMPLETED', outcome: { schoolId } } });
   if (!await tx.financePolicy.findFirst({ where: { schoolId } })) {
-    await tx.financePolicy.create({ data: { schoolId, effectiveFrom: new Date('2026-08-01T00:00:00.000Z'), dueDaysAfterIssue: 10, taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: 'PeakLand development seed', actorIdentityId: ownerId, membershipId } });
+    await tx.financePolicy.create({ data: { schoolId, effectiveFrom: new Date('2026-08-01T00:00:00.000Z'), dueDaysAfterIssue: 10, schoolWeekdays: [1, 2, 3, 4, 5], taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: 'PeakLand development seed', actorIdentityId: ownerId, membershipId } });
   }
   const accounts: string[] = [];
   for (const account of financeSeedAccounts) {

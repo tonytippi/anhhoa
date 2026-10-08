@@ -1707,6 +1707,8 @@ model FinancePolicy {
   taxTreatment      FinanceTaxTreatment
   debtScope         FinanceDebtScope
   reversalMode      FinanceReversalMode
+  // ISO weekdays (1 = Monday … 6 = Saturday) that count as school days for per-day receivables.
+  schoolWeekdays    Int[]               @default([1, 2, 3, 4, 5, 6])
   reason            String?
   actorIdentityId   String              @db.Uuid
   membershipId      String              @db.Uuid

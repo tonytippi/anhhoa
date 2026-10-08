@@ -123,9 +123,13 @@ describe('SettingsWorkspace', () => {
     expect(screen.getAllByText('Cần quản trị viên trường duyệt').length).toBeGreaterThan(0);
     expect(screen.queryByText('TAX_INCLUDED')).toBeNull();
     expect(screen.getByText('•••• 2088')).toBeTruthy();
+    // Decision 2026-10-08: versions show their school days; a new version starts from Monday–Saturday until changed.
+    expect(screen.getByRole('table', { name: 'Phiên bản chính sách tài chính' }).textContent).toContain('Thứ 2 – Thứ 7');
     fireEvent.change(screen.getByLabelText('Số ngày hạn thanh toán'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Thứ 7' }));
     fireEvent.click(screen.getByRole('button', { name: 'Tạo phiên bản chính sách' }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/app/schools/school-a/settings/finance-policy-versions', expect.objectContaining({ method: 'POST', body: expect.stringContaining('CURRENT_SCHOOL_YEAR_ONLY') })));
+    expect(JSON.parse(fetch.mock.calls.find(([url]) => url === '/api/app/schools/school-a/settings/finance-policy-versions')![1]!.body as string)).toMatchObject({ dueDaysAfterIssue: 30, schoolWeekdays: [1, 2, 3, 4, 5] });
     const bank = screen.getByLabelText('Ngân hàng nhận') as HTMLSelectElement;
     expect(bank.required).toBe(true);
     expect(Array.from(bank.options).map((option) => [option.value, option.textContent])).toEqual([['', 'Chọn ngân hàng'], ['970436', 'Vietcombank - Ngân hàng TMCP Ngoại Thương Việt Nam'], ['970418', 'BIDV - Ngân hàng TMCP Đầu tư và Phát triển Việt Nam']]);
