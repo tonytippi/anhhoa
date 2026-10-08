@@ -299,6 +299,59 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     await expect(finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", bankAccountId: foreignAccount })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { bankAccountId: expect.any(String) } } });
   });
 
+  it("lists and transfers prior debt of a closed run into the same-channel DRAFT part, all or nothing, off the receipt queue", async () => {
+    const current = await school(); const foreign = await school();
+    const paid = await student(current, "Đã đóng"); const unpaid = await student(current, "Chưa đóng");
+    const tuition = await receivable(current, "Học phí", "1000000", "VAT_5"); const meals = await receivable(current, "Tiền ăn", "35000");
+    await account(current, "SCHOOL", "0123456789"); const personalAccount = await account(current, "PERSONAL", "215000002088");
+    await finance.setClassDefaultBankAccount(current.identity.id, current.school.id, current.classroom.id, uuid(), uuid(), { bankAccountId: personalAccount });
+    const { runId: august } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "10" }], "2026-08");
+    const augustParts = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: august }, orderBy: [{ studentId: "asc" }, { channel: "asc" }] });
+    for (const studentId of [paid.id, unpaid.id]) await finance.issueInvoice(current.identity.id, current.school.id, augustParts.find((part) => part.studentId === studentId)!.id, uuid(), uuid(), {});
+    for (const part of augustParts.filter((item) => item.studentId === paid.id)) await finance.closeInvoice(current.identity.id, current.school.id, part.id, uuid(), uuid(), { actualAmount: (await prisma.invoice.findUniqueOrThrow({ where: { id: part.id } })).obligationTotalSnapshot!.toString() });
+    // The September run only has the meals part; the School part is created on demand.
+    const { runId: september } = await generatedRun(current, [{ receivableId: meals, quantity: "1" }], "2026-09");
+    const list = () => finance.priorDebts(current.identity.id, current.school.id, september);
+    // The earlier run is still open: nothing is a candidate.
+    expect(await list()).toEqual({ debts: [] });
+    await closeRunDirectly(august);
+    const listed: any = await list();
+    const unpaidParts = augustParts.filter((part) => part.studentId === unpaid.id);
+    expect(listed.debts.map((row: any) => [row.sourceInvoiceId, row.channel]).sort()).toEqual(unpaidParts.map((part) => [part.id, part.channel]).sort());
+    expect(listed.debts[0]).toMatchObject({ student: { id: unpaid.id, name: "Chưa đóng" }, billingMonth: "2026-08", account: { id: expect.any(String), kind: expect.any(String) }, outstanding: expect.any(String), obligationCode: expect.stringMatching(/^OBL-/) });
+    // Another School sees nothing and cannot transfer these invoices.
+    await expect(finance.priorDebts(foreign.identity.id, foreign.school.id, september)).rejects.toMatchObject({ status: 404 });
+    const [first, second] = unpaidParts.map((part) => part.id);
+    // All or nothing: a paid source in the batch fails the whole Operation.
+    await expect(finance.transferPriorDebts(current.identity.id, current.school.id, september, uuid(), uuid(), { sourceInvoiceIds: [first, augustParts.find((part) => part.studentId === paid.id)!.id] })).rejects.toMatchObject({ status: 409, response: { code: "PRIOR_DEBT_NOT_TRANSFERABLE" } });
+    expect(await prisma.debtTransfer.count({ where: { schoolId: current.school.id } })).toBe(0);
+    await expect(finance.transferPriorDebts(current.identity.id, current.school.id, september, uuid(), uuid(), { sourceInvoiceIds: [] })).rejects.toMatchObject({ status: 400 });
+    const key = uuid(); const one: any = await finance.transferPriorDebts(current.identity.id, current.school.id, september, key, uuid(), { sourceInvoiceIds: [first, first] });
+    expect(await finance.transferPriorDebts(current.identity.id, current.school.id, september, key, uuid(), { sourceInvoiceIds: [first] })).toEqual(one);
+    expect(one.outcome.transferred).toHaveLength(1);
+    const remaining: any = await list();
+    expect(remaining.debts.map((row: any) => row.sourceInvoiceId)).toEqual([second]);
+    const all: any = await finance.transferPriorDebts(current.identity.id, current.school.id, september, uuid(), uuid(), { sourceInvoiceIds: [second] });
+    expect(all.outcome.total).toBe(remaining.debts[0].outstanding);
+    expect((await list() as any).debts).toEqual([]);
+    // Both sources landed as `Công nợ kỳ trước` lines on the unpaid Student's September parts of the same channel.
+    const septemberParts = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: september, studentId: unpaid.id }, include: { lines: { where: { kind: "PRIOR_DEBT" } } } });
+    expect(septemberParts.map((part) => part.channel).sort()).toEqual(["PERSONAL", "SCHOOL"]);
+    for (const source of await prisma.invoice.findMany({ where: { id: { in: unpaidParts.map((part) => part.id) } } })) {
+      const target = septemberParts.find((part) => part.channel === source.channel)!;
+      expect(target.status).toBe("DRAFT"); expect(target.total).toBeGreaterThanOrEqual(source.obligationTotalSnapshot!);
+      expect(target.lines).toEqual([expect.objectContaining({ receivableNameSnapshot: "Công nợ kỳ trước", amount: source.obligationTotalSnapshot, sourceReason: "Chuyển công nợ tháng 08/2026" })]);
+    }
+    // The sources leave the receipt queue and no longer offer a payment image; the paid Student's rows stay.
+    const queue: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "ALL" });
+    expect(queue.invoices.map((row: any) => row.id)).not.toEqual(expect.arrayContaining(unpaidParts.map((part) => part.id)));
+    await expect(finance.receiptQueueDetail(current.identity.id, current.school.id, first!)).rejects.toMatchObject({ status: 404 });
+    await expect(finance.paymentImage(current.identity.id, current.school.id, first!)).rejects.toBeDefined();
+    // A closed target run refuses further transfers.
+    await closeRunDirectly(september);
+    await expect(finance.transferPriorDebts(current.identity.id, current.school.id, september, uuid(), uuid(), { sourceInvoiceIds: [first] })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_CLOSED" } });
+  });
+
   it("refuses a Class default account of another School", async () => {
     const current = await school();
     const foreign = await school();

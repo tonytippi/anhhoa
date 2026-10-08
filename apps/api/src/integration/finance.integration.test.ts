@@ -3337,6 +3337,16 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.debtTransfer.count({ where: { schoolId: fixture.current.school.id } })).toBe(0);
       expect(await prisma.invoice.findUniqueOrThrow({ where: { id: fixture.invoice.id } })).toMatchObject({ status: "ISSUED", obligationTotalSnapshot: 100n });
     });
+    it("never offers a coverage-backed source as manual prior debt", async () => {
+      const coverage = await coverageFixture(); const { current } = coverage;
+      await finance.issueInvoice(current.identity.id, current.school.id, coverage.invoice.id, uuid(), uuid(), { bankAccountId: coverage.bank.id });
+      await closeRunDirectly(coverage.invoice.collectionRunId);
+      const targetRun = outcomeId(await open(current, "2026-10")); const preview = await finance.preview(current.identity.id, current.school.id, targetRun);
+      await finance.readyRun(current.identity.id, current.school.id, targetRun, uuid(), uuid(), { previewFingerprint: preview.fingerprint }); await generate(current, targetRun);
+      expect(await finance.priorDebts(current.identity.id, current.school.id, targetRun)).toEqual({ debts: [] });
+      await expect(finance.transferPriorDebts(current.identity.id, current.school.id, targetRun, uuid(), uuid(), { sourceInvoiceIds: [coverage.invoice.id] })).rejects.toMatchObject({ status: 409, response: { code: "PRIOR_DEBT_NOT_TRANSFERABLE" } });
+    });
+
     it("does not auto-carry debt transfer or PRIOR_DEBT into a newly created SchoolYear", async () => {
       const fixture = await issueFixture("100");
       await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });

@@ -721,7 +721,7 @@ export class FinanceService {
     return { schoolYearId, billingMonth, classIdSnapshot, student, direction, bankAccountId };
   }
   private async receiptQueueMonths(schoolId: string, schoolYearId: string | null) {
-    const months = await this.prisma.invoice.findMany({ where: { schoolId, status: "ISSUED", ...(schoolYearId ? { schoolYearId } : {}) }, distinct: ["billingMonth"], select: { billingMonth: true }, orderBy: { billingMonth: "desc" } });
+    const months = await this.prisma.invoice.findMany({ where: { schoolId, status: "ISSUED", debtTransfersFrom: { none: {} }, ...(schoolYearId ? { schoolYearId } : {}) }, distinct: ["billingMonth"], select: { billingMonth: true }, orderBy: { billingMonth: "desc" } });
     return months.map((item) => item.billingMonth);
   }
   private receiptQueueCursor(value: unknown, filters: Awaited<ReturnType<FinanceService["receiptQueueFilters"]>>) {
@@ -755,7 +755,7 @@ export class FinanceService {
     const limit = query?.limit == null ? 25 : Number(query.limit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw validation("limit", "Giới hạn phải từ 1 đến 100.");
     const cursor = this.receiptQueueCursor(query?.cursor, filters);
-    const baseWhere: any = { schoolId, status: "ISSUED", ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.classIdSnapshot ? { classIdSnapshot: filters.classIdSnapshot === EXTRACURRICULAR_ONLY ? null : filters.classIdSnapshot } : {}), ...(filters.bankAccountId ? { bankAccountIdSnapshot: filters.bankAccountId } : {}), ...(filters.student ? { OR: [{ studentCodeSnapshot: { contains: filters.student, mode: "insensitive" } }, { studentNameSnapshot: { contains: filters.student, mode: "insensitive" } }] } : {}), ...(filters.direction ? { obligationTotalSnapshot: filters.direction === "REFUND" ? { lt: 0n } : { gte: 0n } } : {}) };
+    const baseWhere: any = { schoolId, status: "ISSUED", debtTransfersFrom: { none: {} }, ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.classIdSnapshot ? { classIdSnapshot: filters.classIdSnapshot === EXTRACURRICULAR_ONLY ? null : filters.classIdSnapshot } : {}), ...(filters.bankAccountId ? { bankAccountIdSnapshot: filters.bankAccountId } : {}), ...(filters.student ? { OR: [{ studentCodeSnapshot: { contains: filters.student, mode: "insensitive" } }, { studentNameSnapshot: { contains: filters.student, mode: "insensitive" } }] } : {}), ...(filters.direction ? { obligationTotalSnapshot: filters.direction === "REFUND" ? { lt: 0n } : { gte: 0n } } : {}) };
     const after = cursor ? await this.prisma.invoice.findFirst({ where: { ...baseWhere, id: cursor.id }, select: { id: true, studentId: true, studentCodeSnapshot: true, billingMonth: true, channel: true } }) : null;
     if (cursor && !after) throw validation("cursor", "Con trỏ không thuộc kết quả hiện tại.");
     const where = { ...baseWhere, ...(after ? { AND: [this.receiptQueueAfter(after)] } : {}) };
@@ -767,7 +767,7 @@ export class FinanceService {
   }
   async receiptQueueDetail(identityId: string, schoolId: string, invoiceId: string) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
-    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId, status: "ISSUED" }, select: { id: true, channel: true, studentCodeSnapshot: true, studentNameSnapshot: true, obligationTotalSnapshot: true, obligationCodeSnapshot: true, bankAccountIdSnapshot: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true } });
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId, status: "ISSUED", debtTransfersFrom: { none: {} } }, select: { id: true, channel: true, studentCodeSnapshot: true, studentNameSnapshot: true, obligationTotalSnapshot: true, obligationCodeSnapshot: true, bankAccountIdSnapshot: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true } });
     if (!invoice) throw new NotFoundException({ code: "RECEIPT_QUEUE_INVOICE_UNAVAILABLE", message: "Hóa đơn không còn có thể thu tiền." });
     const transferred = await this.prisma.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId: invoice.id }, _sum: { amount: true } });
     return { id: invoice.id, channel: invoice.channel, obligationCode: invoice.obligationCodeSnapshot, account: this.accountDto(invoice), student: { code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, outstanding: (BigInt(invoice.obligationTotalSnapshot ?? 0) - BigInt(transferred._sum.amount ?? 0)).toString(), direction: BigInt(invoice.obligationTotalSnapshot ?? 0) < 0n ? "REFUND" as const : "COLLECT" as const, status: "ISSUED" as const };
@@ -775,7 +775,7 @@ export class FinanceService {
   async receiptQueueClasses(identityId: string, schoolId: string, query: any = {}) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
     const filters = await this.receiptQueueFilters(schoolId, query);
-    const scope = { schoolId, status: "ISSUED" as const, ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}) };
+    const scope = { schoolId, status: "ISSUED" as const, debtTransfersFrom: { none: {} }, ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}) };
     const values = await this.prisma.invoice.findMany({ where: scope, distinct: ["classIdSnapshot", "classNameSnapshot"], select: { classIdSnapshot: true, classNameSnapshot: true }, orderBy: { classNameSnapshot: "asc" } });
     // Receiving-account filter options: each account snapshotted on the queue's Invoices, named by its latest snapshot.
     const accounts = await this.prisma.invoice.findMany({ where: { ...scope, bankAccountIdSnapshot: { not: null } }, distinct: ["bankAccountIdSnapshot"], select: { bankAccountIdSnapshot: true, channel: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true }, orderBy: [{ bankAccountIdSnapshot: "asc" }, { issuedAt: "desc" }] });
@@ -799,18 +799,66 @@ export class FinanceService {
       if (source.status !== "ISSUED" || target.status !== "DRAFT" || source.studentId !== target.studentId || source.schoolYearId !== target.schoolYearId)
         throw new ConflictException({ code: "DEBT_TRANSFER_GRAPH_CONFLICT", message: "Nguồn phải đang mở và đích nháp cùng học sinh, năm học." });
       if (source.channel !== target.channel) throw new ConflictException({ code: "DEBT_TRANSFER_CHANNEL_MISMATCH", message: "Chỉ chuyển công nợ sang hóa đơn thu vào cùng loại tài khoản." });
-      const [targetRun, targetYear, coverageFacts] = await Promise.all([this.lockRun(tx, schoolId, target.collectionRunId), this.lockYear(tx, schoolId, target.schoolYearId), tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })]);
+      const [targetRun, targetYear] = await Promise.all([this.lockRun(tx, schoolId, target.collectionRunId), this.lockYear(tx, schoolId, target.schoolYearId)]);
       if (targetRun.status === "CLOSED" || targetYear.closedAt) throw new ConflictException({ code: "DEBT_TRANSFER_TARGET_CLOSED", message: "Đợt thu hoặc năm học của hóa đơn đích đã đóng." });
-      if (coverageFacts) throw new ConflictException({ code: "DEBT_TRANSFER_COVERAGE_SOURCE_FORBIDDEN", message: "Hóa đơn nguồn có gói nộp trước nên không thể chuyển công nợ." });
-      const prior = await tx.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId }, _sum: { amount: true } });
-      const outstanding = BigInt(source.obligationTotalSnapshot) - BigInt(prior._sum.amount ?? 0);
-      if (amount > outstanding) throw new ConflictException({ code: "DEBT_TRANSFER_EXCEEDS_OUTSTANDING", message: "Số tiền chuyển vượt công nợ còn lại." });
-      const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, kind: "PRIOR_DEBT", receivableNameSnapshot: "Công nợ kỳ trước", unitLabelSnapshot: "khoản", defaultUnitPriceSnapshot: amount, unitPrice: amount, quantity: 1, amount, grossAmount: amount, netAmount: amount, source: { type: "PRIOR_DEBT", sourceInvoiceId: source.id }, sourceReason: reason, sourceActorIdentityId: identityId, sourceMembershipId: actor.membershipId, sourceRecordedAt: new Date(), sourceProvenance: { sourceInvoiceId: source.id, amount: amount.toString(), operationId: operation } } });
-       const transfer = await tx.debtTransfer.create({ data: { schoolId, studentId: source.studentId, schoolYearId: source.schoolYearId, sourceInvoiceId: source.id, targetInvoiceId: target.id, targetLineId: line.id, amount, reason, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation } });
-       await this.ledger(tx, source, "DEBT_TRANSFER_POSTED", amount, { debtTransferId: transfer.id, targetInvoiceId: target.id, targetLineId: line.id, reason }, transfer.createdAt);
-      const outcome = { id: transfer.id, sourceInvoiceId: source.id, targetInvoiceId: target.id, amount: amount.toString(), sourceOutstanding: (outstanding - amount).toString(), targetLineId: line.id };
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "PRIOR_DEBT_TRANSFERRED", operation, { sourceInvoiceId: source.id, outstanding: outstanding.toString() }, outcome, reason);
-      return outcome;
+      return this.postDebtTransfer(tx, schoolId, identityId, actor, operation, source, target, amount, reason);
+    });
+  }
+  // Shared by the single transfer and the run-level manual transfer: validates the source's coverage and outstanding, then writes line, DebtTransfer, ledger and audit.
+  private async postDebtTransfer(tx: any, schoolId: string, identityId: string, actor: any, operation: string, source: any, target: any, amount: bigint | null, reason: string) {
+    if (await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })) throw new ConflictException({ code: "DEBT_TRANSFER_COVERAGE_SOURCE_FORBIDDEN", message: "Hóa đơn nguồn có gói nộp trước nên không thể chuyển công nợ." });
+    const prior = await tx.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId: source.id }, _sum: { amount: true } });
+    const outstanding = BigInt(source.obligationTotalSnapshot) - BigInt(prior._sum.amount ?? 0);
+    amount ??= outstanding;
+    if (amount <= 0n || amount > outstanding) throw new ConflictException({ code: "DEBT_TRANSFER_EXCEEDS_OUTSTANDING", message: "Số tiền chuyển vượt công nợ còn lại." });
+    const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, kind: "PRIOR_DEBT", receivableNameSnapshot: "Công nợ kỳ trước", unitLabelSnapshot: "khoản", defaultUnitPriceSnapshot: amount, unitPrice: amount, quantity: 1, amount, grossAmount: amount, netAmount: amount, source: { type: "PRIOR_DEBT", sourceInvoiceId: source.id }, sourceReason: reason, sourceActorIdentityId: identityId, sourceMembershipId: actor.membershipId, sourceRecordedAt: new Date(), sourceProvenance: { sourceInvoiceId: source.id, amount: amount.toString(), operationId: operation } } });
+    const transfer = await tx.debtTransfer.create({ data: { schoolId, studentId: source.studentId, schoolYearId: source.schoolYearId, sourceInvoiceId: source.id, targetInvoiceId: target.id, targetLineId: line.id, amount, reason, actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation } });
+    await this.ledger(tx, source, "DEBT_TRANSFER_POSTED", amount, { debtTransferId: transfer.id, targetInvoiceId: target.id, targetLineId: line.id, reason }, transfer.createdAt);
+    const outcome = { id: transfer.id, sourceInvoiceId: source.id, targetInvoiceId: target.id, amount: amount.toString(), sourceOutstanding: (outstanding - amount).toString(), targetLineId: line.id };
+    await this.audit(tx, schoolId, identityId, actor.membershipId, "PRIOR_DEBT_TRANSFERRED", operation, { sourceInvoiceId: source.id, outstanding: outstanding.toString() }, outcome, reason);
+    return outcome;
+  }
+  // Unpaid ISSUED notices of earlier CLOSED MONTHLY runs (same School and SchoolYear) whose Student has a live normal Invoice in this run.
+  private async priorDebtSources(db: any, schoolId: string, run: any, onlyIds?: string[]) {
+    if (run.status !== "GENERATED" || run.type !== "MONTHLY") return [];
+    const mine = await db.invoice.findMany({ where: { schoolId, collectionRunId: run.id, revisesInvoiceId: null, status: { not: "CANCELLED" } }, select: { studentId: true } });
+    const students = new Set<string>(mine.map((item: any) => item.studentId));
+    if (!students.size) return [];
+    const sources = await db.invoice.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ISSUED", receipt: null, payout: null, settlementTransferTo: null, coverageFacts: { none: {} }, studentId: { in: [...students] }, ...(onlyIds ? { id: { in: onlyIds } } : {}), collectionRun: { type: "MONTHLY", status: "CLOSED", billingMonth: { lt: run.billingMonth } } }, include: { debtTransfersFrom: { select: { amount: true } } }, orderBy: FinanceService.receiptQueueOrder });
+    return sources.map((source: any) => ({ source, outstanding: BigInt(source.obligationTotalSnapshot ?? 0) - source.debtTransfersFrom.reduce((sum: bigint, item: any) => sum + BigInt(item.amount), 0n) })).filter((item: any) => item.outstanding > 0n);
+  }
+  async priorDebts(identityId: string, schoolId: string, runId: string) {
+    schoolId = this.school(schoolId); await this.actor(identityId, schoolId); this.identifier(runId, "runId");
+    const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId } });
+    if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
+    const rows = await this.priorDebtSources(this.prisma, schoolId, run);
+    return { debts: rows.map(({ source, outstanding }: any) => ({ sourceInvoiceId: source.id, student: { id: source.studentId, code: source.studentCodeSnapshot, name: source.studentNameSnapshot }, className: classLabel(source.classNameSnapshot), billingMonth: source.billingMonth, channel: source.channel ?? "PERSONAL", account: this.accountDto(source), outstanding: outstanding.toString(), obligationCode: source.obligationCodeSnapshot })) };
+  }
+  // Accountant-initiated, all or nothing: each source's whole outstanding becomes a PRIOR_DEBT line on the same-channel DRAFT part of the Student's notice in this run.
+  async transferPriorDebts(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(runId, "runId");
+    if (!Array.isArray(body?.sourceInvoiceIds) || body.sourceInvoiceIds.length < 1 || body.sourceInvoiceIds.length > 500) throw validation("sourceInvoiceIds", "Chọn từ 1 đến 500 hóa đơn.");
+    const ids = [...new Set<string>(body.sourceInvoiceIds.map((id: unknown) => this.identifier(id, "sourceInvoiceIds")))].sort();
+    return this.mutate(actor, identityId, schoolId, routes.priorDebtTransfer, key, operationId, { runId, sourceInvoiceIds: ids }, async (tx, operation) => {
+      const run = await this.lockRun(tx, schoolId, runId); const year = await this.lockYear(tx, schoolId, run.schoolYearId);
+      if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
+      if (run.status !== "GENERATED") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ chuyển công nợ khi đợt thu đã tạo hóa đơn." });
+      for (const id of ids) await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${id}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const found = new Map<string, bigint>((await this.priorDebtSources(tx, schoolId, run, ids)).map(({ source, outstanding }: any) => [source.id, outstanding] as [string, bigint]));
+      const sources = await tx.invoice.findMany({ where: { schoolId, id: { in: ids } }, orderBy: { id: "asc" } });
+      if (sources.length !== ids.length) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn nguồn." });
+      const transferred: { sourceInvoiceId: string; targetInvoiceId: string; amount: string }[] = []; let total = 0n;
+      for (const source of sources) {
+        const amount = found.get(source.id);
+        if (amount === undefined) throw new ConflictException({ code: "PRIOR_DEBT_NOT_TRANSFERABLE", message: "Hóa đơn không còn đủ điều kiện chuyển công nợ vào đợt này." });
+        const live = await tx.invoice.findFirst({ where: { schoolId, collectionRunId: run.id, studentId: source.studentId, revisesInvoiceId: null, status: { not: "CANCELLED" } }, orderBy: [{ channel: "asc" }, { createdAt: "asc" }] });
+        const target = await this.channelDraft(tx, schoolId, live, source.channel);
+        if (target.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_CHANNEL_PART_NOT_DRAFT", message: `Phần thu vào ${source.channel === "SCHOOL" ? "tài khoản trường" : "tài khoản cá nhân"} đã phát hành; không thể chuyển công nợ vào.` });
+        const [yyyy, mm] = source.billingMonth.split("-");
+        const outcome = await this.postDebtTransfer(tx, schoolId, identityId, actor, operation, source, target, amount, `Chuyển công nợ tháng ${mm}/${yyyy}`);
+        transferred.push({ sourceInvoiceId: source.id, targetInvoiceId: target.id, amount: outcome.amount }); total += amount;
+      }
+      return { transferred, total: total.toString() };
     });
   }
   async closeInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
