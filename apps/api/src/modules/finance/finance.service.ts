@@ -59,6 +59,8 @@ const routes = {
   issueInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue",
   prepareRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/revisions",
   issueRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/issue-revision",
+  discardRevision: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/discard-revision",
+  priorDebtTransfer: "POST /api/app/schools/:schoolId/finance/collection-runs/:runId/prior-debts/transfer",
   closeInvoice: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/receipt",
   invoicePayout: "POST /api/app/schools/:schoolId/finance/invoices/:invoiceId/payout",
   debtTransfer: "POST /api/app/schools/:schoolId/finance/debt-transfers",
@@ -1007,6 +1009,26 @@ export class FinanceService {
       if (copied.length) await tx.invoiceLine.createMany({ data: copied });
       const outcome = this.invoiceDto(await tx.invoice.findFirstOrThrow({ where: { id: replacement.id, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } }));
       await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_PREPARED", operation, { id: source.id, status: source.status }, outcome, reason);
+      return outcome;
+    });
+  }
+  // Decision 2026-10-08: a revision DRAFT never issued has no ledger and left its source untouched, so it is deleted.
+  async discardRevision(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
+    const reason = this.text(body?.reason, "reason", true, 500)!;
+    return this.mutate(actor, identityId, schoolId, routes.discardRevision, key, operationId, { invoiceId, reason }, async (tx, operation) => {
+      await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const revision = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { select: { kind: true } } } });
+      if (!revision) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
+      if (revision.status !== "DRAFT" || !revision.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_DRAFT", message: "Chỉ hủy được bản điều chỉnh chưa phát hành." });
+      if (revision.lines.some((line: any) => line.kind === "PRIOR_DEBT")) throw new ConflictException({ code: "REVISION_HAS_PRIOR_DEBT", message: "Bản điều chỉnh đang nhận công nợ chuyển sang nên không hủy được." });
+      const run = await this.lockRun(tx, schoolId, revision.collectionRunId);
+      if (run.status === "CLOSED") throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
+      await tx.invoicePromotionCoverageFact.deleteMany({ where: { schoolId, invoiceId } });
+      await tx.invoiceLine.deleteMany({ where: { schoolId, invoiceId } });
+      await tx.invoice.delete({ where: { id: invoiceId } });
+      const outcome = { id: invoiceId, revisesInvoiceId: revision.revisesInvoiceId, discarded: true };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_DISCARDED", operation, { id: invoiceId, status: "DRAFT", revisesInvoiceId: revision.revisesInvoiceId, total: revision.total.toString() }, outcome, reason);
       return outcome;
     });
   }
