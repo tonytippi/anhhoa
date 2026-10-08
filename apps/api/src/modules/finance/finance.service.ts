@@ -183,7 +183,8 @@ export class FinanceService {
     const scopedEvents = (items: any[]) => filters.groupName ? [] : items;
     // Decision 2026-10-01: deductions lower the obligation; a payout is cash paid back on a negative Invoice.
     const summary = { gross: billed("grossAmount"), promotionDiscount: billed("discountAmount"), deduction: billed("deductionAmount"), payout: (-BigInt(total(scopedEvents(payouts)))).toString(), refundOwed: "0", vat: billed("vatAmount"), refund: (-BigInt(total(scopedEvents(reversals)))).toString(), refundVat: scopedEvents(reversals).reduce((value: bigint, item: any) => value + BigInt((item.provenance as any).vatAmount ?? 0), 0n).toString(), netBilled: issuedSum(), actualReceipt: total(scopedEvents(receipts)), settlementOutcome: { exact: total(scopedEvents(receipts.filter((item: any) => (item.provenance as any).outcome === "EXACT"))), shortfall: total(scopedEvents(receipts.filter((item: any) => (item.provenance as any).outcome === "SHORTFALL"))), overpayment: total(scopedEvents(receipts.filter((item: any) => (item.provenance as any).outcome === "OVERPAYMENT"))) }, openDifference: total(scopedEvents(differences)), carryAdjustment: total(scopedEvents(carries)), debtTransfer: total(scopedEvents(debts)), coverage: total(scopedEvents(coverage)), revisionCancellation: String(cancelled.size), outstanding: "0" };
-    const currentInvoices = issued.map((issue: any) => { const invoiceEvents = events.filter((item: any) => item.invoiceId === issue.invoiceId); const paid = filters.groupName ? "0" : total(invoiceEvents.filter((item: any) => ["RECEIPT_POSTED", "SETTLEMENT_TRANSFER_POSTED", "PAYOUT_POSTED"].includes(item.type))); const transferred = filters.groupName ? "0" : total(invoiceEvents.filter((item: any) => item.type === "DEBT_TRANSFER_POSTED")); const obligation = groupProjection(issue)?.netAmount ?? BigInt(issue.netAmount); const outstanding = obligation - BigInt(paid) - BigInt(transferred); return { ...row(issue), actualReceipt: paid, outstanding: (outstanding > 0n ? outstanding : 0n).toString(), refundOwed: (outstanding < 0n ? -outstanding : 0n).toString(), formula: filters.groupName ? "issued matching-group obligation; whole-invoice settlement unallocated" : "issued obligation - Receipt - SettlementTransfer - DebtTransfer" }; });
+    const currentInvoices = issued.map((issue: any) => { const invoiceEvents = events.filter((item: any) => item.invoiceId === issue.invoiceId); const paid = filters.groupName ? "0" : total(invoiceEvents.filter((item: any) => ["RECEIPT_POSTED", "SETTLEMENT_TRANSFER_POSTED", "PAYOUT_POSTED"].includes(item.type))); const transferred = filters.groupName ? "0" : total(invoiceEvents.filter((item: any) => item.type === "DEBT_TRANSFER_POSTED")); // A closed Invoice's shortfall or overpayment is owed through the next same-account Invoice, not here: it is reported as a pending or carried difference, never as debt or a refund.
+ const differed = filters.groupName ? "0" : total(invoiceEvents.filter((item: any) => item.type === "SETTLEMENT_DIFFERENCE_POSTED")); const obligation = groupProjection(issue)?.netAmount ?? BigInt(issue.netAmount); const outstanding = obligation - BigInt(paid) - BigInt(transferred) - BigInt(differed); return { ...row(issue), actualReceipt: paid, outstanding: (outstanding > 0n ? outstanding : 0n).toString(), refundOwed: (outstanding < 0n ? -outstanding : 0n).toString(), formula: filters.groupName ? "issued matching-group obligation; whole-invoice settlement unallocated" : "issued obligation - Receipt - SettlementTransfer - DebtTransfer - SettlementDifference" }; });
     summary.outstanding = total(currentInvoices.map((item) => ({ amount: item.outstanding })));
     summary.refundOwed = total(currentInvoices.map((item) => ({ amount: item.refundOwed })));
     // Derived measures the visual report draws, computed here so the browser never adds money.
@@ -797,7 +798,7 @@ export class FinanceService {
       if (source.channel !== target.channel) throw new ConflictException({ code: "DEBT_TRANSFER_CHANNEL_MISMATCH", message: "Chỉ chuyển công nợ sang hóa đơn thu vào cùng loại tài khoản." });
       const [targetRun, targetYear, coverageFacts] = await Promise.all([this.lockRun(tx, schoolId, target.collectionRunId), this.lockYear(tx, schoolId, target.schoolYearId), tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })]);
       if (targetRun.status === "CLOSED" || targetYear.closedAt) throw new ConflictException({ code: "DEBT_TRANSFER_TARGET_CLOSED", message: "Đợt thu hoặc năm học của hóa đơn đích đã đóng." });
-      if (coverageFacts) throw new ConflictException({ code: "DEBT_TRANSFER_COVERAGE_SOURCE_FORBIDDEN", message: "Hóa đơn nguồn có coverage không thể chuyển công nợ." });
+      if (coverageFacts) throw new ConflictException({ code: "DEBT_TRANSFER_COVERAGE_SOURCE_FORBIDDEN", message: "Hóa đơn nguồn có gói nộp trước nên không thể chuyển công nợ." });
       const prior = await tx.debtTransfer.aggregate({ where: { schoolId, sourceInvoiceId }, _sum: { amount: true } });
       const outstanding = BigInt(source.obligationTotalSnapshot) - BigInt(prior._sum.amount ?? 0);
       if (amount > outstanding) throw new ConflictException({ code: "DEBT_TRANSFER_EXCEEDS_OUTSTANDING", message: "Số tiền chuyển vượt công nợ còn lại." });
@@ -834,7 +835,7 @@ export class FinanceService {
       // Canonical difference: unpaid obligation is positive; excess receipt is negative.
       const signedAmount = issuedAmount - actualAmount;
       const facts = await tx.invoicePromotionCoverageFact.findMany({ where: { schoolId, invoiceId }, orderBy: { id: "asc" } });
-      if (facts.length && signedAmount !== 0n) throw new ConflictException({ code: "COVERAGE_EXACT_AMOUNT_REQUIRED", message: "Hóa đơn có coverage chỉ được đóng khi thực nhận đúng bằng nghĩa vụ." });
+      if (facts.length && signedAmount !== 0n) throw new ConflictException({ code: "COVERAGE_EXACT_AMOUNT_REQUIRED", message: "Hóa đơn có gói nộp trước chỉ được ghi thực nhận đúng bằng số phải thu." });
       if (facts.length) {
         await this.verifyInvoiceCoverageFacts(tx, schoolId, invoice, facts);
       }
@@ -981,7 +982,7 @@ export class FinanceService {
        if (!source) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
        if (await tx.debtTransfer.count({ where: { schoolId, OR: [{ sourceInvoiceId: source.id }, { targetInvoiceId: source.id }] } })) throw new ConflictException({ code: "DEBT_TRANSFER_REVISION_FORBIDDEN", message: "Hóa đơn có chuyển công nợ không thể điều chỉnh." });
        if (!["ISSUED", "CLOSED"].includes(source.status) || source.revisesInvoiceId) throw new ConflictException({ code: "INVOICE_NOT_REVISION_SOURCE", message: "Chỉ hóa đơn gốc đã phát hành hoặc đã đóng mới có thể được điều chỉnh." });
-       if (source.status === "ISSUED" && await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })) throw new ConflictException({ code: "COVERAGE_REVISION_FORBIDDEN", message: "Coverage chưa settled không thể điều chỉnh." });
+       if (source.status === "ISSUED" && await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: source.id } })) throw new ConflictException({ code: "COVERAGE_REVISION_FORBIDDEN", message: "Hóa đơn có gói nộp trước chưa thu tiền không thể điều chỉnh." });
       const run = await this.lockRun(tx, schoolId, source.collectionRunId);
       const year = await this.lockYear(tx, schoolId, source.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
@@ -999,8 +1000,12 @@ export class FinanceService {
         classAssignmentIdSnapshot: source.classAssignmentIdSnapshot, classAssignmentEffectiveFromSnapshot: source.classAssignmentEffectiveFromSnapshot,
         classAssignmentEffectiveToSnapshot: source.classAssignmentEffectiveToSnapshot, classIdSnapshot: source.classIdSnapshot, classNameSnapshot: source.classNameSnapshot,
         selectionProvenance: source.selectionProvenance, revisesInvoiceId: source.id, revisionReason: reason, channel: source.channel,
-      }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
-      const outcome = this.invoiceDto(replacement);
+      } });
+      // The replacement starts as a copy of the source lines, so Finance edits only what changes. Debt-transfer lines
+      // never reach here (an Invoice with a debt transfer cannot be revised); nulls are left out for Prisma Json columns.
+      const copied = source.lines.filter((line: any) => line.kind === "NORMAL").map(({ id: _id, invoiceId: _invoiceId, createdAt: _createdAt, updatedAt: _updatedAt, ...line }: any) => Object.fromEntries(Object.entries({ ...line, invoiceId: replacement.id }).filter(([, value]) => value !== null)));
+      if (copied.length) await tx.invoiceLine.createMany({ data: copied });
+      const outcome = this.invoiceDto(await tx.invoice.findFirstOrThrow({ where: { id: replacement.id, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } }));
       await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_REVISION_PREPARED", operation, { id: source.id, status: source.status }, outcome, reason);
       return outcome;
     });
@@ -1081,7 +1086,7 @@ export class FinanceService {
     const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     if (invoice.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_NOT_DRAFT", message: "Chỉ được sửa dòng khi hóa đơn ở trạng thái nháp." });
-    if (await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId } })) throw new ConflictException({ code: "COVERAGE_FACTS_IMMUTABLE", message: "Hóa đơn có fact coverage không thể sửa dòng nháp." });
+    if (await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId } })) throw new ConflictException({ code: "COVERAGE_FACTS_IMMUTABLE", message: "Hóa đơn đang có gói nộp trước; xóa gói nộp trước trước khi sửa dòng." });
     return invoice;
   }
   private async channelDraft(tx: any, schoolId: string, invoice: any, channel: PaymentChannel) {
@@ -1091,7 +1096,7 @@ export class FinanceService {
     const sibling = await tx.invoice.findFirst({ where: { schoolId, studentId: invoice.studentId, collectionRunId: invoice.collectionRunId, channel, revisesInvoiceId: null }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
     if (sibling) {
       if (sibling.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_CHANNEL_PART_NOT_DRAFT", message: `Phần thu vào ${channel === "SCHOOL" ? "tài khoản trường" : "tài khoản cá nhân"} đã phát hành; hãy dùng bản điều chỉnh.` });
-      if (await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: sibling.id } })) throw new ConflictException({ code: "COVERAGE_FACTS_IMMUTABLE", message: "Hóa đơn có fact coverage không thể sửa dòng nháp." });
+      if (await tx.invoicePromotionCoverageFact.count({ where: { schoolId, invoiceId: sibling.id } })) throw new ConflictException({ code: "COVERAGE_FACTS_IMMUTABLE", message: "Hóa đơn đang có gói nộp trước; xóa gói nộp trước trước khi sửa dòng." });
       return sibling;
     }
     const { id, status, total, channel: _channel, createdAt, lines, issuedAt, revisesInvoiceId, revisionReason, obligationCodeSnapshot, bankAccountIdSnapshot, receivingBankSnapshot, receivingBankBinSnapshot, accountNumberSnapshot, accountHolderNameSnapshot, transferContentSnapshot, obligationLinesSnapshot, obligationTotalSnapshot, financePolicyEffectiveFrom, dueDaysAfterIssueSnapshot, taxTreatmentSnapshot, debtScopeSnapshot, reversalModeSnapshot, dueOn, ...roster } = invoice;
@@ -2893,7 +2898,7 @@ export class FinanceService {
     ) {
       throw validation(
         "versionId",
-        "Phiên bản coverage không hợp lệ hoặc không còn áp dụng.",
+        "Gói nộp trước không hợp lệ hoặc không còn áp dụng.",
       );
     }
     for (const target of version.targets) {
@@ -2913,7 +2918,7 @@ export class FinanceService {
     if (run.status === "CLOSED" || run.type !== "MONTHLY") {
       throw new ConflictException({
         code: "COLLECTION_RUN_STATE_CONFLICT",
-        message: "Chỉ áp dụng coverage cho đợt thu tháng chưa đóng.",
+        message: "Chỉ áp dụng gói nộp trước cho đợt thu tháng chưa đóng.",
       });
     }
 
@@ -2947,7 +2952,7 @@ export class FinanceService {
       if (period.serviceStart < year.startsOn) {
         throw new ConflictException({
           code: "COVERAGE_PERIOD_OUT_OF_BOUNDS",
-          message: "Kỳ coverage vượt quá giới hạn năm học.",
+          message: "Các tháng của gói nộp trước vượt quá giới hạn năm học.",
         });
       }
 
@@ -2958,7 +2963,7 @@ export class FinanceService {
         throw new ConflictException({
           code: "COVERAGE_VERSION_NOT_EFFECTIVE",
           message:
-            "Phiên bản coverage không còn hiệu lực trong toàn bộ thời hạn.",
+            "Gói nộp trước không còn hiệu lực trong toàn bộ thời hạn.",
         });
       }
 
@@ -2992,7 +2997,7 @@ export class FinanceService {
       if (operatingDays <= 0) {
         throw new ConflictException({
           code: "COVERAGE_NO_OPERATING_DAYS",
-          message: "Kỳ coverage không có ngày vận hành hợp lệ.",
+          message: "Một tháng của gói nộp trước không có ngày học hợp lệ.",
         });
       }
 
@@ -3122,7 +3127,7 @@ export class FinanceService {
     if (derived.length !== facts.length) {
       throw new ConflictException({
         code: "COVERAGE_FACTS_STALE",
-        message: "Kết quả coverage đã thay đổi so với máy chủ.",
+        message: "Gói nộp trước đã thay đổi so với máy chủ. Hãy tải lại hóa đơn.",
       });
     }
     for (const d of derived) {
@@ -3143,7 +3148,7 @@ export class FinanceService {
       ) {
         throw new ConflictException({
           code: "COVERAGE_FACTS_STALE",
-          message: "Kết quả coverage đã thay đổi so với máy chủ.",
+          message: "Gói nộp trước đã thay đổi so với máy chủ. Hãy tải lại hóa đơn.",
         });
       }
     }
@@ -3172,17 +3177,27 @@ export class FinanceService {
     for (const line of invoice.lines) {
       if (line.kind === "PRIOR_DEBT" || !line.receivableId) continue;
       if (coveredReceivableIds.has(line.receivableId)) {
-        if (line.discountAmount !== 0n || line.promotionEvaluationProvenance) {
-          await tx.invoiceLine.update({
-            where: { id: line.id },
-            data: {
-              discountAmount: 0n,
-              netAmount: BigInt(line.grossAmount) - BigInt(line.deductionAmount),
-              ...taxedLine(BigInt(line.grossAmount) - BigInt(line.deductionAmount), line.taxCategorySnapshot ?? "NOT_DECLARED"),
-              promotionEvaluationProvenance: Prisma.DbNull,
-            },
-          });
-        }
+        // The package is paid on this line: one month per coverage fact at its original price, less the package
+        // reduction. Every later run skips the covered months, so the line must collect all of them now.
+        const months = invoice.coverageFacts.filter((fact: any) => fact.receivableId === line.receivableId);
+        const unitPrice = BigInt(months[0].originalPrice);
+        let gross = 0n;
+        let reduction = 0n;
+        for (const fact of months) { gross += BigInt(fact.originalPrice); reduction += BigInt(fact.reduction); }
+        const discount = reduction > gross ? gross : reduction;
+        const net = gross - discount - BigInt(line.deductionAmount);
+        await tx.invoiceLine.update({
+          where: { id: line.id },
+          data: {
+            quantity: months.length,
+            unitPrice,
+            grossAmount: gross,
+            discountAmount: discount,
+            netAmount: net,
+            ...taxedLine(net, line.taxCategorySnapshot ?? "NOT_DECLARED"),
+            promotionEvaluationProvenance: Prisma.DbNull,
+          },
+        });
       } else {
         const evaluated = await this.evaluateDraftPromotion(
           tx,
@@ -3262,7 +3277,7 @@ export class FinanceService {
         if (invoice.status !== "DRAFT") {
           throw new ConflictException({
             code: "INVOICE_NOT_DRAFT",
-            message: "Chỉ được thay đổi coverage cho hóa đơn nháp.",
+            message: "Chỉ được thay đổi gói nộp trước trên hóa đơn nháp.",
           });
         }
 
@@ -3270,7 +3285,7 @@ export class FinanceService {
         if (run.status === "CLOSED" || run.type !== "MONTHLY") {
           throw new ConflictException({
             code: "COLLECTION_RUN_STATE_CONFLICT",
-            message: "Chỉ áp dụng coverage cho đợt thu tháng chưa đóng.",
+            message: "Chỉ áp dụng gói nộp trước cho đợt thu tháng chưa đóng.",
           });
         }
         const year = await this.lockYear(tx, schoolId, invoice.schoolYearId);
@@ -3281,11 +3296,29 @@ export class FinanceService {
           });
         }
 
+        // A payment notice has one part per receiving account; coverage belongs to the part its receivables are paid into,
+        // whichever part the review page has open.
+        await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "schoolId" = ${schoolId}::uuid AND "studentId" = ${invoice.studentId}::uuid AND "collectionRunId" = ${invoice.collectionRunId}::uuid FOR UPDATE`;
+        const draftParts = await tx.invoice.findMany({
+          where: { schoolId, studentId: invoice.studentId, collectionRunId: invoice.collectionRunId, status: "DRAFT", revisesInvoiceId: invoice.revisesInvoiceId },
+          include: { lines: true, coverageFacts: true },
+        });
+        const clearParts = async () => {
+          for (const part of draftParts) {
+            if (!part.coverageFacts.length) continue;
+            // A covered line returns to one month at its price before the normal promotion evaluation below.
+            const coveredIds = new Set(part.coverageFacts.map((fact: any) => fact.receivableId));
+            for (const line of part.lines.filter((item: any) => item.kind === "NORMAL" && coveredIds.has(item.receivableId))) {
+              const net = BigInt(line.unitPrice) - BigInt(line.deductionAmount);
+              await tx.invoiceLine.update({ where: { id: line.id }, data: { quantity: 1, grossAmount: BigInt(line.unitPrice), discountAmount: 0n, netAmount: net, ...taxedLine(net, line.taxCategorySnapshot ?? "NOT_DECLARED") } });
+            }
+            await tx.invoicePromotionCoverageFact.deleteMany({ where: { schoolId, invoiceId: part.id } });
+            await this.syncInvoiceLinesCoverageSuppression(tx, schoolId, part.id);
+          }
+        };
+
         if (versionId === null) {
-          await tx.invoicePromotionCoverageFact.deleteMany({
-            where: { schoolId, invoiceId },
-          });
-          await this.syncInvoiceLinesCoverageSuppression(tx, schoolId, invoiceId);
+          await clearParts();
           const outcome = await this.refreshInvoice(tx, schoolId, invoiceId);
           await this.audit(
             tx,
@@ -3300,23 +3333,31 @@ export class FinanceService {
           return outcome;
         }
 
+        const targets = await tx.promotionPolicyTarget.findMany({ where: { schoolId, versionId }, include: { receivable: { select: { taxCategory: true } } } });
+        const channels = new Set(targets.map((target: any) => taxChannel(target.receivable.taxCategory)));
+        if (channels.size > 1) throw validation("versionId", "Các khoản thu của ưu đãi nộp trước phải thu vào cùng một loại tài khoản (cùng tài khoản trường hoặc cùng tài khoản cá nhân).");
+        const [channel] = [...channels];
+        const target = channel ? draftParts.find((part: any) => part.channel === channel) ?? (invoice.channel === channel ? invoice : undefined) : invoice;
+        if (!target) throw validation("versionId", channel === "SCHOOL" ? "Hóa đơn chưa có phần thu vào tài khoản trường để áp dụng ưu đãi nộp trước này." : "Hóa đơn chưa có phần thu vào tài khoản cá nhân để áp dụng ưu đãi nộp trước này.");
+
         const derivedFacts = await this.deriveInvoiceCoverageFacts(
           tx,
           schoolId,
-          invoice,
+          target,
           versionId,
         );
 
+        await clearParts();
         await tx.invoicePromotionCoverageFact.deleteMany({
-          where: { schoolId, invoiceId },
+          where: { schoolId, invoiceId: target.id },
         });
 
         for (const fact of derivedFacts) {
           await tx.invoicePromotionCoverageFact.create({ data: fact });
         }
 
-        await this.syncInvoiceLinesCoverageSuppression(tx, schoolId, invoiceId);
-        const outcome = await this.refreshInvoice(tx, schoolId, invoiceId);
+        await this.syncInvoiceLinesCoverageSuppression(tx, schoolId, target.id);
+        const outcome = await this.refreshInvoice(tx, schoolId, target.id);
         await this.audit(
           tx,
           schoolId,
@@ -3324,7 +3365,7 @@ export class FinanceService {
           actor.membershipId,
           "INVOICE_COVERAGE_APPLIED",
           operation,
-          { invoiceId, versionId },
+          { invoiceId: target.id, versionId },
           outcome,
         );
         return outcome;

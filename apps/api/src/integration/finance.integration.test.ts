@@ -2317,7 +2317,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const source = await prisma.invoice.findUniqueOrThrow({ where: { id: fixture.invoice.id } });
       expect(replacement).toMatchObject({ status: "DRAFT", revisesInvoiceId: source.id, revisionReason: "Sai khoản thu", studentId: source.studentId, collectionRunId: source.collectionRunId, studentNameSnapshot: source.studentNameSnapshot });
       await expect(finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Lý do khác" })).rejects.toMatchObject({ status: 409, response: { code: "INVOICE_REVISION_EXISTS" } });
-      await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { receivableId: fixture.receivableId, quantity: "1" });
+      // The replacement starts with a copy of the source lines.
+      expect((await prisma.invoiceLine.findMany({ where: { invoiceId: replacementId }, orderBy: { amount: "desc" } })).map(({ receivableId, quantity, unitPrice, amount }) => ({ receivableId, quantity, unitPrice, amount }))).toEqual((await prisma.invoiceLine.findMany({ where: { invoiceId: fixture.invoice.id }, orderBy: { amount: "desc" } })).map(({ receivableId, quantity, unitPrice, amount }) => ({ receivableId, quantity, unitPrice, amount })));
       const issuedRevision = await finance.issueRevision(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { bankAccountId: fixture.bank.id });
       expect(issuedRevision.outcome).toMatchObject({ id: replacementId, status: "ISSUED", revisesInvoiceId: source.id });
       expect(await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } })).toMatchObject({ status: "CANCELLED", obligationTotalSnapshot: source.obligationTotalSnapshot });
@@ -2824,7 +2825,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
       const prepared = await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Sửa số tiền" });
       const replacementId = outcomeId(prepared);
-      await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { receivableId: fixture.receivableId, quantity: "1" });
+      // The replacement starts with a copy of the source lines.
+      expect((await prisma.invoiceLine.findMany({ where: { invoiceId: replacementId }, orderBy: { amount: "desc" } })).map(({ receivableId, quantity, unitPrice, amount }) => ({ receivableId, quantity, unitPrice, amount }))).toEqual((await prisma.invoiceLine.findMany({ where: { invoiceId: fixture.invoice.id }, orderBy: { amount: "desc" } })).map(({ receivableId, quantity, unitPrice, amount }) => ({ receivableId, quantity, unitPrice, amount })));
       await expect(finance.closeRun(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { reason: "Còn bản nháp" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
       await finance.issueRevision(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { bankAccountId: fixture.bank.id });
       await expect(finance.closeRun(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.collectionRunId, uuid(), uuid(), { reason: "Còn hóa đơn đã phát hành" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_INVOICES_NOT_TERMINAL" } });
@@ -3071,6 +3073,28 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       ).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_ALREADY_RESERVED" } });
     });
 
+    it("puts prepaid coverage on the notice part paid into the covered receivable's account and bills every package month", async () => {
+      const fixture = await coverageFixture();
+      const { identity, school } = fixture.current;
+      await finance.applyInvoiceCoverage(identity.id, school.id, fixture.invoice.id, uuid(), uuid(), { versionId: null });
+      const groupId = (await prisma.receivable.findUniqueOrThrow({ where: { id: fixture.coveredReceivableId } })).groupId;
+      const mealId = outcomeId(await finance.createReceivable(identity.id, school.id, uuid(), uuid(), { groupId, displayName: "Tiền ăn có thuế", unitLabel: "tháng", defaultUnitPrice: "50", taxCategory: "VAT_8" }));
+      await finance.addInvoiceLine(identity.id, school.id, fixture.invoice.id, uuid(), uuid(), { receivableId: mealId, quantity: "1" });
+      const schoolPart = await prisma.invoice.findFirstOrThrow({ where: { schoolId: school.id, collectionRunId: fixture.runId, studentId: fixture.student.student.id, channel: "SCHOOL" } });
+
+      // Applied from the School-account part the review page opens first, the package lands on the personal part.
+      await finance.applyInvoiceCoverage(identity.id, school.id, schoolPart.id, uuid(), uuid(), { versionId: fixture.versionId });
+      expect(await prisma.invoicePromotionCoverageFact.count({ where: { schoolId: school.id, invoiceId: schoolPart.id } })).toBe(0);
+      expect(await prisma.invoicePromotionCoverageFact.count({ where: { schoolId: school.id, invoiceId: fixture.invoice.id } })).toBe(2);
+      const covered = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: school.id, invoiceId: fixture.invoice.id, receivableId: fixture.coveredReceivableId } });
+      expect(covered).toMatchObject({ quantity: 2, unitPrice: 100n, grossAmount: 200n, discountAmount: 20n, netAmount: 180n, amount: 180n });
+      expect((await prisma.invoice.findUniqueOrThrow({ where: { id: fixture.invoice.id } })).total).toBe(180n);
+
+      await finance.applyInvoiceCoverage(identity.id, school.id, schoolPart.id, uuid(), uuid(), { versionId: null });
+      expect(await prisma.invoicePromotionCoverageFact.count({ where: { schoolId: school.id, invoiceId: fixture.invoice.id } })).toBe(0);
+      expect(await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: school.id, invoiceId: fixture.invoice.id, receivableId: fixture.coveredReceivableId } })).toMatchObject({ quantity: 1, grossAmount: 100n, amount: 100n });
+    });
+
     it("rejects source-line mutation and revision while a DRAFT Invoice owns coverage facts", async () => {
       const fixture = await coverageFixture();
       const line = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } });
@@ -3171,7 +3195,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.closeInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { actualAmount: "100" });
       const prepared = await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Sửa sau thu" });
       const replacementId = (prepared.outcome as any).id;
-      await finance.addInvoiceLine(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { receivableId: fixture.receivableId, quantity: "1" });
+      // The replacement starts with a copy of the source lines.
+      expect((await prisma.invoiceLine.findMany({ where: { invoiceId: replacementId }, orderBy: { amount: "desc" } })).map(({ receivableId, quantity, unitPrice, amount }) => ({ receivableId, quantity, unitPrice, amount }))).toEqual((await prisma.invoiceLine.findMany({ where: { invoiceId: fixture.invoice.id }, orderBy: { amount: "desc" } })).map(({ receivableId, quantity, unitPrice, amount }) => ({ receivableId, quantity, unitPrice, amount })));
       await finance.issueRevision(fixture.current.identity.id, fixture.current.school.id, replacementId, uuid(), uuid(), { bankAccountId: fixture.bank.id });
       const transfer = await prisma.settlementTransfer.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, replacementInvoiceId: replacementId } });
       expect(transfer).toMatchObject({ sourceInvoiceId: fixture.invoice.id, studentId: fixture.student.student.id, schoolYearId: fixture.current.year.id, amount: 100n });

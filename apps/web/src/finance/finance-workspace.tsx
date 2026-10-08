@@ -531,6 +531,13 @@ const invoiceStatusLabel = (status: string) =>
     CANCELLED: "Đã hủy",
   })[status] ?? "Đã cập nhật";
 
+// Prepaid coverage sits on the notice part its receivables are paid into, not necessarily the part that is open.
+const noticeCoverageFacts = (invoice: Invoice) =>
+  (invoice.notice?.invoices?.length ? invoice.notice.invoices : [invoice]).flatMap((part) => part.coverageFacts ?? []);
+const noticeLineName = (invoice: Invoice, receivableId: string) =>
+  (invoice.notice?.invoices?.length ? invoice.notice.invoices : [invoice])
+    .flatMap((part) => part.lines)
+    .find((line) => line.receivableId === receivableId)?.receivableName ?? "Khoản thu theo hóa đơn";
 const noticeStatus = (notice: RunNotice): [string, "neutral" | "info" | "success" | "warning"] =>
   notice.status === "DRAFT"
     ? ["Nháp", "neutral"]
@@ -812,8 +819,9 @@ const lineEdit = (line: InvoiceLine, draft: LineDraft | undefined) => {
     });
   return Object.keys(edit).length > 1 ? edit : null;
 };
+// The server locks the lines of a part holding a prepaid package; remove the package to edit them.
 const lineEditable = (part: Invoice, line: InvoiceLine) =>
-  part.status === "DRAFT" && line.receivableId !== null && (line.kind ?? "NORMAL") === "NORMAL";
+  part.status === "DRAFT" && line.receivableId !== null && (line.kind ?? "NORMAL") === "NORMAL" && !(part.coverageFacts ?? []).length;
 
 function InvoiceLinesTable({
   part,
@@ -1084,6 +1092,18 @@ function InvoiceLinesTable({
               </Fragment>
             );
           })}
+          {/* Last month's shortfall or overpayment on the same account is part of the server total, not a line. */}
+          {(part.carries ?? []).map((carry) => (
+            <tr key={`${carry.sourceDifferenceId}-${carry.type}`} className="finance-carry-row">
+              <th colSpan={7} scope="row">
+                {carry.type === "SHORTFALL_CARRY" ? "Khoản thu thiếu kỳ trước" : "Khoản thu thừa kỳ trước được khấu trừ"}
+              </th>
+              <td className="finance-money">
+                {carry.type === "SHORTFALL_CARRY" ? vnd(carry.amount) : `-${vnd(carry.amount)}`}
+              </td>
+              <td />
+            </tr>
+          ))}
           <tr>
             <th colSpan={7}>{totalLabel ?? (BigInt(total) < 0n ? "Trường hoàn lại" : "Tổng cần thu")}</th>
             <th className={previewPart ? "finance-money finance-preview-value" : "finance-money"}>
@@ -1166,6 +1186,7 @@ export function FinanceWorkspace({
   const [issueSchoolBankAccountId, setIssueSchoolBankAccountId] = useState("");
   const [revisionConfirmation, setRevisionConfirmation] = useState(false);
   const [revisionReason, setRevisionReason] = useState("");
+  const [revisionPartId, setRevisionPartId] = useState("");
   const [line, setLine] = useState(emptyInvoiceLine);
   const [lineDialog, setLineDialog] = useState(false);
   const [lineDrafts, setLineDrafts] = useState<Record<string, LineDraft>>({});
@@ -2300,10 +2321,17 @@ export function FinanceWorkspace({
     const token = ++invoiceRequest.current;
     setInvoiceQueue(undefined);
     try {
-      const next = await get<Invoice>(`/api/app/schools/${schoolId}/finance/invoices/${invoiceId}`);
+      const opened = await get<Invoice>(`/api/app/schools/${schoolId}/finance/invoices/${invoiceId}`);
+      // A prepared revision is the part Finance still has to finish, so reopening the notice lands on it.
+      const draftRevision = opened.revisesInvoiceId
+        ? undefined
+        : opened.notice?.invoices?.find((part) => part.revisesInvoiceId && part.status === "DRAFT");
+      const next = draftRevision
+        ? await get<Invoice>(`/api/app/schools/${schoolId}/finance/invoices/${draftRevision.id}`)
+        : opened;
       if (activeSchool.current === schoolId && token === invoiceRequest.current) {
         setInvoice(next);
-        setDraftCoverageVersionId(next.coverageFacts?.[0]?.versionId ?? "");
+        setDraftCoverageVersionId(noticeCoverageFacts(next)[0]?.versionId ?? "");
         if (sourceRun) setInvoiceQueue({ runId: sourceRun.id, ids: studentQueueIds(sourceRun.invoices) });
       }
       return true;
@@ -2462,15 +2490,16 @@ export function FinanceWorkspace({
     }
   };
   const prepareRevision = async () => {
-    if (!invoice) return;
+    if (!invoice || !revisionPartId) return;
     const outcome = await command(
-      `/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/revisions`,
+      `/api/app/schools/${schoolId}/finance/invoices/${revisionPartId}/revisions`,
       "POST",
       { reason: revisionReason },
       "invoice",
     );
     if (outcome) {
-      applyInvoice(outcome as Invoice);
+      // Reopen through the notice so the replacement shows next to the part it leaves unchanged.
+      if (!(await openInvoice((outcome as Invoice).id, run))) applyInvoice(outcome as Invoice);
       setRevisionConfirmation(false);
       setRevisionReason("");
       try {
@@ -2612,6 +2641,15 @@ export function FinanceWorkspace({
           part.id !== invoice.revisesInvoiceId &&
           !(part.revisesInvoiceId && part.status === "DRAFT" && part.id !== invoice.id),
       );
+  // Each issued or paid part of a notice is revised on its own; a part already being revised is left out.
+  const revisionParts = noticeParts
+    .map((part, index) => ({ part, number: index + 1 }))
+    .filter(
+      ({ part }) =>
+        (part.status === "ISSUED" || part.status === "CLOSED") &&
+        !part.revisesInvoiceId &&
+        !invoice?.notice?.invoices?.some((other) => other.revisesInvoiceId === part.id),
+    );
   const pendingLineEdits = noticeParts.flatMap((part) =>
     part.lines.flatMap((line) => {
       const edit = lineEditable(part, line) ? lineEdit(line, lineDrafts[line.id]) : null;
@@ -4369,13 +4407,14 @@ export function FinanceWorkspace({
                         {issueActionLabel}
                       </button>
                     )}
-                    {invoice.status === "ISSUED" && !invoice.revisesInvoiceId && (
+                    {!invoice.revisesInvoiceId && revisionParts.length > 0 && (
                       <button
                         ref={revisionTrigger}
                         type="button"
                         disabled={Boolean(pending)}
                         onClick={() => {
                           setRevisionReason("");
+                          setRevisionPartId(revisionParts.length === 1 ? revisionParts[0]!.part.id : "");
                           setRevisionConfirmation(true);
                         }}
                       >
@@ -4463,6 +4502,8 @@ export function FinanceWorkspace({
                     <select
                       value={draftCoverageVersionId}
                       onChange={(event) => setDraftCoverageVersionId(event.target.value)}
+                      aria-invalid={Boolean(errors.versionId)}
+                      aria-describedby={errors.versionId ? "finance-coverage-version-error" : undefined}
                     >
                       <option value="">Chọn chính sách ưu đãi nộp trước</option>
                       {promotionVersions
@@ -4477,6 +4518,7 @@ export function FinanceWorkspace({
                         ))}
                     </select>
                   </label>
+                  {errors.versionId && <small id="finance-coverage-version-error">{errors.versionId}</small>}
                   <button
                     type="button"
                     disabled={Boolean(pending) || !draftCoverageVersionId}
@@ -4484,14 +4526,14 @@ export function FinanceWorkspace({
                   >
                     Áp dụng ưu đãi nộp trước
                   </button>
-                  {(invoice.coverageFacts ?? []).length > 0 && (
+                  {noticeCoverageFacts(invoice).length > 0 && (
                     <button type="button" disabled={Boolean(pending)} onClick={() => void clearCoverage()}>
                       Xóa ưu đãi nộp trước
                     </button>
                   )}
                 </section>
               )}
-              {(invoice.coverageFacts ?? []).length > 0 && (
+              {noticeCoverageFacts(invoice).length > 0 && (
                 <section aria-label="Thông tin ưu đãi nộp trước">
                   <h4>Ưu đãi nộp trước</h4>
                   <table>
@@ -4508,11 +4550,11 @@ export function FinanceWorkspace({
                       </tr>
                     </thead>
                     <tbody>
-                      {invoice.coverageFacts?.map((fact) => {
+                      {noticeCoverageFacts(invoice).map((fact) => {
                         return (
                           <tr key={`table-${fact.receivableId}-${fact.billingMonth}`}>
                             <td>{fact.billingMonth}</td>
-                            <td>Khoản thu theo hóa đơn</td>
+                            <td>{noticeLineName(invoice, fact.receivableId)}</td>
                             <td style={{ textAlign: "right" }}>{vnd(fact.originalPrice)}</td>
                             <td style={{ textAlign: "right" }}>{vnd(fact.reduction)}</td>
                             <td style={{ textAlign: "right" }}>{vnd(fact.netPrice)}</td>
@@ -4525,7 +4567,7 @@ export function FinanceWorkspace({
                       })}
                     </tbody>
                   </table>
-                  {invoice.coverageFacts?.map((fact) => (
+                  {noticeCoverageFacts(invoice).map((fact) => (
                     <p key={`${fact.receivableId}-${fact.billingMonth}`}>
                       Kỳ {fact.billingMonth}: giá gốc {vnd(fact.originalPrice)} đ, giảm {vnd(fact.reduction)} đ,
                       khoảng dịch vụ {fact.serviceStart} đến {fact.serviceEnd}, lịch {fact.calendarEffectiveFrom} /{" "}
@@ -4650,6 +4692,23 @@ export function FinanceWorkspace({
                   {billingMonthLabel(invoice.billingMonth)}
                 </h3>
                 <p>Hóa đơn đã phát hành vẫn giữ nguyên cho đến khi bản thay thế được phát hành.</p>
+                {revisionParts.length > 1 && (
+                  <fieldset>
+                    <legend>Phần cần điều chỉnh</legend>
+                    {revisionParts.map(({ part, number }) => (
+                      <label key={part.id}>
+                        <input
+                          type="radio"
+                          name="finance-revision-part"
+                          checked={revisionPartId === part.id}
+                          onChange={() => setRevisionPartId(part.id)}
+                        />
+                        Phần {number} · {channelAccountLabel(part.channel)} · {vnd(part.total)} đ
+                        {part.status === "CLOSED" ? " · đã thu" : ""}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
                 <label>
                   Lý do điều chỉnh
                   <textarea value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} />
@@ -4661,7 +4720,7 @@ export function FinanceWorkspace({
                   <button
                     className="primary-action"
                     type="button"
-                    disabled={Boolean(pending) || !revisionReason.trim()}
+                    disabled={Boolean(pending) || !revisionReason.trim() || !revisionPartId}
                     onClick={() => void prepareRevision()}
                   >
                     Chuẩn bị bản điều chỉnh
