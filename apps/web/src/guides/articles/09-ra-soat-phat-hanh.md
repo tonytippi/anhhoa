@@ -57,6 +57,13 @@ Bấm `Xem ảnh hóa đơn` hoặc `Tải ảnh hóa đơn` để lấy ảnh t
 
 ## Gói nộp trước
 
-Trên hóa đơn nháp, mục `Quản lý ưu đãi nộp trước` cho phép chọn gói (xem [Ưu đãi và gói nộp trước](guide:uu-dai)) và bấm `Áp dụng ưu đãi nộp trước`. Hệ thống tự thêm các tháng kế tiếp vào hóa đơn. Hóa đơn có gói nộp trước chỉ được đóng khi thu **đúng bằng** số phải thu.
+Trên hóa đơn nháp, mục `Quản lý ưu đãi nộp trước` cho phép chọn gói (xem [Ưu đãi và gói nộp trước](guide:uu-dai)) và bấm `Áp dụng ưu đãi nộp trước`. Bảng **Ưu đãi nộp trước** liệt kê từng tháng của gói với giá gốc, phần giảm và thành tiền.
 
-![Chọn gói nộp trước trên hóa đơn nháp](hoa-don-nop-truoc.jpg)
+![Gói 3 tháng đã áp dụng: từng tháng và phần giảm](hoa-don-nop-truoc.jpg)
+
+Dòng khoản thu của gói chuyển thành **đủ số tháng** (ví dụ Học phí 3 tháng = 10.500.000 đ, ưu đãi 525.000 đ). Gói tự gắn vào đúng phần của phiếu thu theo tài khoản nhận của khoản thu (học phí "Không kê khai" → phần tài khoản cá nhân), dù bạn đang mở phần nào.
+
+![Học phí thu đủ 3 tháng của gói trên phần tài khoản cá nhân](hoa-don-nop-truoc-dong.jpg)
+
+> [!WARNING]
+> Khi phần hóa đơn đang có gói nộp trước, các dòng của phần đó **bị khóa**. Muốn sửa số lượng, đơn giá hay phần bớt, bấm `Xóa ưu đãi nộp trước` (dòng trở về 1 tháng), sửa xong rồi áp dụng lại gói. Phụ huynh phải chuyển **đúng** số tiền của phần đó; chuyển thiếu hoặc thừa sẽ không ghi thực nhận được.

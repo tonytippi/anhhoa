@@ -22,6 +22,10 @@ Số hóa đơn đã phát hành, đã thu đủ, chênh lệch chờ chuyển k
 
 Công nợ hiện tại, nợ kỳ trước, công nợ theo thời gian quá hạn và danh sách **Học sinh còn nợ nhiều nhất** — dùng để nhắc phụ huynh.
 
+- **Công nợ hiện tại** chỉ tính các hóa đơn đã phát hành mà chưa ghi thực nhận.
+- Khoản thu thiếu/thừa của hóa đơn đã ghi thực nhận nằm ở **Chênh lệch chờ kỳ sau** cho đến khi được cộng/trừ vào hóa đơn tháng sau, nên không bị tính hai lần.
+- **Còn phải chi hoàn** chỉ gồm phiếu hoàn tiền (học sinh nghỉ học) đã phát hành mà chưa ghi nhận đã chi. Thu thừa của hóa đơn tháng không phải chi hoàn — nó được trừ vào tháng sau.
+
 ![Thẻ Công nợ](bao-cao-cong-no.jpg)
 
 ## Sổ tiền và điều chỉnh

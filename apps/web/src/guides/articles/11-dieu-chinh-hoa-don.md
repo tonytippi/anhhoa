@@ -1,27 +1,38 @@
 ---
 title: Điều chỉnh hóa đơn đã phát hành
-summary: Sửa sai sau khi đã phát hành bằng bản thay thế; hóa đơn gốc được giữ đến khi bản mới phát hành.
+summary: Sửa sai sau khi đã phát hành bằng bản thay thế; chọn đúng phần của phiếu thu cần sửa.
 order: 11
 requires: collection-runs
 ---
-Hóa đơn đã phát hành không sửa và không hủy trực tiếp. Cách duy nhất để thay đổi là tạo **bản điều chỉnh** (bản thay thế).
+Hóa đơn đã phát hành không sửa và không hủy trực tiếp. Cách duy nhất để thay đổi là tạo **bản điều chỉnh** (bản thay thế). Mỗi phần của phiếu thu (tài khoản trường, tài khoản cá nhân) được điều chỉnh riêng.
 
 ## Các bước
 
 1. Mở hóa đơn đã phát hành (`Rà soát hóa đơn` trong đợt thu).
 2. Ở khung **Thanh toán**, bấm `Chuẩn bị bản điều chỉnh`.
-3. Nhập `Lý do điều chỉnh` và xác nhận.
+3. Nếu phiếu thu có hai phần, chọn **Phần cần điều chỉnh** — chỉ phần được chọn bị thay thế, phần kia giữ nguyên (kể cả khi đã thu tiền).
+4. Nhập `Lý do điều chỉnh` và bấm `Chuẩn bị bản điều chỉnh`.
 
-![Chuẩn bị bản điều chỉnh](dieu-chinh-chuan-bi.jpg)
+![Chọn phần cần điều chỉnh và nhập lý do](dieu-chinh-chuan-bi.jpg)
 
-4. Hệ thống tạo một bản nháp mới. Sửa các dòng như với hóa đơn nháp bình thường (xem [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh)).
-5. Bấm `Phát hành bản thay thế`. Lúc này hóa đơn gốc chuyển sang `Đã hủy`, bản mới thay thế. Trang hóa đơn hiện dòng "Liên kết điều chỉnh" kèm lý do.
+5. Hệ thống tạo bản nháp **chép sẵn mọi dòng** của phần gốc. Chỉ sửa những gì sai (số lượng, đơn giá, phần bớt — kèm lý do), thêm hoặc xóa dòng nếu cần, rồi bấm `Lưu thay đổi`.
 
-> Trong lúc chuẩn bị, hóa đơn gốc **vẫn giữ nguyên hiệu lực** cho đến khi bản thay thế được phát hành. Nhớ gửi lại ảnh hóa đơn mới cho phụ huynh.
+![Bản điều chỉnh: phần 1 đang sửa, phần 2 đã thu giữ nguyên](dieu-chinh-ban-nhap.jpg)
+
+6. Bấm `Phát hành bản thay thế` và xác nhận. Hóa đơn gốc chuyển sang `Đã hủy`, bản mới thay thế; trang hiện dòng "Liên kết điều chỉnh" kèm lý do.
+
+![Phát hành bản thay thế](dieu-chinh-phat-hanh.jpg)
+
+7. Gửi lại ảnh hóa đơn mới cho phụ huynh.
+
+> Trong lúc chuẩn bị, hóa đơn gốc **vẫn giữ nguyên hiệu lực**. Mở lại phiếu thu từ đợt thu sẽ tự vào bản điều chỉnh đang dở để bạn làm tiếp.
+
+> [!WARNING]
+> Bản điều chỉnh đã chuẩn bị **không xóa được**. Nếu đổi ý, hãy phát hành bản thay thế giữ nguyên các dòng (giống hệt bản gốc). Đợt thu không đóng được khi còn bản điều chỉnh nháp.
 
 ## Giới hạn
 
-- Hóa đơn **đã thu tiền**: tổng của bản thay thế phải đúng bằng số đã thu.
+- Phần **đã thu tiền**: tổng của bản thay thế phải đúng bằng số đã thu. Muốn thu thêm hoặc trả lại tiền, dùng hóa đơn tháng sau (thêm dòng hoặc phần bớt) thay vì điều chỉnh.
 - Tổng của bản thay thế phải lớn hơn 0.
-- Không điều chỉnh được hóa đơn có công nợ đã chuyển kỳ, hoặc có gói nộp trước chưa tất toán.
+- Không điều chỉnh được hóa đơn có công nợ đã chuyển kỳ, hoặc có gói nộp trước chưa thu tiền.
 - Đợt thu đã đóng thì chỉ xem, không điều chỉnh được.

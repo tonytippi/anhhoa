@@ -33,6 +33,12 @@ Hệ thống trả về kết quả:
 
 ![Kết quả thu thừa 100.000 đ](thu-tien-ghi-thua-ket-qua.jpg)
 
+Tháng sau, khoản chênh lệch hiện thành một dòng riêng trên hóa đơn nháp cùng tài khoản: **Khoản thu thiếu kỳ trước** (cộng thêm) hoặc **Khoản thu thừa kỳ trước được khấu trừ** (trừ bớt). Dòng này cũng in trên ảnh thông báo học phí gửi phụ huynh.
+
+![Thu thiếu 500.000 đ tháng 10 được cộng vào phần tài khoản cá nhân tháng 11](hoa-don-chenh-lech-ky-truoc.jpg)
+
+> Chênh lệch chỉ chuyển sang hóa đơn **tạo sau** khi đã ghi thực nhận. Nếu đợt thu tháng sau đã tạo hóa đơn trước khi bạn ghi thực nhận tháng này, khoản chênh lệch sẽ vào đợt thu kế tiếp nữa. Nên ghi thực nhận xong trước khi tạo đợt thu tháng sau.
+
 > [!WARNING]
 > Mỗi hóa đơn chỉ ghi thực nhận **một lần** — không có thu từng đợt. Nếu phụ huynh chuyển làm hai lần, hãy cộng lại và ghi một lần khi đã nhận đủ hoặc khi chốt sổ. Phần của tài khoản kia không bị ảnh hưởng.
 
