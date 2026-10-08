@@ -15,12 +15,19 @@ Phụ huynh thường đóng đủ trước khi đưa trẻ đến lớp, nên v
 ## Các bước
 
 1. Mở đợt thu tháng này (trạng thái `Đã tạo hóa đơn`). Nếu có công nợ đủ điều kiện, bên dưới bảng hóa đơn hiện mục `Công nợ kỳ trước` với bảng `Công nợ kỳ trước chưa thu`. Không có mục này nghĩa là chưa có gì để chuyển.
+![Mục Công nợ kỳ trước trong đợt thu tháng 11](cong-no-danh-sach.jpg)
+
 2. Chuyển từng hóa đơn bằng `Chuyển vào hóa đơn tháng này` ở dòng của học sinh, hoặc bấm `Chuyển tất cả công nợ`.
 3. Hộp xác nhận nêu số hóa đơn và tổng tiền. Bấm `Chuyển công nợ` để xác nhận.
+
+![Xác nhận chuyển công nợ](cong-no-xac-nhan.jpg)
 
 ## Điều gì xảy ra
 
 - Toàn bộ số còn nợ của mỗi hóa đơn cũ trở thành một dòng `Công nợ kỳ trước` trong hóa đơn nháp tháng này, ở phần **cùng loại tài khoản** (tài khoản trường hoặc tài khoản cá nhân). Nếu học sinh chưa có phần đó trong tháng này, hệ thống tạo phần đó.
+
+![Dòng Công nợ kỳ trước trên phần tài khoản cá nhân tháng 11](cong-no-tren-hoa-don.jpg)
+
 - Lý do của dòng tự ghi "Chuyển công nợ tháng MM/YYYY". Dòng này không sửa hay xóa được.
 - Hóa đơn cũ **rời trang `Thu tiền`** và không còn tải được ảnh VietQR; báo cáo không tính nó là còn nợ nữa. Phụ huynh nhận ảnh của hóa đơn tháng này, đã gồm khoản nợ cũ.
 - Nếu phụ huynh lỡ chuyển khoản theo hóa đơn cũ, hãy ghi khoản đó vào hóa đơn tháng này khi phát hành và ghi thực nhận ở đó.

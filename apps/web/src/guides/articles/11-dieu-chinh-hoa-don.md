@@ -31,6 +31,8 @@ Hóa đơn đã phát hành không sửa và không hủy trực tiếp. Cách d
 
 Chuẩn bị nhầm hoặc đổi ý thì bấm `Hủy bản điều chỉnh` cạnh `Phát hành bản thay thế`, nhập `Lý do hủy` (bắt buộc) và xác nhận. Bản điều chỉnh bị xóa; **hóa đơn gốc giữ nguyên** như chưa từng chuẩn bị. Sau đó hệ thống mở lại hóa đơn gốc, bạn có thể `Chuẩn bị bản điều chỉnh` lại nếu cần.
 
+![Hủy bản điều chỉnh với lý do](dieu-chinh-huy.jpg)
+
 > [!WARNING]
 > Chỉ hủy được bản điều chỉnh **chưa phát hành**. Bản thay thế đã phát hành không hủy được; muốn sửa tiếp, chuẩn bị bản điều chỉnh mới. Đợt thu không đóng được khi còn bản điều chỉnh nháp.
 

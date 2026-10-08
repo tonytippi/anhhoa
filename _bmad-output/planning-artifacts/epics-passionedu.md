@@ -740,6 +740,52 @@ Source: sprint-change-proposal-2026-10-08-extracurricular-only-students.
 **When** Finance creates or edits it with `Điểm danh riêng`
 **Then** the flag is saved, audited on edit, and shown on the class pages; no attendance behaviour changes.
 
+### Story 5.47: Khóa đợt thu trước khi phát hành đợt mới
+
+As a Finance user,
+I want closing a run once every invoice is issued to lock it, and the next month to be issued only after that,
+So that months are settled in order like the KidsOnline "Khóa đợt thu" routine.
+
+Source: sprint-change-proposal-2026-10-08-run-lock-prior-debt-and-revision-discard.
+
+**Acceptance Criteria:**
+
+**Given** a GENERATED run whose invoices are all ISSUED, CLOSED, CANCELLED or zero DRAFT
+**When** Finance closes it
+**Then** the run is CLOSED; adding Students, editing lines, issuing and revisions are refused, while receipts, payouts and prior-debt transfer of its invoices still work.
+
+**And** issuing an invoice of a MONTHLY run while an earlier MONTHLY run of the School is not CLOSED returns `409 PREVIOUS_RUN_NOT_CLOSED`; the run detail and review page say which month to close.
+
+### Story 5.48: Chuyển công nợ kỳ trước bằng tay
+
+As a Finance user,
+I want to move unpaid invoices of closed runs into this month's draft notices, one by one or all at once,
+So that Parents pay old debt with the new notice without the system merging anything by itself.
+
+Source: sprint-change-proposal-2026-10-08-run-lock-prior-debt-and-revision-discard.
+
+**Acceptance Criteria:**
+
+**Given** ISSUED, unpaid invoices of earlier CLOSED MONTHLY runs of the same School and SchoolYear
+**When** Finance transfers one or all in a GENERATED run
+**Then** each whole outstanding becomes a `Công nợ kỳ trước` line on the same-channel DRAFT part of the Student's notice, in one idempotent all-or-nothing Operation, with a server-owned total in the confirmation.
+
+**And** a transferred source leaves `Thu tiền`, has no payment image and is not reported as debt.
+
+### Story 5.49: Hủy bản điều chỉnh nháp
+
+As a Finance user,
+I want to discard a revision prepared by mistake,
+So that the issued source stays as it was and can be revised again later.
+
+Source: sprint-change-proposal-2026-10-08-run-lock-prior-debt-and-revision-discard.
+
+**Acceptance Criteria:**
+
+**Given** a revision DRAFT
+**When** Finance discards it with a reason
+**Then** the draft and its lines are deleted, the source is unchanged, an `INVOICE_REVISION_DISCARDED` audit is written and a new revision can be prepared; every other Invoice remains undeletable.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.
