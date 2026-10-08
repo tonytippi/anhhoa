@@ -139,8 +139,11 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
        expect(receivables.some((item) => item.taxCategory !== 'NOT_DECLARED')).toBe(false);
        expect(await prisma.financePolicy.findFirstOrThrow({ where: { schoolId: school.id } })).toMatchObject({ schoolWeekdays: [1, 2, 3, 4, 5] });
        const accounts = await prisma.bankAccount.findMany({ where: { schoolId: school.id } });
-       expect(accounts).toHaveLength(7);
-       expect(accounts.every((account) => account.kind === 'PERSONAL' && account.accountHolderName === 'NGUYEN THI HOAN')).toBe(true);
+       expect(accounts).toHaveLength(9);
+       expect(accounts.filter((account) => account.kind === 'PERSONAL').every((account) => account.accountHolderName === 'NGUYEN THI HOAN')).toBe(true);
+       expect(accounts.filter((account) => account.kind === 'SCHOOL').map((account) => account.receivingBank).sort()).toEqual(['BIDV', 'TPBank']);
+       const bidv = accounts.find((account) => account.receivingBank === 'BIDV')!;
+       expect((await prisma.class.findMany({ where: { schoolId: school.id } })).every((classroom) => classroom.defaultSchoolBankAccountId === bidv.id)).toBe(true);
        const promotions = await prisma.promotionPolicyVersion.findMany({ where: { schoolId: school.id }, include: { policy: true, targets: { include: { receivable: true } } } });
        expect(promotions).toHaveLength(29);
        expect(promotions.every((version) => version.status === 'ACTIVE' && version.fulfillmentMode === 'DISCOUNT' && version.targets.length > 0)).toBe(true);

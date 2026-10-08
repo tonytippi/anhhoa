@@ -117,7 +117,8 @@ describe('Finance Story 5.37 structural release checks (receivable kinds and ext
     const aggregates = [...schema.matchAll(/model (ExtracurricularClass|ExtracurricularClassLifecycleTransition|ExtracurricularMembership|CollectionRunExtracurricularExclusion|CollectionRunTemplateScopeClass|CollectionRunTemplateScopeStudent) \{[\s\S]*?\n\}/g)].map((match) => match[0]).join('\n');
     expect(aggregates.length).toBeGreaterThan(0);
     expect(aggregates).not.toMatch(/StaffClassAssignment|StaffProfile|SchoolPosition|PositionCapabilityGrant|EnrollmentClassAssignment/);
-    const names = (await readdir(new URL('apps/api/prisma/migrations/', `file://${root}/`))).filter((name) => name >= '20261002000001').sort();
+    // Decision 2026-10-08 adds the Class default School account, a Finance setting next to defaultBankAccountId, not authorization.
+    const names = (await readdir(new URL('apps/api/prisma/migrations/', `file://${root}/`))).filter((name) => name >= '20261002000001' && name !== '20261008000004_class_default_school_bank_account').sort();
     expect(names.length).toBeGreaterThan(0);
     const migrations = (await Promise.all(names.map((name) => source(`apps/api/prisma/migrations/${name}/migration.sql`)))).join('\n');
     expect(migrations).not.toMatch(/ALTER TABLE "(?:Class|EnrollmentClassAssignment|StaffClassAssignment|StaffProfile|SchoolPosition|PositionCapabilityGrant)"/);

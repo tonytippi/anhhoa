@@ -449,9 +449,9 @@ export async function seed(): Promise<void> {
 // later seeds.
 const financeSeedKey = '8d5c7a52-3f0e-4c61-9d7b-2a41e6f0b9c3';
 const financeSeedRoute = 'development-seed/finance-fixtures';
-// Kidsonline lists seven non-taxable accounts, all held by Nguyễn Thị Hoan, plus two business accounts (BIDV, TPBank)
-// that PeakLand also receives on; PeakLand has no School account, so all nine are PERSONAL. The first one becomes
-// every Class default; Finance can change it per Class.
+// Kidsonline lists seven non-taxable accounts, all held by Nguyễn Thị Hoan, plus two household-business accounts (BIDV,
+// TPBank) that are PeakLand's School accounts. The first account of each kind becomes every Class default of that kind;
+// Finance can change both per Class.
 const financeSeedAccounts = [
   { receivingBank: 'ACB', bankBin: '970416', accountNumber: '50934947' },
   { receivingBank: 'MBBank', bankBin: '970422', accountNumber: '0916612859' },
@@ -460,9 +460,9 @@ const financeSeedAccounts = [
   { receivingBank: 'Vietcombank', bankBin: '970436', accountNumber: '1916612859' },
   { receivingBank: 'VIB', bankBin: '970441', accountNumber: '163430' },
   { receivingBank: 'VPBank', bankBin: '970432', accountNumber: '0916612859' },
-].map((account) => ({ ...account, kind: 'PERSONAL' as const, accountHolderName: 'NGUYEN THI HOAN' })).concat([
-  { receivingBank: 'BIDV', bankBin: '970418', accountNumber: '8827839003', kind: 'PERSONAL' as const, accountHolderName: 'LOP MAM NON DOC LAP GIAO DUC DINH CAO' },
-  { receivingBank: 'TPBank', bankBin: '970423', accountNumber: '88888882026', kind: 'PERSONAL' as const, accountHolderName: 'HKD NHOM TRE, LOP MAM NON DOC LAP KY LAN' },
+].map((account) => ({ ...account, kind: 'PERSONAL' as 'PERSONAL' | 'SCHOOL', accountHolderName: 'NGUYEN THI HOAN' })).concat([
+  { receivingBank: 'BIDV', bankBin: '970418', accountNumber: '8827839003', kind: 'SCHOOL', accountHolderName: 'LOP MAM NON DOC LAP GIAO DUC DINH CAO' },
+  { receivingBank: 'TPBank', bankBin: '970423', accountNumber: '88888882026', kind: 'SCHOOL', accountHolderName: 'HKD NHOM TRE, LOP MAM NON DOC LAP KY LAN' },
 ]);
 // Receivables keep Kidsonline names, units and prices; code = KO-<Kidsonline receivable id> to trace rows back during
 // migration. Kidsonline "Ngoại khóa" maps to EXTRACURRICULAR; only the two lines every Student gets each month
@@ -564,22 +564,32 @@ const financeSeedExtracurricularClasses = [
   { name: 'Nhảy hiện đại', code: 'KO-40849' },
 ] as const;
 
-async function seedFinanceFixtures(tx: any, input: { schoolId: string; schoolYearId: string; membershipId: string; ownerId: string; classrooms: Array<{ id: string; defaultBankAccountId: string | null }> }) {
+async function seedFinanceFixtures(tx: any, input: { schoolId: string; schoolYearId: string; membershipId: string; ownerId: string; classrooms: Array<{ id: string; defaultBankAccountId: string | null; defaultSchoolBankAccountId: string | null }> }) {
   const { schoolId, membershipId, ownerId } = input;
   const operation = await tx.operation.findFirst({ where: { schoolId, route: financeSeedRoute, idempotencyKey: financeSeedKey } })
     ?? await tx.operation.create({ data: { schoolId, membershipId, actorIdentityId: ownerId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membershipId, route: financeSeedRoute, fingerprint: 'peakland-finance-fixtures-v1', idempotencyKey: financeSeedKey, status: 'COMPLETED', outcome: { schoolId } } });
   if (!await tx.financePolicy.findFirst({ where: { schoolId } })) {
     await tx.financePolicy.create({ data: { schoolId, effectiveFrom: new Date('2026-08-01T00:00:00.000Z'), dueDaysAfterIssue: 10, schoolWeekdays: [1, 2, 3, 4, 5], taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: 'PeakLand development seed', actorIdentityId: ownerId, membershipId } });
   }
-  const accounts: string[] = [];
+  const accounts = { PERSONAL: [] as string[], SCHOOL: [] as string[] };
+  const rekinded = new Set<string>();
   for (const account of financeSeedAccounts) {
     const existing = await tx.bankAccount.findFirst({ where: { schoolId, bankBin: account.bankBin, accountNumber: account.accountNumber } });
     const row = existing ?? await tx.bankAccount.create({ data: { schoolId, ...account, transferTemplate: '{{studentName}} {{className}}', actorIdentityId: ownerId, membershipId } });
     if (!existing) await tx.bankAccountLifecycleTransition.create({ data: { schoolId, bankAccountId: row.id, status: 'ACTIVE', actorIdentityId: ownerId, membershipId, operationId: operation.id, sequence: 1 } });
-    accounts.push(row.id);
+    // Earlier seeds stored the business accounts as PERSONAL; move them to their kind and off the personal Class defaults.
+    if (existing && existing.kind !== account.kind) {
+      await tx.class.updateMany({ where: { schoolId, defaultBankAccountId: row.id }, data: { defaultBankAccountId: null } });
+      await tx.class.updateMany({ where: { schoolId, defaultSchoolBankAccountId: row.id }, data: { defaultSchoolBankAccountId: null } });
+      await tx.bankAccount.update({ where: { id: row.id }, data: { kind: account.kind } });
+      rekinded.add(row.id);
+    }
+    accounts[account.kind].push(row.id);
   }
   for (const classroom of input.classrooms) {
-    if (!classroom.defaultBankAccountId) await tx.class.update({ where: { id: classroom.id }, data: { defaultBankAccountId: accounts[0] } });
+    const personal = !classroom.defaultBankAccountId || rekinded.has(classroom.defaultBankAccountId);
+    const school = !classroom.defaultSchoolBankAccountId || rekinded.has(classroom.defaultSchoolBankAccountId);
+    if (personal || school) await tx.class.update({ where: { id: classroom.id }, data: { ...(personal ? { defaultBankAccountId: accounts.PERSONAL[0] } : {}), ...(school ? { defaultSchoolBankAccountId: accounts.SCHOOL[0] } : {}) } });
   }
   const groups = new Map<string, string>((await tx.receivableGroup.findMany({ where: { schoolId } })).map((group: { name: string; id: string }) => [group.name, group.id]));
   for (const { group, ...receivable } of financeSeedReceivables) {

@@ -743,7 +743,6 @@ export class SettingsService {
       operationId,
       input,
       async (tx, operation) => {
-        if (input.kind === "SCHOOL") await this.assertNoActiveSchoolAccount(tx, schoolId);
         const account = await tx.bankAccount.create({
           data: {
             schoolId,
@@ -831,7 +830,6 @@ export class SettingsService {
             message: "Dữ liệu không hợp lệ.",
             fieldErrors: { status: "Tài khoản đã ở trạng thái này." },
           });
-        if (status === "ACTIVE" && account.kind === "SCHOOL") await this.assertNoActiveSchoolAccount(tx, schoolId);
         const transition = await tx.bankAccountLifecycleTransition.create({
           data: {
             schoolId,
@@ -862,12 +860,6 @@ export class SettingsService {
         return newValue;
       },
     );
-  }
-  // Taxed receivables are paid into exactly one School account, so at most one may be active.
-  private async assertNoActiveSchoolAccount(tx: any, schoolId: string) {
-    const accounts = await tx.bankAccount.findMany({ where: { schoolId, kind: "SCHOOL" }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
-    if (accounts.some((account: any) => account.lifecycleTransitions[0]?.status === "ACTIVE"))
-      throw new ConflictException({ code: "SCHOOL_BANK_ACCOUNT_EXISTS", message: "Trường đã có tài khoản trường đang hoạt động. Ngừng tài khoản đó trước khi thêm tài khoản mới." });
   }
   private email(value: unknown) {
     const text = typeof value === "string" ? value.trim() : "";

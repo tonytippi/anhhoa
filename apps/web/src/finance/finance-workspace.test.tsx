@@ -210,9 +210,9 @@ describe("FinanceWorkspace", () => {
     const base = { status: "DRAFT", billingMonth: "2026-10", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, settlementTransfer: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Mầm 4A" } };
     const schoolPart = { ...base, id: "invoice-school", channel: "SCHOOL", total: "1417500", noticeTotal: "2103500", lines: [line("a", "Học phí", "1417500", { grossAmount: "1500000", discountAmount: "150000", netAmount: "1350000", taxCategory: "VAT_5", vatRate: 5, vatAmount: "67500" })] };
     const personalPart = { ...base, id: "invoice-personal", channel: "PERSONAL", total: "686000", lines: [line("b", "Tiền ăn", "686000", { unitLabel: "ngày", unitPrice: "35000", quantity: "22", grossAmount: "770000", netAmount: "686000", refundUnitPrice: "28000", deductionQuantity: "3", proposedDeductionQuantity: "3", deductionAmount: "84000", deductionReason: null, deductionSource: { month: "2026-09", days: ["2026-09-04", "2026-09-15", "2026-09-16"], proposedUnitPrice: "28000" } })] };
-    const notice = { classDefaultBankAccountId: "bank-an", invoices: [schoolPart, personalPart] };
+    const notice = { classDefaultBankAccountId: "bank-an", classDefaultSchoolBankAccountId: "bank-school-2", invoices: [schoolPart, personalPart] };
     const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-school", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Mầm 4A", status: "DRAFT", total: "1417500", channel: "SCHOOL" }, { id: "invoice-personal", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Mầm 4A", status: "DRAFT", total: "770000", channel: "PERSONAL" }] };
-    const accounts = [{ id: "bank-school", kind: "SCHOOL", receivingBank: "Vietcombank", accountNumber: "0123456789", accountHolderName: "TRUONG MN" }, { id: "bank-binh", kind: "PERSONAL", receivingBank: "Techcombank", accountNumber: "1903", accountHolderName: "TRAN THI BINH" }, { id: "bank-an", kind: "PERSONAL", receivingBank: "ABBANK", accountNumber: "2088", accountHolderName: "NGUYEN VAN AN" }];
+    const accounts = [{ id: "bank-school", kind: "SCHOOL", receivingBank: "Vietcombank", accountNumber: "0123456789", accountHolderName: "TRUONG MN" }, { id: "bank-school-2", kind: "SCHOOL", receivingBank: "BIDV", accountNumber: "8827839003", accountHolderName: "HKD MN" }, { id: "bank-binh", kind: "PERSONAL", receivingBank: "Techcombank", accountNumber: "1903", accountHolderName: "TRAN THI BINH" }, { id: "bank-an", kind: "PERSONAL", receivingBank: "ABBANK", accountNumber: "2088", accountHolderName: "NGUYEN VAN AN" }];
     // The server preview and save return the edited meals part: 22 x 35.000 - 2 x 28.000 = 714.000.
     const edited = { ...personalPart, total: "714000", lines: [{ ...personalPart.lines[0]!, deductionQuantity: "2", deductionAmount: "56000", netAmount: "714000", amount: "714000", deductionReason: "Ngày 16/09 có ăn trưa" }] };
     const editedNotice = { ...schoolPart, noticeTotal: "2131500", notice: { ...notice, invoices: [schoolPart, edited] } };
@@ -250,17 +250,20 @@ describe("FinanceWorkspace", () => {
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-school/lines") && (options as RequestInit).method === "PUT" && (options as RequestInit).body === editBody)).toBe(true));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Lưu thay đổi" })).toBeNull());
     const panel = screen.getByRole("complementary", { name: "Rà soát trước khi phát hành" });
-    await waitFor(() => expect(within(panel).getByText("Vietcombank · 0123456789 · TRUONG MN")).toBeTruthy());
+    // Several School accounts: the Class default is pre-selected and Finance may choose another one.
+    await waitFor(() => expect((within(panel).getByLabelText("Tài khoản trường") as HTMLSelectElement).value).toBe("bank-school-2"));
+    expect(within(panel).getByRole("option", { name: "BIDV · 8827839003 · HKD MN (mặc định lớp Mầm 4A)" })).toBeTruthy();
+    fireEvent.change(within(panel).getByLabelText("Tài khoản trường"), { target: { value: "bank-school" } });
     await waitFor(() => expect((within(panel).getByLabelText("Tài khoản cá nhân") as HTMLSelectElement).value).toBe("bank-an"));
     expect(within(panel).getByRole("option", { name: "ABBANK · 2088 · NGUYEN VAN AN (mặc định lớp Mầm 4A)" })).toBeTruthy();
     fireEvent.change(within(panel).getByLabelText("Tài khoản cá nhân"), { target: { value: "bank-binh" } });
     fireEvent.click(within(panel).getByRole("button", { name: "Phát hành phiếu thu" }));
     const dialog = await screen.findByRole("dialog", { name: /Phát hành phiếu thu cho HS001 \/ Bé An · tháng 10\/2026/ });
-    expect(dialog.textContent).toContain("Tài khoản trường · 1.417.500 đ: Vietcombank / 0123456789 / TRUONG MN");
+    expect((within(dialog).getByLabelText("Tài khoản trường · 1.417.500 đ") as HTMLSelectElement).value).toBe("bank-school");
     expect(within(dialog).queryByLabelText(/Nhập chính xác/)).toBeNull();
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Hủy" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Phát hành phiếu thu" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-school/issue") && (options as RequestInit).body === JSON.stringify({ personalBankAccountId: "bank-binh" }))).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-school/issue") && (options as RequestInit).body === JSON.stringify({ personalBankAccountId: "bank-binh", schoolBankAccountId: "bank-school" }))).toBe(true));
   });
   it("renders the payment total and the settlement total exactly as the server returned them, never summing parts", async () => {
     const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "5" }] };

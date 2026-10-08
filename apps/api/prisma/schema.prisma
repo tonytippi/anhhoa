@@ -139,11 +139,13 @@ model Class {
   name                       String
   status                     ClassStatus                       @default(ACTIVE)
   defaultBankAccountId       String?                           @db.Uuid
+  defaultSchoolBankAccountId String?                           @db.Uuid
   createdAt                  DateTime                          @default(now()) @db.Timestamptz(3)
   updatedAt                  DateTime                          @updatedAt @db.Timestamptz(3)
   school                     School                            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   schoolYear                 SchoolYear                        @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
-  defaultBankAccount         BankAccount?                      @relation(fields: [schoolId, defaultBankAccountId], references: [schoolId, id], onDelete: Restrict, map: "Class_defaultBankAccount_fkey")
+  defaultBankAccount         BankAccount?                      @relation("ClassDefaultBankAccount", fields: [schoolId, defaultBankAccountId], references: [schoolId, id], onDelete: Restrict, map: "Class_defaultBankAccount_fkey")
+  defaultSchoolBankAccount   BankAccount?                      @relation("ClassDefaultSchoolBankAccount", fields: [schoolId, defaultSchoolBankAccountId], references: [schoolId, id], onDelete: Restrict, map: "Class_defaultSchoolBankAccount_fkey")
   enrollments                StudentEnrollment[]
   staffClassAssignments      StaffClassAssignment[]
   enrollmentClassAssignments EnrollmentClassAssignment[]
@@ -2019,21 +2021,22 @@ model DailyJournalVersionMedia {
 }
 
 model BankAccount {
-  id                   String                           @id @default(uuid()) @db.Uuid
-  schoolId             String                           @db.Uuid
-  receivingBank        String
-  bankBin              String
-  accountNumber        String
-  accountHolderName    String
-  transferTemplate     String
-  kind                 PaymentChannel                   @default(PERSONAL)
-  actorIdentityId      String                           @db.Uuid
-  membershipId         String                           @db.Uuid
-  createdAt            DateTime                         @default(now()) @db.Timestamptz(3)
-  school               School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  membership           SchoolMembership                 @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
-  lifecycleTransitions BankAccountLifecycleTransition[]
-  defaultForClasses    Class[]
+  id                      String                           @id @default(uuid()) @db.Uuid
+  schoolId                String                           @db.Uuid
+  receivingBank           String
+  bankBin                 String
+  accountNumber           String
+  accountHolderName       String
+  transferTemplate        String
+  kind                    PaymentChannel                   @default(PERSONAL)
+  actorIdentityId         String                           @db.Uuid
+  membershipId            String                           @db.Uuid
+  createdAt               DateTime                         @default(now()) @db.Timestamptz(3)
+  school                  School                           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership              SchoolMembership                 @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  lifecycleTransitions    BankAccountLifecycleTransition[]
+  defaultForClasses       Class[]                          @relation("ClassDefaultBankAccount")
+  schoolDefaultForClasses Class[]                          @relation("ClassDefaultSchoolBankAccount")
 
   @@unique([schoolId, id])
   @@index([schoolId, createdAt])

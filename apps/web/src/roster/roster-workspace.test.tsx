@@ -463,11 +463,14 @@ describe("RosterWorkspace class default receiving account", () => {
     expect(row.textContent).toContain("Chưa chọn");
     fireEvent.click(screen.getByRole("button", { name: "Tài khoản thu" }));
     const dialog = await screen.findByRole("dialog", { name: "Tài khoản thu mặc định · Lớp Mầm" });
-    const select = await waitFor(() => { const value = dialog.querySelector("select")!; expect(value.disabled).toBe(false); return value; });
-    // Only personal accounts can be the Class default.
+    const schoolSelect = await waitFor(() => { const value = within(dialog).getByLabelText("Tài khoản trường mặc định") as HTMLSelectElement; expect(value.disabled).toBe(false); return value; });
+    const select = within(dialog).getByLabelText("Tài khoản cá nhân mặc định") as HTMLSelectElement;
+    // Each select lists only accounts of its kind.
+    expect(Array.from(schoolSelect.options).map((option) => option.textContent)).toEqual(["Chưa chọn", "Vietcombank · •••• 6789 · TRUONG"]);
     expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["Chưa chọn", "ABBANK · •••• 2088 · NGUYEN VAN AN"]);
+    fireEvent.change(schoolSelect, { target: { value: "bank-school" } });
     fireEvent.change(select, { target: { value: "bank-an" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu tài khoản thu" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/classes/class-a/default-bank-account") && options?.method === "PUT" && options.body === JSON.stringify({ bankAccountId: "bank-an" }))).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/classes/class-a/default-bank-account") && options?.method === "PUT" && options.body === JSON.stringify({ bankAccountId: "bank-an", schoolBankAccountId: "bank-school" }))).toBe(true));
   });
 });

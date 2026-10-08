@@ -695,12 +695,12 @@ export class FinanceService {
   // A payment notice is every Invoice of the Student in the run; each part keeps its own settlement.
   private async invoiceWithNotice(client: any, invoice: any) {
     const parts = await client.invoice.findMany({ where: { schoolId: invoice.schoolId, studentId: invoice.studentId, collectionRunId: invoice.collectionRunId, status: { not: "CANCELLED" } }, include: this.invoiceInclude, orderBy: [{ channel: "asc" }, { createdAt: "asc" }] });
-    const classroom = invoice.classIdSnapshot ? await client.class?.findFirst({ where: { id: invoice.classIdSnapshot, schoolId: invoice.schoolId }, select: { defaultBankAccountId: true } }) : null;
+    const classroom = invoice.classIdSnapshot ? await client.class?.findFirst({ where: { id: invoice.classIdSnapshot, schoolId: invoice.schoolId }, select: { defaultBankAccountId: true, defaultSchoolBankAccountId: true } }) : null;
     // Server-owned totals of the notice (the browser never adds money): every live part, and the issued, still-unsettled parts the Parent is asked to pay.
     const live = (parts.length ? parts : [invoice]).filter((part: any) => part.id !== invoice.revisesInvoiceId && !(part.revisesInvoiceId && part.status === "DRAFT" && part.id !== invoice.id));
     const noticeTotal = live.reduce((total: bigint, part: any) => total + BigInt(part.total), 0n).toString();
     const paymentTotal = live.filter((part: any) => this.paymentImageAvailable(part) && part.issuedAt).reduce((total: bigint, part: any) => total + BigInt(part.obligationTotalSnapshot ?? 0), 0n).toString();
-    return { ...this.invoiceDto(invoice), paymentTotal, noticeTotal, notice: { classDefaultBankAccountId: classroom?.defaultBankAccountId ?? null, invoices: parts.map((part: any) => this.invoiceDto(part)) } };
+    return { ...this.invoiceDto(invoice), paymentTotal, noticeTotal, notice: { classDefaultBankAccountId: classroom?.defaultBankAccountId ?? null, classDefaultSchoolBankAccountId: classroom?.defaultSchoolBankAccountId ?? null, invoices: parts.map((part: any) => this.invoiceDto(part)) } };
   }
   private currentBillingMonth(now = new Date()) {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).formatToParts(now);
@@ -878,12 +878,14 @@ export class FinanceService {
     });
   }
   // Issue works on the payment notice: every DRAFT part of the Student in the run is issued in this Operation,
-  // the SCHOOL part into the single active School account and the PERSONAL part into the chosen or Class default account.
+  // each part into the chosen or Class default account of its channel.
   async issueInvoice(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
     const requested = body?.personalBankAccountId ?? body?.bankAccountId;
     const personalBankAccountId = requested == null || requested === "" ? null : this.identifier(requested, "personalBankAccountId");
-    return this.mutate(actor, identityId, schoolId, routes.issueInvoice, key, operationId, { invoiceId, personalBankAccountId }, async (tx, operation) => {
+    const schoolBankAccountId = this.requestedSchoolBankAccountId(body);
+    const requestedIds: Record<PaymentChannel, string | null> = { SCHOOL: schoolBankAccountId, PERSONAL: personalBankAccountId };
+    return this.mutate(actor, identityId, schoolId, routes.issueInvoice, key, operationId, { invoiceId, personalBankAccountId, ...(schoolBankAccountId ? { schoolBankAccountId } : {}) }, async (tx, operation) => {
       await this.promotionLock(tx, schoolId);
       const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, select: { id: true, studentId: true, collectionRunId: true } });
       if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
@@ -903,7 +905,7 @@ export class FinanceService {
       const parts = [primary, ...siblings.filter(issuable)].sort((a: any, b: any) => (a.channel === b.channel ? 0 : a.channel === "SCHOOL" ? -1 : 1));
       for (const part of parts) this.safeIssuedTotal(part.total);
       const banks = new Map<PaymentChannel, any>();
-      for (const part of parts) banks.set(part.channel, await this.issueBankAccount(tx, schoolId, part.channel, personalBankAccountId, part.classIdSnapshot));
+      for (const part of parts) banks.set(part.channel, await this.issueBankAccount(tx, schoolId, part.channel, requestedIds[part.channel as PaymentChannel], part.classIdSnapshot));
       const now = new Date();
       const issueDate = this.localIssueDate(now);
       const policy = await tx.financePolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: issueDate } }, orderBy: { effectiveFrom: "desc" } });
@@ -936,29 +938,36 @@ export class FinanceService {
       return this.refreshInvoice(tx, schoolId, primary.id);
     });
   }
+  private requestedSchoolBankAccountId(body: any) {
+    const requested = body?.schoolBankAccountId;
+    return requested == null || requested === "" ? null : this.identifier(requested, "schoolBankAccountId");
+  }
   private bankSnapshot(bank: any) {
     return { bankAccountIdSnapshot: bank.id, receivingBankSnapshot: bank.receivingBank, receivingBankBinSnapshot: bank.bankBin, accountNumberSnapshot: bank.accountNumber, accountHolderNameSnapshot: bank.accountHolderName };
   }
-  // SCHOOL parts always use the School's single active School account; PERSONAL parts use the
-  // requested account or the Class default. Every account is re-checked in this School and locked.
+  // Each part uses the requested account of its channel or the Class default of that channel; a SCHOOL part may also
+  // fall back to the School's only active School account. Every account is re-checked in this School and locked.
   private async issueBankAccount(tx: any, schoolId: string, channel: PaymentChannel, requestedId: string | null, classId: string | null) {
     const active = async (where: any) => (await tx.bankAccount.findMany({ where: { schoolId, kind: channel, ...where }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } }, orderBy: { createdAt: "asc" } })).filter((account: any) => account.lifecycleTransitions[0]?.status === "ACTIVE");
+    const school = channel === "SCHOOL";
+    const label = school ? "tài khoản trường" : "tài khoản cá nhân";
+    // A Student without an official class has no class default; Finance chooses the account at issue.
+    const classroom = classId ? await tx.class.findFirst({ where: { id: classId, schoolId }, select: { defaultBankAccountId: true, defaultSchoolBankAccountId: true } }) : null;
+    const id = requestedId ?? (school ? classroom?.defaultSchoolBankAccountId : classroom?.defaultBankAccountId) ?? null;
     let bank: any;
-    if (channel === "SCHOOL") {
-      await tx.$queryRaw`SELECT 1 FROM "BankAccount" WHERE "schoolId" = ${schoolId}::uuid AND "kind" = 'SCHOOL' FOR UPDATE`;
-      [bank] = await active({});
-      if (!bank) throw new ConflictException({ code: "SCHOOL_BANK_ACCOUNT_REQUIRED", message: "Chưa cấu hình tài khoản trường để thu khoản có thuế." });
-    } else {
-      // A Student without an official class has no class default; Finance chooses the account at issue.
-      const classroom = classId ? await tx.class.findFirst({ where: { id: classId, schoolId }, select: { defaultBankAccountId: true } }) : null;
-      const id = requestedId ?? classroom?.defaultBankAccountId ?? null;
-      if (id) {
-        await tx.$queryRaw`SELECT 1 FROM "BankAccount" WHERE "id" = ${id}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
-        [bank] = await active({ id });
-        if (!bank && requestedId) throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND", message: "Không tìm thấy tài khoản cá nhân đang hoạt động." });
-      }
-      if (!bank) throw new ConflictException({ code: "PERSONAL_BANK_ACCOUNT_REQUIRED", message: "Chọn tài khoản cá nhân để thu khoản không kê khai hoặc đặt tài khoản mặc định cho lớp." });
+    if (id) {
+      await tx.$queryRaw`SELECT 1 FROM "BankAccount" WHERE "id" = ${id}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      [bank] = await active({ id });
+      if (!bank && requestedId) throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND", message: `Không tìm thấy ${label} đang hoạt động.` });
     }
+    if (!bank && school) {
+      await tx.$queryRaw`SELECT 1 FROM "BankAccount" WHERE "schoolId" = ${schoolId}::uuid AND "kind" = 'SCHOOL' ORDER BY "id" FOR UPDATE`;
+      const accounts = await active({});
+      if (accounts.length === 1) [bank] = accounts;
+      else if (!accounts.length) throw new ConflictException({ code: "SCHOOL_BANK_ACCOUNT_REQUIRED", message: "Chưa cấu hình tài khoản trường để thu khoản có thuế." });
+      else throw new ConflictException({ code: "SCHOOL_BANK_ACCOUNT_CHOICE_REQUIRED", message: "Chọn tài khoản trường để thu khoản có thuế hoặc đặt tài khoản trường mặc định cho lớp." });
+    }
+    if (!bank) throw new ConflictException({ code: "PERSONAL_BANK_ACCOUNT_REQUIRED", message: "Chọn tài khoản cá nhân để thu khoản không kê khai hoặc đặt tài khoản mặc định cho lớp." });
     if (bank.transferTemplate !== "{{studentName}} {{className}}") throw new ConflictException({ code: "BANK_ACCOUNT_TEMPLATE_INVALID", message: "Mẫu nội dung chuyển khoản không hợp lệ." });
     return bank;
   }
@@ -1000,7 +1009,8 @@ export class FinanceService {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
     const requested = body?.personalBankAccountId ?? body?.bankAccountId;
     const bankAccountId = requested == null || requested === "" ? null : this.identifier(requested, "personalBankAccountId");
-    return this.mutate(actor, identityId, schoolId, routes.issueRevision, key, operationId, { invoiceId, bankAccountId }, async (tx, operation) => {
+    const schoolBankAccountId = this.requestedSchoolBankAccountId(body);
+    return this.mutate(actor, identityId, schoolId, routes.issueRevision, key, operationId, { invoiceId, bankAccountId, ...(schoolBankAccountId ? { schoolBankAccountId } : {}) }, async (tx, operation) => {
       await this.promotionLock(tx, schoolId);
       await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const replacement = await tx.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
@@ -1017,7 +1027,7 @@ export class FinanceService {
       const sourceReceipt = source.status === "CLOSED" ? await tx.receipt.findFirst({ where: { schoolId, invoiceId: source.id } }) : null;
       if (source.status === "CLOSED" && (!sourceReceipt || sourceReceipt.actualAmount !== replacement.total || sourceReceipt.outcome !== "EXACT")) throw new ConflictException({ code: "SETTLEMENT_TRANSFER_AMOUNT_MISMATCH", message: "Bản thay thế phải có nghĩa vụ đúng bằng Receipt nguồn đã xác nhận." });
       this.safeIssuedTotal(replacement.total);
-      const bank = await this.issueBankAccount(tx, schoolId, replacement.channel, bankAccountId, replacement.classIdSnapshot);
+      const bank = await this.issueBankAccount(tx, schoolId, replacement.channel, replacement.channel === "SCHOOL" ? schoolBankAccountId : bankAccountId, replacement.classIdSnapshot);
       const now = new Date(); const issueDate = this.localIssueDate(now);
       const policy = await tx.financePolicy.findFirst({ where: { schoolId, effectiveFrom: { lte: issueDate } }, orderBy: { effectiveFrom: "desc" } });
       if (!policy) throw new ConflictException({ code: "FINANCE_POLICY_NOT_CONFIGURED", message: "Chưa có chính sách Finance hiệu lực để phát hành." });
@@ -1624,21 +1634,26 @@ export class FinanceService {
     if (/Receivable_refundUnitPrice_within_price|refundUnitPrice.*defaultUnitPrice/i.test(text)) throw validation("defaultUnitPrice", "Đơn giá thu không được thấp hơn giá hoàn trả.");
     throw error;
   }
-  // A Class may name one active PERSONAL account that issue pre-selects for its untaxed notice parts.
+  // A Class may name one active PERSONAL account and one active SCHOOL account that issue pre-selects for its notice parts.
+  // `schoolBankAccountId` left out of the body keeps the current School default.
   async setClassDefaultBankAccount(identityId: string, schoolId: string, classId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(classId, "classId");
     const bankAccountId = body?.bankAccountId == null || body.bankAccountId === "" ? null : this.identifier(body.bankAccountId, "bankAccountId");
-    return this.mutate(actor, identityId, schoolId, routes.classDefaultBankAccount, key, operationId, { classId, bankAccountId }, async (tx, operation) => {
+    const setSchool = body != null && typeof body === "object" && "schoolBankAccountId" in body;
+    const schoolBankAccountId = setSchool ? this.requestedSchoolBankAccountId(body) : undefined;
+    return this.mutate(actor, identityId, schoolId, routes.classDefaultBankAccount, key, operationId, { classId, bankAccountId, ...(setSchool ? { schoolBankAccountId } : {}) }, async (tx, operation) => {
       await tx.$queryRaw`SELECT 1 FROM "Class" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const classroom = await tx.class.findFirst({ where: { id: classId, schoolId } });
       if (!classroom) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
-      if (bankAccountId) {
-        const account = await tx.bankAccount.findFirst({ where: { id: bankAccountId, schoolId, kind: "PERSONAL" }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
-        if (!account || account.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("bankAccountId", "Chỉ chọn tài khoản cá nhân đang hoạt động của trường.");
-      }
-      const updated = await tx.class.update({ where: { id: classroom.id }, data: { defaultBankAccountId: bankAccountId } });
-      const outcome = { classId: updated.id, defaultBankAccountId: updated.defaultBankAccountId };
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "CLASS_DEFAULT_BANK_ACCOUNT_SET", operation, { classId, defaultBankAccountId: classroom.defaultBankAccountId }, outcome);
+      const activeAccount = async (id: string, kind: PaymentChannel) => {
+        const account = await tx.bankAccount.findFirst({ where: { id, schoolId, kind }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
+        return account?.lifecycleTransitions[0]?.status === "ACTIVE";
+      };
+      if (bankAccountId && !await activeAccount(bankAccountId, "PERSONAL")) throw validation("bankAccountId", "Chỉ chọn tài khoản cá nhân đang hoạt động của trường.");
+      if (schoolBankAccountId && !await activeAccount(schoolBankAccountId, "SCHOOL")) throw validation("schoolBankAccountId", "Chỉ chọn tài khoản trường đang hoạt động.");
+      const updated = await tx.class.update({ where: { id: classroom.id }, data: { defaultBankAccountId: bankAccountId, ...(setSchool ? { defaultSchoolBankAccountId: schoolBankAccountId } : {}) } });
+      const outcome = { classId: updated.id, defaultBankAccountId: updated.defaultBankAccountId, defaultSchoolBankAccountId: updated.defaultSchoolBankAccountId };
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "CLASS_DEFAULT_BANK_ACCOUNT_SET", operation, { classId, defaultBankAccountId: classroom.defaultBankAccountId, defaultSchoolBankAccountId: classroom.defaultSchoolBankAccountId }, outcome);
       return outcome;
     });
   }

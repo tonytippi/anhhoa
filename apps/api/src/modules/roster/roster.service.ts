@@ -187,6 +187,8 @@ export class RosterService {
       defaultBankAccountId: value.defaultBankAccountId ?? null,
       // Only display facts of the Class default receiving account; Finance owns choosing it.
       defaultBankAccount: value.defaultBankAccount ? { receivingBank: value.defaultBankAccount.receivingBank, accountNumberLast4: value.defaultBankAccount.accountNumber.slice(-4), accountHolderName: value.defaultBankAccount.accountHolderName } : null,
+      defaultSchoolBankAccountId: value.defaultSchoolBankAccountId ?? null,
+      defaultSchoolBankAccount: value.defaultSchoolBankAccount ? { receivingBank: value.defaultSchoolBankAccount.receivingBank, accountNumberLast4: value.defaultSchoolBankAccount.accountNumber.slice(-4), accountHolderName: value.defaultSchoolBankAccount.accountHolderName } : null,
       activeStudentCount,
       createdAt: value.createdAt.toISOString(),
       updatedAt: value.updatedAt.toISOString(),
@@ -308,7 +310,7 @@ export class RosterService {
     await this.year(schoolId, schoolYearId);
     const classes = await this.prisma.class.findMany({
       where: { schoolId, schoolYearId },
-      include: { defaultBankAccount: { select: { id: true, receivingBank: true, accountNumber: true, accountHolderName: true } } },
+      include: { defaultBankAccount: { select: { id: true, receivingBank: true, accountNumber: true, accountHolderName: true } }, defaultSchoolBankAccount: { select: { id: true, receivingBank: true, accountNumber: true, accountHolderName: true } } },
       orderBy: { createdAt: "asc" },
     });
     const counts = await this.prisma.enrollmentClassAssignment.groupBy({

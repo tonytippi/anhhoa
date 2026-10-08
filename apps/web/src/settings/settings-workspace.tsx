@@ -826,7 +826,7 @@ export function SettingsWorkspace({
             </form>
             <section aria-labelledby="school-account-title">
               <h3 id="school-account-title">Tài khoản trường (khoản có thuế)</h3>
-              <p className="settings-muted">Tối đa một tài khoản trường đang hiệu lực. Hệ thống tự dùng tài khoản này cho phần thu có thuế khi phát hành phiếu thu; muốn đổi, ngừng dùng tài khoản hiện tại trước.</p>
+              <p className="settings-muted">Trường có thể có nhiều tài khoản trường đang hiệu lực. Mỗi lớp chọn tài khoản trường mặc định cho phần thu có thuế; kế toán có thể chọn tài khoản khác khi phát hành phiếu thu.</p>
               <div className="table-scroll">
                 <table>
                   <caption>Tài khoản trường · {schoolName}</caption>

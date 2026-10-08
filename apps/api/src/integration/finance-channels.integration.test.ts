@@ -160,8 +160,6 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     const detail: any = await finance.invoice(current.identity.id, current.school.id, schoolPart!.id);
     expect(detail.paymentTotal).toBe("4270000");
     expect(detail.notice.invoices.map((part: any) => part.issue.obligationTotal)).toEqual(["3500000", "770000"]);
-    // A second active School account is refused.
-    await expect(account(current, "SCHOOL", "999")).rejects.toMatchObject({ response: { code: "SCHOOL_BANK_ACCOUNT_EXISTS" } });
     // The image has one section per unsettled part; after a receipt only the other part remains.
     const image = await finance.paymentImage(current.identity.id, current.school.id, after[1]!.id);
     expect(image.fileName).toContain(after[0]!.obligationCodeSnapshot!);
@@ -171,6 +169,34 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     await finance.paymentImage(current.identity.id, current.school.id, after[1]!.id);
     const second = await prisma.auditRecord.findMany({ where: { schoolId: current.school.id, action: "INVOICE_PAYMENT_IMAGE_DOWNLOADED" }, orderBy: { createdAt: "desc" }, take: 1 });
     expect((second[0]!.provenance as any).parts).toEqual([expect.objectContaining({ invoiceId: after[1]!.id, amount: "770000" })]);
+  });
+
+  it("issues the School part into the requested or Class default School account when the School has several", async () => {
+    const current = await school();
+    await student(current);
+    const tuition = await receivable(current, "Học phí", "3500000", "EXEMPT");
+    const { runId } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }]);
+    const [first, second] = [await account(current, "SCHOOL", "0123456789"), await account(current, "SCHOOL", "999")];
+    const draft = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
+    // Two active School accounts and no Class default: Finance must choose.
+    await expect(finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), {})).rejects.toMatchObject({ response: { code: "SCHOOL_BANK_ACCOUNT_CHOICE_REQUIRED" } });
+    // A personal account is refused as the Class default School account.
+    const personalAccount = await account(current, "PERSONAL", "215000002088");
+    await expect(finance.setClassDefaultBankAccount(current.identity.id, current.school.id, current.classroom.id, uuid(), uuid(), { schoolBankAccountId: personalAccount })).rejects.toMatchObject({ response: { fieldErrors: { schoolBankAccountId: expect.any(String) } } });
+    const set: any = await finance.setClassDefaultBankAccount(current.identity.id, current.school.id, current.classroom.id, uuid(), uuid(), { bankAccountId: personalAccount, schoolBankAccountId: second });
+    expect(set.outcome).toMatchObject({ defaultBankAccountId: personalAccount, defaultSchoolBankAccountId: second });
+    // Leaving schoolBankAccountId out keeps the School default.
+    await finance.setClassDefaultBankAccount(current.identity.id, current.school.id, current.classroom.id, uuid(), uuid(), { bankAccountId: null });
+    expect((await prisma.class.findUniqueOrThrow({ where: { id: current.classroom.id } })).defaultSchoolBankAccountId).toBe(second);
+    const detail: any = await finance.invoice(current.identity.id, current.school.id, draft.id);
+    expect(detail.notice.classDefaultSchoolBankAccountId).toBe(second);
+    await finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), {});
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).bankAccountIdSnapshot).toBe(second);
+    // An explicit choice wins over the Class default.
+    const { runId: october } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-10");
+    const next = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: october } });
+    await finance.issueInvoice(current.identity.id, current.school.id, next.id, uuid(), uuid(), { schoolBankAccountId: first });
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: next.id } })).bankAccountIdSnapshot).toBe(first);
   });
 
   it("keeps carries and prior-debt transfers inside one payment channel", async () => {

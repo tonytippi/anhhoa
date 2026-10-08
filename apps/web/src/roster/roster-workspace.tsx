@@ -25,6 +25,8 @@ type Classroom = {
   activeStudentCount: number;
   defaultBankAccountId?: string | null;
   defaultBankAccount?: { receivingBank: string; accountNumberLast4: string; accountHolderName: string } | null;
+  defaultSchoolBankAccountId?: string | null;
+  defaultSchoolBankAccount?: { receivingBank: string; accountNumberLast4: string; accountHolderName: string } | null;
 };
 type ReceivingAccount = { id: string; kind?: "SCHOOL" | "PERSONAL"; receivingBank: string; accountNumber: string; accountHolderName: string };
 type RosterRow = {
@@ -278,7 +280,7 @@ export function RosterWorkspace({
   const [year, setYear] = useState({ name: "", startsOn: "", endsOn: "" });
   const [className, setClassName] = useState("");
   const [rename, setRename] = useState<Classroom>();
-  const [classAccount, setClassAccount] = useState<{ classroom: Classroom; bankAccountId: string; accounts?: ReceivingAccount[]; error?: string; saving?: boolean }>();
+  const [classAccount, setClassAccount] = useState<{ classroom: Classroom; bankAccountId: string; schoolBankAccountId: string; accounts?: ReceivingAccount[]; error?: string; saving?: boolean }>();
   const [renameName, setRenameName] = useState("");
   const [student, setStudent] = useState({
     fullName: "",
@@ -957,16 +959,16 @@ export function RosterWorkspace({
       setRenameName("");
     }
   };
-  // The Class default personal account is a Finance setting: read and saved through Finance routes.
+  // The Class default School and personal accounts are Finance settings: read and saved through Finance routes.
   const openClassAccount = async (classroom: Classroom) => {
-    setClassAccount({ classroom, bankAccountId: classroom.defaultBankAccountId ?? "" });
+    setClassAccount({ classroom, bankAccountId: classroom.defaultBankAccountId ?? "", schoolBankAccountId: classroom.defaultSchoolBankAccountId ?? "" });
     const requestGeneration = generation.current;
     try {
       const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/bank-accounts`, { credentials: "include" });
       if (!valid(schoolId, requestGeneration)) return;
       if (!response.ok) { setClassAccount((current) => current && { ...current, accounts: [], error: response.status === 403 ? "Cần quyền Finance để chọn tài khoản thu mặc định." : "Không thể tải tài khoản nhận tiền." }); return; }
       const body = (await response.json()) as { data?: { accounts?: ReceivingAccount[] } };
-      setClassAccount((current) => current && { ...current, accounts: (body.data?.accounts ?? []).filter((account) => (account.kind ?? "PERSONAL") === "PERSONAL") });
+      setClassAccount((current) => current && { ...current, accounts: body.data?.accounts ?? [] });
     } catch { if (valid(schoolId, requestGeneration)) setClassAccount((current) => current && { ...current, accounts: [], error: "Không thể tải tài khoản nhận tiền." }); }
   };
   const submitClassAccount = async (event: FormEvent) => {
@@ -979,7 +981,7 @@ export function RosterWorkspace({
         method: "PUT",
         credentials: "include",
         headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? ""), "idempotency-key": crypto.randomUUID(), "x-operation-id": crypto.randomUUID() },
-        body: JSON.stringify({ bankAccountId: classAccount.bankAccountId || null }),
+        body: JSON.stringify({ bankAccountId: classAccount.bankAccountId || null, schoolBankAccountId: classAccount.schoolBankAccountId || null }),
       });
       if (!valid(schoolId, requestGeneration)) return;
       if (!response.ok) {
@@ -2210,7 +2212,15 @@ export function RosterWorkspace({
                     classes.map((item) => (
                       <tr key={item.id}>
                         <th scope="row">{item.name}</th>
-                        <td>{item.defaultBankAccount ? <>{item.defaultBankAccount.receivingBank} · •••• {item.defaultBankAccount.accountNumberLast4}<br /><small>{item.defaultBankAccount.accountHolderName}</small></> : "Chưa chọn"}</td>
+                        <td>
+                          {(item.defaultSchoolBankAccount || item.defaultBankAccount) ? (
+                            <>
+                              {item.defaultSchoolBankAccount && <>Trường: {item.defaultSchoolBankAccount.receivingBank} · •••• {item.defaultSchoolBankAccount.accountNumberLast4}<br /><small>{item.defaultSchoolBankAccount.accountHolderName}</small></>}
+                              {item.defaultSchoolBankAccount && item.defaultBankAccount && <br />}
+                              {item.defaultBankAccount && <>Cá nhân: {item.defaultBankAccount.receivingBank} · •••• {item.defaultBankAccount.accountNumberLast4}<br /><small>{item.defaultBankAccount.accountHolderName}</small></>}
+                            </>
+                          ) : "Chưa chọn"}
+                        </td>
                         <td>
                           {item.status === "ACTIVE"
                             ? "Đang hoạt động"
@@ -2911,13 +2921,21 @@ export function RosterWorkspace({
           <form onSubmit={submitClassAccount}>
             <h3 id="class-account-title">Tài khoản thu mặc định · {classAccount.classroom.name}</h3>
             <label>
-              Tài khoản thu mặc định
-              <select autoFocus value={classAccount.bankAccountId} disabled={!classAccount.accounts} onChange={(event) => setClassAccount({ ...classAccount, bankAccountId: event.target.value })} aria-describedby="class-account-help">
+              Tài khoản trường mặc định
+              <select autoFocus value={classAccount.schoolBankAccountId} disabled={!classAccount.accounts} onChange={(event) => setClassAccount({ ...classAccount, schoolBankAccountId: event.target.value })} aria-describedby="class-school-account-help">
                 <option value="">Chưa chọn</option>
-                {(classAccount.accounts ?? []).map((account) => <option key={account.id} value={account.id}>{account.receivingBank} · •••• {account.accountNumber.slice(-4)} · {account.accountHolderName}</option>)}
+                {(classAccount.accounts ?? []).filter((account) => account.kind === "SCHOOL").map((account) => <option key={account.id} value={account.id}>{account.receivingBank} · •••• {account.accountNumber.slice(-4)} · {account.accountHolderName}</option>)}
               </select>
             </label>
-            <small id="class-account-help">Chỉ tài khoản cá nhân đang hiệu lực của Trường. Dùng sẵn cho phần khoản không kê khai khi phát hành phiếu thu; kế toán có thể chọn tài khoản khác.</small>
+            <small id="class-school-account-help">Dùng sẵn cho phần khoản có thuế khi phát hành phiếu thu.</small>
+            <label>
+              Tài khoản cá nhân mặc định
+              <select value={classAccount.bankAccountId} disabled={!classAccount.accounts} onChange={(event) => setClassAccount({ ...classAccount, bankAccountId: event.target.value })} aria-describedby="class-account-help">
+                <option value="">Chưa chọn</option>
+                {(classAccount.accounts ?? []).filter((account) => (account.kind ?? "PERSONAL") === "PERSONAL").map((account) => <option key={account.id} value={account.id}>{account.receivingBank} · •••• {account.accountNumber.slice(-4)} · {account.accountHolderName}</option>)}
+              </select>
+            </label>
+            <small id="class-account-help">Dùng sẵn cho phần khoản không kê khai. Chỉ tài khoản đang hiệu lực của Trường; kế toán có thể chọn tài khoản khác khi phát hành.</small>
             {classAccount.error && <p role="alert">{classAccount.error}</p>}
             <button type="button" onClick={() => setClassAccount(undefined)}>
               Hủy

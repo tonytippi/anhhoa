@@ -325,7 +325,7 @@ type Invoice = {
   channel?: PaymentChannel;
   kind?: "NORMAL" | "SETTLEMENT";
   enrollmentEndedOn?: string | null;
-  notice?: { classDefaultBankAccountId: string | null; invoices: Invoice[] };
+  notice?: { classDefaultBankAccountId: string | null; classDefaultSchoolBankAccountId?: string | null; invoices: Invoice[] };
   status: string;
   total: string;
   sourceOutstanding?: string | null;
@@ -1163,6 +1163,7 @@ export function FinanceWorkspace({
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [issueConfirmation, setIssueConfirmation] = useState(false);
   const [issueBankAccountId, setIssueBankAccountId] = useState("");
+  const [issueSchoolBankAccountId, setIssueSchoolBankAccountId] = useState("");
   const [revisionConfirmation, setRevisionConfirmation] = useState(false);
   const [revisionReason, setRevisionReason] = useState("");
   const [line, setLine] = useState(emptyInvoiceLine);
@@ -1479,9 +1480,11 @@ export function FinanceWorkspace({
     setRun((current) => (current ? patch(current) : current));
     setRuns((current) => current.map(patch));
   };
-  // Issue pre-selects the Class default personal account; the School account is shown read-only.
+  // Issue pre-selects the Class default School and personal accounts; the only School account is selected without a default.
   const draftInvoiceKey =
-    invoice?.status === "DRAFT" ? `${invoice.id}:${invoice.notice?.classDefaultBankAccountId ?? ""}` : "";
+    invoice?.status === "DRAFT"
+      ? `${invoice.id}:${invoice.notice?.classDefaultBankAccountId ?? ""}:${invoice.notice?.classDefaultSchoolBankAccountId ?? ""}`
+      : "";
   useEffect(() => {
     if (!draftInvoiceKey || !invoice) return;
     const expected = schoolId;
@@ -1495,6 +1498,17 @@ export function FinanceWorkspace({
             : accounts.some((account) => account.id === fallback && (account.kind ?? "PERSONAL") === "PERSONAL")
               ? fallback!
               : "",
+        );
+        const school = accounts.filter((account) => account.kind === "SCHOOL");
+        const schoolFallback = invoice.notice?.classDefaultSchoolBankAccountId;
+        setIssueSchoolBankAccountId((current) =>
+          current && school.some((account) => account.id === current)
+            ? current
+            : school.some((account) => account.id === schoolFallback)
+              ? schoolFallback!
+              : school.length === 1
+                ? school[0]!.id
+                : "",
         );
       })
       .catch(() => undefined);
@@ -2409,16 +2423,21 @@ export function FinanceWorkspace({
     if (!invoice || !issueAccountsReady) return;
     const runId = run?.id;
     const personal = issueParts.some((part) => part.channel !== "SCHOOL");
+    const school = issueParts.some((part) => part.channel === "SCHOOL");
     const outcome = await command(
       `/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/${invoice.revisesInvoiceId ? "issue-revision" : "issue"}`,
       "POST",
-      personal ? { personalBankAccountId: issueBankAccountId } : {},
+      {
+        ...(personal ? { personalBankAccountId: issueBankAccountId } : {}),
+        ...(school ? { schoolBankAccountId: issueSchoolBankAccountId } : {}),
+      },
       "invoice",
     );
     if (outcome) {
       applyInvoice(outcome as Invoice);
       setIssueConfirmation(false);
       setIssueBankAccountId("");
+      setIssueSchoolBankAccountId("");
       try {
         if (runId) {
           const refreshed = await refreshRun(runId);
@@ -2471,12 +2490,16 @@ export function FinanceWorkspace({
         setMessage("Máy chủ không có tài khoản nhận đang hoạt động để phát hành hóa đơn.");
         return;
       }
-      if (
-        issueParts.some((part) => part.channel === "SCHOOL") &&
-        !accounts.some((account) => account.kind === "SCHOOL")
-      ) {
-        setMessage("Chưa cấu hình tài khoản trường để thu khoản có thuế.");
-        return;
+      const school = accounts.filter((account) => account.kind === "SCHOOL");
+      if (issueParts.some((part) => part.channel === "SCHOOL")) {
+        if (!school.length) {
+          setMessage("Chưa cấu hình tài khoản trường để thu khoản có thuế.");
+          return;
+        }
+        if (!school.some((account) => account.id === issueSchoolBankAccountId))
+          setIssueSchoolBankAccountId(
+            school.find((account) => account.id === invoice.notice?.classDefaultSchoolBankAccountId)?.id ?? school[0]!.id,
+          );
       }
       const personal = accounts.filter((account) => (account.kind ?? "PERSONAL") === "PERSONAL");
       if (issueParts.some((part) => part.channel !== "SCHOOL")) {
@@ -2671,10 +2694,10 @@ export function FinanceWorkspace({
   // Amendment A4: a negative monthly part closes at issue and its credit carries into next month.
   const negativeMonthlyPart = issueParts.find((part) => part.kind !== "SETTLEMENT" && BigInt(part.total) < 0n);
   const paymentParts = noticeParts.filter((part) => part.paymentImageAvailable && part.issue);
-  const schoolBankAccount = bankAccounts.find((account) => account.kind === "SCHOOL");
+  const schoolBankAccounts = bankAccounts.filter((account) => account.kind === "SCHOOL");
   const personalBankAccounts = bankAccounts.filter((account) => (account.kind ?? "PERSONAL") === "PERSONAL");
   const issueAccountsReady = issueParts.every((part) =>
-    part.channel === "SCHOOL" ? Boolean(schoolBankAccount) : Boolean(issueBankAccountId),
+    part.channel === "SCHOOL" ? Boolean(issueSchoolBankAccountId) : Boolean(issueBankAccountId),
   );
   const liveNotices = (run?.notices ?? []).filter((notice) => notice.status !== "CANCELLED");
   const draftNoticeCount = liveNotices.filter((notice) => notice.status === "DRAFT").length;
@@ -4260,17 +4283,34 @@ export function FinanceWorkspace({
                             <b>{signedVnd(part.total)}</b>
                           </p>
                           {part.channel === "SCHOOL" ? (
-                            <>
-                              {schoolBankAccount ? (
-                                <p>
-                                  {schoolBankAccount.receivingBank} · {schoolBankAccount.accountNumber} ·{" "}
-                                  {schoolBankAccount.accountHolderName}
-                                </p>
-                              ) : (
-                                <p role="alert">Chưa cấu hình tài khoản trường để thu khoản có thuế.</p>
-                              )}
-                              <small>Hệ thống tự dùng tài khoản trường đang hiệu lực; không đổi tại đây.</small>
-                            </>
+                            schoolBankAccounts.length ? (
+                              <>
+                                <label>
+                                  Tài khoản trường
+                                  <select
+                                    value={issueSchoolBankAccountId}
+                                    onChange={(event) => setIssueSchoolBankAccountId(event.target.value)}
+                                    aria-describedby="school-account-hint"
+                                  >
+                                    <option value="">Chọn tài khoản trường</option>
+                                    {schoolBankAccounts.map((account) => (
+                                      <option key={account.id} value={account.id}>
+                                        {account.receivingBank} · {account.accountNumber} · {account.accountHolderName}
+                                        {account.id === invoice.notice?.classDefaultSchoolBankAccountId
+                                          ? ` (mặc định lớp ${invoice.student.className})`
+                                          : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <small id="school-account-hint">
+                                  Chọn sẵn theo tài khoản trường mặc định của lớp; có thể chọn tài khoản trường khác đang
+                                  hiệu lực.
+                                </small>
+                              </>
+                            ) : (
+                              <p role="alert">Chưa cấu hình tài khoản trường để thu khoản có thuế.</p>
+                            )
                           ) : (
                             <>
                               <label>
@@ -4547,12 +4587,20 @@ export function FinanceWorkspace({
                 <p>Sau khi phát hành, hóa đơn không sửa trực tiếp được; muốn thay đổi phải tạo bản điều chỉnh.</p>
                 {issueParts.map((part) =>
                   part.channel === "SCHOOL" ? (
-                    <p key={part.id}>
-                      {channelAccountLabel(part.channel)} · {vnd(part.total)} đ:{" "}
-                      {schoolBankAccount
-                        ? `${schoolBankAccount.receivingBank} / ${schoolBankAccount.accountNumber} / ${schoolBankAccount.accountHolderName}`
-                        : "chưa cấu hình"}
-                    </p>
+                    <label key={part.id}>
+                      {issueParts.length > 1 ? `Tài khoản trường · ${vnd(part.total)} đ` : "Tài khoản nhận"}
+                      <select
+                        value={issueSchoolBankAccountId}
+                        onChange={(event) => setIssueSchoolBankAccountId(event.target.value)}
+                      >
+                        <option value="">Chọn tài khoản</option>
+                        {schoolBankAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.receivingBank} / {account.accountNumber} / {account.accountHolderName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   ) : (
                     <label key={part.id}>
                       {issueParts.length > 1 ? `Tài khoản cá nhân · ${vnd(part.total)} đ` : "Tài khoản nhận"}
