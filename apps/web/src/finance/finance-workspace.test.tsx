@@ -1801,6 +1801,50 @@ describe("FinanceWorkspace", () => {
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/personal-part/revisions") && (options as RequestInit | undefined)?.method === "POST")).toBe(true));
     expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/invoices/school-part/revisions"))).toBe(false);
   });
+  it("discards a prepared revision after a required reason and reopens the issued source", async () => {
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "replacement", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
+    const line = { id: "line", receivableId: "r", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null };
+    const replacement = { id: "replacement", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: "source", revisionReason: "Sai", replacementInvoiceId: null, student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [line] };
+    const source = { ...replacement, id: "source", status: "ISSUED", revisesInvoiceId: null, revisionReason: null };
+    let discarded = false;
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/invoices/replacement/discard-revision") ? (discarded = true, response({ outcome: { id: "replacement", revisesInvoiceId: "source", discarded: true } })) : url.includes("/invoices/source") ? response(source) : url.includes("/invoices/replacement") ? response(replacement) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch); render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ });
+    fireEvent.click(screen.getByRole("button", { name: "Hủy bản điều chỉnh" }));
+    const dialog = await screen.findByRole("dialog", { name: /Hủy bản điều chỉnh cho HS001 \/ Bé An · tháng 09\/2026/ });
+    expect(within(dialog).getByText("Bản điều chỉnh sẽ bị xóa; hóa đơn đã phát hành giữ nguyên.")).toBeTruthy();
+    const confirm = within(dialog).getByRole("button", { name: "Hủy bản điều chỉnh" });
+    expect(confirm).toHaveProperty("disabled", true);
+    fireEvent.change(within(dialog).getByLabelText("Lý do hủy"), { target: { value: "Chuẩn bị nhầm" } });
+    fireEvent.click(confirm);
+    const call = await waitFor(() => { const found = fetch.mock.calls.find(([url]) => String(url).endsWith("/invoices/replacement/discard-revision")); expect(found).toBeTruthy(); return found!; });
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ reason: "Chuẩn bị nhầm" });
+    expect(await screen.findByText("Đã hủy bản điều chỉnh.")).toBeTruthy();
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/invoices/source"))).toBe(true));
+    expect(discarded).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  it.each([[false], [true]])("blocks issuing while an earlier run is still open (invoice review %s)", async (review) => {
+    const generatedRun = { ...run, status: "GENERATED" as const, previousOpenRun: { id: "run-08", billingMonth: "2026-08" }, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
+    const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
+    const message = "Đợt thu tháng 08/2026 chưa đóng. Cần đóng đợt đó trước khi phát hành hóa đơn đợt này.";
+    const onOpenRun = vi.fn();
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.endsWith("/invoices/invoice-a") ? response(draft) : url.endsWith(`/collection-runs/${run.id}`) ? response(generatedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog))));
+    const route = (props: object) => render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} onOpenRun={onOpenRun} denied={vi.fn()} {...props} />);
+    if (!review) {
+      route({});
+      expect(await screen.findByText(message)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Mở đợt thu 08/2026" }));
+      expect(onOpenRun).toHaveBeenCalledWith("run-08");
+      return;
+    }
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-a" onOpenRun={onOpenRun} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} />);
+    await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ });
+    const issue = screen.getByRole("button", { name: "Phát hành hóa đơn" });
+    expect(issue).toHaveProperty("disabled", true);
+    expect(issue.getAttribute("title")).toBe(message);
+    expect(screen.getByText(message)).toBeTruthy();
+  });
   it("traps revision-dialog focus, restores its trigger, issues the replacement route, and renders a cancelled source readonly", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "replacement", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const replacement = { id: "replacement", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: "source", revisionReason: "Sai", replacementInvoiceId: null, student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line", receivableId: "r", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };

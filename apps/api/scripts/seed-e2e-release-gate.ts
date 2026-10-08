@@ -740,6 +740,11 @@ try {
               dueOn: new Date("2026-09-12T00:00:00.000Z"),
             },
           });
+          // Run lock (decision 2026-10-08): later months issue only after this one is closed. The invoice stays ISSUED
+          // (parent obligation fixture), which a regular close refuses, so bypass the close guard for this one update.
+          await tx.$executeRaw`SET LOCAL session_replication_role = replica`;
+          await tx.collectionRun.update({ where: { id: run.id }, data: { status: "CLOSED" } });
+          await tx.$executeRaw`SET LOCAL session_replication_role = origin`;
         }
       }
     },

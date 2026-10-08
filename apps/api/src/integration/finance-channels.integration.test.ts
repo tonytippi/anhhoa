@@ -61,6 +61,15 @@ async function generatedRun(input: School, lines: Array<{ receivableId: string; 
   return { runId, preview, generated };
 }
 
+// Test shortcut for the run lock: the earlier run still has open notices, so a real Đóng đợt thu would be refused.
+async function closeRunDirectly(runId: string) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+    await tx.collectionRun.update({ where: { id: runId }, data: { status: "CLOSED" } });
+  });
+}
+
 afterEach(async () => {
   const ids = schools.splice(0);
   if (!ids.length) return;
@@ -193,6 +202,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     await finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), {});
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).bankAccountIdSnapshot).toBe(second);
     // An explicit choice wins over the Class default.
+    await closeRunDirectly(draft.collectionRunId);
     const { runId: october } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-10");
     const next = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: october } });
     await finance.issueInvoice(current.identity.id, current.school.id, next.id, uuid(), uuid(), { schoolBankAccountId: first });

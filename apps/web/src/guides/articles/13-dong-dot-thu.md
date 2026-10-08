@@ -1,10 +1,16 @@
 ---
 title: Đóng đợt thu
-summary: Khóa đợt thu khi mọi hóa đơn đã phát hành để số liệu tháng không bị thay đổi.
+summary: Khóa đợt thu khi mọi hóa đơn đã phát hành; phải đóng đợt tháng trước mới phát hành được hóa đơn tháng sau.
 order: 13
 requires: collection-runs
 ---
 Đóng đợt thu khi đã phát hành xong mọi hóa đơn trong tháng. Sau khi đóng, không thể thêm học sinh, tạo hoặc sửa hóa đơn trong đợt; việc ghi thực nhận vẫn tiếp tục bình thường ở trang `Thu tiền`.
+
+## Khóa đợt thu
+
+Đóng đợt thu cũng là **khóa đợt thu**: phải đóng đợt tháng trước thì mới phát hành được hóa đơn của tháng sau. Nếu đợt tháng trước chưa đóng, trang chi tiết đợt tháng sau báo "Đợt thu tháng MM/YYYY chưa đóng", kèm nút `Mở đợt thu MM/YYYY` để sang đóng đợt đó, và nút phát hành hóa đơn bị khóa.
+
+Tháng sau vẫn **tạo đợt, xem trước và tạo hóa đơn nháp** được trước khi đóng tháng trước; chỉ việc phát hành là phải chờ. Bản thay thế của hóa đơn (xem [Điều chỉnh hóa đơn](guide:dieu-chinh-hoa-don)) thuộc đợt chưa đóng nên không bị chặn.
 
 ## Các bước
 
@@ -19,3 +25,5 @@ requires: collection-runs
 
 > [!WARNING]
 > Đóng đợt thu không thể mở lại. Hãy chắc chắn đã xử lý xong học sinh nhập học muộn và các điều chỉnh của tháng.
+
+Sau khi đóng, nếu phát hiện sai sót thì không điều chỉnh hóa đơn của đợt đã đóng. Sửa ở hóa đơn tháng sau: thêm dòng thu thêm hoặc dùng phần `Bớt` để trừ lại.

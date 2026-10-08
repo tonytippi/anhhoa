@@ -74,6 +74,15 @@ async function generatedRun(input: School, lines: Array<{ receivableId: string; 
   return { runId, preview };
 }
 
+// Test shortcut for the run lock: the earlier run still has open notices, so a real Đóng đợt thu would be refused.
+async function closeRunDirectly(runId: string) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+    await tx.collectionRun.update({ where: { id: runId }, data: { status: "CLOSED" } });
+  });
+}
+
 afterEach(async () => {
   const ids = schools.splice(0);
   const parentIds = parents.splice(0);
@@ -341,6 +350,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     const september = await generatedRun(current, [{ receivableId: meals, quantity: "2" }], "2026-09");
     const paidAhead = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: september.runId, studentId: pupil.id } });
     await finance.issueInvoice(current.identity.id, current.school.id, paidAhead.id, uuid(), uuid(), { personalBankAccountId: personal });
+    await closeRunDirectly(september.runId);
     await leave(current, pupil.id, ["2026-09-04", "2026-09-05", "2026-09-07"]);
     await prisma.studentEnrollment.updateMany({ where: { schoolId: current.school.id, studentId: pupil.id }, data: { lifecycle: "WITHDRAWN", endedOn: date("2026-09-29") } });
     const { runId } = await generatedRun(current, [{ receivableId: meals, quantity: "21" }], "2026-10");
@@ -417,6 +427,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     await finance.closeInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { actualAmount: issued.obligationTotalSnapshot!.toString() });
     expect(await prisma.studentPromotionalCoverage.count({ where: { studentId: pupil.id } })).toBe(12);
     // August: tuition is covered, meals are charged in advance; two excused leave days.
+    await closeRunDirectly(march.runId);
     const august = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "21" }], "2026-08");
     const augustMeals = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: august.runId, studentId: pupil.id, channel: "PERSONAL" }, include: { lines: true } });
     expect(augustMeals.lines.map((line) => line.receivableId)).toEqual([meals]);
@@ -451,6 +462,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     await editPackage({ deductionQuantity: "1", refundUnitPrice: "12000000", reason: "Thỏa thuận với phụ huynh" });
     await editPackage({ reset: true });
     expect(await prisma.invoiceLine.findUniqueOrThrow({ where: { id: schoolPart!.lines[0]!.id } })).toMatchObject({ deductionAmount: 11400000n, deductionReason: null });
+    await closeRunDirectly(august.runId);
     // Both refund notices issue without VietQR and close by exact payouts.
     await finance.issueInvoice(current.identity.id, current.school.id, schoolPart!.id, uuid(), uuid(), { personalBankAccountId: personal });
     expect(await prisma.invoice.findMany({ where: { collectionRunId: september.runId, studentId: pupil.id }, select: { status: true, obligationTotalSnapshot: true, bankAccountIdSnapshot: true }, orderBy: { channel: "asc" } })).toEqual([{ status: "ISSUED", obligationTotalSnapshot: -11970000n, bankAccountIdSnapshot: schoolAccount }, { status: "ISSUED", obligationTotalSnapshot: -448000n, bankAccountIdSnapshot: personal }]);

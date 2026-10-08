@@ -18,7 +18,7 @@ requires: collection-runs
 2. **Rà soát từng hóa đơn**, sửa số lượng hoặc phần bớt nếu cần, rồi phát hành và gửi ảnh hóa đơn cho phụ huynh: [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh).
 3. **Ghi thực nhận** khi tiền về theo từng sao kê tài khoản: [Ghi nhận thu tiền](guide:thu-tien).
 4. Xử lý học sinh nghỉ học (nếu có): [Học sinh nghỉ học](guide:quyet-toan-nghi-hoc).
-5. **Đóng đợt thu** khi mọi hóa đơn đã phát hành: [Đóng đợt thu](guide:dong-dot-thu).
+5. **Đóng đợt thu** khi mọi hóa đơn đã phát hành: [Đóng đợt thu](guide:dong-dot-thu). Phải đóng đợt tháng trước **trước khi phát hành hóa đơn của tháng sau**; tháng sau vẫn tạo đợt và soạn hóa đơn nháp được trong lúc chờ.
 6. Theo dõi số đã thu, còn nợ và xuất CSV: [Báo cáo tài chính](guide:bao-cao).
 
 > Mỗi tháng chỉ có một đợt thu. Bấm `Tạo đợt thu` cho tháng đã có sẽ mở lại đúng đợt đó, không tạo trùng.

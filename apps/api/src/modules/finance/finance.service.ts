@@ -23,6 +23,7 @@ const membershipLifecycles = ["ENROLLED", "SCHEDULED_TO_START", "EXTRACURRICULAR
 const EXTRACURRICULAR_ONLY = "EXTRACURRICULAR_ONLY" as const;
 const extracurricularOnlyLabel = "Chỉ ngoại khóa";
 const classLabel = (name: string | null | undefined) => name ?? extracurricularOnlyLabel;
+const monthLabel = (billingMonth: string) => `${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
 const officialClassFilter = (value: unknown) => (value === EXTRACURRICULAR_ONLY ? EXTRACURRICULAR_ONLY : null);
 const receivableGroupKinds = ["FIXED", "FLEXIBLE", "EXTRACURRICULAR"] as const;
 const routes = {
@@ -899,6 +900,9 @@ export class FinanceService {
       const run = await this.lockRun(tx, schoolId, primary.collectionRunId);
       const year = await this.lockYear(tx, schoolId, primary.schoolYearId);
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
+      // Run lock (decision 2026-10-08): an earlier MONTHLY run of the School must be closed before this one issues.
+      const previousOpen = await this.previousOpenRun(tx, schoolId, run);
+      if (previousOpen) throw new ConflictException({ code: "PREVIOUS_RUN_NOT_CLOSED", message: `Cần đóng đợt thu tháng ${monthLabel(previousOpen.billingMonth)} trước khi phát hành hóa đơn của đợt này.` });
       // Decision 2026-10-01 D7, amendment A4: a settlement part may be negative (refund notice); a negative monthly part carries its credit.
       // A settlement part may hold only a carried credit or debt, without lines.
       const issuable = (part: any) => part.lines.length > 0 || (part.kind === "SETTLEMENT" && BigInt(part.total) !== 0n);
@@ -2165,6 +2169,10 @@ export class FinanceService {
     },
     lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
   };
+  private async previousOpenRun(db: any, schoolId: string, run: { type: string; billingMonth: string }): Promise<{ id: string; billingMonth: string } | null> {
+    if (run.type !== "MONTHLY") return null;
+    return db.collectionRun.findFirst({ where: { schoolId, type: "MONTHLY", billingMonth: { lt: run.billingMonth }, status: { not: "CLOSED" } }, orderBy: { billingMonth: "asc" }, select: { id: true, billingMonth: true } });
+  }
   private runDto(run: any) {
     const status = run.lifecycleTransitions?.[0]?.status ?? run.status;
     return {
@@ -2513,7 +2521,7 @@ export class FinanceService {
         code: "COLLECTION_RUN_NOT_FOUND",
         message: "Không tìm thấy đợt thu.",
       });
-    const dto = this.runDto(run);
+    const dto = { ...this.runDto(run), previousOpenRun: await this.previousOpenRun(this.prisma, schoolId, run) };
     if (dto.status !== "READY") return dto;
     // READY keeps no stored preview; re-derive it read-only exactly as generation will re-evaluate the roster.
     const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, false, true);
