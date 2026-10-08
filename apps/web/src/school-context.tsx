@@ -286,6 +286,7 @@ export function SchoolContext({ clear, userIdentityId, registerHomeNavigation, o
     if (isRail) setRailGroup(undefined);
     requestDestination({ schoolSlug: context!.schoolSlug, page });
   };
+  useEffect(() => { document.title = context?.schoolName ?? "Passion Edu"; return () => { document.title = "Passion Edu"; }; }, [context?.schoolName]);
   useEffect(() => { onRoleChange?.(context?.positionName); }, [onRoleChange, context?.positionName]);
   useEffect(() => { registerHomeNavigation?.(() => requestPath("/")); }, [registerHomeNavigation, context, rosterStatus, settingsStatus, leaveReviewStatus, financeStatus]);
 
