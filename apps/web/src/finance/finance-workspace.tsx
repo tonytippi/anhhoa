@@ -1247,8 +1247,8 @@ export function FinanceWorkspace({
     taxCategory: "NOT_DECLARED" as TaxCategory,
   });
   const [settlements, setSettlements] = useState<{ runId: string; students: Settlement[] }>();
-  const [priorDebts, setPriorDebts] = useState<{ runId: string; debts: PriorDebt[] }>();
-  const [priorDebtConfirmation, setPriorDebtConfirmation] = useState<PriorDebt[]>();
+  const [priorDebts, setPriorDebts] = useState<{ runId: string; total: string; debts: PriorDebt[] }>();
+  const [priorDebtConfirmation, setPriorDebtConfirmation] = useState<{ debts: PriorDebt[]; total: string }>();
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
   const [catalogDialog, setCatalogDialog] = useState<"receivable" | "receivable-edit">();
   const [receivableEdit, setReceivableEdit] = useState<{
@@ -1397,11 +1397,11 @@ export function FinanceWorkspace({
       setSettlements({ runId, students: Array.isArray(next?.students) ? next.students : [] });
   };
   const loadPriorDebts = async (runId: string) => {
-    const next = await get<{ debts: PriorDebt[] }>(
+    const next = await get<{ total?: string; debts: PriorDebt[] }>(
       `/api/app/schools/${schoolId}/finance/collection-runs/${runId}/prior-debts`,
     );
     if (activeSchool.current === schoolId && activeRunId.current === runId)
-      setPriorDebts({ runId, debts: Array.isArray(next?.debts) ? next.debts : [] });
+      setPriorDebts({ runId, total: typeof next?.total === "string" ? next.total : "0", debts: Array.isArray(next?.debts) ? next.debts : [] });
   };
   const createSettlement = async (student: Settlement) => {
     if (!run) return;
@@ -2151,11 +2151,11 @@ export function FinanceWorkspace({
   };
   const transferPriorDebts = async () => {
     if (!run || !priorDebtConfirmation) return;
-    const count = priorDebtConfirmation.length;
+    const count = priorDebtConfirmation.debts.length;
     const outcome = await command(
       `/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/prior-debts/transfer`,
       "POST",
-      { sourceInvoiceIds: priorDebtConfirmation.map((debt) => debt.sourceInvoiceId) },
+      { sourceInvoiceIds: priorDebtConfirmation.debts.map((debt) => debt.sourceInvoiceId) },
     );
     if (outcome) {
       setPriorDebtConfirmation(undefined);
@@ -3994,7 +3994,7 @@ export function FinanceWorkspace({
                         huynh nộp cùng; hóa đơn cũ sẽ không còn ở trang Thu tiền.
                       </p>
                     </div>
-                    <button type="button" disabled={Boolean(pending)} onClick={() => setPriorDebtConfirmation(priorDebts.debts)}>
+                    <button type="button" disabled={Boolean(pending)} onClick={() => setPriorDebtConfirmation({ debts: priorDebts.debts, total: priorDebts.total })}>
                       Chuyển tất cả công nợ
                     </button>
                   </div>
@@ -4022,7 +4022,7 @@ export function FinanceWorkspace({
                             <td>{debt.account ? <ReceivingAccountLabel account={debt.account} /> : "—"}</td>
                             <td className="finance-money">{vnd(debt.outstanding)}</td>
                             <td>
-                              <button type="button" disabled={Boolean(pending)} onClick={() => setPriorDebtConfirmation([debt])}>
+                              <button type="button" disabled={Boolean(pending)} onClick={() => setPriorDebtConfirmation({ debts: [debt], total: debt.outstanding })}>
                                 Chuyển vào hóa đơn tháng này
                               </button>
                             </td>
@@ -5086,8 +5086,8 @@ export function FinanceWorkspace({
               >
                 <h3 id="finance-prior-debt-title">Chuyển công nợ kỳ trước</h3>
                 <p>
-                  Chuyển {priorDebtConfirmation.length} hóa đơn, tổng{" "}
-                  {vnd(priorDebtConfirmation.reduce((sum, debt) => sum + BigInt(debt.outstanding), 0n).toString())} đ,
+                  Chuyển {priorDebtConfirmation.debts.length} hóa đơn, tổng{" "}
+                  {vnd(priorDebtConfirmation.total)} đ,
                   vào hóa đơn tháng {billingMonthLabel(run.billingMonth)}. Thao tác này không hoàn tác được.
                 </p>
                 <div className="dialog-actions">

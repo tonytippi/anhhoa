@@ -3343,7 +3343,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await closeRunDirectly(coverage.invoice.collectionRunId);
       const targetRun = outcomeId(await open(current, "2026-10")); const preview = await finance.preview(current.identity.id, current.school.id, targetRun);
       await finance.readyRun(current.identity.id, current.school.id, targetRun, uuid(), uuid(), { previewFingerprint: preview.fingerprint }); await generate(current, targetRun);
-      expect(await finance.priorDebts(current.identity.id, current.school.id, targetRun)).toEqual({ debts: [] });
+      expect(await finance.priorDebts(current.identity.id, current.school.id, targetRun)).toEqual({ total: "0", debts: [] });
       await expect(finance.transferPriorDebts(current.identity.id, current.school.id, targetRun, uuid(), uuid(), { sourceInvoiceIds: [coverage.invoice.id] })).rejects.toMatchObject({ status: 409, response: { code: "PRIOR_DEBT_NOT_TRANSFERABLE" } });
     });
 

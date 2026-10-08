@@ -313,11 +313,12 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     const { runId: september } = await generatedRun(current, [{ receivableId: meals, quantity: "1" }], "2026-09");
     const list = () => finance.priorDebts(current.identity.id, current.school.id, september);
     // The earlier run is still open: nothing is a candidate.
-    expect(await list()).toEqual({ debts: [] });
+    expect(await list()).toEqual({ total: "0", debts: [] });
     await closeRunDirectly(august);
     const listed: any = await list();
     const unpaidParts = augustParts.filter((part) => part.studentId === unpaid.id);
     expect(listed.debts.map((row: any) => [row.sourceInvoiceId, row.channel]).sort()).toEqual(unpaidParts.map((part) => [part.id, part.channel]).sort());
+    expect(listed.total).toBe((await prisma.invoice.findMany({ where: { id: { in: unpaidParts.map((part) => part.id) } } })).reduce((sum, part) => sum + BigInt(part.obligationTotalSnapshot ?? 0), 0n).toString());
     expect(listed.debts[0]).toMatchObject({ student: { id: unpaid.id, name: "Chưa đóng" }, billingMonth: "2026-08", account: { id: expect.any(String), kind: expect.any(String) }, outstanding: expect.any(String), obligationCode: expect.stringMatching(/^OBL-/) });
     // Another School sees nothing and cannot transfer these invoices.
     await expect(finance.priorDebts(foreign.identity.id, foreign.school.id, september)).rejects.toMatchObject({ status: 404 });

@@ -832,7 +832,8 @@ export class FinanceService {
     const run = await this.prisma.collectionRun.findFirst({ where: { id: runId, schoolId } });
     if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
     const rows = await this.priorDebtSources(this.prisma, schoolId, run);
-    return { debts: rows.map(({ source, outstanding }: any) => ({ sourceInvoiceId: source.id, student: { id: source.studentId, code: source.studentCodeSnapshot, name: source.studentNameSnapshot }, className: classLabel(source.classNameSnapshot), billingMonth: source.billingMonth, channel: source.channel ?? "PERSONAL", account: this.accountDto(source), outstanding: outstanding.toString(), obligationCode: source.obligationCodeSnapshot })) };
+    // The total is server-owned so the confirmation never adds money in the browser.
+    return { total: rows.reduce((sum: bigint, row: any) => sum + BigInt(row.outstanding), 0n).toString(), debts: rows.map(({ source, outstanding }: any) => ({ sourceInvoiceId: source.id, student: { id: source.studentId, code: source.studentCodeSnapshot, name: source.studentNameSnapshot }, className: classLabel(source.classNameSnapshot), billingMonth: source.billingMonth, channel: source.channel ?? "PERSONAL", account: this.accountDto(source), outstanding: outstanding.toString(), obligationCode: source.obligationCodeSnapshot })) };
   }
   // Accountant-initiated, all or nothing: each source's whole outstanding becomes a PRIOR_DEBT line on the same-channel DRAFT part of the Student's notice in this run.
   async transferPriorDebts(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
