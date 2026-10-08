@@ -466,8 +466,8 @@ describe("RosterWorkspace class default receiving account", () => {
     const schoolSelect = await waitFor(() => { const value = within(dialog).getByLabelText("Tài khoản trường mặc định") as HTMLSelectElement; expect(value.disabled).toBe(false); return value; });
     const select = within(dialog).getByLabelText("Tài khoản cá nhân mặc định") as HTMLSelectElement;
     // Each select lists only accounts of its kind.
-    expect(Array.from(schoolSelect.options).map((option) => option.textContent)).toEqual(["Chưa chọn", "Vietcombank · •••• 6789 · TRUONG"]);
-    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["Chưa chọn", "ABBANK · •••• 2088 · NGUYEN VAN AN"]);
+    expect(Array.from(schoolSelect.options).map((option) => option.textContent)).toEqual(["Chưa chọn", "Vietcombank · 0123456789 · TRUONG"]);
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["Chưa chọn", "ABBANK · 215000002088 · NGUYEN VAN AN"]);
     fireEvent.change(schoolSelect, { target: { value: "bank-school" } });
     fireEvent.change(select, { target: { value: "bank-an" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu tài khoản thu" }));

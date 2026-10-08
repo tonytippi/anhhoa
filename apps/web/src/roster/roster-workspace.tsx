@@ -2938,7 +2938,7 @@ export function RosterWorkspace({
               Tài khoản trường mặc định
               <select autoFocus value={classAccount.schoolBankAccountId} disabled={!classAccount.accounts} onChange={(event) => setClassAccount({ ...classAccount, schoolBankAccountId: event.target.value })} aria-describedby="class-school-account-help">
                 <option value="">Chưa chọn</option>
-                {(classAccount.accounts ?? []).filter((account) => account.kind === "SCHOOL").map((account) => <option key={account.id} value={account.id}>{account.receivingBank} · •••• {account.accountNumber.slice(-4)} · {account.accountHolderName}</option>)}
+                {(classAccount.accounts ?? []).filter((account) => account.kind === "SCHOOL").map((account) => <option key={account.id} value={account.id}>{account.receivingBank} · {account.accountNumber} · {account.accountHolderName}</option>)}
               </select>
             </label>
             <small id="class-school-account-help">Dùng sẵn cho phần khoản có thuế khi phát hành phiếu thu.</small>
@@ -2946,7 +2946,7 @@ export function RosterWorkspace({
               Tài khoản cá nhân mặc định
               <select value={classAccount.bankAccountId} disabled={!classAccount.accounts} onChange={(event) => setClassAccount({ ...classAccount, bankAccountId: event.target.value })} aria-describedby="class-account-help">
                 <option value="">Chưa chọn</option>
-                {(classAccount.accounts ?? []).filter((account) => (account.kind ?? "PERSONAL") === "PERSONAL").map((account) => <option key={account.id} value={account.id}>{account.receivingBank} · •••• {account.accountNumber.slice(-4)} · {account.accountHolderName}</option>)}
+                {(classAccount.accounts ?? []).filter((account) => (account.kind ?? "PERSONAL") === "PERSONAL").map((account) => <option key={account.id} value={account.id}>{account.receivingBank} · {account.accountNumber} · {account.accountHolderName}</option>)}
               </select>
             </label>
             <small id="class-account-help">Dùng sẵn cho phần khoản không kê khai. Chỉ tài khoản đang hiệu lực của Trường; kế toán có thể chọn tài khoản khác khi phát hành.</small>

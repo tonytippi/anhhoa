@@ -26,6 +26,7 @@ amends: sprint-change-proposal-2026-09-30-taxed-receivables-and-two-payment-chan
 - Hộp thoại `Tài khoản thu mặc định · <lớp>` (Lớp) có hai ô chọn: `Tài khoản trường mặc định` và `Tài khoản cá nhân mặc định`. Cột `Tài khoản thu mặc định` của bảng lớp hiển thị cả hai (`Trường: …`, `Cá nhân: …`).
 - Panel rà soát và hộp thoại phát hành: phần thu vào tài khoản trường có ô chọn `Tài khoản trường` giống phần tài khoản cá nhân, chọn sẵn mặc định của lớp (hoặc tài khoản trường duy nhất), đánh dấu `(mặc định lớp …)`.
 - Cài đặt `Tài khoản nhận tiền`: bỏ câu "Tối đa một tài khoản trường đang hiệu lực".
+- Ô chọn trong hộp thoại `Tài khoản thu mặc định · <lớp>` hiện đầy đủ số tài khoản (`Ngân hàng · Số tài khoản · Chủ tài khoản`), giống ô chọn khi phát hành, thay cho `•••• 4 số cuối` (EXPERIENCE.md, mockup `school-year-classes.html`). Hộp thoại chỉ dùng được với quyền Finance và danh sách đã lấy từ route Finance có đủ số; nhiều tài khoản trùng 4 số cuối (PeakLand: MBBank, Vietcombank, VPBank cùng `2859`) nên số che khó phân biệt. Cột `Tài khoản thu mặc định` của bảng lớp vẫn hiện `•••• 4 số cuối` vì roster API chỉ trả 4 số cuối cho người không có quyền Finance.
 
 ## 3. Dữ liệu
 
