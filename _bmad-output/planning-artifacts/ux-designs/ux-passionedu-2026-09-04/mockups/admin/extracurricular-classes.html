@@ -60,7 +60,7 @@
                 <td><a href="#class-a1">Xem thành viên</a></td>
               </tr>
               <tr>
-                <td><b>Võ thuật</b></td>
+                <td><b>Võ thuật</b><br><small class="muted">Điểm danh riêng</small></td>
                 <td>Võ thuật · 450.000 đ/tháng</td>
                 <td>10 học sinh</td>
                 <td><span class="badge success">Đang hoạt động</span></td>
@@ -74,6 +74,7 @@
           <p>Mỗi lớp ngoại khóa gắn một khoản thu Ngoại khóa ở trang <a href="receivable-configuration.html">Khoản thu</a>. Nhiều lớp có thể dùng chung một khoản thu và có cùng giá; muốn giá khác, tạo khoản thu khác.</p>
           <p>Thành viên có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp trong đợt thu tháng đó. Vào/nghỉ giữa tháng và chuyển lớp trong tháng được đánh dấu trên hóa đơn nháp để kế toán điều chỉnh; hệ thống không tự chia theo ngày.</p>
           <p>Lớp ngoại khóa không thay đổi lớp chính thức, điểm danh hay quyền của giáo viên.</p>
+          <p>Học sinh có trạng thái <b>Chỉ ngoại khóa</b> (không học chính khóa) được thêm vào lớp như học sinh khác; đợt thu chỉ tính cho các bé này khoản ngoại khóa và khoản linh hoạt chọn đích danh.</p>
         </details>
       </section>
 
@@ -92,7 +93,7 @@
         </div>
         <p class="card" style="display:flex;flex-wrap:wrap;gap:8px 24px;padding:12px 16px"><b>Tháng 10/2026</b><span>Đang tham gia: <b>18</b></span><span>Tính trong tháng: <b>19</b></span><span>Vào/nghỉ trong tháng: <b>2</b></span></p>
         <form class="filters" data-static-filter aria-label="Lọc thành viên">
-          <label>Tìm học sinh<input type="search" name="q" placeholder="Mã hoặc tên học sinh" autocomplete="off"></label><label>Lớp chính thức<select name="class"><option value="all">Tất cả lớp</option><option>Mầm 4A</option><option>Chồi 3B</option><option>Lá 5A</option></select></label><label>Trạng thái<select name="status"><option>Đang tham gia và trong tháng</option><option>Đang tham gia</option><option>Đã kết thúc</option><option>Tất cả</option></select></label><button class="button" type="submit">Áp dụng</button>
+          <label>Tìm học sinh<input type="search" name="q" placeholder="Mã hoặc tên học sinh" autocomplete="off"></label><label>Lớp chính thức<select name="class"><option value="all">Tất cả lớp</option><option>Mầm 4A</option><option>Chồi 3B</option><option>Lá 5A</option><option>Chỉ ngoại khóa</option></select></label><label>Trạng thái<select name="status"><option>Đang tham gia và trong tháng</option><option>Đang tham gia</option><option>Đã kết thúc</option><option>Tất cả</option></select></label><button class="button" type="submit">Áp dụng</button>
         </form>
         <p class="muted" data-filter-feedback aria-live="polite"></p>
         <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
@@ -114,6 +115,15 @@
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <td><input type="checkbox" data-member aria-label="Chọn Bé Khôi"></td>
+                <td>AH-150</td>
+                <td><b>Bé Khôi</b></td>
+                <td>Chỉ ngoại khóa</td>
+                <td>15/09/2026</td>
+                <td>—</td>
+                <td><span class="badge success">Đang tham gia</span></td>
+              </tr>
               <tr>
                 <td><input type="checkbox" data-member aria-label="Chọn Bé Tuấn Huy"></td>
                 <td>AH-121</td>
@@ -183,7 +193,7 @@
         }
         document.querySelector('[data-open-class-form]').addEventListener('click', function (event) {
           var button = event.currentTarget;
-          var node = dialog('Thêm lớp ngoại khóa', '<form class="form-grid"><div class="field"><label for="xc-name">Tên lớp</label><input id="xc-name" required placeholder="Ví dụ: Tiếng Anh A2 (T3-T5)"></div><div class="field"><label for="xc-year">Năm học</label><select id="xc-year"><option>2026-2027</option></select></div><div class="field full"><label for="xc-receivable">Khoản thu</label><select id="xc-receivable" required aria-describedby="xc-receivable-help"><option value="">Chọn khoản thu Ngoại khóa</option><option data-shared="Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5)">Tiếng Anh bản ngữ · 600.000 đ/tháng</option><option data-shared="Vẽ thiếu nhi">Năng khiếu vẽ · 400.000 đ/tháng</option><option data-shared="Võ thuật">Võ thuật · 450.000 đ/tháng</option></select><p id="xc-receivable-help" class="muted">Chỉ khoản thu Ngoại khóa đang áp dụng.</p></div></form>', '<button class="button" type="button" data-submit>Lưu lớp ngoại khóa</button>', button);
+          var node = dialog('Thêm lớp ngoại khóa', '<form class="form-grid"><div class="field"><label for="xc-name">Tên lớp</label><input id="xc-name" required placeholder="Ví dụ: Tiếng Anh A2 (T3-T5)"></div><div class="field"><label for="xc-year">Năm học</label><select id="xc-year"><option>2026-2027</option></select></div><div class="field full"><label for="xc-receivable">Khoản thu</label><select id="xc-receivable" required aria-describedby="xc-receivable-help"><option value="">Chọn khoản thu Ngoại khóa</option><option data-shared="Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5)">Tiếng Anh bản ngữ · 600.000 đ/tháng</option><option data-shared="Vẽ thiếu nhi">Năng khiếu vẽ · 400.000 đ/tháng</option><option data-shared="Võ thuật">Võ thuật · 450.000 đ/tháng</option></select><p id="xc-receivable-help" class="muted">Chỉ khoản thu Ngoại khóa đang áp dụng.</p></div><div class="field full"><label><input id="xc-attendance" type="checkbox"> Điểm danh riêng</label><p class="muted">Đánh dấu lớp cần điểm danh riêng (ví dụ lớp buổi tối). Chức năng điểm danh sẽ có sau.</p></div></form>', '<button class="button" type="button" data-submit>Lưu lớp ngoại khóa</button>', button);
           var select = node.querySelector('#xc-receivable'), help = node.querySelector('#xc-receivable-help');
           select.addEventListener('change', function () { var shared = select.selectedOptions[0].dataset.shared; help.textContent = shared ? 'Dùng chung với: ' + shared + '.' : 'Chỉ khoản thu Ngoại khóa đang áp dụng.'; });
           node.querySelector('.dialog').classList.add('wide');
@@ -192,7 +202,7 @@
         document.querySelector('[data-open-add-form]').addEventListener('click', function (event) {
           var button = event.currentTarget;
           var rows = candidates.map(function (item) { return '<tr><td><input type="checkbox" data-candidate aria-label="Chọn ' + item[1] + '"' + (item[2] ? ' disabled' : '') + '></td><td>' + item[0] + '</td><td><b>' + item[1] + '</b>' + (item[2] ? '<br><small class="muted">' + item[2] + '</small>' : '') + '</td><td>Lá 5A</td></tr>'; }).join('');
-          var node = dialog('Thêm học sinh · Tiếng Anh A1 (T2-T4)', '<form class="form-grid" data-needs-selection><div class="field"><label for="xc-source-class">Lớp chính thức</label><select id="xc-source-class"><option>Lá 5A</option><option>Mầm 4A</option><option>Chồi 3B</option></select></div><div class="field"><label for="xc-search">Tìm học sinh</label><input id="xc-search" type="search" placeholder="Mã hoặc tên học sinh" autocomplete="off"></div><div class="field full table-wrap"><table><caption>Học sinh lớp Lá 5A</caption><thead><tr><th><input type="checkbox" data-candidate-all aria-label="Chọn tất cả học sinh có thể thêm"></th><th>Mã HS</th><th>Họ tên</th><th>Lớp chính thức</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="muted field full" data-candidate-selection aria-live="polite">Chưa chọn học sinh nào.</p><div class="field"><label for="xc-from">Hiệu lực từ</label><input id="xc-from" type="date" required value="2026-10-01"></div><div class="field"><label for="xc-add-reason">Lý do</label><input id="xc-add-reason" required placeholder="Ví dụ: Đăng ký học kỳ 1"></div></form>', '<button class="button" type="button" data-submit>Thêm học sinh đã chọn</button>', button);
+          var node = dialog('Thêm học sinh · Tiếng Anh A1 (T2-T4)', '<form class="form-grid" data-needs-selection><div class="field"><label for="xc-source-class">Lớp chính thức</label><select id="xc-source-class"><option>Lá 5A</option><option>Mầm 4A</option><option>Chồi 3B</option><option>Chỉ ngoại khóa</option></select></div><div class="field"><label for="xc-search">Tìm học sinh</label><input id="xc-search" type="search" placeholder="Mã hoặc tên học sinh" autocomplete="off"></div><div class="field full table-wrap"><table><caption>Học sinh lớp Lá 5A</caption><thead><tr><th><input type="checkbox" data-candidate-all aria-label="Chọn tất cả học sinh có thể thêm"></th><th>Mã HS</th><th>Họ tên</th><th>Lớp chính thức</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="muted field full" data-candidate-selection aria-live="polite">Chưa chọn học sinh nào.</p><div class="field"><label for="xc-from">Hiệu lực từ</label><input id="xc-from" type="date" required value="2026-10-01"></div><div class="field"><label for="xc-add-reason">Lý do</label><input id="xc-add-reason" required placeholder="Ví dụ: Đăng ký học kỳ 1"></div></form>', '<button class="button" type="button" data-submit>Thêm học sinh đã chọn</button>', button);
           node.querySelector('.dialog').classList.add('wide');
           var checks = [].slice.call(node.querySelectorAll('[data-candidate]:not([disabled])')), all = node.querySelector('[data-candidate-all]'), note = node.querySelector('[data-candidate-selection]');
           function refresh() { var count = checks.filter(function (check) { return check.checked; }).length; note.textContent = count ? 'Đã chọn ' + count + ' học sinh.' : 'Chưa chọn học sinh nào.'; all.checked = count === checks.length; }
@@ -202,7 +212,7 @@
         });
         document.querySelector('[data-open-edit-form]').addEventListener('click', function (event) {
           var button = event.currentTarget;
-          var node = dialog('Chỉnh sửa · Tiếng Anh A1 (T2-T4)', '<form class="form-grid"><div class="field"><label for="xc-edit-name">Tên lớp</label><input id="xc-edit-name" required value="Tiếng Anh A1 (T2-T4)"></div><div class="field"><label>Năm học</label><input value="2026-2027" disabled></div><div class="field full"><label for="xc-edit-receivable">Khoản thu</label><select id="xc-edit-receivable" required aria-describedby="xc-edit-receivable-help"><option selected data-shared="Tiếng Anh A2 (T3-T5)">Tiếng Anh bản ngữ · 600.000 đ/tháng</option><option>Tiếng Anh nâng cao · 750.000 đ/tháng</option><option data-shared="Vẽ thiếu nhi">Năng khiếu vẽ · 400.000 đ/tháng</option><option data-shared="Võ thuật">Võ thuật · 450.000 đ/tháng</option></select><p id="xc-edit-receivable-help" class="muted">Dùng chung với: Tiếng Anh A2 (T3-T5).</p></div><div class="field full"><label for="xc-edit-reason">Lý do</label><input id="xc-edit-reason" required placeholder="Ví dụ: Lớp chuyển sang chương trình nâng cao"></div><p class="muted field full">Đổi khoản thu chỉ áp dụng cho dòng hóa đơn tạo sau đó; hóa đơn đã tạo giữ nguyên, đợt thu còn nháp cần xem trước lại.</p></form>', '<button class="button" type="button" data-submit>Lưu thay đổi</button>', button);
+          var node = dialog('Chỉnh sửa · Tiếng Anh A1 (T2-T4)', '<form class="form-grid"><div class="field"><label for="xc-edit-name">Tên lớp</label><input id="xc-edit-name" required value="Tiếng Anh A1 (T2-T4)"></div><div class="field"><label>Năm học</label><input value="2026-2027" disabled></div><div class="field full"><label for="xc-edit-receivable">Khoản thu</label><select id="xc-edit-receivable" required aria-describedby="xc-edit-receivable-help"><option selected data-shared="Tiếng Anh A2 (T3-T5)">Tiếng Anh bản ngữ · 600.000 đ/tháng</option><option>Tiếng Anh nâng cao · 750.000 đ/tháng</option><option data-shared="Vẽ thiếu nhi">Năng khiếu vẽ · 400.000 đ/tháng</option><option data-shared="Võ thuật">Võ thuật · 450.000 đ/tháng</option></select><p id="xc-edit-receivable-help" class="muted">Dùng chung với: Tiếng Anh A2 (T3-T5).</p></div><div class="field full"><label><input id="xc-edit-attendance" type="checkbox"> Điểm danh riêng</label></div><div class="field full"><label for="xc-edit-reason">Lý do</label><input id="xc-edit-reason" required placeholder="Ví dụ: Lớp chuyển sang chương trình nâng cao"></div><p class="muted field full">Đổi khoản thu chỉ áp dụng cho dòng hóa đơn tạo sau đó; hóa đơn đã tạo giữ nguyên, đợt thu còn nháp cần xem trước lại.</p></form>', '<button class="button" type="button" data-submit>Lưu thay đổi</button>', button);
           var select = node.querySelector('#xc-edit-receivable'), help = node.querySelector('#xc-edit-receivable-help');
           select.addEventListener('change', function () { var shared = select.selectedOptions[0].dataset.shared; help.textContent = shared ? 'Dùng chung với: ' + shared + '.' : 'Chỉ khoản thu Ngoại khóa đang áp dụng.'; });
           node.querySelector('.dialog').classList.add('wide');

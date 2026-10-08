@@ -91,6 +91,7 @@ enum StudentEnrollmentLifecycle {
   WAITING_FOR_CLASS
   SCHEDULED_TO_START
   ENROLLED
+  EXTRACURRICULAR_ONLY
   ON_LEAVE
   WITHDRAWN
   GRADUATED
@@ -961,8 +962,8 @@ model Invoice {
   classAssignmentIdSnapshot            String?                        @db.Uuid
   classAssignmentEffectiveFromSnapshot DateTime?                      @db.Date
   classAssignmentEffectiveToSnapshot   DateTime?                      @db.Date
-  classIdSnapshot                      String                         @db.Uuid
-  classNameSnapshot                    String
+  classIdSnapshot                      String?                        @db.Uuid
+  classNameSnapshot                    String?
   selectionProvenance                  Json
   status                               InvoiceStatus                  @default(DRAFT)
   channel                              PaymentChannel                 @default(PERSONAL)
@@ -2102,6 +2103,7 @@ model ExtracurricularClass {
   schoolYearId         String                                    @db.Uuid
   name                 String
   receivableId         String                                    @db.Uuid
+  separateAttendance   Boolean                                   @default(false)
   createdAt            DateTime                                  @default(now()) @db.Timestamptz(3)
   school               School                                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   schoolYear           SchoolYear                                @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)

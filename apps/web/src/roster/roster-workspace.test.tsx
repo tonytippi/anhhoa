@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RosterWorkspace } from "./roster-workspace";
 
@@ -222,6 +222,52 @@ describe("RosterWorkspace paged read model", () => {
     expect(await screen.findByRole("dialog", { name: "Hồ sơ Bé An" })).toBeTruthy();
     expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/students/student-a/parents"))).toBe(true);
     expect(screen.getByText(/mai@example\.com/)).toBeTruthy();
+  });
+
+  it("enrolls a Chỉ ngoại khóa Student without a class", async () => {
+    const fetch = fetcher(); vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm học sinh" }));
+    const form = within(screen.getByRole("heading", { name: "Tạo học sinh và ghi danh" }).closest("form")!);
+    fireEvent.change(form.getByLabelText("Họ và tên"), { target: { value: "Bé Khôi" } });
+    fireEvent.change(form.getByLabelText("Ngày sinh"), { target: { value: "2022-01-01" } });
+    fireEvent.click(form.getByLabelText("Chỉ ngoại khóa"));
+    expect(form.queryByLabelText("Lớp")).toBeNull();
+    fireEvent.change(form.getByLabelText("Ngày hiệu lực"), { target: { value: "2026-09-15" } });
+    fireEvent.submit(screen.getByRole("heading", { name: "Tạo học sinh và ghi danh" }).closest("form")!);
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/roster/students") && options?.method === "POST" && JSON.parse(String(options.body)).intakeStatus === "EXTRACURRICULAR_ONLY" && JSON.parse(String(options.body)).classId === null)).toBe(true));
+  });
+
+  it("shows Chỉ ngoại khóa as the class and moves the Student to an official class or back", async () => {
+    const extracurricular = { ...row, enrollment: { ...row.enrollment, lifecycle: "EXTRACURRICULAR_ONLY", classroom: null } };
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") return Promise.resolve(response({ id: "operation" }));
+      if (url.includes("/school-years/year-a/students?")) return Promise.resolve(pagedResponse(list([extracurricular])));
+      if (url.endsWith("/students/student-a")) return Promise.resolve(response({ ...extracurricular, enrollments: [{ ...extracurricular.enrollment, endedOn: null }] }));
+      return fetcher()(url, options);
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
+    expect((await screen.findByText("Bé An")).closest("tr")!.textContent).toContain("Chỉ ngoại khóa");
+    fireEvent.click(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Xem hồ sơ" }));
+    const dialog = await screen.findByRole("dialog", { name: "Hồ sơ Bé An" });
+    expect(dialog.textContent).toContain("Chỉ ngoại khóa · Chỉ ngoại khóa");
+    fireEvent.change(within(dialog).getByLabelText("Lớp"), { target: { value: "class-a" } });
+    fireEvent.change(within(dialog).getByLabelText("Ngày hiệu lực xếp lớp"), { target: { value: "2026-10-01" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Xếp lớp chính khóa" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/enrollments/enrollment-a/placement") && options?.method === "POST" && options.body === JSON.stringify({ classId: "class-a", effectiveFrom: "2026-10-01" }))).toBe(true));
+  });
+
+  it("ends the official class on the typed date when moving a Student to Chỉ ngoại khóa", async () => {
+    const fetch = fetcher(); vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Tùy chọn cho Bé An" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Xem hồ sơ" }));
+    await screen.findByRole("dialog", { name: "Hồ sơ Bé An" });
+    fireEvent.change(screen.getByLabelText("Ngày kết thúc"), { target: { value: "2026-11-01" } });
+    fireEvent.change(screen.getByLabelText("Đổi trạng thái"), { target: { value: "EXTRACURRICULAR_ONLY" } });
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/enrollments/enrollment-a/lifecycle") && options?.method === "POST" && options.body === JSON.stringify({ lifecycle: "EXTRACURRICULAR_ONLY", endedOn: null, classEndsOn: "2026-11-01" }))).toBe(true));
   });
 
   it("posts a relationship-labelled link only from the focused form", async () => {

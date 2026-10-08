@@ -635,7 +635,7 @@ export class AttendanceService {
             studentId,
             effectiveFrom: { lte: this.day(startsOn) },
             OR: [
-              { lifecycle: "ENROLLED", endedOn: null },
+              { lifecycle: { in: ["ENROLLED", "EXTRACURRICULAR_ONLY"] }, endedOn: null },
               {
                 lifecycle: { in: ["WITHDRAWN", "GRADUATED"] },
                 endedOn: { gt: this.day(endsOn) },
@@ -2266,7 +2266,7 @@ export class AttendanceService {
     const students = await this.prisma.studentEnrollment.findMany({
       where: {
         schoolId,
-        lifecycle: "ENROLLED",
+        lifecycle: { in: ["ENROLLED", "EXTRACURRICULAR_ONLY"] },
         effectiveFrom: { lte: on },
         OR: [{ endedOn: null }, { endedOn: { gt: on } }],
       },
@@ -3547,7 +3547,7 @@ export class AttendanceService {
       where: {
         schoolId,
         studentId,
-        lifecycle: "ENROLLED",
+        lifecycle: { in: ["ENROLLED", "EXTRACURRICULAR_ONLY"] },
         effectiveFrom: { lte: on },
         OR: [{ endedOn: null }, { endedOn: { gt: on } }],
       },
@@ -3819,7 +3819,7 @@ export class AttendanceService {
         where: {
           schoolId,
           studentId,
-          lifecycle: "ENROLLED",
+          lifecycle: { in: ["ENROLLED", "EXTRACURRICULAR_ONLY"] },
           effectiveFrom: { lte: this.day(item.day) },
           OR: [{ endedOn: null }, { endedOn: { gt: this.day(item.day) } }],
         },

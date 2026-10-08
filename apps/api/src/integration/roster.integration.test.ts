@@ -164,6 +164,38 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     expect(await prisma.enrollmentClassAssignment.count({ where: { schoolId: current.current.id, enrollmentId: student.enrollments[0].id } })).toBe(0);
   });
 
+  it('enrolls an extracurricular-only Student without a class and moves them to and from the official programme', async () => {
+    const current = await graph();
+    const change = (enrollmentId: string, body: object) => roster.changeLifecycle(current.admin.id, current.current.id, enrollmentId, uuid(), uuid(), body);
+    const place = (enrollmentId: string, effectiveFrom: string) => roster.placeWaitingEnrollment(current.admin.id, current.current.id, enrollmentId, uuid(), uuid(), { classId: current.classroom.id, effectiveFrom });
+    await expect(createStudent(current, { intakeStatus: 'EXTRACURRICULAR_ONLY' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { classId: 'Chỉ ngoại khóa không được gán lớp chính khóa.' } } });
+    const created = await createStudent(current, { classId: null, intakeStatus: 'EXTRACURRICULAR_ONLY' });
+    const enrollmentId = (created.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    expect(created.outcome).toMatchObject({ enrollments: [{ lifecycle: 'EXTRACURRICULAR_ONLY', classId: null, classroom: null, classAssignmentHistory: [] }] });
+    await expect(change(enrollmentId, { lifecycle: 'ENROLLED' })).rejects.toMatchObject({ status: 409, response: { code: 'ENROLLMENT_CLASS_REQUIRED' } });
+    // Official class from March; the enrollment keeps its January start.
+    expect((await place(enrollmentId, '2026-03-01')).outcome).toMatchObject({ lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', classroom: { name: 'Mầm' }, classAssignmentHistory: [{ effectiveFrom: '2026-03-01', reason: 'Chuyển từ chỉ ngoại khóa sang chính khóa' }] });
+    await expect(change(enrollmentId, { lifecycle: 'EXTRACURRICULAR_ONLY' })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { classEndsOn: 'Cần ngày kết thúc lớp chính khóa.' } } });
+    await expect(change(enrollmentId, { lifecycle: 'EXTRACURRICULAR_ONLY', classEndsOn: '2026-03-01' })).rejects.toMatchObject({ status: 400 });
+    expect((await change(enrollmentId, { lifecycle: 'EXTRACURRICULAR_ONLY', classEndsOn: '2026-05-01' })).outcome).toMatchObject({ lifecycle: 'EXTRACURRICULAR_ONLY', classId: null, endedOn: null });
+    expect(await prisma.enrollmentClassAssignment.findMany({ where: { schoolId: current.current.id, enrollmentId }, select: { effectiveTo: true } })).toEqual([{ effectiveTo: new Date('2026-05-01T00:00:00.000Z') }]);
+    expect(await prisma.auditRecord.findFirst({ where: { schoolId: current.current.id, action: 'STUDENT_ENROLLMENT_LIFECYCLE_CHANGED', provenance: { path: ['classEndsOn'], equals: '2026-05-01' } } })).toBeTruthy();
+    // Back to the official class only after the previous one ended.
+    await expect(place(enrollmentId, '2026-04-01')).rejects.toMatchObject({ status: 400, response: { fieldErrors: { effectiveFrom: 'Ngày xếp lớp không được trước ngày kết thúc lớp chính khóa trước.' } } });
+    await place(enrollmentId, '2026-06-01');
+    await change(enrollmentId, { lifecycle: 'EXTRACURRICULAR_ONLY', classEndsOn: '2026-07-01' });
+    // Leave and return stay extracurricular-only without reopening a class; withdrawal works without one.
+    await change(enrollmentId, { lifecycle: 'ON_LEAVE', endedOn: '2026-08-01' });
+    expect((await change(enrollmentId, { lifecycle: 'EXTRACURRICULAR_ONLY' })).outcome).toMatchObject({ lifecycle: 'EXTRACURRICULAR_ONLY', endedOn: null, classId: null });
+    expect(await prisma.enrollmentClassAssignment.count({ where: { schoolId: current.current.id, enrollmentId, effectiveTo: null } })).toBe(0);
+    expect((await change(enrollmentId, { lifecycle: 'WITHDRAWN', endedOn: '2026-09-01' })).outcome).toMatchObject({ lifecycle: 'WITHDRAWN' });
+    // A waiting Student may attend extracurricular classes while waiting.
+    const waiting = await createStudent(current, { classId: null, intakeStatus: 'WAITING_FOR_CLASS' });
+    const waitingId = (waiting.outcome as { enrollments: [{ id: string }] }).enrollments[0].id;
+    expect((await change(waitingId, { lifecycle: 'EXTRACURRICULAR_ONLY' })).outcome).toMatchObject({ lifecycle: 'EXTRACURRICULAR_ONLY' });
+    await expect(prisma.studentEnrollment.update({ where: { id: waitingId }, data: { classId: current.classroom.id, className: 'Mầm' } })).rejects.toThrow();
+  });
+
   it('places a waiting enrollment atomically with snapshot, history, audit, and idempotent replay', async () => {
     const current = await graph();
     const created = await createStudent(current, { classId: null, intakeStatus: 'WAITING_FOR_CLASS' });

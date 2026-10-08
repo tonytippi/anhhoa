@@ -718,6 +718,28 @@ Source: sprint-change-proposal-2026-10-08-school-days-for-daily-receivables.
 
 **And** attendance, leave requests and prepaid package refunds keep the operating days.
 
+### Story 5.46: Đợt thu và hóa đơn cho học sinh `Chỉ ngoại khóa`; tùy chọn `Điểm danh riêng`
+
+As a Finance user,
+I want collection runs to bill extracurricular-only Students only for their extracurricular classes and lines chosen for them,
+So that they never receive tuition or meal charges.
+
+Source: sprint-change-proposal-2026-10-08-extracurricular-only-students.
+
+**Acceptance Criteria:**
+
+**Given** an `EXTRACURRICULAR_ONLY` enrollment on the first day of the billing month with an extracurricular membership in that month
+**When** Finance previews and generates the run
+**Then** the Student is eligible with the extracurricular line and any `FLEXIBLE` line scoped to them by name, and receives no `FIXED`, `Toàn bộ` or `Lớp chính thức` line.
+
+**And** such a Student with no applicable line is skipped as `NO_APPLICABLE_LINES`; changing the enrollment lifecycle after preview makes the preview stale.
+
+**And** the generated Invoice has no class snapshot, shows `Chỉ ngoại khóa`, and issuing a personal-channel part requires Finance to choose the account.
+
+**Given** an extracurricular class
+**When** Finance creates or edits it with `Điểm danh riêng`
+**Then** the flag is saved, audited on edit, and shown on the class pages; no attendance behaviour changes.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.
@@ -726,7 +748,33 @@ School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va St
 
 **Depends on:** Epic 1.
 
-### Epic 3: Chính sách trường học theo phiên bản
+#### Story 2.6: Trạng thái `Chỉ ngoại khóa` và chuyển đổi với chính khóa
+
+As a School Admin,
+I want to enroll a Student who attends only extracurricular classes and later move them to or from an official class,
+So that the Student has a normal record and parent access without a fake official class.
+
+Source: sprint-change-proposal-2026-10-08-extracurricular-only-students.
+
+**Acceptance Criteria:**
+
+**Given** the intake form
+**When** the Admin chooses `Chỉ ngoại khóa`
+**Then** an `EXTRACURRICULAR_ONLY` enrollment without class or class assignment is created and the roster shows the Student with status `Chỉ ngoại khóa`.
+
+**Given** a `Chỉ ngoại khóa` Student
+**When** the Admin changes the status to `Đang nhập học` with an official class, effective date and reason
+**Then** a class assignment starts on that date with one Operation and audit; the change is refused without a class; extracurricular memberships are unchanged.
+
+**Given** a `Đang nhập học` Student
+**When** the Admin changes the status to `Chỉ ngoại khóa` with an effective date and reason
+**Then** the open class assignment ends on that date.
+
+**And** `Chờ xếp lớp → Chỉ ngoại khóa`, `Chỉ ngoại khóa → Tạm nghỉ → Chỉ ngoại khóa` and `Chỉ ngoại khóa → Đã thôi học` work without a class.
+
+**And** the Parent of a `Chỉ ngoại khóa` Student sees the Student, invoices and inbox and can submit leave as for other Students; the Student appears in handover but not in class attendance, journal, daily overview counts, year transition, close-year or prepaid coverage.
+
+## Epic 3: Chính sách trường học theo phiên bản
 
 School Admin thiet lap profile, calendar va typed policy theo effective date, audit va ly do de truong co quy tac ro rang truoc khi van hanh lop hoc hay thu tien.
 

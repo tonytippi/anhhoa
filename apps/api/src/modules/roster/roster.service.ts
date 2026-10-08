@@ -20,6 +20,7 @@ const lifecycles = new Set([
   "WAITING_FOR_CLASS",
   "SCHEDULED_TO_START",
   "ENROLLED",
+  "EXTRACURRICULAR_ONLY",
   "ON_LEAVE",
   "WITHDRAWN",
   "GRADUATED",
@@ -1496,11 +1497,12 @@ export class RosterService {
         message: "Dữ liệu không hợp lệ.",
         fieldErrors: { intakeStatus: "Chỉ dùng lựa chọn nhập học khi tạo hồ sơ." },
       });
-    if (!["PLACED", "WAITING_FOR_CLASS"].includes(intakeStatus))
+    // Decision 2026-10-08: EXTRACURRICULAR_ONLY enrolls a Student who attends only extracurricular classes, without an official class.
+    if (!["PLACED", "WAITING_FOR_CLASS", "EXTRACURRICULAR_ONLY"].includes(intakeStatus))
       throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { intakeStatus: "Lựa chọn nhập học không hợp lệ." } });
-    if ((intakeStatus === "PLACED" && !classId) || (intakeStatus === "WAITING_FOR_CLASS" && classId))
-      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(intakeStatus === "PLACED" ? { classId: "Cần chọn lớp khi xếp lớp." } : { classId: "Chờ xếp lớp không được gán lớp." }) } });
-    const lifecycle = intakeStatus === "PLACED" ? "ENROLLED" : "WAITING_FOR_CLASS";
+    if ((intakeStatus === "PLACED" && !classId) || (intakeStatus !== "PLACED" && classId))
+      throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { ...(intakeStatus === "PLACED" ? { classId: "Cần chọn lớp khi xếp lớp." } : intakeStatus === "WAITING_FOR_CLASS" ? { classId: "Chờ xếp lớp không được gán lớp." } : { classId: "Chỉ ngoại khóa không được gán lớp chính khóa." }) } });
+    const lifecycle = intakeStatus === "PLACED" ? "ENROLLED" : intakeStatus;
     const profile = this.studentProfile(body);
     const effectiveFrom = this.dateValue(body?.effectiveFrom, "effectiveFrom");
     const endedOn =
@@ -1622,7 +1624,9 @@ export class RosterService {
       await tx.$queryRaw`SELECT 1 FROM "StudentEnrollment" WHERE "id" = ${enrollmentId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const enrollment = await tx.studentEnrollment.findFirst({ where: { id: enrollmentId, schoolId } });
       if (!enrollment) throw new NotFoundException({ code: "ENROLLMENT_NOT_FOUND", message: "Không tìm thấy enrollment." });
-      if (enrollment.lifecycle !== "WAITING_FOR_CLASS") throw new ConflictException({ code: "ENROLLMENT_NOT_WAITING_FOR_CLASS", message: "Enrollment không còn chờ xếp lớp." });
+      // An EXTRACURRICULAR_ONLY Student moves to the official programme here too; their enrollment keeps its start date and history.
+      const extracurricularOnly = enrollment.lifecycle === "EXTRACURRICULAR_ONLY";
+      if (enrollment.lifecycle !== "WAITING_FOR_CLASS" && !extracurricularOnly) throw new ConflictException({ code: "ENROLLMENT_NOT_WAITING_FOR_CLASS", message: "Enrollment không còn chờ xếp lớp." });
       await this.lockYear(tx, schoolId, enrollment.schoolYearId);
       const year = await this.year(schoolId, enrollment.schoolYearId, tx);
       this.activeYear(year);
@@ -1631,9 +1635,13 @@ export class RosterService {
       const classroom = await this.lockClass(tx, schoolId, classId);
       if (classroom.schoolYearId !== enrollment.schoolYearId) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
       if (classroom.status !== "ACTIVE") throw new ConflictException({ code: "CLASS_ARCHIVED", message: "Lớp đã lưu trữ chỉ có thể xem." });
-      if (await tx.enrollmentClassAssignment.count({ where: { schoolId, enrollmentId } })) throw new ConflictException({ code: "ENROLLMENT_ALREADY_PLACED", message: "Enrollment đã có lịch sử phân lớp." });
-      const updated = await tx.studentEnrollment.update({ where: { id: enrollmentId }, data: { classId: classroom.id, className: classroom.name, lifecycle: "ENROLLED", effectiveFrom } });
-      const assignment = await tx.enrollmentClassAssignment.create({ data: { schoolId, enrollmentId, schoolYearId: enrollment.schoolYearId, classId: classroom.id, effectiveFrom, reason: "Xếp lớp sau intake" }, include: { classroom: true } });
+      if (!extracurricularOnly && await tx.enrollmentClassAssignment.count({ where: { schoolId, enrollmentId } })) throw new ConflictException({ code: "ENROLLMENT_ALREADY_PLACED", message: "Enrollment đã có lịch sử phân lớp." });
+      if (extracurricularOnly) {
+        const prior = await tx.enrollmentClassAssignment.findFirst({ where: { schoolId, enrollmentId }, orderBy: { effectiveFrom: "desc" } });
+        if (prior && (!prior.effectiveTo || effectiveFrom < prior.effectiveTo)) throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { effectiveFrom: "Ngày xếp lớp không được trước ngày kết thúc lớp chính khóa trước." } });
+      }
+      const updated = await tx.studentEnrollment.update({ where: { id: enrollmentId }, data: { classId: classroom.id, className: classroom.name, lifecycle: "ENROLLED", ...(extracurricularOnly ? {} : { effectiveFrom }) } });
+      const assignment = await tx.enrollmentClassAssignment.create({ data: { schoolId, enrollmentId, schoolYearId: enrollment.schoolYearId, classId: classroom.id, effectiveFrom, reason: extracurricularOnly ? "Chuyển từ chỉ ngoại khóa sang chính khóa" : "Xếp lớp sau intake" }, include: { classroom: true } });
       await this.transition(tx, schoolId, updated, enrollment.lifecycle, identityId, actor.membershipId, operation);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "STUDENT_ENROLLMENT_PLACED", operation, { enrollmentId, classId: classroom.id, effectiveFrom: body?.effectiveFrom });
       return this.enrollmentDto({ ...updated, lifecycleTransitions: [], classAssignments: [assignment] });
@@ -1653,6 +1661,11 @@ export class RosterService {
       body?.endedOn == null || body.endedOn === ""
         ? null
         : this.dateValue(body.endedOn, "endedOn");
+    // Moving to EXTRACURRICULAR_ONLY ends the open official class on this date.
+    const classEndsOn =
+      body?.classEndsOn == null || body.classEndsOn === ""
+        ? null
+        : this.dateValue(body.classEndsOn, "classEndsOn");
     return this.mutate(
       actor,
       identityId,
@@ -1660,7 +1673,7 @@ export class RosterService {
       route.lifecycle,
       key,
       operationId,
-      { enrollmentId, lifecycle, endedOn: body?.endedOn ?? null },
+      { enrollmentId, lifecycle, endedOn: body?.endedOn ?? null, classEndsOn: body?.classEndsOn ?? null },
       async (tx, operation) => {
         const enrollment = await tx.studentEnrollment.findFirst({
           where: { id: enrollmentId, schoolId },
@@ -1690,7 +1703,15 @@ export class RosterService {
         const placement = await tx.enrollmentClassAssignment.findFirst({
           where: { schoolId, enrollmentId, effectiveTo: null },
         });
-        if (terminal.has(lifecycle)) {
+        if (lifecycle === "EXTRACURRICULAR_ONLY") {
+          if (placement) {
+            if (!classEndsOn)
+              throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { classEndsOn: "Cần ngày kết thúc lớp chính khóa." } });
+            if (placement.effectiveFrom >= classEndsOn)
+              throw new BadRequestException({ code: "VALIDATION_ERROR", message: "Dữ liệu không hợp lệ.", fieldErrors: { classEndsOn: "Ngày kết thúc lớp phải sau ngày hiệu lực phân lớp." } });
+            await tx.enrollmentClassAssignment.update({ where: { id: placement.id }, data: { effectiveTo: classEndsOn } });
+          }
+        } else if (terminal.has(lifecycle)) {
           if (placement) {
             if (placement.effectiveFrom >= endedOn!)
               throw new BadRequestException({
@@ -1744,7 +1765,7 @@ export class RosterService {
         }
         const updated = await tx.studentEnrollment.update({
           where: { id: enrollment.id },
-          data: { lifecycle, endedOn },
+          data: { lifecycle, endedOn, ...(lifecycle === "EXTRACURRICULAR_ONLY" ? { classId: null, className: null } : {}) },
         });
         if (lifecycle === "WITHDRAWN" && enrollment.lifecycle !== "WITHDRAWN" && !await tx.coverageRefundEligibility.findFirst({ where: { schoolId, enrollmentId: enrollment.id, reason: "WITHDRAWAL" } }))
           await tx.coverageRefundEligibility.create({
@@ -1780,6 +1801,7 @@ export class RosterService {
             previousLifecycle: enrollment.lifecycle,
             lifecycle,
             endedOn: body?.endedOn ?? null,
+            ...(classEndsOn ? { classEndsOn: body.classEndsOn } : {}),
           },
         );
         return this.enrollmentDto({ ...updated, lifecycleTransitions: [] });

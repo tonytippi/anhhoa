@@ -160,10 +160,12 @@ const lifecycleLabel: Record<string, string> = {
   WAITING_FOR_CLASS: "Chờ xếp lớp",
   SCHEDULED_TO_START: "Đã hẹn nhập học",
   ENROLLED: "Đang nhập học",
+  EXTRACURRICULAR_ONLY: "Chỉ ngoại khóa",
   ON_LEAVE: "Tạm nghỉ",
   WITHDRAWN: "Đã thôi học",
   GRADUATED: "Đã tốt nghiệp",
 };
+const enrollmentClassFallback = (lifecycle: string) => (lifecycle === "EXTRACURRICULAR_ONLY" ? "Chỉ ngoại khóa" : "Chưa xếp lớp");
 const csrf = () =>
   document.cookie
     .split("; ")
@@ -552,7 +554,7 @@ export function RosterWorkspace({
        }
       setRosterLoading(false);
       if (section !== "parents") setStudent((current) =>
-        current.classId || current.intakeStatus === "WAITING_FOR_CLASS"
+        current.classId || current.intakeStatus !== "PLACED"
           ? current
           : {
               ...current,
@@ -1087,7 +1089,10 @@ export function RosterWorkspace({
   };
   const changeDetailLifecycle = async (enrollment: StudentDetail["enrollments"][number], lifecycle: string) => {
     if (!studentDetail) return;
-    if (await post(`/api/app/schools/${schoolId}/roster/enrollments/${enrollment.id}/lifecycle`, { lifecycle, endedOn: ["ON_LEAVE", "WITHDRAWN", "GRADUATED"].includes(lifecycle) ? detailEndedOn[enrollment.id] || enrollment.endedOn : null }, "lifecycle", studentDetail.id))
+    // Moving an official-class Student to Chỉ ngoại khóa ends their class on the date typed in Ngày kết thúc.
+    const ending = ["ON_LEAVE", "WITHDRAWN", "GRADUATED"].includes(lifecycle);
+    const classEndsOn = lifecycle === "EXTRACURRICULAR_ONLY" && enrollment.classroom ? detailEndedOn[enrollment.id] || null : null;
+    if (await post(`/api/app/schools/${schoolId}/roster/enrollments/${enrollment.id}/lifecycle`, { lifecycle, endedOn: ending ? detailEndedOn[enrollment.id] || enrollment.endedOn : null, ...(classEndsOn ? { classEndsOn } : {}) }, "lifecycle", studentDetail.id))
       await openStudentDetail(studentDetail.id);
   };
   const placeDetailEnrollment = async (enrollmentId: string) => {
@@ -1644,6 +1649,7 @@ export function RosterWorkspace({
         <div className="student-intake-radios">
           <label><input type="radio" name={radioName} checked={student.intakeStatus === "PLACED"} onChange={() => setStudent({ ...student, intakeStatus: "PLACED" })} />Xếp lớp</label>
           <label><input type="radio" name={radioName} checked={student.intakeStatus === "WAITING_FOR_CLASS"} onChange={() => setStudent({ ...student, intakeStatus: "WAITING_FOR_CLASS", classId: "" })} />Chờ xếp lớp</label>
+          <label><input type="radio" name={radioName} checked={student.intakeStatus === "EXTRACURRICULAR_ONLY"} onChange={() => setStudent({ ...student, intakeStatus: "EXTRACURRICULAR_ONLY", classId: "" })} />Chỉ ngoại khóa</label>
         </div>
         {student.intakeStatus === "PLACED" && <label>Lớp<select value={student.classId} onChange={(event) => setStudent({ ...student, classId: event.target.value })} {...field(studentErrors, "classId")}><option value="">Chọn lớp</option>{classes.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         {studentErrors.classId && <small id="classId-error">{studentErrors.classId}</small>}
@@ -2744,7 +2750,7 @@ export function RosterWorkspace({
                           <td>{(rosterMeta.page - 1) * rosterMeta.pageSize + index + 1}</td>
                           <td>{item.studentCode}</td>
                           <th scope="row">{item.hasPhoto && <img src={`${apiUrl}/api/app/schools/${schoolId}/roster/students/${item.id}/photo`} alt={`Ảnh hồ sơ ${item.fullName}`} />} {item.fullName}</th>
-                          <td>{item.enrollment.classroom?.name ?? "Chưa xếp lớp"}</td>
+                          <td>{item.enrollment.classroom?.name ?? enrollmentClassFallback(item.enrollment.lifecycle)}</td>
                           <td>{item.relatives.mother ?? "-"}</td>
                           <td>{item.relatives.father ?? "-"}{item.relatives.otherRelativeCount ? <small className="relative-count">+{item.relatives.otherRelativeCount} người thân khác</small> : null}</td>
                           <td>{lifecycleLabel[item.enrollment.lifecycle]}</td>
@@ -2958,7 +2964,7 @@ export function RosterWorkspace({
             {detailLoading ? <p role="status">Đang tải hồ sơ học sinh...</p> : studentDetail && <>
               <div className="student-list-toolbar"><h3 id="student-detail-title">Hồ sơ {studentDetail.fullName}</h3><button type="button" disabled={disabled} onClick={closeStudentDetail}>Đóng</button></div>
               <p>Mã học sinh: {studentDetail.studentCode}</p>
-              <section><h4>Ghi danh</h4>{studentDetail.enrollments.map((enrollment) => <div key={enrollment.id}><p>{enrollment.classroom?.name ?? "Chưa xếp lớp"} · {lifecycleLabel[enrollment.lifecycle]} · {enrollment.effectiveFrom}{enrollment.endedOn ? ` - ${enrollment.endedOn}` : ""}</p>{enrollment.lifecycle === "WAITING_FOR_CLASS" && <fieldset><label>Lớp<select value={detailPlacement.classId} onChange={(event) => setDetailPlacement({ ...detailPlacement, classId: event.target.value })}><option value="">Chọn lớp</option>{classes.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Ngày hiệu lực xếp lớp<DateInput value={detailPlacement.effectiveFrom} onChange={(event) => setDetailPlacement({ ...detailPlacement, effectiveFrom: event.target.value })} /></label><button type="button" disabled={disabled} onClick={() => void placeDetailEnrollment(enrollment.id)}>Xếp lớp</button></fieldset>}<label>Ngày kết thúc<DateInput value={detailEndedOn[enrollment.id] ?? enrollment.endedOn ?? ""} onChange={(event) => setDetailEndedOn({ ...detailEndedOn, [enrollment.id]: event.target.value })} /></label><label>Đổi trạng thái<select value={enrollment.lifecycle} disabled={disabled} onChange={(event) => void changeDetailLifecycle(enrollment, event.target.value)}>{Object.entries(lifecycleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>)}</section>
+              <section><h4>Ghi danh</h4>{studentDetail.enrollments.map((enrollment) => <div key={enrollment.id}><p>{enrollment.classroom?.name ?? enrollmentClassFallback(enrollment.lifecycle)} · {lifecycleLabel[enrollment.lifecycle]} · {enrollment.effectiveFrom}{enrollment.endedOn ? ` - ${enrollment.endedOn}` : ""}</p>{(enrollment.lifecycle === "WAITING_FOR_CLASS" || enrollment.lifecycle === "EXTRACURRICULAR_ONLY") && <fieldset><label>Lớp<select value={detailPlacement.classId} onChange={(event) => setDetailPlacement({ ...detailPlacement, classId: event.target.value })}><option value="">Chọn lớp</option>{classes.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Ngày hiệu lực xếp lớp<DateInput value={detailPlacement.effectiveFrom} onChange={(event) => setDetailPlacement({ ...detailPlacement, effectiveFrom: event.target.value })} /></label><button type="button" disabled={disabled} onClick={() => void placeDetailEnrollment(enrollment.id)}>{enrollment.lifecycle === "EXTRACURRICULAR_ONLY" ? "Xếp lớp chính khóa" : "Xếp lớp"}</button></fieldset>}<label>Ngày kết thúc<DateInput value={detailEndedOn[enrollment.id] ?? enrollment.endedOn ?? ""} onChange={(event) => setDetailEndedOn({ ...detailEndedOn, [enrollment.id]: event.target.value })} /></label><label>Đổi trạng thái<select value={enrollment.lifecycle} disabled={disabled} onChange={(event) => void changeDetailLifecycle(enrollment, event.target.value)}>{Object.entries(lifecycleLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>)}</section>
               <section><h4>Liên kết người thân</h4><ul>{parentLinks.map((link) => <li key={link.id}>{link.parent.fullName} · {link.relationshipLabel} · {link.parent.email} · {link.status === "ACTIVE" ? (link.parent.bound ? "Đã xác nhận" : "Đang chờ") : "Đã thu hồi"}{link.status === "ACTIVE" && <button type="button" disabled={disabled} onClick={() => void revokeParentLink(link)}>Thu hồi</button>}</li>)}</ul>
                 <form onSubmit={saveParentLink}><label>Họ và tên người thân<input value={parentInput.fullName} onChange={(event) => setParentInput({ ...parentInput, fullName: event.target.value })} /></label><label>Email người thân<input type="email" value={parentInput.email} onChange={(event) => setParentInput({ ...parentInput, email: event.target.value })} /></label><label>Số điện thoại người thân<input value={parentInput.phone} onChange={(event) => setParentInput({ ...parentInput, phone: event.target.value })} /></label><label>Quan hệ<input value={parentInput.relationshipLabel} onChange={(event) => setParentInput({ ...parentInput, relationshipLabel: event.target.value })} placeholder="Ví dụ: Mẹ, Bố, Ông, Bà" {...field(studentErrors, "relationshipLabel", "parent-")} /></label>{studentErrors.relationshipLabel && <small id="parent-relationshipLabel-error">{studentErrors.relationshipLabel}</small>}<button disabled={disabled}>Tạo liên kết</button></form>
               </section>

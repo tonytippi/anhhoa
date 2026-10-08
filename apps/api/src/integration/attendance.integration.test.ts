@@ -2367,6 +2367,22 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         response: { code: "HANDOVER_ALREADY_RECORDED" },
       });
     });
+    it("hands over and accepts leave days for an extracurricular-only Student without a class", async () => {
+      const current = await graph();
+      await prisma.enrollmentClassAssignment.updateMany({ where: { schoolId: current.school.id }, data: { effectiveTo: date("2026-02-01") } });
+      await prisma.studentEnrollment.updateMany({ where: { schoolId: current.school.id }, data: { lifecycle: "EXTRACURRICULAR_ONLY", classId: null, className: null } });
+      const leaveRequest = await request(current);
+      await prisma.leaveRequestDay.create({ data: { schoolId: current.school.id, leaveRequestId: leaveRequest.id, operatingOn: date("2026-02-10"), calendarEffectiveFrom: date("2026-01-01") } });
+      const position = await prisma.schoolPosition.create({ data: { schoolId: current.school.id, code: `HANDOVER-${uuid()}`, name: `Bàn giao ${uuid()}` } });
+      await prisma.positionCapabilityGrant.create({ data: { schoolId: current.school.id, positionId: position.id, capability: "HANDOVER_WRITE" } });
+      await prisma.staffProfile.create({ data: { schoolId: current.school.id, primaryPositionId: position.id, schoolMembershipId: current.membership.id, boundAt: new Date(), boundByMembershipId: current.membership.id, fullName: "Cô Bàn giao", email: `${uuid()}@example.com`, phone: "0900000004", dateOfBirth: date("1990-01-01"), gender: "Nữ", address: "Hà Nội" } });
+      await prisma.handoverPolicy.create({ data: { schoolId: current.school.id, effectiveFrom: date("2026-01-01"), photoEvidenceMode: "OPTIONAL", reason: "Bàn giao", actorIdentityId: current.identity.id, membershipId: current.membership.id } });
+      const roster = await attendance.handoverRoster(current.identity.id, current.school.id, "2026-02-09");
+      expect(roster.students.map((item) => item.studentId)).toEqual([current.student.id]);
+      await attendance.recordHandover(current.identity.id, current.school.id, uuid(), uuid(), { studentId: current.student.id, handoverOn: "2026-02-09", pickedUpAt: "2026-02-09T19:00:00+07:00", evidenceId: null });
+      expect(await prisma.handoverRecord.count({ where: { schoolId: current.school.id } })).toBe(1);
+    });
+
     it("denies a foreign Student and rejects missing required evidence before handover persistence", async () => {
       const current = await graph();
       const foreign = await graph();
