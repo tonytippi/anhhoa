@@ -429,6 +429,17 @@ type Settlement = {
   invoiceTotal: string;
   invoices: Array<{ id: string; channel: PaymentChannel; status: string; total: string }>;
 };
+// Decision 2026-10-08 §2: unpaid issued notices of closed earlier runs, moved on request into this run's draft.
+type PriorDebt = {
+  sourceInvoiceId: string;
+  student: { id: string; code: string; name: string };
+  className: string;
+  billingMonth: string;
+  channel: PaymentChannel;
+  account: ReceivingAccount | null;
+  outstanding: string;
+  obligationCode: string | null;
+};
 type GenerationProgress = {
   status: "QUEUED" | "RUNNING" | "PAUSED" | "FAILED" | "COMPLETED";
   total: number;
@@ -1236,6 +1247,8 @@ export function FinanceWorkspace({
     taxCategory: "NOT_DECLARED" as TaxCategory,
   });
   const [settlements, setSettlements] = useState<{ runId: string; students: Settlement[] }>();
+  const [priorDebts, setPriorDebts] = useState<{ runId: string; debts: PriorDebt[] }>();
+  const [priorDebtConfirmation, setPriorDebtConfirmation] = useState<PriorDebt[]>();
   const [lifecycle, setLifecycle] = useState<Lifecycle>();
   const [catalogDialog, setCatalogDialog] = useState<"receivable" | "receivable-edit">();
   const [receivableEdit, setReceivableEdit] = useState<{
@@ -1382,6 +1395,13 @@ export function FinanceWorkspace({
     );
     if (activeSchool.current === schoolId && activeRunId.current === runId)
       setSettlements({ runId, students: Array.isArray(next?.students) ? next.students : [] });
+  };
+  const loadPriorDebts = async (runId: string) => {
+    const next = await get<{ debts: PriorDebt[] }>(
+      `/api/app/schools/${schoolId}/finance/collection-runs/${runId}/prior-debts`,
+    );
+    if (activeSchool.current === schoolId && activeRunId.current === runId)
+      setPriorDebts({ runId, debts: Array.isArray(next?.debts) ? next.debts : [] });
   };
   const createSettlement = async (student: Settlement) => {
     if (!run) return;
@@ -1899,7 +1919,11 @@ export function FinanceWorkspace({
         setMessage("Không thể tải học sinh để thêm vào đợt đã tạo."),
       );
       void loadSettlements(normalized.id).catch(() => setMessage("Không thể tải danh sách học sinh cần quyết toán."));
-    } else setSettlements(undefined);
+      void loadPriorDebts(normalized.id).catch(() => setMessage("Không thể tải công nợ kỳ trước."));
+    } else {
+      setSettlements(undefined);
+      setPriorDebts(undefined);
+    }
   };
   const openRun = async (event: FormEvent) => {
     event.preventDefault();
@@ -2123,6 +2147,24 @@ export function FinanceWorkspace({
       setAdditionConfirmation(undefined);
       setGeneratedOutcome(outcome as GenerateOutcome);
       await load();
+    }
+  };
+  const transferPriorDebts = async () => {
+    if (!run || !priorDebtConfirmation) return;
+    const count = priorDebtConfirmation.length;
+    const outcome = await command(
+      `/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/prior-debts/transfer`,
+      "POST",
+      { sourceInvoiceIds: priorDebtConfirmation.map((debt) => debt.sourceInvoiceId) },
+    );
+    if (outcome) {
+      setPriorDebtConfirmation(undefined);
+      try {
+        await refreshRun(run.id);
+        setNotice(`Đã chuyển công nợ của ${count} hóa đơn.`);
+      } catch {
+        setMessage("Đã chuyển công nợ; chưa thể tải lại đợt thu mới nhất.");
+      }
     }
   };
   const closeRun = async () => {
@@ -3942,6 +3984,55 @@ export function FinanceWorkspace({
                 currentInvoiceId={invoice?.id}
                 onReview={reviewInvoice}
               />
+              {priorDebts?.runId === run.id && priorDebts.debts.length > 0 && (
+                <section aria-labelledby="run-prior-debts-title">
+                  <div className="finance-actions finance-actions-split">
+                    <div className="finance-card-heading">
+                      <h3 id="run-prior-debts-title">Công nợ kỳ trước</h3>
+                      <p>
+                        Hóa đơn đã phát hành nhưng chưa thu của các đợt đã đóng. Chuyển vào hóa đơn tháng này để phụ
+                        huynh nộp cùng; hóa đơn cũ sẽ không còn ở trang Thu tiền.
+                      </p>
+                    </div>
+                    <button type="button" disabled={Boolean(pending)} onClick={() => setPriorDebtConfirmation(priorDebts.debts)}>
+                      Chuyển tất cả công nợ
+                    </button>
+                  </div>
+                  <div className="table-scroll">
+                    <table>
+                      <caption>Công nợ kỳ trước chưa thu</caption>
+                      <thead>
+                        <tr>
+                          <th>Học sinh</th>
+                          <th>Lớp</th>
+                          <th>Tháng</th>
+                          <th>Tài khoản nhận</th>
+                          <th className="finance-money">Còn nợ (đ)</th>
+                          <th>Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {priorDebts.debts.map((debt) => (
+                          <tr key={debt.sourceInvoiceId}>
+                            <td>
+                              {debt.student.code} / {debt.student.name}
+                            </td>
+                            <td>{debt.className}</td>
+                            <td>{billingMonthLabel(debt.billingMonth)}</td>
+                            <td>{debt.account ? <ReceivingAccountLabel account={debt.account} /> : "—"}</td>
+                            <td className="finance-money">{vnd(debt.outstanding)}</td>
+                            <td>
+                              <button type="button" disabled={Boolean(pending)} onClick={() => setPriorDebtConfirmation([debt])}>
+                                Chuyển vào hóa đơn tháng này
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
               {settlements?.runId === run.id && settlements.students.length > 0 && (
                 <section aria-labelledby="run-settlements-title">
                   <div className="finance-card-heading">
@@ -4977,6 +5068,47 @@ export function FinanceWorkspace({
                 <button type="button" onClick={closeAddStudents}>
                   Đóng
                 </button>
+              </div>
+            </>
+          )}
+          {priorDebtConfirmation && run && (
+            <>
+              <div className="dialog-backdrop" aria-hidden="true" />
+              <div
+                className="dialog finance-confirm-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="finance-prior-debt-title"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && !pending) setPriorDebtConfirmation(undefined);
+                  else trapDialogFocus(event);
+                }}
+              >
+                <h3 id="finance-prior-debt-title">Chuyển công nợ kỳ trước</h3>
+                <p>
+                  Chuyển {priorDebtConfirmation.length} hóa đơn, tổng{" "}
+                  {vnd(priorDebtConfirmation.reduce((sum, debt) => sum + BigInt(debt.outstanding), 0n).toString())} đ,
+                  vào hóa đơn tháng {billingMonthLabel(run.billingMonth)}. Thao tác này không hoàn tác được.
+                </p>
+                <div className="dialog-actions">
+                  <button
+                    data-dialog-cancel
+                    type="button"
+                    disabled={Boolean(pending)}
+                    autoFocus
+                    onClick={() => setPriorDebtConfirmation(undefined)}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    className="primary-action"
+                    type="button"
+                    disabled={Boolean(pending)}
+                    onClick={() => void transferPriorDebts()}
+                  >
+                    Chuyển công nợ
+                  </button>
+                </div>
               </div>
             </>
           )}

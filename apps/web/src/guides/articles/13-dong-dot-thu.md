@@ -26,4 +26,6 @@ Tháng sau vẫn **tạo đợt, xem trước và tạo hóa đơn nháp** đư�
 > [!WARNING]
 > Đóng đợt thu không thể mở lại. Hãy chắc chắn đã xử lý xong học sinh nhập học muộn và các điều chỉnh của tháng.
 
+Hóa đơn của đợt đã đóng mà phụ huynh chưa đóng tiền vẫn ghi thực nhận bình thường. Nếu muốn thu cùng hóa đơn tháng sau, dùng [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
+
 Sau khi đóng, nếu phát hiện sai sót thì không điều chỉnh hóa đơn của đợt đã đóng. Sửa ở hóa đơn tháng sau: thêm dòng thu thêm hoặc dùng phần `Bớt` để trừ lại.

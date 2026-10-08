@@ -15,10 +15,11 @@ requires: collection-runs
 ## Mỗi tháng
 
 1. **Tạo đợt thu** của tháng, thêm khoản thu linh hoạt nếu có, xem trước và tạo hóa đơn nháp: [Tạo đợt thu và hóa đơn nháp](guide:tao-dot-thu).
-2. **Rà soát từng hóa đơn**, sửa số lượng hoặc phần bớt nếu cần, rồi phát hành và gửi ảnh hóa đơn cho phụ huynh: [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh).
-3. **Ghi thực nhận** khi tiền về theo từng sao kê tài khoản: [Ghi nhận thu tiền](guide:thu-tien).
-4. Xử lý học sinh nghỉ học (nếu có): [Học sinh nghỉ học](guide:quyet-toan-nghi-hoc).
-5. **Đóng đợt thu** khi mọi hóa đơn đã phát hành: [Đóng đợt thu](guide:dong-dot-thu). Phải đóng đợt tháng trước **trước khi phát hành hóa đơn của tháng sau**; tháng sau vẫn tạo đợt và soạn hóa đơn nháp được trong lúc chờ.
-6. Theo dõi số đã thu, còn nợ và xuất CSV: [Báo cáo tài chính](guide:bao-cao).
+2. (Hiếm khi cần) Nếu phụ huynh còn nợ hóa đơn tháng trước, **chuyển công nợ kỳ trước** vào hóa đơn nháp tháng này trước khi phát hành: [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
+3. **Rà soát từng hóa đơn**, sửa số lượng hoặc phần bớt nếu cần, rồi phát hành và gửi ảnh hóa đơn cho phụ huynh: [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh).
+4. **Ghi thực nhận** khi tiền về theo từng sao kê tài khoản: [Ghi nhận thu tiền](guide:thu-tien).
+5. Xử lý học sinh nghỉ học (nếu có): [Học sinh nghỉ học](guide:quyet-toan-nghi-hoc).
+6. **Đóng đợt thu** khi mọi hóa đơn đã phát hành: [Đóng đợt thu](guide:dong-dot-thu). Phải đóng đợt tháng trước **trước khi phát hành hóa đơn của tháng sau**; tháng sau vẫn tạo đợt và soạn hóa đơn nháp được trong lúc chờ.
+7. Theo dõi số đã thu, còn nợ và xuất CSV: [Báo cáo tài chính](guide:bao-cao).
 
 > Mỗi tháng chỉ có một đợt thu. Bấm `Tạo đợt thu` cho tháng đã có sẽ mở lại đúng đợt đó, không tạo trùng.

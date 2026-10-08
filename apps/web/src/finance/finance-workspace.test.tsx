@@ -1886,6 +1886,40 @@ describe("FinanceWorkspace", () => {
     expect(screen.queryByRole("region", { name: "Hoàn ưu đãi nộp trước" })).toBeNull();
     expect(screen.queryByLabelText("Ưu đãi đã phát hành")).toBeNull();
   });
+  it("lists prior debt of closed runs and transfers one or all after a confirmation naming the total", async () => {
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "90" }] };
+    const account = { id: "acc-1", kind: "PERSONAL", bankCode: "VCB", accountHolderName: "Nguyen Van A", accountNumber: "0123" };
+    let debts = [{ sourceInvoiceId: "src-1", student: { id: "s1", code: "HS001", name: "Bé An" }, className: "Lá 1", billingMonth: "2026-08", channel: "PERSONAL", account, outstanding: "1500000", obligationCode: "OBL-1" }, { sourceInvoiceId: "src-2", student: { id: "s2", code: "HS002", name: "Bé Bình" }, className: "Lá 1", billingMonth: "2026-08", channel: "PERSONAL", account, outstanding: "500000", obligationCode: "OBL-2" }];
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/prior-debts/transfer") ? (debts = [], response({ status: "COMPLETED", outcome: { transferred: [], total: "0" } })) : String(url).endsWith("/prior-debts") ? response({ debts }) : url.endsWith("/settlements") ? response({ students: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun();
+    const table = await screen.findByRole("table", { name: "Công nợ kỳ trước chưa thu" });
+    expect(within(table).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent)[0])).toEqual(["HS001 / Bé An", "HS002 / Bé Bình"]);
+    const posted = () => fetch.mock.calls.filter(([url, options]) => String(url).endsWith(`/collection-runs/${run.id}/prior-debts/transfer`) && (options as RequestInit | undefined)?.method === "POST").map(([, options]) => (options as RequestInit).body);
+    fireEvent.click(within(table).getAllByRole("button", { name: "Chuyển vào hóa đơn tháng này" })[0]!);
+    expect(within(screen.getByRole("dialog")).getByText(/Chuyển 1 hóa đơn, tổng 1\.500\.000 đ, vào hóa đơn tháng/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Hủy" }));
+    expect(posted()).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Chuyển tất cả công nợ" }));
+    expect(within(screen.getByRole("dialog")).getByText(/Chuyển 2 hóa đơn, tổng 2\.000\.000 đ/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Chuyển công nợ" }));
+    await waitFor(() => expect(posted()).toEqual([JSON.stringify({ sourceInvoiceIds: ["src-1", "src-2"] })]));
+    expect(await screen.findByText("Đã chuyển công nợ của 2 hóa đơn.")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("table", { name: "Công nợ kỳ trước chưa thu" })).toBeNull());
+  });
+  it("posts only the chosen source when transferring a single prior debt", async () => {
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "90" }] };
+    const debts = [{ sourceInvoiceId: "src-1", student: { id: "s1", code: "HS001", name: "Bé An" }, className: "Lá 1", billingMonth: "2026-08", channel: "PERSONAL", account: null, outstanding: "1500000", obligationCode: null }, { sourceInvoiceId: "src-2", student: { id: "s2", code: "HS002", name: "Bé Bình" }, className: "Lá 1", billingMonth: "2026-08", channel: "PERSONAL", account: null, outstanding: "500000", obligationCode: null }];
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/prior-debts/transfer") ? response({ status: "COMPLETED", outcome: { transferred: [], total: "0" } }) : String(url).endsWith("/prior-debts") ? response({ debts }) : url.endsWith("/settlements") ? response({ students: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun();
+    const table = await screen.findByRole("table", { name: "Công nợ kỳ trước chưa thu" });
+    fireEvent.click(within(table).getAllByRole("button", { name: "Chuyển vào hóa đơn tháng này" })[1]!);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Chuyển công nợ" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/prior-debts/transfer") && (options as RequestInit).body === JSON.stringify({ sourceInvoiceIds: ["src-2"] }))).toBe(true));
+  });
   it("does not expose coverage approval controls in the run workspace", async () => {
     const request = { id: "request-a", coverageId: "coverage-a", studentName: "Bé An", amount: "62", effectiveOn: "2026-10-10", reason: "Rút học", canDecide: false };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("coverage-reversal-requests") ? response({ requests: [request] }) : url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [] }) : response(catalog))));
