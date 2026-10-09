@@ -24,9 +24,9 @@ async function login(context: import('@playwright/test').BrowserContext, audienc
 test('four portal origins expose safe signed-out state and no Parent protected content', async ({ browser }) => {
   for (const [origin, heading] of [
     [app, 'Quản trị trường'],
-    ['http://localhost:5175', 'PassionEdu - Giáo viên'],
-    ['http://localhost:5174', 'PassionEdu'],
-    ['http://localhost:5176', 'PassionEdu - Vận hành nền tảng'],
+    ['http://localhost:5175', 'Giáo viên'],
+    ['http://localhost:5174', 'Phụ huynh'],
+    ['http://localhost:5176', 'Vận hành nền tảng'],
   ]) {
     const context = await browser.newContext(); const page = await context.newPage();
     await page.goto(origin); await expect(page.getByRole('heading', { name: heading })).toBeVisible();

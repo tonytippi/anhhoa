@@ -218,7 +218,7 @@ describe('ParentShell', () => {
     render(<ParentShell />);
     await screen.findByText('Bé An');
     fireEvent.focus(window);
-    const fallback = await screen.findByRole('heading', { name: 'PassionEdu' });
+    const fallback = await screen.findByRole('heading', { name: 'Phụ huynh' });
     expect(document.activeElement).toBe(fallback);
     expect(screen.queryByText('Bé An')).toBeNull();
   });
@@ -260,7 +260,7 @@ describe('ParentShell', () => {
     fireEvent.focus(window);
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất' }));
     await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
-    expect(screen.getByRole('heading', { name: 'PassionEdu' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Phụ huynh' })).toBeTruthy();
     expect(screen.queryByText('Bé An')).toBeNull();
     expect(fetch.mock.calls.filter(([input]) => String(input).includes('/auth/session'))).toHaveLength(1);
   });

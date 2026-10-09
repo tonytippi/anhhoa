@@ -20,6 +20,7 @@ import {
   type Session,
 } from "./auth-session";
 import "@fontsource-variable/inter";
+import { AuthCard } from "./auth-card";
 import "./styles.css";
 import "./journal.css";
 
@@ -111,18 +112,17 @@ function SignedOut({
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   return (
-    <main className="auth-state">
+    <AuthCard
+      title="Phụ huynh"
+      description="Đăng nhập bằng tài khoản Google đã đăng ký với nhà trường để xem thông tin của con."
+      loginUrl={googleLoginUrl}
+      note="Chưa đăng nhập được? Liên hệ giáo viên hoặc nhà trường."
+      headingRef={headingRef}
+    >
       <p className="sr-only" aria-live="polite">
         Phiên đăng nhập đã kết thúc.
       </p>
-      <h1 ref={headingRef} tabIndex={-1}>
-        PassionEdu
-      </h1>
-      <p>Vui lòng đăng nhập để tiếp tục.</p>
-      <a className="primary-button" href={googleLoginUrl}>
-        Đăng nhập với Google
-      </a>
-    </main>
+    </AuthCard>
   );
 }
 function SchoolChooser({
@@ -1187,13 +1187,7 @@ export function ParentShell() {
   };
   if (state === "loading")
     return (
-      <main className="auth-state">
-        <p className="sr-only" aria-live="polite">
-          Đang xác thực phiên.
-        </p>
-        <h1>PassionEdu</h1>
-        <p>Đang xác thực phiên...</p>
-      </main>
+      <AuthCard title="Phụ huynh" description="Đang xác thực phiên..." />
     );
   if (state === "signed-out") return <SignedOut headingRef={heading} />;
   const schools = groupSchools(session?.schools ?? []);
