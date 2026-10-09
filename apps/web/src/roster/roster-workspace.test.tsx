@@ -456,6 +456,31 @@ describe("RosterWorkspace paged read model", () => {
     expect(await screen.findByText(/Đã thu hồi quyền đăng nhập của Cô Bình/)).toBeTruthy();
   });
 
+  it("keeps the staff class column narrow: two classes inline and the rest in a popover", async () => {
+    const position = { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" };
+    const base = { phone: "0900", staffCode: null, hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: position, hasLoginAccess: false };
+    const rows = [
+      { ...base, id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", classNames: ["Lớp A", "Lớp B", "Lớp C", "Lớp D"] },
+      { ...base, id: "staff-b", fullName: "Cô Bình", email: null, classNames: ["Lớp A", "Lớp B"] },
+    ];
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/roster/staff?")) return Promise.resolve(pagedResponse({ data: rows, meta: { page: 1, pageSize: 25, totalItems: 2, totalPages: 1 } }));
+      if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
+      if (url.endsWith("/positions")) return Promise.resolve(response([position]));
+      return Promise.resolve(response([]));
+    }));
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="staff" />);
+    const more = await screen.findByRole("button", { name: "Lớp phụ trách của Cô Mai" });
+    expect(more.textContent).toBe("+2 lớp");
+    expect(screen.getByText("Lớp A, Lớp B", { selector: "span" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Danh sách lớp của Cô Mai" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lớp phụ trách của Cô Bình" })).toBeNull();
+    fireEvent.click(more);
+    expect(within(screen.getByRole("list", { name: "Danh sách lớp của Cô Mai" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Lớp A", "Lớp B", "Lớp C", "Lớp D"]);
+    fireEvent.keyDown(more, { key: "Escape" });
+    expect(screen.queryByRole("list", { name: "Danh sách lớp của Cô Mai" })).toBeNull();
+  });
+
   it("pages staff, drops stale responses, opens the edit menu, and reloads after an edit", async () => {
     const staff = { id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", phone: "0900", classNames: ["Lớp Mầm"], staffCode: "NV-01", hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" } };
     let resolvePageTwo!: (value: Response) => void;

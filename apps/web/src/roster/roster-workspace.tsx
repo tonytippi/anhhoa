@@ -211,6 +211,7 @@ export function RosterWorkspace({
   const [parentLinks, setParentLinks] = useState<ParentLink[]>([]);
   const [parentInput, setParentInput] = useState({ fullName: "", email: "", phone: "", relationshipLabel: "" });
   const [rowMenu, setRowMenu] = useState<string>();
+  const [classPopover, setClassPopover] = useState<string>();
   const [detailPlacement, setDetailPlacement] = useState({ classId: "", effectiveFrom: "" });
   const [detailEndedOn, setDetailEndedOn] = useState<Record<string, string>>({});
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1522,6 +1523,21 @@ export function RosterWorkspace({
     if (yearId) void loadYear(yearId, generation.current, rosterQuery, page);
   };
   const reloadStaff = (page = staffMeta.page) => void loadStaff(page);
+  // Keeps the class column narrow: two names inline, the rest behind a chip that opens the full list.
+  const staffClassCell = (item: Staff) => {
+    const names = item.classNames ?? [];
+    if (!names.length) return "-";
+    const activeClassCount = classes.filter((classroom) => classroom.status === "ACTIVE").length;
+    const all = names.length > 2 && names.length === activeClassCount;
+    const hidden = all ? names : names.slice(2);
+    if (!hidden.length) return names.join(", ");
+    const open = classPopover === item.id;
+    return <>
+      {all ? null : <span>{names.slice(0, 2).join(", ")}</span>}
+      <button type="button" className="staff-class-more" aria-expanded={open} aria-label={`Lớp phụ trách của ${item.fullName}`} onClick={() => setClassPopover(open ? undefined : item.id)} onBlur={(event) => { if (!event.currentTarget.parentElement?.contains(event.relatedTarget as Node)) setClassPopover(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") setClassPopover(undefined); }}>{all ? `Tất cả lớp (${names.length})` : `+${hidden.length} lớp`}</button>
+      {open && <ul className="staff-class-popover" aria-label={`Danh sách lớp của ${item.fullName}`}>{names.map((name) => <li key={name}>{name}</li>)}</ul>}
+    </>;
+  };
   const openStaffEdit = async (staffId: string) => {
     const requestGeneration = generation.current;
     const request = ++staffDetailRequest.current;
@@ -1888,8 +1904,8 @@ export function RosterWorkspace({
                   <td>{(staffMeta.page - 1) * staffMeta.pageSize + staff.indexOf(item) + 1}</td>
                   <th scope="row">{item.fullName}<small className="staff-contact">{item.staffCode ?? "-"}</small></th>
                   <td>{item.phone ?? "-"}</td>
-                  <td>{item.email ?? "-"}</td>
-                  <td>{item.classNames?.length ? item.classNames.join(", ") : "-"}</td>
+                  <td className="staff-email-cell" title={item.email ?? undefined}>{item.email ?? "-"}</td>
+                  <td className="staff-class-cell">{staffClassCell(item)}</td>
                   <td>{item.primaryPosition?.name ?? 'Không có'}</td>
                   <td>
                     {item.employmentStatus === 'ACTIVE' ? 'Đang hiệu lực' : 'Không hiệu lực'}

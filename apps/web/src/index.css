@@ -1505,15 +1505,44 @@ tbody tr:last-child td {
 .student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
 .student-list-table table { min-width: 940px; }
 .class-list-table table { min-width: 640px; }
-.staff-list-table table { min-width: 1400px; }
+.staff-list-table table { min-width: 1100px; }
 .staff-list-table th,
 .staff-list-table td { white-space: nowrap; }
 .staff-list-table th:nth-child(2) { min-width: 220px; }
 .staff-list-table th:nth-child(3) { min-width: 130px; }
-.staff-list-table th:nth-child(4) { min-width: 220px; }
-.staff-list-table th:nth-child(5) { min-width: 250px; }
-.staff-list-table th:nth-child(6) { min-width: 150px; }
-.staff-list-table th:nth-child(7) { min-width: 130px; }
+.staff-list-table th:nth-child(4) { min-width: 180px; }
+.staff-list-table th:nth-child(5) { min-width: 200px; }
+.staff-list-table th:nth-child(6) { min-width: 140px; }
+.staff-list-table th:nth-child(7) { min-width: 120px; }
+.staff-email-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.staff-class-cell { position: relative; }
+.staff-class-more {
+  margin-left: 6px;
+  border: 1px solid #cfe0d8;
+  border-radius: 999px;
+  background: #eef6f1;
+  color: #18332d;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+.staff-class-cell > .staff-class-more:first-child { margin-left: 0; }
+.staff-class-popover {
+  position: absolute;
+  z-index: 4;
+  left: 12px;
+  top: calc(100% - 8px);
+  margin: 0;
+  min-width: 160px;
+  list-style: none;
+  border: 1px solid #d7e2dc;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgb(24 51 45 / 18%);
+  padding: 6px 12px;
+}
+.staff-class-popover li { padding: 3px 0; }
 .staff-contact { display: block; color: #5f746e; font-weight: 400; }
 .parent-list-table table { min-width: 860px; }
 .parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }
