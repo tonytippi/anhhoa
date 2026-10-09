@@ -477,6 +477,25 @@ export class RosterController {
       ),
     };
   }
+  @Post("staff/:staffId/login-access") async grantStaffLoginAccess(
+    @Req() request: RequestLike,
+    @Param("schoolId") schoolId: string,
+    @Param("staffId") staffId: string,
+    @Headers("idempotency-key") key: string,
+    @Headers("x-operation-id") operationId: string,
+    @Body() body: unknown,
+  ) {
+    return {
+      data: await this.roster.grantStaffLoginAccess(
+        this.identity(request),
+        schoolId,
+        staffId,
+        this.mutation(request, key),
+        operationId ?? "",
+        body,
+      ),
+    };
+  }
   @Post("staff/:staffId/photo") async uploadStaffPhoto(@Req() request: RequestLike & { body: unknown }, @Param("schoolId") schoolId: string, @Param("staffId") staffId: string, @Headers("idempotency-key") key: string, @Headers("x-operation-id") operationId: string) {
     return { data: await this.roster.uploadStaffPhoto(this.identity(request), schoolId, staffId, this.mutation(request, key), operationId ?? "", request.headers["content-type"]?.split(";")[0], request.body) };
   }

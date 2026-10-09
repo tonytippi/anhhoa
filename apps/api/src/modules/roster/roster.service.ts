@@ -42,6 +42,8 @@ const route = {
   staff: "POST /api/app/schools/:schoolId/roster/staff",
   staffUpdate: "POST /api/app/schools/:schoolId/roster/staff/:staffId",
   staffPhoto: "POST /api/app/schools/:schoolId/roster/staff/:staffId/photo",
+  staffLoginAccess:
+    "POST /api/app/schools/:schoolId/roster/staff/:staffId/login-access",
   assignment:
     "POST /api/app/schools/:schoolId/roster/staff/:staffId/assignments",
   assignmentChange:
@@ -1085,6 +1087,129 @@ export class RosterService {
           },
         );
         return this.staffDto(staff);
+      },
+    );
+  }
+  // Binds a StaffProfile to the SchoolMembership of its own email so the person can sign in with Google.
+  // Privilege-changing, so it needs ACCESS_MANAGE rather than ROSTER_MANAGE.
+  async grantStaffLoginAccess(
+    identityId: string,
+    schoolId: string,
+    staffId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    const actor = await this.authorization.resolve(
+      identityId,
+      schoolId,
+      "app",
+      "ACCESS_MANAGE",
+    );
+    if (!uuid.test(staffId))
+      throw new NotFoundException({
+        code: "STAFF_NOT_FOUND",
+        message: "Không tìm thấy nhân sự.",
+      });
+    const reason = this.reason(body?.reason);
+    return this.mutate(
+      actor,
+      identityId,
+      schoolId,
+      route.staffLoginAccess,
+      key,
+      operationId,
+      { staffId, reason },
+      async (tx, operation) => {
+        const staff = await tx.staffProfile.findFirst({
+          where: { id: staffId, schoolId },
+          include: {
+            primaryPosition: { include: { grants: true } },
+            photo: { select: { id: true } },
+          },
+        });
+        if (!staff)
+          throw new NotFoundException({
+            code: "STAFF_NOT_FOUND",
+            message: "Không tìm thấy nhân sự.",
+          });
+        if (staff.employmentStatus !== "ACTIVE")
+          throw new ConflictException({
+            code: "STAFF_NOT_ACTIVE",
+            message: "Chỉ nhân viên đang hiệu lực mới được cấp quyền đăng nhập.",
+          });
+        if (staff.schoolMembershipId)
+          throw new ConflictException({
+            code: "STAFF_LOGIN_ALREADY_BOUND",
+            message: "Nhân viên đã có quyền đăng nhập.",
+          });
+        const email = staff.email?.trim().toLowerCase();
+        if (!email)
+          throw new BadRequestException({
+            code: "VALIDATION_ERROR",
+            message: "Dữ liệu không hợp lệ.",
+            fieldErrors: { email: "Hồ sơ cần có email để cấp quyền đăng nhập." },
+          });
+        await this.activePosition(tx, schoolId, staff.primaryPositionId);
+        const identity = await tx.userIdentity.upsert({
+          where: { emailNormalized: email },
+          create: { emailNormalized: email },
+          update: {},
+        });
+        const existing = await tx.schoolMembership.findUnique({
+          where: {
+            schoolId_userIdentityId: { schoolId, userIdentityId: identity.id },
+          },
+          include: { boundStaffProfile: { select: { id: true } } },
+        });
+        if (existing?.status === "REVOKED")
+          throw new ConflictException({
+            code: "MEMBERSHIP_REVOKED",
+            message: "Quyền truy cập của email này đã bị thu hồi; cần xử lý riêng để cấp lại.",
+          });
+        if (existing?.boundStaffProfile)
+          throw new ConflictException({
+            code: "MEMBERSHIP_ALREADY_BOUND",
+            message: "Email này đã được gắn với một nhân viên khác trong trường.",
+          });
+        const membership =
+          existing ??
+          (await tx.schoolMembership.create({
+            data: { schoolId, userIdentityId: identity.id },
+          }));
+        const bound = await tx.staffProfile.update({
+          where: { id: staffId },
+          data: {
+            schoolMembershipId: membership.id,
+            boundAt: new Date(),
+            boundByMembershipId: actor.membershipId,
+          },
+          include: {
+            primaryPosition: { include: { grants: true } },
+            photo: { select: { id: true } },
+          },
+        });
+        await this.audit(
+          tx,
+          schoolId,
+          identityId,
+          actor.membershipId,
+          "STAFF_LOGIN_ACCESS_GRANTED",
+          operation,
+          {
+            staffProfileId: staffId,
+            schoolMembershipId: membership.id,
+            primaryPositionId: staff.primaryPositionId,
+            reason,
+          },
+        );
+        return {
+          ...this.staffDto(bound),
+          canEnterSchool: bound.primaryPosition.grants.some(
+            (grant: { capability: string }) =>
+              grant.capability === "SCHOOL_CONTEXT_READ",
+          ),
+        };
       },
     );
   }

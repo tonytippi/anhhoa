@@ -424,6 +424,28 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STAFF_PHOTO_UPLOADED' } })).toMatchObject({ provenance: { staffProfileId: staffId } });
   });
 
+  it('grants staff login access from the profile email, once, within the School and with ACCESS_MANAGE', async () => {
+    const current = await graph(); const foreign = await graph();
+    const email = `${uuid()}@example.com`;
+    const profile = { fullName: 'Cô Lan', email: ` ${email.toUpperCase()} `, phone: '0900000001', dateOfBirth: '1990-01-01', gender: 'Nữ', address: 'Hà Nội', primaryPositionId: current.position.id };
+    const staffId = ((await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), profile)).outcome as { id: string }).id;
+    const key = uuid();
+    const body = { reason: 'Cấp tài khoản cho nhân viên mới' };
+    await expect(roster.grantStaffLoginAccess(current.admin.id, current.current.id, staffId, uuid(), uuid(), {})).rejects.toMatchObject({ status: 400 });
+    await expect(roster.grantStaffLoginAccess(foreign.admin.id, foreign.current.id, staffId, uuid(), uuid(), body)).rejects.toMatchObject({ status: 404 });
+    const granted = await roster.grantStaffLoginAccess(current.admin.id, current.current.id, staffId, key, uuid(), body);
+    expect(granted.outcome).toMatchObject({ id: staffId, schoolMembershipId: expect.any(String) });
+    expect(await roster.grantStaffLoginAccess(current.admin.id, current.current.id, staffId, key, uuid(), body)).toEqual(granted);
+    const identity = await prisma.userIdentity.findFirstOrThrow({ where: { emailNormalized: email } });
+    const bound = await prisma.staffProfile.findFirstOrThrow({ where: { id: staffId }, include: { schoolMembership: true } });
+    expect(bound).toMatchObject({ schoolMembership: { userIdentityId: identity.id, status: 'ACTIVE', schoolId: current.current.id }, boundByMembershipId: expect.any(String), boundAt: expect.any(Date) });
+    await expect(roster.grantStaffLoginAccess(current.admin.id, current.current.id, staffId, uuid(), uuid(), body)).rejects.toMatchObject({ status: 409, response: { code: 'STAFF_LOGIN_ALREADY_BOUND' } });
+    const second = ((await roster.createStaff(current.admin.id, current.current.id, uuid(), uuid(), { ...profile, fullName: 'Cô Lan 2', phone: '0900000002' })).outcome as { id: string }).id;
+    await expect(roster.grantStaffLoginAccess(current.admin.id, current.current.id, second, uuid(), uuid(), body)).rejects.toMatchObject({ status: 409, response: { code: 'MEMBERSHIP_ALREADY_BOUND' } });
+    const noEmail = (await prisma.staffProfile.create({ data: { schoolId: current.current.id, fullName: 'Không email', email: null, phone: '0900000003', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), primaryPositionId: current.position.id } })).id;
+    await expect(roster.grantStaffLoginAccess(current.admin.id, current.current.id, noEmail, uuid(), uuid(), body)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { email: expect.any(String) } } });
+    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STAFF_LOGIN_ACCESS_GRANTED' } })).toMatchObject({ provenance: { staffProfileId: staffId, reason: body.reason } });
+  });
   it('returns bounded staff pages with scoped search, filters, stable sorts, and no foreign positions', async () => {
     const current = await graph(); const foreign = await graph();
     const position = await prisma.schoolPosition.create({ data: { schoolId: current.current.id, code: `STAFF_${uuid().slice(0, 8)}`, name: 'Trợ giảng' } });
