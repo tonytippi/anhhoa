@@ -474,6 +474,8 @@ describe("RosterWorkspace paged read model", () => {
     render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="staff" />);
     await screen.findByRole("button", { name: "Tùy chọn cho Cô Mai" });
     expect(screen.getByText("0900")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Email" })).toBeTruthy();
+    expect(screen.getByText("mai@example.com")).toBeTruthy();
     expect(screen.getByText("Lớp Mầm")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sau" }));
     fireEvent.change(screen.getByLabelText("Tìm kiếm"), { target: { value: "Lan" } });

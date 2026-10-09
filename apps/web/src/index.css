@@ -1505,14 +1505,15 @@ tbody tr:last-child td {
 .student-list-table { box-shadow: 0 1px 2px rgb(24 51 45 / 4%); }
 .student-list-table table { min-width: 940px; }
 .class-list-table table { min-width: 640px; }
-.staff-list-table table { min-width: 1180px; }
+.staff-list-table table { min-width: 1400px; }
 .staff-list-table th,
 .staff-list-table td { white-space: nowrap; }
 .staff-list-table th:nth-child(2) { min-width: 220px; }
 .staff-list-table th:nth-child(3) { min-width: 130px; }
-.staff-list-table th:nth-child(4) { min-width: 250px; }
-.staff-list-table th:nth-child(5) { min-width: 150px; }
-.staff-list-table th:nth-child(6) { min-width: 130px; }
+.staff-list-table th:nth-child(4) { min-width: 220px; }
+.staff-list-table th:nth-child(5) { min-width: 250px; }
+.staff-list-table th:nth-child(6) { min-width: 150px; }
+.staff-list-table th:nth-child(7) { min-width: 130px; }
 .staff-contact { display: block; color: #5f746e; font-weight: 400; }
 .parent-list-table table { min-width: 860px; }
 .parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }

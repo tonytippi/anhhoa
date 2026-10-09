@@ -1874,6 +1874,7 @@ export function RosterWorkspace({
               <th>STT</th>
               <th>Họ tên</th>
               <th>Số điện thoại</th>
+              <th>Email</th>
               <th>Lớp</th>
               <th>Chức danh chính</th>
               <th>Trạng thái</th>
@@ -1881,12 +1882,13 @@ export function RosterWorkspace({
             </tr>
           </thead>
           <tbody>
-            {staffLoading ? <tr><td colSpan={7} role="status" className="student-empty-state">Đang tải danh sách nhân viên...</td></tr> : staff.length ? (
+            {staffLoading ? <tr><td colSpan={8} role="status" className="student-empty-state">Đang tải danh sách nhân viên...</td></tr> : staff.length ? (
               staff.map((item) => (
                 <tr key={item.id}>
                   <td>{(staffMeta.page - 1) * staffMeta.pageSize + staff.indexOf(item) + 1}</td>
-                  <th scope="row">{item.fullName}<small className="staff-contact">{item.staffCode ?? item.email ?? "-"}</small></th>
+                  <th scope="row">{item.fullName}<small className="staff-contact">{item.staffCode ?? "-"}</small></th>
                   <td>{item.phone ?? "-"}</td>
+                  <td>{item.email ?? "-"}</td>
                   <td>{item.classNames?.length ? item.classNames.join(", ") : "-"}</td>
                   <td>{item.primaryPosition?.name ?? 'Không có'}</td>
                   <td>
@@ -1908,10 +1910,10 @@ export function RosterWorkspace({
                 </tr>
               ))
             ) : staffLoadFailed ? (
-              <tr><td colSpan={7} role="status" className="student-empty-state"><strong>Không thể tải danh sách nhân viên</strong><span>Kiểm tra kết nối rồi thử làm mới danh sách.</span></td></tr>
+              <tr><td colSpan={8} role="status" className="student-empty-state"><strong>Không thể tải danh sách nhân viên</strong><span>Kiểm tra kết nối rồi thử làm mới danh sách.</span></td></tr>
             ) : (
               <tr>
-                <td colSpan={7} className="student-empty-state"><strong>Chưa có hồ sơ nhân sự</strong><span>Thay đổi điều kiện lọc hoặc thêm hồ sơ nhân viên đầu tiên.</span></td>
+                <td colSpan={8} className="student-empty-state"><strong>Chưa có hồ sơ nhân sự</strong><span>Thay đổi điều kiện lọc hoặc thêm hồ sơ nhân viên đầu tiên.</span></td>
               </tr>
             )}
           </tbody>
