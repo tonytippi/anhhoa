@@ -422,6 +422,40 @@ describe("RosterWorkspace paged read model", () => {
     expect(await screen.findByText(/Đã cấp quyền đăng nhập cho Cô Mai/)).toBeTruthy();
   });
 
+  it("revokes staff login access through the same dialog, only for bound staff", async () => {
+    const position = { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" };
+    const base = { phone: "0900", classNames: [], staffCode: null, hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: position };
+    const rows = [
+      { ...base, id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", schoolMembershipId: null },
+      { ...base, id: "staff-b", fullName: "Cô Bình", email: "binh@example.com", schoolMembershipId: "membership-b" },
+    ];
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") return Promise.resolve(response({ id: "operation", status: "COMPLETED", outcome: { id: "staff-b" } }));
+      if (url.includes("/roster/staff?")) return Promise.resolve(pagedResponse({ data: rows, meta: { page: 1, pageSize: 25, totalItems: 2, totalPages: 1 } }));
+      if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
+      if (url.endsWith("/positions")) return Promise.resolve(response([position]));
+      return Promise.resolve(response([]));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="staff" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Tùy chọn cho Cô Mai" }));
+    expect(screen.queryByRole("menuitem", { name: "Thu hồi quyền đăng nhập" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Tùy chọn cho Cô Bình" }));
+    expect(screen.queryByRole("menuitem", { name: "Cấp quyền đăng nhập" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Thu hồi quyền đăng nhập" }));
+    const dialog = screen.getByRole("dialog", { name: /Thu hồi quyền đăng nhập · Cô Bình/ });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Thu hồi quyền đăng nhập" }));
+    expect(within(dialog).getByRole("alert").textContent).toContain("lý do");
+    fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Nghỉ việc" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Thu hồi quyền đăng nhập" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Thu hồi quyền đăng nhập/ })).toBeNull());
+    const post = fetch.mock.calls.find(([, options]) => options?.method === "POST")!;
+    expect(String(post[0])).toContain("/roster/staff/staff-b/login-access/revoke");
+    expect(JSON.parse(String(post[1]?.body))).toEqual({ reason: "Nghỉ việc" });
+    expect(await screen.findByText(/Đã thu hồi quyền đăng nhập của Cô Bình/)).toBeTruthy();
+  });
+
   it("pages staff, drops stale responses, opens the edit menu, and reloads after an edit", async () => {
     const staff = { id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", phone: "0900", classNames: ["Lớp Mầm"], staffCode: "NV-01", hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" } };
     let resolvePageTwo!: (value: Response) => void;

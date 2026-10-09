@@ -445,6 +445,19 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const noEmail = (await prisma.staffProfile.create({ data: { schoolId: current.current.id, fullName: 'Không email', email: null, phone: '0900000003', dateOfBirth: new Date('1990-01-01T00:00:00.000Z'), primaryPositionId: current.position.id } })).id;
     await expect(roster.grantStaffLoginAccess(current.admin.id, current.current.id, noEmail, uuid(), uuid(), body)).rejects.toMatchObject({ status: 400, response: { fieldErrors: { email: expect.any(String) } } });
     expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STAFF_LOGIN_ACCESS_GRANTED' } })).toMatchObject({ provenance: { staffProfileId: staffId, reason: body.reason } });
+    await expect(roster.revokeStaffLoginAccess(current.admin.id, current.current.id, staffId, uuid(), uuid(), {})).rejects.toMatchObject({ status: 400 });
+    await expect(roster.revokeStaffLoginAccess(foreign.admin.id, foreign.current.id, staffId, uuid(), uuid(), body)).rejects.toMatchObject({ status: 404 });
+    await expect(roster.revokeStaffLoginAccess(current.admin.id, current.current.id, noEmail, uuid(), uuid(), body)).rejects.toMatchObject({ status: 409, response: { code: 'STAFF_LOGIN_NOT_BOUND' } });
+    const adminProfile = await prisma.staffProfile.findFirstOrThrow({ where: { schoolId: current.current.id, email: (await prisma.userIdentity.findUniqueOrThrow({ where: { id: current.admin.id } })).emailNormalized } });
+    await expect(roster.revokeStaffLoginAccess(current.admin.id, current.current.id, adminProfile.id, uuid(), uuid(), body)).rejects.toMatchObject({ status: 409, response: { code: 'SELF_REVOKE_DENIED' } });
+    const revokeKey = uuid();
+    const revoked = await roster.revokeStaffLoginAccess(current.admin.id, current.current.id, staffId, revokeKey, uuid(), body);
+    expect(revoked.outcome).toMatchObject({ id: staffId, schoolMembershipId: null });
+    expect(await roster.revokeStaffLoginAccess(current.admin.id, current.current.id, staffId, revokeKey, uuid(), body)).toEqual(revoked);
+    expect(await prisma.staffProfile.findFirstOrThrow({ where: { id: staffId } })).toMatchObject({ schoolMembershipId: null, boundAt: null, boundByMembershipId: null });
+    expect(await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: current.current.id, userIdentityId: identity.id } })).toMatchObject({ status: 'ACTIVE' });
+    expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: current.current.id, action: 'STAFF_LOGIN_ACCESS_REVOKED' } })).toMatchObject({ provenance: { staffProfileId: staffId, reason: body.reason } });
+    await expect(roster.grantStaffLoginAccess(current.admin.id, current.current.id, staffId, uuid(), uuid(), body)).resolves.toMatchObject({ outcome: { schoolMembershipId: expect.any(String) } });
   });
   it('returns bounded staff pages with scoped search, filters, stable sorts, and no foreign positions', async () => {
     const current = await graph(); const foreign = await graph();

@@ -280,7 +280,7 @@ export function RosterWorkspace({
   const [year, setYear] = useState({ name: "", startsOn: "", endsOn: "" });
   const [className, setClassName] = useState("");
   const [rename, setRename] = useState<Classroom>();
-  const [loginAccess, setLoginAccess] = useState<{ staff: Staff; reason: string; error?: string; saving?: boolean }>();
+  const [loginAccess, setLoginAccess] = useState<{ mode: "grant" | "revoke"; staff: Staff; reason: string; error?: string; saving?: boolean }>();
   const [classAccount, setClassAccount] = useState<{ classroom: Classroom; bankAccountId: string; schoolBankAccountId: string; accounts?: ReceivingAccount[]; error?: string; saving?: boolean }>();
   const [renameName, setRenameName] = useState("");
   const [student, setStudent] = useState({
@@ -978,11 +978,11 @@ export function RosterWorkspace({
     event.preventDefault();
     if (!loginAccess || loginAccess.saving) return;
     const reason = loginAccess.reason.trim();
-    if (!reason) { setLoginAccess({ ...loginAccess, error: "Nhập lý do cấp quyền đăng nhập." }); return; }
+    if (!reason) { setLoginAccess({ ...loginAccess, error: "Nhập lý do." }); return; }
     const requestGeneration = generation.current;
     setLoginAccess({ ...loginAccess, saving: true, error: undefined });
     try {
-      const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/roster/staff/${loginAccess.staff.id}/login-access`, {
+      const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/roster/staff/${loginAccess.staff.id}/login-access${loginAccess.mode === "revoke" ? "/revoke" : ""}`, {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? ""), "idempotency-key": crypto.randomUUID(), "x-operation-id": crypto.randomUUID() },
@@ -991,13 +991,14 @@ export function RosterWorkspace({
       if (!valid(schoolId, requestGeneration)) return;
       const body = (await response.json().catch(() => ({}))) as ErrorBody & { data?: { outcome?: { canEnterSchool?: boolean } } };
       if (!response.ok) {
-        setLoginAccess((current) => current && { ...current, saving: false, error: response.status === 403 ? "Cần quyền quản lý truy cập để cấp quyền đăng nhập." : Object.values(body.error?.fieldErrors ?? {})[0] ?? body.error?.message ?? "Không thể cấp quyền đăng nhập." });
+        setLoginAccess((current) => current && { ...current, saving: false, error: response.status === 403 ? "Cần quyền quản lý truy cập để thay đổi quyền đăng nhập." : Object.values(body.error?.fieldErrors ?? {})[0] ?? body.error?.message ?? (loginAccess.mode === "revoke" ? "Không thể thu hồi quyền đăng nhập." : "Không thể cấp quyền đăng nhập.") });
         return;
       }
       const name = loginAccess.staff.fullName;
       const canEnter = body.data?.outcome?.canEnterSchool !== false;
       setLoginAccess(undefined);
-      setMessage(canEnter ? `Đã cấp quyền đăng nhập cho ${name}. Nhân viên đăng nhập bằng Google với email ${loginAccess.staff.email}.` : `Đã cấp quyền đăng nhập cho ${name}, nhưng chức danh hiện tại chưa có quyền vào trường. Hãy cấp quyền cho chức danh trước.`);
+      if (loginAccess.mode === "revoke") setMessage(`Đã thu hồi quyền đăng nhập của ${name}. Nhân viên không thể đăng nhập từ yêu cầu kế tiếp.`);
+      else setMessage(canEnter ? `Đã cấp quyền đăng nhập cho ${name}. Nhân viên đăng nhập bằng Google với email ${loginAccess.staff.email}.` : `Đã cấp quyền đăng nhập cho ${name}, nhưng chức danh hiện tại chưa có quyền vào trường. Hãy cấp quyền cho chức danh trước.`);
       reloadStaff();
     } catch { if (valid(schoolId, requestGeneration)) setLoginAccess((current) => current && { ...current, saving: false, error: "Chưa xác nhận được kết quả. Hãy tải lại danh sách trước khi thử lại." }); }
   };
@@ -1901,7 +1902,7 @@ export function RosterWorkspace({
                       onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setRowMenu(item.id); } }}
                       onClick={() => setRowMenu(rowMenu === item.id ? undefined : item.id)}
                     >...</button>
-                    {rowMenu === item.id && <div ref={rowMenuElement} className="roster-action-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); } else if (event.key === "Tab") setRowMenu(undefined); }}><button type="button" role="menuitem" onClick={(event) => { staffIntakeTrigger.current = event.currentTarget; setRowMenu(undefined); void openStaffEdit(item.id); }}>Sửa hồ sơ</button>{!item.schoolMembershipId && item.email && item.employmentStatus === 'ACTIVE' && <button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); setLoginAccess({ staff: item, reason: "" }); }}>Cấp quyền đăng nhập</button>}</div>}
+                    {rowMenu === item.id && <div ref={rowMenuElement} className="roster-action-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); } else if (event.key === "Tab") setRowMenu(undefined); }}><button type="button" role="menuitem" onClick={(event) => { staffIntakeTrigger.current = event.currentTarget; setRowMenu(undefined); void openStaffEdit(item.id); }}>Sửa hồ sơ</button>{!item.schoolMembershipId && item.email && item.employmentStatus === 'ACTIVE' && <button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); setLoginAccess({ mode: "grant", staff: item, reason: "" }); }}>Cấp quyền đăng nhập</button>}{item.schoolMembershipId && <button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); setLoginAccess({ mode: "revoke", staff: item, reason: "" }); }}>Thu hồi quyền đăng nhập</button>}</div>}
                   </td>
                 </tr>
               ))
@@ -2972,14 +2973,16 @@ export function RosterWorkspace({
       {loginAccess && (
         <div className="student-intake-backdrop"><div ref={loginAccessDialog} className="student-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="login-access-title" onKeyDown={trapLoginAccessDialog}>
           <form className="roster-form student-intake-form" onSubmit={submitLoginAccess}>
-            <h3 id="login-access-title">Cấp quyền đăng nhập · {loginAccess.staff.fullName}</h3>
-            <p>{loginAccess.staff.fullName} sẽ đăng nhập bằng Google với email <strong>{loginAccess.staff.email}</strong>. Quyền thao tác phụ thuộc chức danh {loginAccess.staff.primaryPosition?.name ?? "hiện tại"}.</p>
+            <h3 id="login-access-title">{loginAccess.mode === "revoke" ? "Thu hồi quyền đăng nhập" : "Cấp quyền đăng nhập"} · {loginAccess.staff.fullName}</h3>
+            {loginAccess.mode === "revoke"
+              ? <p>{loginAccess.staff.fullName} sẽ không thể đăng nhập vào trường nữa từ yêu cầu kế tiếp. Hồ sơ nhân viên được giữ nguyên và có thể cấp lại sau.</p>
+              : <p>{loginAccess.staff.fullName} sẽ đăng nhập bằng Google với email <strong>{loginAccess.staff.email}</strong>. Quyền thao tác phụ thuộc chức danh {loginAccess.staff.primaryPosition?.name ?? "hiện tại"}.</p>}
             <label>
               Lý do
               <input autoFocus value={loginAccess.reason} maxLength={500} onChange={(event) => setLoginAccess({ ...loginAccess, reason: event.target.value, error: undefined })} />
             </label>
             {loginAccess.error && <p role="alert">{loginAccess.error}</p>}
-            <div className="student-intake-actions"><button type="button" onClick={() => setLoginAccess(undefined)}>Hủy</button><button disabled={disabled || loginAccess.saving}>Cấp quyền đăng nhập</button></div>
+            <div className="student-intake-actions"><button type="button" onClick={() => setLoginAccess(undefined)}>Hủy</button><button disabled={disabled || loginAccess.saving}>{loginAccess.mode === "revoke" ? "Thu hồi quyền đăng nhập" : "Cấp quyền đăng nhập"}</button></div>
           </form>
         </div></div>
       )}

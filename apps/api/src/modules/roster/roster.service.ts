@@ -44,6 +44,8 @@ const route = {
   staffPhoto: "POST /api/app/schools/:schoolId/roster/staff/:staffId/photo",
   staffLoginAccess:
     "POST /api/app/schools/:schoolId/roster/staff/:staffId/login-access",
+  staffLoginRevoke:
+    "POST /api/app/schools/:schoolId/roster/staff/:staffId/login-access/revoke",
   assignment:
     "POST /api/app/schools/:schoolId/roster/staff/:staffId/assignments",
   assignmentChange:
@@ -1210,6 +1212,81 @@ export class RosterService {
               grant.capability === "SCHOOL_CONTEXT_READ",
           ),
         };
+      },
+    );
+  }
+  // Unbinds the StaffProfile; the membership stays ACTIVE so access can be granted again later.
+  // Authorization requires a bound StaffProfile, so the next request of that person is denied.
+  async revokeStaffLoginAccess(
+    identityId: string,
+    schoolId: string,
+    staffId: string,
+    key: string,
+    operationId: string,
+    body: any,
+  ) {
+    const actor = await this.authorization.resolve(
+      identityId,
+      schoolId,
+      "app",
+      "ACCESS_MANAGE",
+    );
+    if (!uuid.test(staffId))
+      throw new NotFoundException({
+        code: "STAFF_NOT_FOUND",
+        message: "Không tìm thấy nhân sự.",
+      });
+    const reason = this.reason(body?.reason);
+    return this.mutate(
+      actor,
+      identityId,
+      schoolId,
+      route.staffLoginRevoke,
+      key,
+      operationId,
+      { staffId, reason },
+      async (tx, operation) => {
+        const staff = await tx.staffProfile.findFirst({
+          where: { id: staffId, schoolId },
+        });
+        if (!staff)
+          throw new NotFoundException({
+            code: "STAFF_NOT_FOUND",
+            message: "Không tìm thấy nhân sự.",
+          });
+        if (!staff.schoolMembershipId)
+          throw new ConflictException({
+            code: "STAFF_LOGIN_NOT_BOUND",
+            message: "Nhân viên chưa có quyền đăng nhập.",
+          });
+        if (staff.schoolMembershipId === actor.membershipId)
+          throw new ConflictException({
+            code: "SELF_REVOKE_DENIED",
+            message: "Bạn không thể tự thu hồi quyền đăng nhập của chính mình.",
+          });
+        const updated = await tx.staffProfile.update({
+          where: { id: staffId },
+          data: {
+            schoolMembershipId: null,
+            boundAt: null,
+            boundByMembershipId: null,
+          },
+          include: { primaryPosition: true, photo: { select: { id: true } } },
+        });
+        await this.audit(
+          tx,
+          schoolId,
+          identityId,
+          actor.membershipId,
+          "STAFF_LOGIN_ACCESS_REVOKED",
+          operation,
+          {
+            staffProfileId: staffId,
+            previousSchoolMembershipId: staff.schoolMembershipId,
+            reason,
+          },
+        );
+        return this.staffDto(updated);
       },
     );
   }
