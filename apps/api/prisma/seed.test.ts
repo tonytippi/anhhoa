@@ -51,7 +51,7 @@ describe('development fixture seed', () => {
     const staff = parsePeakLandStaffCsv(await readFile(csvPath, 'utf8'));
     expect(staff).toHaveLength(31);
     expect(new Set(staff.map((record) => record.staffCode)).size).toBe(31);
-    expect(staff[0]).toMatchObject({ fullName: 'Phạm Ngọc Phương', email: null, phone: '0985907213', primaryPositionCode: 'QUAN_LY_TRUONG' });
+    expect(staff[0]).toMatchObject({ fullName: 'Phạm Ngọc Phương', email: 'ngocphuong.pham@gmail.com', phone: '0985907213', primaryPositionCode: 'QUAN_LY_TRUONG' });
     expect(staff[12]).toMatchObject({ fullName: 'Ms. Nancy', primaryPositionCode: 'HIEU_TRUONG' });
     expect(staff[17]).toMatchObject({ fullName: 'Ms Hana', primaryPositionCode: 'GIAO_VIEN', classNames: ['Marie Curie', 'Einstein', 'Newton', 'Archimedes', 'Picasso', 'Mozart', 'Elizabeth'] });
     expect(staff[18]).toMatchObject({ fullName: 'Cô Võ Hương', phone: null, primaryPositionCode: 'GIAO_VIEN', classNames: ['Archimedes'] });

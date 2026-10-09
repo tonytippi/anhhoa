@@ -109,6 +109,7 @@ function parseCsv(csv: string): { line: number; values: string[] }[] {
         quoted = false;
         closedQuote = true;
       }
+      
       else {
         value += character;
         if (character === '\n') line += 1;
@@ -305,7 +306,11 @@ export async function seed(): Promise<void> {
         skipDuplicates: true,
       });
       await tx.positionCapabilityGrant.createMany({
-        data: [{ schoolId: school.id, positionId: financePosition.id, capability: 'FINANCE_MANAGE' }],
+        data: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'].map((capability) => ({ schoolId: school.id, positionId: financePosition.id, capability })),
+        skipDuplicates: true,
+      });
+      await tx.positionCapabilityGrant.createMany({
+        data: ownerCapabilities.map((capability) => ({ schoolId: school.id, positionId: positionByCode.get('QUAN_LY_TRUONG')!.id, capability })),
         skipDuplicates: true,
       });
       const staffData = {
@@ -367,12 +372,27 @@ export async function seed(): Promise<void> {
           include: { issuedCodes: true, assignments: true },
         });
         if (profiles.length > 1) throw new Error(`Fixture ${record.staffCode} có nhiều StaffProfile trong School pl.`);
+        // Staff with an email get a login: identity + membership, bound to their profile by the owner.
+        let staffMembership = null;
+        if (record.email && record.email !== peakLand.ownerEmail) {
+          const identity = await tx.userIdentity.upsert({ where: { emailNormalized: record.email }, create: { emailNormalized: record.email }, update: {} });
+          staffMembership = await tx.schoolMembership.upsert({
+            where: { schoolId_userIdentityId: { schoolId: school.id, userIdentityId: identity.id } },
+            create: { schoolId: school.id, userIdentityId: identity.id },
+            update: { status: 'ACTIVE' },
+          });
+        }
         const profileData = { fullName: record.fullName, email: record.email, phone: record.phone, dateOfBirth: record.dateOfBirth, gender: null, address: null, staffCode: record.staffCode, employmentStatus: 'ACTIVE' as const, primaryPositionId: primaryPosition.id };
+        const bindData = staffMembership ? { schoolMembershipId: staffMembership.id, boundByMembershipId: membership.id } : { schoolMembershipId: null, boundByMembershipId: null };
         const existingProfile = profiles[0];
-        if (existingProfile && (existingProfile.fullName !== profileData.fullName || existingProfile.email !== profileData.email || existingProfile.phone !== profileData.phone || existingProfile.dateOfBirth.getTime() !== profileData.dateOfBirth.getTime() || existingProfile.gender !== null || existingProfile.address !== null || existingProfile.staffCode !== record.staffCode || existingProfile.employmentStatus !== profileData.employmentStatus || existingProfile.primaryPositionId !== profileData.primaryPositionId || existingProfile.schoolMembershipId !== null || existingProfile.boundAt !== null || existingProfile.boundByMembershipId !== null || existingProfile.issuedCodes.length !== 1 || existingProfile.issuedCodes[0]?.staffCode !== record.staffCode)) {
+        if (existingProfile && (existingProfile.fullName !== profileData.fullName || existingProfile.phone !== profileData.phone || existingProfile.dateOfBirth.getTime() !== profileData.dateOfBirth.getTime() || existingProfile.gender !== null || existingProfile.address !== null || existingProfile.staffCode !== record.staffCode || existingProfile.employmentStatus !== profileData.employmentStatus || existingProfile.primaryPositionId !== profileData.primaryPositionId || (existingProfile.schoolMembershipId !== null && existingProfile.schoolMembershipId !== bindData.schoolMembershipId) || (existingProfile.boundByMembershipId !== null && existingProfile.boundByMembershipId !== bindData.boundByMembershipId) || existingProfile.issuedCodes.length !== 1 || existingProfile.issuedCodes[0]?.staffCode !== record.staffCode)) {
           throw new Error(`Fixture ${record.staffCode} đã có StaffProfile khác snapshot; hãy reset development database trước khi seed lại.`);
         }
-        const profile = existingProfile ?? await tx.staffProfile.create({ data: { schoolId: school.id, ...profileData } });
+        const bound = staffMembership ? { ...bindData, boundAt: existingProfile?.boundAt ?? new Date() } : {};
+        // Email is the one staff field a re-seed may change (it is how a person logs in); binding follows it.
+        const profile = existingProfile
+          ? (existingProfile.email !== record.email || (staffMembership && existingProfile.schoolMembershipId === null) ? await tx.staffProfile.update({ where: { id: existingProfile.id }, data: { email: record.email, ...bound } }) : existingProfile)
+          : await tx.staffProfile.create({ data: { schoolId: school.id, ...profileData, ...bound } });
         if (registries[0]?.staffId && registries[0].staffId !== profile.id) throw new Error(`Mã nhân viên ${record.staffCode} đã thuộc StaffProfile khác.`);
         if (!registries[0]) await tx.staffCodeRegistry.create({ data: { schoolId: school.id, staffId: profile.id, staffCode: record.staffCode } });
         const expectedClassIds = record.primaryPositionCode === 'GIAO_VIEN' ? record.classNames.map((name) => classrooms.get(name)!.id) : [];
