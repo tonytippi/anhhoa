@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseBlocks } from './guide-markdown';
-import { guideArticles, parseArticle, visibleGuides } from './guides';
+import { guideArticles, guidesForPage, parseArticle, searchGuides, visibleGuides } from './guides';
 
 describe('guide articles', () => {
   it('reads frontmatter and strips the order prefix from the id', () => {
     const article = parseArticle('./articles/07-vi-du.md', '---\ntitle: Ví dụ\nsummary: Tóm tắt\norder: 7\nrequires: receivables, promotions\n---\n## Mục\n');
-    expect(article).toEqual({ id: 'vi-du', title: 'Ví dụ', summary: 'Tóm tắt', order: 7, requires: ['receivables', 'promotions'], body: '## Mục\n' });
+    expect(article).toEqual({ id: 'vi-du', title: 'Ví dụ', summary: 'Tóm tắt', order: 7, requires: ['receivables', 'promotions'], pages: ['receivables', 'promotions'], body: '## Mục\n' });
+    expect(parseArticle('./articles/08-khac.md', '---\ntitle: Khác\nrequires: collection-runs\npages: collection-runs, receipt-queue\n---\n').pages).toEqual(['collection-runs', 'receipt-queue']);
   });
   it('ships ordered articles whose guide links and images resolve', async () => {
     const { readdirSync } = await import('node:fs');
@@ -22,6 +23,23 @@ describe('guide articles', () => {
     expect(visible).toContain('tao-dot-thu');
     expect(visible).toContain('bat-dau');
     expect(visible).not.toContain('khoan-thu');
+  });
+  it('suggests the articles that belong to the open page', () => {
+    const ids = (page: string) => guidesForPage(guideArticles, page).map((article) => article.id);
+    expect(ids('receipt-queue')).toEqual(expect.arrayContaining(['thu-tien', 'quyet-toan-nghi-hoc', 'khi-mang-chap-chon']));
+    expect(ids('receipt-queue')).not.toContain('tao-dot-thu');
+    expect(ids('overview')).toEqual(['bat-dau']);
+    expect(ids('students')).toEqual([]);
+  });
+  it('searches titles and article text without Vietnamese diacritics', () => {
+    const ids = (query: string) => searchGuides(guideArticles, query).map(({ article }) => article.id);
+    expect(ids('')).toHaveLength(guideArticles.length);
+    expect(ids('dong dot thu')).toContain('dong-dot-thu');
+    expect(ids('ĐÓNG ĐỢT')).toContain('dong-dot-thu');
+    expect(ids('khong co bai nao nhu the nay')).toEqual([]);
+    const sample = parseArticle('./articles/09-mau.md', '---\ntitle: Mẫu\n---\nMở trang `Thu tiền` rồi bấm **Ghi nhận đã chi** cho phiếu hoàn tiền.\n');
+    expect(searchGuides([sample], 'mau')).toEqual([{ article: sample }]);
+    expect(searchGuides([sample], 'ghi nhan da chi')[0]!.excerpt).toBe('Mở trang Thu tiền rồi bấm Ghi nhận đã chi cho phiếu hoàn tiền.');
   });
   it('parses notes, nested lists and continued numbering', () => {
     expect(parseBlocks('> [!WARNING]\n> Cẩn thận\n\n1. Một\n   - Con\n2. Hai\n\n![Ảnh](a.jpg)\n\n3. Ba')).toEqual([

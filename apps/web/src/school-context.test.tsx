@@ -92,5 +92,16 @@ describe('SchoolContext Home-only chooser', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Rà soát và phát hành hóa đơn' }));
     await screen.findByRole('heading', { name: 'Rà soát và phát hành hóa đơn', level: 1 });
     expect(window.location.pathname).toBe('/schools/peakland/guides/ra-soat-phat-hanh');
+    expect(screen.queryByRole('button', { name: 'Hướng dẫn cho trang này' })).toBeNull();
+  });
+  it('opens the guides related to the current page from the header button', async () => {
+    window.history.replaceState({}, '', '/schools/peakland/collection-runs'); vi.stubGlobal('fetch', financeFetch()); renderContext();
+    fireEvent.click(await screen.findByRole('button', { name: 'Hướng dẫn cho trang này' }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Tạo đợt thu và hóa đơn nháp' })).toBeTruthy();
+    expect(within(menu).queryByRole('menuitem', { name: 'Ghi nhận thu tiền' })).toBeNull();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Đóng đợt thu' }));
+    await screen.findByRole('heading', { name: 'Đóng đợt thu', level: 1 });
+    expect(window.location.pathname).toBe('/schools/peakland/guides/dong-dot-thu');
   });
 });

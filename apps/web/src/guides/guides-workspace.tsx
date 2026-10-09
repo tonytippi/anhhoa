@@ -1,10 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { GuideMarkdown, type GuideLinks } from "./guide-markdown";
-import type { GuideArticle } from "./guides";
+import { searchGuides, type GuideArticle } from "./guides";
 
 export function GuidesWorkspace({ articles, guideId, links }: { articles: GuideArticle[]; guideId?: string; links: GuideLinks }) {
   const position = articles.findIndex((article) => article.id === guideId);
   const article = articles[position];
+  const [query, setQuery] = useState("");
+  const results = searchGuides(articles, query);
   useEffect(() => { window.scrollTo?.(0, 0); document.querySelector<HTMLElement>(".guides h1")?.focus(); }, [guideId]);
   if (!article) return <section className="guides" aria-labelledby="guides-title">
     <header>
@@ -13,7 +15,9 @@ export function GuidesWorkspace({ articles, guideId, links }: { articles: GuideA
       <p>Mỗi bài hướng dẫn một việc cụ thể. Ảnh minh họa dùng dữ liệu mẫu, không phải dữ liệu của trường.</p>
     </header>
     {guideId && <p role="alert">Không tìm thấy bài hướng dẫn này hoặc tài khoản chưa có quyền dùng chức năng tương ứng.</p>}
-    <ol className="guides-index">{articles.map((item, index) => <li key={item.id}><a href={links.href(item.id)} onClick={(event) => { event.preventDefault(); links.open(item.id); }}><span className="guides-index-number">{index + 1}</span><span><strong>{item.title}</strong>{item.summary && <span>{item.summary}</span>}</span></a></li>)}</ol>
+    <input className="guides-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm trong hướng dẫn, ví dụ: phát hành, hoàn tiền, tài khoản" aria-label="Tìm trong hướng dẫn" />
+    {results.length ? <ol className="guides-index">{results.map(({ article: item, excerpt }) => <li key={item.id}><a href={links.href(item.id)} onClick={(event) => { event.preventDefault(); links.open(item.id); }}><span className="guides-index-number">{articles.indexOf(item) + 1}</span><span><strong>{item.title}</strong>{item.summary && <span>{item.summary}</span>}{excerpt && <span className="guides-index-excerpt">{excerpt}</span>}</span></a></li>)}</ol>
+      : <p className="guides-empty" role="status">Không có bài hướng dẫn nào khớp với "{query.trim()}".</p>}
   </section>;
   const previous = articles[position - 1];
   const next = articles[position + 1];

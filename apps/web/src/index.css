@@ -2448,3 +2448,16 @@ tbody tr:last-child td {
 .guide-pager a span { color: #5f746e; font-size: 12px; }
 .guide-pager a:hover { border-color: #b9d8c6; background: #f4faf6; }
 @media (max-width: 767px) { .guide-body { padding: 4px 16px 16px; } .guide-ui-label { white-space: normal; } }
+.guides-search { width: 100%; min-height: 44px; border: 1px solid #d7e2dc; border-radius: 12px; background: #fff; color: #18332d; padding: 0 14px; font: inherit; font-size: 15px; }
+.guides-search:focus { outline: 2px solid #4c9a6e; outline-offset: 1px; }
+.guides-index .guides-index-excerpt { color: #35524a; font-size: 13px; font-style: italic; }
+.guides-empty { margin: 0; color: #5f746e; }
+/* Nút "Hướng dẫn" ở đầu mỗi trang quản trị: mở danh sách bài liên quan tới trang đang mở. */
+.school-context-header { justify-content: space-between; gap: 12px; }
+.page-guides-trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; border: 1px solid #d7e2dc; border-radius: 9999px; background: #fff; color: #1d6538; padding: 0 12px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.page-guides-trigger:hover, .page-guides-trigger[data-popup-open] { border-color: #b9d8c6; background: #f4faf6; }
+.page-guides-trigger svg { width: 16px; height: 16px; }
+.page-guides-menu { max-width: min(360px, calc(100vw - 16px)); min-width: 240px; }
+.page-guides-menu .finance-anchored-action-menu-item { padding-block: 7px; white-space: normal; line-height: 1.35; cursor: pointer; }
+.page-guides-menu-title { margin: 0; padding: 6px 8px 4px; color: #5f746e; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.page-guides-menu-separator { height: 1px; margin: 4px 0; background: #e4ece8; }

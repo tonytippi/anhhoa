@@ -2,6 +2,7 @@
 title: Bắt đầu sử dụng
 summary: Đăng nhập, chọn trường, cách đọc menu và vài nguyên tắc chung trước khi thao tác tài chính.
 order: 1
+pages: overview
 ---
 ## Đăng nhập và chọn trường
 

@@ -3,6 +3,7 @@ title: Học sinh nghỉ học (quyết toán)
 summary: Tạo hóa đơn quyết toán cho học sinh đã nghỉ, phát hành phiếu hoàn tiền và ghi nhận đã chi.
 order: 12
 requires: collection-runs
+pages: collection-runs, receipt-queue
 ---
 Khi học sinh nghỉ học, trường có thể phải trả lại tiền ăn chưa dùng hoặc học phí đã nộp trước. Việc này làm bằng **hóa đơn quyết toán** trong đợt thu của tháng kế tiếp.
 
