@@ -10,6 +10,6 @@ export default defineConfig(({ command }) => ({
   server: { port: 5176, strictPort: true },
   plugins: [
     react(),
-    VitePWA({ registerType: 'autoUpdate', manifest: { name: 'PassionEdu Ops', short_name: 'Ops', display: 'standalone' }, workbox: { runtimeCaching: [] } }),
+    VitePWA({ registerType: 'autoUpdate', manifest: { name: 'PassionEdu Ops', short_name: 'Ops', display: 'standalone' }, workbox: { navigateFallbackDenylist: [/^\/api(?:\/|$)/], runtimeCaching: [] } }),
   ],
 }));
