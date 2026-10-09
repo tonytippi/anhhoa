@@ -62,3 +62,49 @@ body:has(.auth-card-shell) { margin: 0; }
   color: #7a8a85;
   font-size: 13px;
 }
+.auth-card-account {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-height: 60px;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #d3dcd7;
+  border-radius: 12px;
+  background: #fff;
+  color: #18332d;
+  padding: 10px 16px;
+  text-align: left;
+  text-decoration: none;
+  transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+.auth-card-account:hover { border-color: #247a51; background: #f4f9f6; box-shadow: 0 2px 8px rgb(24 51 45 / 8%); }
+.auth-card-account:focus-visible, .auth-card-switch:focus-visible { outline: 3px solid #277e48; outline-offset: 3px; }
+.auth-card-avatar {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #e5f1ea;
+  color: #247a51;
+  font-size: 13px;
+  font-weight: 700;
+}
+.auth-card-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.auth-card-account-text { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.auth-card-account-text strong, .auth-card-account-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-card-account-text strong { font-size: 15px; font-weight: 600; }
+.auth-card-account-text small { color: #5f746e; font-size: 13px; }
+.auth-card-switch {
+  display: inline-block;
+  margin-top: 14px;
+  border-radius: 6px;
+  color: #247a51;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.auth-card-switch:hover { text-decoration: underline; }

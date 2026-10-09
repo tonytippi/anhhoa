@@ -82,7 +82,7 @@ test("actual Parent service worker never caches authenticated reads and fails cl
   expect(logoutStatus).toBe(204);
   await context.setOffline(true);
   await page.reload();
-  await expect(page.getByRole("link", { name: "Đăng nhập với Google" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Tiếp tục với / })).toBeVisible();
   await expect(page.getByText("OBL-202609-000001")).toHaveCount(0);
   await expect(page.getByText("Bé An")).toHaveCount(0);
   expect(await protectedCachePaths(page)).toEqual(cached);

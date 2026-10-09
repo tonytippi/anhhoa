@@ -12,6 +12,7 @@ import "@fontsource-variable/inter";
 import "./index.css";
 import { SchoolContext } from "./school-context";
 import { installNetworkErrorMessage } from "./network-error";
+import { accountInitials, accountLoginUrl, forgetAccount, lastAccount, otherAccountLoginUrl } from "./last-account";
 export function AudienceShell({
   audience,
   heading,
@@ -69,6 +70,29 @@ function AuthBrand() {
     </p>
   );
 }
+function AdminSignIn({ loginUrl }: { loginUrl: string }) {
+  const account = lastAccount();
+  if (!account)
+    return (
+      <a className="admin-google-link" href={loginUrl}>
+        <GoogleMark />
+        <span>Đăng nhập với Google</span>
+      </a>
+    );
+  return (
+    <>
+      <a className="admin-auth-account" href={accountLoginUrl(loginUrl, account)}>
+        <span className="admin-auth-avatar" aria-hidden="true">{account.pictureUrl ? <img src={account.pictureUrl} alt="" referrerPolicy="no-referrer" /> : accountInitials(account)}</span>
+        <span className="admin-auth-account-text">
+          <strong>Tiếp tục với {account.displayName || account.email}</strong>
+          {account.displayName && <small>{account.email}</small>}
+        </span>
+        <GoogleMark />
+      </a>
+      <a className="admin-auth-switch" href={otherAccountLoginUrl(loginUrl)} onClick={forgetAccount}>Dùng tài khoản khác</a>
+    </>
+  );
+}
 function GoogleMark() {
   return (
     <svg className="admin-google-mark" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
@@ -120,10 +144,7 @@ export function AdminShell() {
           <AuthBrand />
           <h1>Quản trị trường</h1>
           <p className="admin-auth-copy">Đăng nhập bằng tài khoản Google đã được nhà trường cấp quyền để tiếp tục.</p>
-          <a className="admin-google-link" href={googleLoginUrl("app")}>
-            <GoogleMark />
-            <span>Đăng nhập với Google</span>
-          </a>
+          <AdminSignIn loginUrl={googleLoginUrl("app")} />
           <p className="admin-auth-note">Chưa có quyền? Liên hệ quản trị viên của trường.</p>
         </section>
       </main>

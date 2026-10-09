@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ParentShell } from './main';
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.cookie = 'parent_csrf=; Max-Age=0'; window.history.replaceState(null, '', '/'); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); document.cookie = 'parent_csrf=; Max-Age=0'; window.history.replaceState(null, '', '/'); });
 
 function parentResponse(session: object, input: RequestInfo | URL) {
   const path = String(input);

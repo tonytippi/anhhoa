@@ -98,7 +98,7 @@ test("Parent foreground denial clears the selected School before the signed-out 
   );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(
-    page.getByRole("link", { name: "Đăng nhập với Google" }),
+    page.getByRole("link", { name: /^Tiếp tục với / }),
   ).toBeVisible();
   await expect(page.getByText("Bé An")).toHaveCount(0);
   await expect(page.getByText("Release Gate A")).toHaveCount(0);

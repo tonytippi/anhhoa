@@ -6,12 +6,15 @@ import { PrismaService } from '../identity/prisma.service.js';
 import { ParentsService } from '../parents/parents.service.js';
 
 type IdToken = { iss: string; aud: string | string[]; azp?: string; sub: string; email: string; email_verified: boolean | string; name?: string; picture?: string; nonce: string; exp: number };
-type Session = { aud: Audience; sub: string; email: string; exp: number };
+// `auth` is the sign-in time that bounds sliding renewal; tokens issued before it existed simply expire at `exp`.
+type Session = { aud: Audience; sub: string; email: string; exp: number; auth?: number };
+type IssuedSession = { cookie: string; maxAge: number };
 type Start = { authorizationUrl: string; correlation: string };
 const issuer = 'https://accounts.google.com';
 const jwksUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const hash = (value: string) => createHash('sha256').update(value).digest('base64url');
 const random = () => randomBytes(32).toString('base64url');
+const refreshAfterMs = 60 * 60 * 1000;
 const json = <T>(value: string): T => JSON.parse(Buffer.from(value, 'base64url').toString()) as T;
 
 @Injectable()
@@ -20,7 +23,7 @@ export class AuthService {
   private sign(value: string): string { return createHmac('sha256', authSecrets().sessionSecret).update(value).digest('base64url'); }
   private issue(payload: Session): string { const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url'); return `${encoded}.${this.sign(encoded)}`; }
 
-  async start(audience: Audience, requestedRedirect?: string): Promise<Start> {
+  async start(audience: Audience, requestedRedirect?: string, loginHint?: string, chooseAccount = false): Promise<Start> {
     const config = audienceConfig(audience);
     if (requestedRedirect && !config.redirects.includes(requestedRedirect)) throw new UnauthorizedException({ code: 'OAUTH_DENIED', message: 'Redirect không hợp lệ.' });
     const redirect = requestedRedirect ?? config.redirects[0];
@@ -29,10 +32,14 @@ export class AuthService {
     await this.prisma.oAuthTransaction.create({ data: { audience, stateHash: hash(state), correlationHash: hash(correlation), nonce, redirect, expiresAt: new Date(Date.now() + stateTtlSeconds * 1000) } });
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     url.searchParams.set('client_id', process.env.GOOGLE_CLIENT_ID ?? 'test-client-id'); url.searchParams.set('redirect_uri', config.callbackUrl); url.searchParams.set('response_type', 'code'); url.searchParams.set('scope', 'openid email profile'); url.searchParams.set('state', state); url.searchParams.set('nonce', nonce);
+    // The hint only pre-selects the Google account; the verified ID token still decides the identity.
+    const hint = loginHint?.trim().toLowerCase();
+    if (hint && hint.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hint)) url.searchParams.set('login_hint', hint);
+    if (chooseAccount) url.searchParams.set('prompt', 'select_account');
     return { authorizationUrl: url.toString(), correlation };
   }
 
-  async callback(audience: Audience, state: string, correlation: string | undefined, code: string): Promise<{ redirect: string; cookie?: string; csrf?: string }> {
+  async callback(audience: Audience, state: string, correlation: string | undefined, code: string): Promise<{ redirect: string; cookie?: string; csrf?: string; maxAge?: number }> {
     const transaction = await this.prisma.oAuthTransaction.findUnique({ where: { stateHash: hash(state) } });
     if (!transaction || transaction.audience !== audience || transaction.expiresAt < new Date() || transaction.consumedAt || !correlation || hash(correlation) !== transaction.correlationHash) throw new UnauthorizedException({ code: 'OAUTH_STATE_INVALID', message: 'OAuth state không hợp lệ hoặc đã hết hạn.' });
     const google = await this.googleIdentity(code, audience, transaction.nonce);
@@ -74,7 +81,7 @@ export class AuthService {
       if (existingGrant?.revokedAt) return { redirect: audienceConfig(audience).deniedRedirect };
       await this.prisma.platformOperatorGrant.upsert({ where: { userIdentityId: identity.id }, create: { userIdentityId: identity.id }, update: {} });
     }
-    const csrf = random(); return { redirect: transaction.redirect, cookie: this.issueSession(audience, identity.id, identity.emailNormalized), csrf };
+    const csrf = random(); const session = this.newSession(audience, identity.id, identity.emailNormalized, Date.now()); return { redirect: transaction.redirect, cookie: session.cookie, maxAge: session.maxAge, csrf };
   }
 
   private async googleIdentity(code: string, audience: Audience, nonce: string): Promise<IdToken> {
@@ -106,7 +113,20 @@ export class AuthService {
     const row = await this.prisma.userIdentity.findUnique({ where: { id: userIdentityId }, select: { displayName: true, pictureUrl: true } }).catch(() => null);
     return { displayName: row?.displayName ?? null, pictureUrl: row?.pictureUrl ?? null };
   }
-  issueSession(aud: Audience, userIdentityId: string, email: string): string { return this.issue({ aud, sub: userIdentityId, email, exp: Date.now() + authSecrets().sessionTtlSeconds * 1000 }); }
+  issueSession(aud: Audience, userIdentityId: string, email: string): string { return this.newSession(aud, userIdentityId, email, Date.now()).cookie; }
+  private newSession(aud: Audience, sub: string, email: string, auth: number): IssuedSession {
+    const { sessionIdleTtlSeconds, sessionAbsoluteTtlSeconds } = authSecrets(); const now = Date.now();
+    const exp = Math.min(now + sessionIdleTtlSeconds * 1000, auth + sessionAbsoluteTtlSeconds * 1000);
+    return { cookie: this.issue({ aud, sub, email, exp, auth }), maxAge: exp - now };
+  }
+  // Renews a valid session at most hourly so active use keeps it alive up to the absolute limit.
+  refresh(audience: Audience, token?: string): IssuedSession | undefined {
+    if (!token) return undefined;
+    let identity; try { identity = this.session(audience, token); } catch { return undefined; }
+    const current = json<Session>(token.split('.')[0]!); if (current.auth === undefined) return undefined;
+    const next = this.newSession(audience, identity.userIdentityId, identity.email, current.auth);
+    return Date.now() + next.maxAge - current.exp >= refreshAfterMs ? next : undefined;
+  }
   async platformOperatorGrant(userIdentityId: string): Promise<{ id: string } | null> { return this.prisma.platformOperatorGrant.findFirst({ where: { userIdentityId, revokedAt: null }, select: { id: true } }); }
   session(audience: Audience, token?: string): { userIdentityId: string; email: string } {
     const parts = token?.split('.') ?? []; const [encoded, signature] = parts;
@@ -115,7 +135,7 @@ export class AuthService {
     if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
     try {
       const session = json<Session>(encoded);
-      if (!session || typeof session.sub !== 'string' || typeof session.email !== 'string' || !Number.isFinite(session.exp) || session.exp < Date.now()) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
+      if (!session || typeof session.sub !== 'string' || typeof session.email !== 'string' || !Number.isFinite(session.exp) || session.exp < Date.now() || (session.auth !== undefined && (!Number.isFinite(session.auth) || session.auth + authSecrets().sessionAbsoluteTtlSeconds * 1000 < Date.now()))) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
       if (session.aud !== audience) throw new UnauthorizedException({ code: 'INVALID_AUDIENCE', message: 'Session không thuộc audience này.' });
     return { userIdentityId: session.sub, email: session.email };
     } catch (error) { if (error instanceof UnauthorizedException) throw error; throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' }); }

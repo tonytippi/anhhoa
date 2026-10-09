@@ -1,5 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import "./auth-card.css";
+import { accountInitials, accountLoginUrl, forgetAccount, lastAccount, otherAccountLoginUrl } from "./last-account";
 
 export function AuthCard({ title, description, loginUrl, note, headingRef, children }: { title: string; description: string; loginUrl?: string; note?: string; headingRef?: RefObject<HTMLHeadingElement | null>; children?: ReactNode }) {
   return (
@@ -12,15 +13,34 @@ export function AuthCard({ title, description, loginUrl, note, headingRef, child
         </p>
         <h1 ref={headingRef} tabIndex={headingRef ? -1 : undefined}>{title}</h1>
         <p className="auth-card-copy">{description}</p>
-        {loginUrl && (
-          <a className="auth-card-google" href={loginUrl}>
-            <GoogleMark />
-            <span>Đăng nhập với Google</span>
-          </a>
-        )}
+        {loginUrl && <SignIn loginUrl={loginUrl} />}
         {note && <p className="auth-card-note">{note}</p>}
       </section>
     </main>
+  );
+}
+
+function SignIn({ loginUrl }: { loginUrl: string }) {
+  const account = lastAccount();
+  if (!account)
+    return (
+      <a className="auth-card-google" href={loginUrl}>
+        <GoogleMark />
+        <span>Đăng nhập với Google</span>
+      </a>
+    );
+  return (
+    <>
+      <a className="auth-card-account" href={accountLoginUrl(loginUrl, account)}>
+        <span className="auth-card-avatar" aria-hidden="true">{account.pictureUrl ? <img src={account.pictureUrl} alt="" referrerPolicy="no-referrer" /> : accountInitials(account)}</span>
+        <span className="auth-card-account-text">
+          <strong>Tiếp tục với {account.displayName || account.email}</strong>
+          {account.displayName && <small>{account.email}</small>}
+        </span>
+        <GoogleMark />
+      </a>
+      <a className="auth-card-switch" href={otherAccountLoginUrl(loginUrl)} onClick={forgetAccount}>Dùng tài khoản khác</a>
+    </>
   );
 }
 

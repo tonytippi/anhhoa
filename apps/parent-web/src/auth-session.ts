@@ -1,3 +1,4 @@
+import { rememberAccount } from "./last-account";
 export type ParentContext = {
   schoolId: string;
   schoolName: string;
@@ -7,6 +8,8 @@ export type Session = {
   audience: "parent";
   userIdentityId: string;
   email: string;
+  displayName?: string | null;
+  pictureUrl?: string | null;
   schools: ParentContext[];
 };
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
@@ -35,7 +38,9 @@ export async function bootstrapSession(
       clear();
       return undefined;
     }
-    return ((await response.json()) as { data: Session }).data;
+    const session = ((await response.json()) as { data: Session }).data;
+    rememberAccount(session);
+    return session;
   } catch {
     if (!signal?.aborted) clear();
     return undefined;

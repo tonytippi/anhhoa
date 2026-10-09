@@ -1,3 +1,4 @@
+import { rememberAccount } from './last-account';
 export type Audience = 'app' | 'teacher' | 'parent' | 'ops';
 export type Session = { audience: Audience; userIdentityId: string; email: string; displayName?: string | null; pictureUrl?: string | null };
 const apiUrl = typeof __API_URL__ === 'undefined' ? '' : __API_URL__;
@@ -15,7 +16,9 @@ export async function bootstrapSession(audience: Audience, clearProtectedState: 
   try {
     const response = await fetch(`${apiUrl}/api/${audience}/auth/session`, { credentials: 'include', signal });
     if (!response.ok) { clearProtectedState(); return undefined; }
-    return (await response.json() as { data: Session }).data;
+    const session = (await response.json() as { data: Session }).data;
+    rememberAccount(session);
+    return session;
   } catch { if (!signal?.aborted) clearProtectedState(); return undefined; }
 }
 

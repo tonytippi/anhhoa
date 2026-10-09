@@ -75,7 +75,7 @@ PARENT_SESSION_COOKIE_NAME=parent_session
 PARENT_CSRF_COOKIE_NAME=parent_csrf
 ```
 
-Đặt `SESSION_TTL_SECONDS` và `OAUTH_STATE_TTL_SECONDS` thành số nguyên dương; template cung cấp giá trị cục bộ hợp lệ. Cookie name của các audience phải khác nhau. `SUPERADMIN_EMAIL` là email Google duy nhất có thể bootstrap Platform Operator cho Ops.
+Đặt `SESSION_IDLE_TTL_SECONDS`, `SESSION_ABSOLUTE_TTL_SECONDS` (idle không vượt absolute) và `OAUTH_STATE_TTL_SECONDS` thành số nguyên dương; template cung cấp giá trị cục bộ hợp lệ. Cookie name của các audience phải khác nhau. `SUPERADMIN_EMAIL` là email Google duy nhất có thể bootstrap Platform Operator cho Ops.
 
 Đăng ký hai redirect URI sau trong Google OAuth client cho happy path này, và đặt chúng trong các biến callback tương ứng:
 

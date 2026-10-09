@@ -65,4 +65,27 @@ describe('AuthService', () => {
     await expect(service.callback('ops', state, start.correlation, google(nonce))).resolves.toEqual({ redirect: 'http://localhost:5176' }); expect(prisma.platformOperatorGrant.upsert).not.toHaveBeenCalled();
     if (prior === undefined) delete process.env.SUPERADMIN_EMAIL; else process.env.SUPERADMIN_EMAIL = prior;
   });
+  it('forwards only a well-formed login hint and an explicit account chooser to Google', async () => {
+    const service = new AuthService(database() as never);
+    const hinted = new URL((await service.start('app', undefined, ' Admin@Example.com ')).authorizationUrl).searchParams;
+    const invalid = new URL((await service.start('app', undefined, 'not-an-email')).authorizationUrl).searchParams;
+    const chooser = new URL((await service.start('app', undefined, undefined, true)).authorizationUrl).searchParams;
+    expect(hinted.get('login_hint')).toBe('admin@example.com'); expect(hinted.get('prompt')).toBeNull();
+    expect(invalid.get('login_hint')).toBeNull(); expect(chooser.get('prompt')).toBe('select_account');
+  });
+  it('slides a session on use within the idle window but never past the absolute limit', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+    try {
+      const service = new AuthService(database() as never); const hour = 3600_000; const day = 24 * hour;
+      const token = service.issueSession('app', 'identity-id', 'admin@example.com');
+      expect(service.refresh('app', token)).toBeUndefined();
+      vi.advanceTimersByTime(2 * hour); const renewed = service.refresh('app', token)!;
+      expect(renewed.maxAge).toBe(7 * day); expect(service.refresh('ops', renewed.cookie)).toBeUndefined();
+      let current = renewed.cookie; for (let step = 0; step < 4; step += 1) { vi.advanceTimersByTime(6 * day); current = service.refresh('app', current)!.cookie; }
+      expect(service.session('app', current)).toEqual({ userIdentityId: 'identity-id', email: 'admin@example.com' });
+      vi.setSystemTime(new Date('2026-10-30T12:00:00Z')); expect(service.refresh('app', current)).toBeUndefined(); expect(service.session('app', current).userIdentityId).toBe('identity-id');
+      vi.setSystemTime(new Date('2026-10-31T00:00:01Z')); expect(() => service.session('app', current)).toThrow('Cần đăng nhập'); expect(service.refresh('app', current)).toBeUndefined();
+      const idle = service.issueSession('app', 'identity-id', 'admin@example.com'); vi.advanceTimersByTime(7 * day + 1); expect(() => service.session('app', idle)).toThrow('Cần đăng nhập');
+    } finally { vi.useRealTimers(); }
+  });
 });

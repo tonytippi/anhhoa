@@ -55,7 +55,7 @@ describe('target platform structure', () => {
     expect(compose).toContain('postgres-data');
     expect(compose).toContain('service_completed_successfully');
     expect(compose).not.toContain('db push');
-    for (const variable of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET', 'OAUTH_STATE_TTL_SECONDS', 'SESSION_TTL_SECONDS', ...['APP', 'TEACHER', 'PARENT', 'OPS'].flatMap((prefix) => [`${prefix}_WEB_ORIGIN`, `${prefix}_GOOGLE_CALLBACK_URL`, `${prefix}_OAUTH_REDIRECT_URLS`, `${prefix}_OAUTH_DENIED_REDIRECT_URL`, `${prefix}_SESSION_COOKIE_NAME`, `${prefix}_CSRF_COOKIE_NAME`])]) {
+    for (const variable of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET', 'OAUTH_STATE_TTL_SECONDS', 'SESSION_IDLE_TTL_SECONDS', 'SESSION_ABSOLUTE_TTL_SECONDS', ...['APP', 'TEACHER', 'PARENT', 'OPS'].flatMap((prefix) => [`${prefix}_WEB_ORIGIN`, `${prefix}_GOOGLE_CALLBACK_URL`, `${prefix}_OAUTH_REDIRECT_URLS`, `${prefix}_OAUTH_DENIED_REDIRECT_URL`, `${prefix}_SESSION_COOKIE_NAME`, `${prefix}_CSRF_COOKIE_NAME`])]) {
       expect(compose).toContain(`${variable}: "\${${variable}:?${variable} is required}"`);
       expect(environment).toContain(`${variable}=`);
     }

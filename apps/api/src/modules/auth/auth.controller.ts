@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Audience } from './auth.config.js';
-import { audienceConfig, cookieSecure } from './auth.config.js';
+import { randomBytes } from 'node:crypto';
+import { audienceConfig, cookieSecure, sessionCookieOptions } from './auth.config.js';
 import { AuthService } from './auth.service.js';
 import { assertCookieMutation } from '../common/mutation-protection.js';
 import { ParentsService } from '../parents/parents.service.js';
@@ -11,19 +12,35 @@ type RequestLike = { headers: Record<string, string | undefined> };
 type ResponseLike = { redirect(url: string): void; cookie(name: string, value: string, options: Record<string, unknown>): ResponseLike; clearCookie(name: string, options: Record<string, unknown>): ResponseLike; status(code: number): ResponseLike; send(): void };
 function cookie(request: RequestLike, name: string): string | undefined { return request.headers.cookie?.split(';').map((item: string) => item.trim().split('=')).find(([key]: string[]) => key === name)?.[1]; }
 
+// Slides the audience session (and its CSRF pair) forward on any API request that carries a valid session.
+export function sessionRefresh(auth: AuthService) {
+  return (request: RequestLike & { path?: string }, response: ResponseLike, next: () => void): void => {
+    const match = request.path?.match(/^\/api\/(app|teacher|parent|ops)\/(.*)$/);
+    if (match && !/^auth\/(?:logout|google\/)/.test(match[2]!)) {
+      const selected = match[1] as Audience; const config = audienceConfig(selected);
+      const renewed = auth.refresh(selected, cookie(request, config.cookieName));
+      if (renewed) {
+        response.cookie(config.cookieName, renewed.cookie, sessionCookieOptions(selected, true, renewed.maxAge));
+        response.cookie(config.csrfCookieName, cookie(request, config.csrfCookieName) ?? randomBytes(32).toString('base64url'), sessionCookieOptions(selected, false, renewed.maxAge));
+      }
+    }
+    next();
+  };
+}
+
 @Controller('api/:audience/auth')
 export class AuthController {
   constructor(private readonly auth: AuthService, private readonly parents?: ParentsService) {}
 
   @Get('google/start')
-  async start(@Param('audience') value: string, @Query('redirect') redirect: string | undefined, @Res() response: ResponseLike): Promise<void> { const selected = audience(value); const result = await this.auth.start(selected, redirect); response.cookie(audienceConfig(selected).correlationCookieName, result.correlation, { httpOnly: true, secure: cookieSecure(selected), sameSite: 'lax', path: '/' }); response.redirect(result.authorizationUrl); }
+  async start(@Param('audience') value: string, @Query('redirect') redirect: string | undefined, @Query('login_hint') loginHint: string | undefined, @Query('prompt') prompt: string | undefined, @Res() response: ResponseLike): Promise<void> { const selected = audience(value); const result = await this.auth.start(selected, redirect, loginHint, prompt === 'select_account'); response.cookie(audienceConfig(selected).correlationCookieName, result.correlation, { httpOnly: true, secure: cookieSecure(selected), sameSite: 'lax', path: '/' }); response.redirect(result.authorizationUrl); }
 
   @Get('google/callback')
   async callback(@Param('audience') value: string, @Query('state') state: string, @Query('code') code: string, @Req() request: RequestLike, @Res() response: ResponseLike): Promise<void> {
     const selected = audience(value);
     try {
       const config = audienceConfig(selected); const result = await this.auth.callback(selected, state, cookie(request, config.correlationCookieName), code);
-      if (result.cookie && result.csrf) { response.cookie(config.cookieName, result.cookie, { httpOnly: true, secure: cookieSecure(selected), sameSite: 'lax', path: '/' }); response.cookie(config.csrfCookieName, result.csrf, { httpOnly: false, secure: cookieSecure(selected), sameSite: 'lax', path: '/' }); }
+      if (result.cookie && result.csrf) { response.cookie(config.cookieName, result.cookie, sessionCookieOptions(selected, true, result.maxAge)); response.cookie(config.csrfCookieName, result.csrf, sessionCookieOptions(selected, false, result.maxAge)); }
       response.redirect(result.redirect);
     } catch { response.redirect(audienceConfig(selected).deniedRedirect); }
   }
@@ -43,7 +60,7 @@ export class AuthController {
   logout(@Param('audience') value: string, @Req() request: RequestLike, @Res() response: ResponseLike): void {
     const selected = audience(value); const config = audienceConfig(selected);
     assertCookieMutation(request, config.origin, config.csrfCookieName);
-    response.clearCookie(config.cookieName, { httpOnly: true, secure: cookieSecure(selected), sameSite: 'lax', path: '/' });
-    response.clearCookie(config.csrfCookieName, { httpOnly: false, secure: cookieSecure(selected), sameSite: 'lax', path: '/' }).status(204).send();
+    response.clearCookie(config.cookieName, sessionCookieOptions(selected, true));
+    response.clearCookie(config.csrfCookieName, sessionCookieOptions(selected, false)).status(204).send();
   }
 }

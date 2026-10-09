@@ -41,7 +41,7 @@ pnpm --filter parent-web test
 
 Lệnh này chạy các test trong `apps/parent-web` với cấu hình local `vitest.config.ts`; không cần khởi động API cho các test component hiện có.
 
-API tự động nạp `apps/api/.env`; repository chỉ giữ `apps/api/.env.example`, không thêm giá trị thật. Để chạy local, sao chép file này thành `apps/api/.env` và đặt OAuth Google, `SESSION_SECRET` (ít nhất 32 ký tự), `SESSION_TTL_SECONDS`, `SUPERADMIN_EMAIL`, và origin/callback/redirect/cookie của đầy đủ bốn audience App, Teacher, Parent, Ops. API fail-fast nếu thiếu hoặc sai cấu hình auth/CORS. Xem [runbook local Finance Admin MVP](docs/local-finance-admin-mvp.md) cho callback OAuth và lệnh khởi động đúng theo Finance MVP.
+API tự động nạp `apps/api/.env`; repository chỉ giữ `apps/api/.env.example`, không thêm giá trị thật. Để chạy local, sao chép file này thành `apps/api/.env` và đặt OAuth Google, `SESSION_SECRET` (ít nhất 32 ký tự), `SESSION_IDLE_TTL_SECONDS`, `SESSION_ABSOLUTE_TTL_SECONDS`, `SUPERADMIN_EMAIL`, và origin/callback/redirect/cookie của đầy đủ bốn audience App, Teacher, Parent, Ops. API fail-fast nếu thiếu hoặc sai cấu hình auth/CORS. Xem [runbook local Finance Admin MVP](docs/local-finance-admin-mvp.md) cho callback OAuth và lệnh khởi động đúng theo Finance MVP.
 
 ## Font assets
 
@@ -61,7 +61,7 @@ pnpm --filter api build
 pnpm --filter api start
 ```
 
-`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. `SESSION_SECRET` phải ổn định giữa deploy/restart và `SESSION_TTL_SECONDS` xác định thời hạn session. Session audience `app` dùng cookie `APP_SESSION_COOKIE_NAME` và CSRF cookie `APP_CSRF_COOKIE_NAME`; mutation gửi `X-CSRF-Token`. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
+`PORT` là tùy chọn và mặc định là `3000`; nếu được đặt, phải là số nguyên từ `1` đến `65535`. API fail-fast khi thiếu hoặc sai cấu hình auth/CORS. `SESSION_SECRET` phải ổn định giữa deploy/restart; session tự gia hạn khi đang dùng, hết hạn sau `SESSION_IDLE_TTL_SECONDS` không hoạt động (mặc định 7 ngày) và không vượt `SESSION_ABSOLUTE_TTL_SECONDS` kể từ lúc đăng nhập (mặc định 30 ngày). Session audience `app` dùng cookie `APP_SESSION_COOKIE_NAME` và CSRF cookie `APP_CSRF_COOKIE_NAME`; mutation gửi `X-CSRF-Token`. Khi triển khai web PWA, hosting phải rewrite mọi SPA route (ví dụ `/bao-cao`) về `index.html`; Vite source không thể thay thế cấu hình rewrite của hosting.
 
 `NODE_ENV=development pnpm --filter api prisma:seed` chỉ phục vụ development fixture. Nó tạo tenant đầu tiên **Mầm Non Giáo dục Đỉnh Cao - PeakLand Preschool** (`pl`, tiền tố học sinh `PL`) và owner access graph cho `sonnh273@gmail.com`, để tài khoản này đăng nhập Google có thể truy cập Admin portal. Seed không gán Google subject, không tạo session, Platform Operator, Operation/audit giả hay dữ liệu Finance; subject chỉ được OAuth verified callback bind.
 

@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import { AppModule } from './app.module.js';
 import { ApiErrorFilter } from './common/api-error.filter.js';
 import { audienceConfig, audienceOrigins, superadminEmail, type Audience } from './modules/auth/auth.config.js';
+import { sessionRefresh } from './modules/auth/auth.controller.js';
+import { AuthService } from './modules/auth/auth.service.js';
 export const apiEnvPath = resolve(import.meta.dirname, '../.env');
 
 loadDotenv({ path: apiEnvPath });
@@ -44,6 +46,7 @@ export async function createApi() {
     }
     next();
   });
+  app.use(sessionRefresh(app.get(AuthService)));
   app.useGlobalFilters(new ApiErrorFilter());
   return app;
 }

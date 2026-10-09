@@ -43,10 +43,10 @@ describe('AuthController', () => {
 
   it.each(audiences.filter(([audience]) => audience !== 'parent'))('issues only the %s audience cookies at callback', async (audience) => {
     const app = await createApi(); await app.listen(0); const port = app.getHttpServer().address().port;
-    vi.spyOn(app.get(AuthService), 'callback').mockResolvedValue({ redirect: 'http://localhost:5173', cookie: 'session-token', csrf: 'csrf-token' });
+    vi.spyOn(app.get(AuthService), 'callback').mockResolvedValue({ redirect: 'http://localhost:5173', cookie: 'session-token', csrf: 'csrf-token', maxAge: 604800000 });
     const response = await fetch(`http://127.0.0.1:${port}/api/${audience}/auth/google/callback?state=state&code=code`, { redirect: 'manual' });
     await app.close(); const cookie = response.headers.get('set-cookie')!;
-    expect(response.status).toBe(302); expect(cookie).toContain(`${audience}_session=session-token`); expect(cookie).toContain(`${audience}_csrf=csrf-token`); expect(cookie).not.toContain('Domain='); expect(cookie).not.toContain('Secure');
+    expect(response.status).toBe(302); expect(response.headers.getSetCookie().every((entry) => entry.includes('Max-Age=604800'))).toBe(true); expect(cookie).toContain(`${audience}_session=session-token`); expect(cookie).toContain(`${audience}_csrf=csrf-token`); expect(cookie).not.toContain('Domain='); expect(cookie).not.toContain('Secure');
   });
 
   it('redirects a denied Parent callback without issuing a cookie', async () => {
@@ -114,5 +114,18 @@ describe('AuthController', () => {
     const app = await createApi(); await app.listen(0); const port = app.getHttpServer().address().port; const auth = app.get(AuthService); vi.spyOn(auth, 'platformOperatorGrant').mockResolvedValue(null);
     const token = auth.issueSession('ops', 'identity-id', 'operator@example.com'); const response = await fetch(`http://127.0.0.1:${port}/api/ops/auth/session`, { headers: { cookie: `ops_session=${token}` } }); await app.close();
     expect(response.status).toBe(401); await expect(response.json()).resolves.toMatchObject({ error: { code: 'OPS_ACCESS_DENIED' } });
+  });
+  it('renews a valid session and its CSRF cookie with a persistent lifetime on API use', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+    try {
+      const app = await createApi(); await app.listen(0); const port = app.getHttpServer().address().port; const auth = app.get(AuthService);
+      const token = auth.issueSession('app', 'identity-id', 'admin@example.com'); vi.setSystemTime(new Date('2026-10-01T03:00:00Z'));
+      const renewed = await fetch(`http://127.0.0.1:${port}/api/app/auth/session`, { headers: { cookie: `app_session=${token}; app_csrf=csrf-value` } });
+      const logout = await fetch(`http://127.0.0.1:${port}/api/app/auth/logout`, { method: 'POST', headers: { origin: 'http://localhost:5173', 'x-csrf-token': 'csrf-value', cookie: `app_session=${token}; app_csrf=csrf-value` } });
+      await app.close(); const cookies = renewed.headers.getSetCookie();
+      expect(renewed.status).toBe(200); expect(cookies).toHaveLength(2);
+      expect(cookies.find((entry) => entry.startsWith('app_session='))).toContain('Max-Age=604800'); expect(cookies.find((entry) => entry.startsWith('app_csrf='))).toMatch(/^app_csrf=csrf-value; Max-Age=604800/);
+      expect(logout.headers.getSetCookie().every((entry) => entry.includes('Expires=Thu, 01 Jan 1970'))).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
 });

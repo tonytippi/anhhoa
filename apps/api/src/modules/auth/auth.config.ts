@@ -38,6 +38,10 @@ export function cookieSecure(audience: Audience): boolean {
   return audienceConfig(audience).callbackUrl.startsWith('https://');
 }
 
+export function sessionCookieOptions(audience: Audience, httpOnly: boolean, maxAge?: number) {
+  return { httpOnly, secure: cookieSecure(audience), sameSite: 'lax', path: '/', ...(maxAge ? { maxAge } : {}) };
+}
+
 export function audienceOrigins(strict = false): string[] {
   const configs = (['app', 'teacher', 'parent', 'ops'] as Audience[]).map((audience) => audienceConfig(audience, strict));
   if (strict) {
@@ -49,10 +53,13 @@ export function audienceOrigins(strict = false): string[] {
 export function authSecrets(strict = false) {
   const sessionSecret = value('SESSION_SECRET', 'test-session-secret-must-be-at-least-32-characters');
   const stateTtlSeconds = Number(value('OAUTH_STATE_TTL_SECONDS', '600'));
-  const sessionTtlSeconds = Number(value('SESSION_TTL_SECONDS', '86400'));
-  if (!Number.isInteger(stateTtlSeconds) || stateTtlSeconds <= 0 || !Number.isInteger(sessionTtlSeconds) || sessionTtlSeconds <= 0) throw new Error('OAuth and session TTL must be positive integers.');
+  // A session slides while in use: it ends after the idle TTL without requests, and never outlives the absolute TTL from sign-in.
+  const sessionIdleTtlSeconds = Number(value('SESSION_IDLE_TTL_SECONDS', '604800'));
+  const sessionAbsoluteTtlSeconds = Number(value('SESSION_ABSOLUTE_TTL_SECONDS', '2592000'));
+  if (![stateTtlSeconds, sessionIdleTtlSeconds, sessionAbsoluteTtlSeconds].every((ttl) => Number.isInteger(ttl) && ttl > 0)) throw new Error('OAuth and session TTL must be positive integers.');
+  if (sessionIdleTtlSeconds > sessionAbsoluteTtlSeconds) throw new Error('SESSION_IDLE_TTL_SECONDS must not exceed SESSION_ABSOLUTE_TTL_SECONDS.');
   if (strict && (!process.env.SESSION_SECRET || sessionSecret.length < 32 || !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)) throw new Error('OAuth and session secrets must be configured before startup.');
-  return { sessionSecret, stateTtlSeconds, sessionTtlSeconds };
+  return { sessionSecret, stateTtlSeconds, sessionIdleTtlSeconds, sessionAbsoluteTtlSeconds };
 }
 
 export function superadminEmail(strict = false): string {

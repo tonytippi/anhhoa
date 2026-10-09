@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OpsShell } from './main';
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.cookie = 'ops_csrf=; Max-Age=0'; });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); document.cookie = 'ops_csrf=; Max-Age=0'; });
 
 describe('OpsShell', () => {
   it('keeps the authenticated portal visible after Strict Mode bootstrap remounts', async () => {
@@ -26,7 +26,7 @@ describe('OpsShell', () => {
     await screen.findByRole('button', { name: 'Khởi tạo trường' });
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất' }));
     expect(screen.queryByRole('button', { name: 'Khởi tạo trường' })).toBeNull();
-    expect(screen.getByRole('link', { name: 'Đăng nhập với Google' }).getAttribute('href')).toBe('/api/ops/auth/google/start');
+    expect(screen.getByRole('link', { name: 'Tiếp tục với a@example.com' }).getAttribute('href')).toBe('/api/ops/auth/google/start?login_hint=a%40example.com');
     await waitFor(() => expect((fetch as ReturnType<typeof vi.fn>).mock.calls).toContainEqual(['/api/ops/auth/logout', expect.objectContaining({ headers: { 'x-csrf-token': 'csrf-value' } })]));
     settleLogout();
   });

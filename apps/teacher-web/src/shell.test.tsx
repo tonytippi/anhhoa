@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TeacherShell } from './main';
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.cookie = 'teacher_csrf=; Max-Age=0'; });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); document.cookie = 'teacher_csrf=; Max-Age=0'; });
 
 describe('TeacherShell', () => {
   it('keeps protected content hidden after a 401 startup response and exposes Google login', async () => {
@@ -20,7 +20,7 @@ describe('TeacherShell', () => {
     await screen.findByText('Đang tải ngữ cảnh trường...');
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất' }));
     expect(screen.queryByText('Đang tải ngữ cảnh trường...')).toBeNull();
-    expect(screen.getByRole('link', { name: 'Đăng nhập với Google' }).getAttribute('href')).toBe('/api/teacher/auth/google/start');
+    expect(screen.getByRole('link', { name: 'Tiếp tục với a@example.com' }).getAttribute('href')).toBe('/api/teacher/auth/google/start?login_hint=a%40example.com');
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith('/api/teacher/auth/logout', expect.objectContaining({ headers: { 'x-csrf-token': 'csrf-value' } })));
     settleLogout();
   });
