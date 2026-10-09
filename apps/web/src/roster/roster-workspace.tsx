@@ -78,7 +78,8 @@ type Staff = {
     name: string;
     status: "ACTIVE" | "INACTIVE";
   } | null;
-  schoolMembershipId: string | null;
+  schoolMembershipId?: string | null;
+  hasLoginAccess: boolean;
 };
 type StaffQuery = {
   q: string;
@@ -1902,7 +1903,7 @@ export function RosterWorkspace({
                       onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setRowMenu(item.id); } }}
                       onClick={() => setRowMenu(rowMenu === item.id ? undefined : item.id)}
                     >...</button>
-                    {rowMenu === item.id && <div ref={rowMenuElement} className="roster-action-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); } else if (event.key === "Tab") setRowMenu(undefined); }}><button type="button" role="menuitem" onClick={(event) => { staffIntakeTrigger.current = event.currentTarget; setRowMenu(undefined); void openStaffEdit(item.id); }}>Sửa hồ sơ</button>{!item.schoolMembershipId && item.email && item.employmentStatus === 'ACTIVE' && <button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); setLoginAccess({ mode: "grant", staff: item, reason: "" }); }}>Cấp quyền đăng nhập</button>}{item.schoolMembershipId && <button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); setLoginAccess({ mode: "revoke", staff: item, reason: "" }); }}>Thu hồi quyền đăng nhập</button>}</div>}
+                    {rowMenu === item.id && <div ref={rowMenuElement} className="roster-action-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); } else if (event.key === "Tab") setRowMenu(undefined); }}><button type="button" role="menuitem" onClick={(event) => { staffIntakeTrigger.current = event.currentTarget; setRowMenu(undefined); void openStaffEdit(item.id); }}>Sửa hồ sơ</button>{!item.hasLoginAccess && item.email && item.employmentStatus === 'ACTIVE' && <button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); setLoginAccess({ mode: "grant", staff: item, reason: "" }); }}>Cấp quyền đăng nhập</button>}{item.hasLoginAccess && <button type="button" role="menuitem" onClick={() => { setRowMenu(undefined); setLoginAccess({ mode: "revoke", staff: item, reason: "" }); }}>Thu hồi quyền đăng nhập</button>}</div>}
                   </td>
                 </tr>
               ))

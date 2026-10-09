@@ -386,10 +386,10 @@ describe("RosterWorkspace paged read model", () => {
     const position = { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" };
     const base = { phone: "0900", classNames: [], staffCode: null, hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: position };
     const rows = [
-      { ...base, id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", schoolMembershipId: null },
-      { ...base, id: "staff-b", fullName: "Cô Bình", email: "binh@example.com", schoolMembershipId: "membership-b" },
-      { ...base, id: "staff-c", fullName: "Cô Cúc", email: null, schoolMembershipId: null },
-      { ...base, id: "staff-d", fullName: "Cô Dung", email: "dung@example.com", schoolMembershipId: null, employmentStatus: "INACTIVE" },
+      { ...base, id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", hasLoginAccess: false },
+      { ...base, id: "staff-b", fullName: "Cô Bình", email: "binh@example.com", hasLoginAccess: true },
+      { ...base, id: "staff-c", fullName: "Cô Cúc", email: null, hasLoginAccess: false },
+      { ...base, id: "staff-d", fullName: "Cô Dung", email: "dung@example.com", hasLoginAccess: false, employmentStatus: "INACTIVE" },
     ];
     const fetch = vi.fn((url: string, options?: RequestInit) => {
       if (options?.method === "POST") return Promise.resolve(response({ id: "operation", status: "COMPLETED", outcome: { id: "staff-a", canEnterSchool: true } }));
@@ -426,8 +426,8 @@ describe("RosterWorkspace paged read model", () => {
     const position = { id: "position-a", code: "TEACHER", name: "Giáo viên", status: "ACTIVE" };
     const base = { phone: "0900", classNames: [], staffCode: null, hasPhoto: false, employmentStatus: "ACTIVE", primaryPositionId: "position-a", primaryPosition: position };
     const rows = [
-      { ...base, id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", schoolMembershipId: null },
-      { ...base, id: "staff-b", fullName: "Cô Bình", email: "binh@example.com", schoolMembershipId: "membership-b" },
+      { ...base, id: "staff-a", fullName: "Cô Mai", email: "mai@example.com", hasLoginAccess: false },
+      { ...base, id: "staff-b", fullName: "Cô Bình", email: "binh@example.com", hasLoginAccess: true },
     ];
     const fetch = vi.fn((url: string, options?: RequestInit) => {
       if (options?.method === "POST") return Promise.resolve(response({ id: "operation", status: "COMPLETED", outcome: { id: "staff-b" } }));
@@ -465,7 +465,7 @@ describe("RosterWorkspace paged read model", () => {
       if (url.includes("/roster/staff?") && url.includes("page=2")) return pageTwo;
       if (url.includes("/roster/staff?") && url.includes("q=Lan")) return Promise.resolve(pagedResponse({ data: [{ ...staff, id: "staff-b", fullName: "Cô Lan" }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } }));
       if (url.includes("/roster/staff?")) return Promise.resolve(pagedResponse({ data: [staff], meta: { page: 1, pageSize: 25, totalItems: 26, totalPages: 2 } }));
-      if (/\/roster\/staff\/staff-[ab]$/.test(url)) return Promise.resolve(response({ ...staff, id: url.endsWith("staff-b") ? "staff-b" : "staff-a", fullName: url.endsWith("staff-b") ? "Cô Lan" : "Cô Mai", dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, schoolMembershipId: null }));
+      if (/\/roster\/staff\/staff-[ab]$/.test(url)) return Promise.resolve(response({ ...staff, id: url.endsWith("staff-b") ? "staff-b" : "staff-a", fullName: url.endsWith("staff-b") ? "Cô Lan" : "Cô Mai", dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, hasLoginAccess: false }));
       if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
       if (url.endsWith("/positions")) return Promise.resolve(response([staff.primaryPosition]));
       return Promise.resolve(response([]));
@@ -495,7 +495,7 @@ describe("RosterWorkspace paged read model", () => {
     const fetch = vi.fn((url: string) => {
       if (url.includes("/roster/staff?")) return Promise.resolve(pagedResponse({ data: [staff, { ...staff, id: "staff-b", fullName: "Cô Lan" }], meta: { page: 1, pageSize: 25, totalItems: 2, totalPages: 1 } }));
       if (url.endsWith("/roster/staff/staff-a")) return detailA;
-      if (url.endsWith("/roster/staff/staff-b")) return Promise.resolve(response({ ...staff, id: "staff-b", fullName: "Cô Lan", dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, schoolMembershipId: null }));
+      if (url.endsWith("/roster/staff/staff-b")) return Promise.resolve(response({ ...staff, id: "staff-b", fullName: "Cô Lan", dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, hasLoginAccess: false }));
       if (url.endsWith("/school-years")) return Promise.resolve(response([year]));
       if (url.endsWith("/positions")) return Promise.resolve(response([staff.primaryPosition]));
       return Promise.resolve(response([]));
@@ -507,7 +507,7 @@ describe("RosterWorkspace paged read model", () => {
     fireEvent.click(menus[1]!); fireEvent.click(screen.getByRole("menuitem", { name: "Sửa hồ sơ" }));
     const dialog = await screen.findByRole("dialog", { name: "Sửa hồ sơ nhân viên" });
     expect((screen.getByLabelText("Họ và tên nhân sự") as HTMLInputElement).value).toBe("Cô Lan");
-    resolveA(response({ ...staff, dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, schoolMembershipId: null }));
+    resolveA(response({ ...staff, dateOfBirth: "1990-01-01", gender: "Nữ", address: "Hà Nội", personalIdentifier: null, hasLoginAccess: false }));
     await waitFor(() => expect((screen.getByLabelText("Họ và tên nhân sự") as HTMLInputElement).value).toBe("Cô Lan"));
     expect(document.activeElement).toBe(screen.getByLabelText("Họ và tên nhân sự"));
     fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });

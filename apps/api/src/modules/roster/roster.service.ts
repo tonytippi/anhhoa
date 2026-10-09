@@ -276,6 +276,7 @@ export class RosterService {
           }
         : null,
       schoolMembershipId: value.schoolMembershipId,
+      hasLoginAccess: Boolean(value.schoolMembershipId),
       boundAt: value.boundAt?.toISOString() ?? null,
       createdAt: value.createdAt.toISOString(),
       updatedAt: value.updatedAt.toISOString(),
@@ -548,6 +549,7 @@ export class RosterService {
         primaryPosition: item.primaryPosition
           ? { id: item.primaryPosition.id, code: item.primaryPosition.code, name: item.primaryPosition.name, status: item.primaryPosition.status }
           : null,
+        hasLoginAccess: Boolean(item.schoolMembershipId),
       })),
       meta: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) },
     };
