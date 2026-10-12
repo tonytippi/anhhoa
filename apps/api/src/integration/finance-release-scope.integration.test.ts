@@ -118,7 +118,8 @@ describe('Finance Story 5.37 structural release checks (receivable kinds and ext
     expect(aggregates.length).toBeGreaterThan(0);
     expect(aggregates).not.toMatch(/StaffClassAssignment|StaffProfile|SchoolPosition|PositionCapabilityGrant|EnrollmentClassAssignment/);
     // Decision 2026-10-08 adds the Class default School account, a Finance setting next to defaultBankAccountId, not authorization.
-    const names = (await readdir(new URL('apps/api/prisma/migrations/', `file://${root}/`))).filter((name) => name >= '20261002000001' && name !== '20261008000004_class_default_school_bank_account').sort();
+    // Sprint change 2026-10-12 (Story 2.7) lets the roster-owned SchoolYear end-date snapshot be null; it is a roster migration, not Finance.
+    const names = (await readdir(new URL('apps/api/prisma/migrations/', `file://${root}/`))).filter((name) => name >= '20261002000001' && !['20261008000004_class_default_school_bank_account', '20261012000002_open_ended_school_year'].includes(name)).sort();
     expect(names.length).toBeGreaterThan(0);
     const migrations = (await Promise.all(names.map((name) => source(`apps/api/prisma/migrations/${name}/migration.sql`)))).join('\n');
     expect(migrations).not.toMatch(/ALTER TABLE "(?:Class|EnrollmentClassAssignment|StaffClassAssignment|StaffProfile|SchoolPosition|PositionCapabilityGrant)"/);

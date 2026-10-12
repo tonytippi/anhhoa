@@ -24,7 +24,8 @@ const membershipLifecycles = ["ENROLLED", "SCHEDULED_TO_START", "EXTRACURRICULAR
 const EXTRACURRICULAR_ONLY = "EXTRACURRICULAR_ONLY" as const;
 const extracurricularOnlyLabel = "Chỉ ngoại khóa";
 const classLabel = (name: string | null | undefined) => name ?? extracurricularOnlyLabel;
-const monthLabel = (billingMonth: string) => `${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
+// A SCHOOL run is named "Tháng MM/YYYY" by the API; mid-sentence it reads "tháng MM/YYYY". A CLASS run keeps the name Finance entered.
+const runLabel = (name: string) => name.replace(/^Tháng /, "tháng ");
 const officialClassFilter = (value: unknown) => (value === EXTRACURRICULAR_ONLY ? EXTRACURRICULAR_ONLY : null);
 const receivableGroupKinds = ["FIXED", "FLEXIBLE", "EXTRACURRICULAR"] as const;
 const routes = {
@@ -819,13 +820,13 @@ export class FinanceService {
     await this.audit(tx, schoolId, identityId, actor.membershipId, "PRIOR_DEBT_TRANSFERRED", operation, { sourceInvoiceId: source.id, outstanding: outstanding.toString() }, outcome, reason);
     return outcome;
   }
-  // Unpaid ISSUED notices of earlier CLOSED MONTHLY runs (same School and SchoolYear) whose Student has a live normal Invoice in this run.
+  // Unpaid ISSUED notices of CLOSED runs with an earlier period (same School and SchoolYear, any Class) whose Student has a live normal Invoice in this run.
   private async priorDebtSources(db: any, schoolId: string, run: any, onlyIds?: string[]) {
-    if (run.status !== "GENERATED" || run.type !== "MONTHLY") return [];
+    if (run.status !== "GENERATED") return [];
     const mine = await db.invoice.findMany({ where: { schoolId, collectionRunId: run.id, revisesInvoiceId: null, status: { not: "CANCELLED" } }, select: { studentId: true } });
     const students = new Set<string>(mine.map((item: any) => item.studentId));
     if (!students.size) return [];
-    const sources = await db.invoice.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ISSUED", receipt: null, payout: null, settlementTransferTo: null, coverageFacts: { none: {} }, studentId: { in: [...students] }, ...(onlyIds ? { id: { in: onlyIds } } : {}), collectionRun: { type: "MONTHLY", status: "CLOSED", billingMonth: { lt: run.billingMonth } } }, include: { debtTransfersFrom: { select: { amount: true } } }, orderBy: FinanceService.receiptQueueOrder });
+    const sources = await db.invoice.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ISSUED", receipt: null, payout: null, settlementTransferTo: null, coverageFacts: { none: {} }, studentId: { in: [...students] }, ...(onlyIds ? { id: { in: onlyIds } } : {}), collectionRun: { status: "CLOSED", periodStartsOn: { lt: run.periodStartsOn } } }, include: { debtTransfersFrom: { select: { amount: true } } }, orderBy: FinanceService.receiptQueueOrder });
     return sources.map((source: any) => ({ source, outstanding: BigInt(source.obligationTotalSnapshot ?? 0) - source.debtTransfersFrom.reduce((sum: bigint, item: any) => sum + BigInt(item.amount), 0n) })).filter((item: any) => item.outstanding > 0n);
   }
   async priorDebts(identityId: string, schoolId: string, runId: string) {
@@ -847,7 +848,7 @@ export class FinanceService {
       if (run.status !== "GENERATED") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ chuyển công nợ khi đợt thu đã tạo hóa đơn." });
       for (const id of ids) await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${id}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const found = new Map<string, bigint>((await this.priorDebtSources(tx, schoolId, run, ids)).map(({ source, outstanding }: any) => [source.id, outstanding] as [string, bigint]));
-      const sources = await tx.invoice.findMany({ where: { schoolId, id: { in: ids } }, orderBy: { id: "asc" } });
+      const sources = await tx.invoice.findMany({ where: { schoolId, id: { in: ids } }, include: { collectionRun: { select: { name: true } } }, orderBy: { id: "asc" } });
       if (sources.length !== ids.length) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn nguồn." });
       const transferred: { sourceInvoiceId: string; targetInvoiceId: string; amount: string }[] = []; let total = 0n;
       for (const source of sources) {
@@ -856,8 +857,7 @@ export class FinanceService {
         const live = await tx.invoice.findFirst({ where: { schoolId, collectionRunId: run.id, studentId: source.studentId, revisesInvoiceId: null, status: { not: "CANCELLED" } }, orderBy: [{ channel: "asc" }, { createdAt: "asc" }] });
         const target = await this.channelDraft(tx, schoolId, live, source.channel);
         if (target.status !== "DRAFT") throw new ConflictException({ code: "INVOICE_CHANNEL_PART_NOT_DRAFT", message: `Phần thu vào ${source.channel === "SCHOOL" ? "tài khoản trường" : "tài khoản cá nhân"} đã phát hành; không thể chuyển công nợ vào.` });
-        const [yyyy, mm] = source.billingMonth.split("-");
-        const outcome = await this.postDebtTransfer(tx, schoolId, identityId, actor, operation, source, target, amount, `Chuyển công nợ tháng ${mm}/${yyyy}`);
+                const outcome = await this.postDebtTransfer(tx, schoolId, identityId, actor, operation, source, target, amount, `Chuyển công nợ ${runLabel(source.collectionRun.name)}`);
         transferred.push({ sourceInvoiceId: source.id, targetInvoiceId: target.id, amount: outcome.amount }); total += amount;
       }
       return { transferred, total: total.toString() };
@@ -952,7 +952,7 @@ export class FinanceService {
       if (run.status === "CLOSED" || year.closedAt) throw new ConflictException({ code: "COLLECTION_RUN_CLOSED", message: "Đợt thu hoặc năm học đã đóng chỉ có thể xem." });
       // Run lock (decision 2026-10-08): an earlier MONTHLY run of the School must be closed before this one issues.
       const previousOpen = await this.previousOpenRun(tx, schoolId, run);
-      if (previousOpen) throw new ConflictException({ code: "PREVIOUS_RUN_NOT_CLOSED", message: `Cần đóng đợt thu tháng ${monthLabel(previousOpen.billingMonth)} trước khi phát hành hóa đơn của đợt này.` });
+      if (previousOpen) throw new ConflictException({ code: "PREVIOUS_RUN_NOT_CLOSED", message: `Cần đóng đợt thu ${runLabel(previousOpen.name)} trước khi phát hành hóa đơn của đợt này.` });
       // Decision 2026-10-01 D7, amendment A4: a settlement part may be negative (refund notice); a negative monthly part carries its credit.
       // A settlement part may hold only a carried credit or debt, without lines.
       const issuable = (part: any) => part.lines.length > 0 || (part.kind === "SETTLEMENT" && BigInt(part.total) !== 0n);
@@ -1177,7 +1177,7 @@ export class FinanceService {
     }
     const { id, status, total, channel: _channel, createdAt, lines, issuedAt, revisesInvoiceId, revisionReason, obligationCodeSnapshot, bankAccountIdSnapshot, receivingBankSnapshot, receivingBankBinSnapshot, accountNumberSnapshot, accountHolderNameSnapshot, transferContentSnapshot, obligationLinesSnapshot, obligationTotalSnapshot, financePolicyEffectiveFrom, dueDaysAfterIssueSnapshot, taxTreatmentSnapshot, debtScopeSnapshot, reversalModeSnapshot, dueOn, ...roster } = invoice;
     const created = await tx.invoice.create({ data: { ...roster, selectionProvenance: roster.selectionProvenance ?? Prisma.DbNull, channel } });
-    await this.materializeCarries(tx, schoolId, created.id, created.studentId, created.schoolYearId, created.billingMonth, channel);
+    await this.materializeCarries(tx, schoolId, created.id, created.studentId, created.schoolYearId, channel);
     return tx.invoice.findFirstOrThrow({ where: { id: created.id, schoolId }, include: { lines: { orderBy: [{ amount: "desc" }, { id: "asc" }] } } });
   }
   private async refreshInvoice(tx: any, schoolId: string, invoiceId: string) {
@@ -1475,6 +1475,7 @@ export class FinanceService {
     return { schoolId, invoiceId, receivableId: refund.receivable.id, receivableCodeSnapshot: refund.receivable.code, receivableNameSnapshot: refund.receivable.displayName, unitLabelSnapshot: "gói", defaultUnitPriceSnapshot: refund.receivable.defaultUnitPrice, unitPrice: refund.receivable.defaultUnitPrice, quantity: 0, grossAmount: 0n, discountAmount: 0n, refundUnitPriceSnapshot: refund.refundNet, deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: refund.refundNet, deductionSource: refund.source, netAmount: -refund.refundNet, ...tax, promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [] } };
   }
   // Generation context: leave days, receivables refunded on the previous month's issued Invoices, and live refund prices.
+  // Leave deduction reads the previous calendar month. A CLASS run passes no Student, so it proposes none (Story 5.51 reads the preceding period).
   private async deductionContext(client: any, schoolId: string, billingMonth: string, studentIds: string[], receivableIds: string[]) {
     const days = await this.leaveDeductionDays(client, schoolId, studentIds, billingMonth);
     const previous = new Map<string, Set<string>>();
@@ -2218,10 +2219,11 @@ export class FinanceService {
       orderBy: [{ studentCodeSnapshot: "asc" }, { channel: "asc" }, { id: "asc" }],
     },
     lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
+    classroom: { select: { name: true } },
   };
-  private async previousOpenRun(db: any, schoolId: string, run: { type: string; billingMonth: string }): Promise<{ id: string; billingMonth: string } | null> {
-    if (run.type !== "MONTHLY") return null;
-    return db.collectionRun.findFirst({ where: { schoolId, type: "MONTHLY", billingMonth: { lt: run.billingMonth }, status: { not: "CLOSED" } }, orderBy: { billingMonth: "asc" }, select: { id: true, billingMonth: true } });
+  // Sprint change 2026-10-12: runs settle in period order within their scope target (the School, or one Class).
+  private async previousOpenRun(db: any, schoolId: string, run: { scope: string; classId: string | null; periodStartsOn: Date }): Promise<{ id: string; billingMonth: string; name: string } | null> {
+    return db.collectionRun.findFirst({ where: { schoolId, scope: run.scope, classId: run.classId, periodStartsOn: { lt: run.periodStartsOn }, status: { not: "CLOSED" } }, orderBy: [{ periodStartsOn: "asc" }, { id: "asc" }], select: { id: true, billingMonth: true, name: true } });
   }
   private runDto(run: any) {
     const status = run.lifecycleTransitions?.[0]?.status ?? run.status;
@@ -2229,7 +2231,12 @@ export class FinanceService {
       id: run.id,
       schoolYearId: run.schoolYearId,
       billingMonth: run.billingMonth,
-      type: run.type,
+      scope: run.scope,
+      classId: run.classId ?? null,
+      className: run.classroom?.name ?? null,
+      name: run.name,
+      periodStartsOn: run.periodStartsOn.toISOString().slice(0, 10),
+      periodEndsOn: run.periodEndsOn.toISOString().slice(0, 10),
       status,
       version: run.version,
       coverageSelections: (run.coverageSelections ?? []).map((item: any) => ({ studentId: item.studentId, versionId: item.versionId, billingMonth: item.billingMonth })),
@@ -2491,6 +2498,7 @@ export class FinanceService {
       const scope = input.scope ?? (existing ? { type: existing.scopeType as "ALL" | "CLASSES" | "STUDENTS", classIds: existing.scopeClasses.map((item: any) => item.classId).sort(), studentIds: existing.scopeStudents.map((item: any) => item.studentId).sort() } : { type: "ALL" as const, classIds: [], studentIds: [] });
       if (receivable.group.kind === "FIXED" && scope.type !== "ALL") throw validation("scope", "Khoản thu cố định luôn áp dụng cho toàn bộ học sinh.");
       // Foreign, other-year and missing targets are indistinguishable to the caller.
+      if (scope.type === "CLASSES" && run.scope === "CLASS") throw validation("scope", "Đợt thu theo lớp chỉ chọn phạm vi cả lớp hoặc học sinh cụ thể.");
       if (scope.type === "CLASSES") {
         const classes = await tx.class.count({ where: { schoolId, schoolYearId: run.schoolYearId, id: { in: scope.classIds } } });
         if (classes !== scope.classIds.length) throw validation("scope", "Lớp chính thức phải thuộc năm học của đợt thu.");
@@ -2608,6 +2616,13 @@ export class FinanceService {
   ) {
     schoolId = this.school(schoolId);
     const actor = await this.actor(identityId, schoolId);
+    // Sprint change 2026-10-12: a School opens only the run scope of its kind.
+    const scopeNotAllowed = () => new ConflictException({ code: "COLLECTION_RUN_SCOPE_NOT_ALLOWED", message: "Trường này không mở đợt thu theo cách này." });
+    if (actor.features.collectionRunScope === "CLASS") {
+      if (body?.billingMonth !== undefined) throw scopeNotAllowed();
+      return this.openClassRun(identityId, schoolId, actor, key, operationId, body);
+    }
+    if (body?.classId !== undefined) throw scopeNotAllowed();
     const input = {
       schoolYearId: this.identifier(body?.schoolYearId, "schoolYearId"),
       billingMonth: this.month(body?.billingMonth),
@@ -2629,6 +2644,7 @@ export class FinanceService {
         where: {
           schoolId,
           schoolYearId: input.schoolYearId,
+          scope: "SCHOOL",
           billingMonth: input.billingMonth,
         },
         include: this.runInclude,
@@ -2639,6 +2655,9 @@ export class FinanceService {
           schoolId,
           schoolYearId: input.schoolYearId,
           billingMonth: input.billingMonth,
+          name: `Tháng ${input.billingMonth.slice(5, 7)}/${input.billingMonth.slice(0, 4)}`,
+          periodStartsOn: asOf,
+          periodEndsOn: new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() + 1, 0)),
         },
       });
       const transition = await tx.collectionRunLifecycleTransition.create({
@@ -2692,6 +2711,7 @@ export class FinanceService {
         where: {
           schoolId,
           schoolYearId: input.schoolYearId,
+          scope: "SCHOOL",
           billingMonth: input.billingMonth,
         },
         include: this.runInclude,
@@ -2704,18 +2724,47 @@ export class FinanceService {
       };
     }
   }
+  // Sprint change 2026-10-12 §2.3: a CLASS run bills one Class for an inclusive period Finance enters (a unit). No FIXED seed: the first
+  // run of a Class starts empty and a later one copies the whole-class lines of the preceding run of that Class.
+  private async openClassRun(identityId: string, schoolId: string, actor: any, key: string, operationId: string, body: any) {
+    const periodStartsOn = this.date(body?.periodStartsOn, "periodStartsOn")!;
+    const periodEndsOn = this.date(body?.periodEndsOn, "periodEndsOn")!;
+    if (periodStartsOn > periodEndsOn) throw validation("periodEndsOn", "Ngày kết thúc không được trước ngày bắt đầu.");
+    const input = { classId: this.identifier(body?.classId, "classId"), name: this.text(body?.name, "name", true, 100), periodStartsOn: periodStartsOn.toISOString().slice(0, 10), periodEndsOn: periodEndsOn.toISOString().slice(0, 10) };
+    return this.mutate(actor, identityId, schoolId, routes.openRun, key, operationId, input, async (tx: any, operation: string) => {
+      await tx.$queryRaw`SELECT 1 FROM "Class" WHERE "id" = ${input.classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+      const classroom = await tx.class.findFirst({ where: { id: input.classId, schoolId }, include: { schoolYear: true } });
+      if (!classroom) throw new NotFoundException({ code: "CLASS_NOT_FOUND", message: "Không tìm thấy lớp." });
+      if (classroom.status !== "ACTIVE") throw validation("classId", "Chỉ mở đợt thu cho lớp đang hoạt động.");
+      if (classroom.schoolYear.closedAt) throw new ConflictException({ code: "SCHOOL_YEAR_CLOSED", message: "Năm học đã đóng chỉ có thể xem." });
+      if (periodStartsOn < classroom.schoolYear.startsOn || periodEndsOn >= yearEnd(classroom.schoolYear.endsOn)) throw validation("periodStartsOn", "Kỳ thu phải thuộc năm học của lớp.");
+      const overlapping = await tx.collectionRun.findFirst({ where: { schoolId, scope: "CLASS", classId: input.classId, periodStartsOn: { lte: periodEndsOn }, periodEndsOn: { gte: periodStartsOn } }, select: { name: true } });
+      if (overlapping) throw new ConflictException({ code: "COLLECTION_RUN_PERIOD_OVERLAP", message: `Kỳ này trùng với đợt thu ${overlapping.name} của lớp.`, fieldErrors: { periodStartsOn: `Trùng với đợt thu ${overlapping.name}.` } });
+      const previous = await tx.collectionRun.findFirst({ where: { schoolId, scope: "CLASS", classId: input.classId, periodStartsOn: { lt: periodStartsOn } }, orderBy: [{ periodStartsOn: "desc" }, { id: "desc" }], include: { templateLines: { where: { scopeType: "ALL" }, include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } }, orderBy: { id: "asc" } } } });
+      const copied = (previous?.templateLines ?? []).filter((line: any) => line.receivable.lifecycleTransitions[0]?.status === "ACTIVE");
+      await this.lockReceivablesShared(tx, schoolId, copied.map((line: any) => line.receivableId));
+      const run = await tx.collectionRun.create({ data: { schoolId, schoolYearId: classroom.schoolYearId, scope: "CLASS", classId: input.classId, name: input.name, periodStartsOn, periodEndsOn, billingMonth: input.periodStartsOn.slice(0, 7) } });
+      const transition = await tx.collectionRunLifecycleTransition.create({ data: { schoolId, collectionRunId: run.id, status: "DRAFT", actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 1 } });
+      if (copied.length) await tx.collectionRunTemplateLine.createMany({ data: copied.map((line: any) => ({ schoolId, collectionRunId: run.id, receivableId: line.receivableId, quantity: line.quantity, scopeType: "ALL" as const })) });
+      const seeded = await tx.collectionRun.findFirstOrThrow({ where: { id: run.id, schoolId }, include: this.runInclude });
+      const outcome = this.runDto({ ...seeded, lifecycleTransitions: [transition] });
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_OPENED", operation, null, { ...outcome, copiedFromRunId: previous?.id ?? null });
+      return outcome;
+    });
+  }
   // ---- Extracurricular resolution (Story 5.36, decision 2026-10-02 §3.2/§3.3) -------------------------------------------------
   // The run's extracurricular facts: ACTIVE classes of the SchoolYear with their receivable facts, the per-run exclusions and the
   // memberships effective at least one day in the billing month. READY/generate/preview read it live; a GENERATED run keeps the class and
   // receivable facts in `extracurricularSnapshot` and reads memberships at the time a Student is added.
-  private monthBounds(billingMonth: string) {
-    const [year, month] = billingMonth.split("-").map(Number) as [number, number];
+  // The run's service period as a half-open interval [start, end).
+  private periodBounds(run: { periodStartsOn: Date; periodEndsOn: Date }) {
     const iso = (date: Date) => date.toISOString().slice(0, 10);
-    return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 1)), startIso: iso(new Date(Date.UTC(year, month - 1, 1))), endIso: iso(new Date(Date.UTC(year, month, 1))) };
+    const end = new Date(run.periodEndsOn.getTime() + 86_400_000);
+    return { start: run.periodStartsOn, end, startIso: iso(run.periodStartsOn), endIso: iso(end) };
   }
-  private async memberFacts(client: any, schoolId: string, classIds: string[], billingMonth: string) {
+  private async memberFacts(client: any, schoolId: string, classIds: string[], run: { periodStartsOn: Date; periodEndsOn: Date }) {
     if (!classIds.length) return [];
-    const { start, end } = this.monthBounds(billingMonth);
+    const { start, end } = this.periodBounds(run);
     const rows = await client.extracurricularMembership.findMany({
       where: { schoolId, extracurricularClassId: { in: classIds }, effectiveFrom: { lt: end }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: start } }] },
       select: { extracurricularClassId: true, enrollmentId: true, effectiveFrom: true, effectiveTo: true, enrollment: { select: { studentId: true } } },
@@ -2736,14 +2785,14 @@ export class FinanceService {
     // Membership mutations take the class FOR UPDATE; sharing it here gives READY/generate one stable view of the class members.
     if (lock && active.length) await client.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "schoolId" = ${schoolId}::uuid AND "id" = ANY(${active.map((item: any) => item.id)}::uuid[]) ORDER BY "id" FOR SHARE`;
     const excluded = new Set((await client.collectionRunExtracurricularExclusion.findMany({ where: { schoolId, collectionRunId: run.id }, select: { extracurricularClassId: true } })).map((item: any) => item.extracurricularClassId));
-    const members = await this.memberFacts(client, schoolId, active.map((item: any) => item.id), run.billingMonth);
+    const members = await this.memberFacts(client, schoolId, active.map((item: any) => item.id), run);
     return {
       classes: active.map((item: any) => ({ id: item.id, name: item.name, receivableId: item.receivableId, excluded: excluded.has(item.id), receivableActive: item.receivable.lifecycleTransitions[0]?.status === "ACTIVE", receivable: this.receivableFacts(item.receivable), members: members.filter((member: any) => member.classId === item.id) })),
     };
   }
   private async snapshotResolution(client: any, schoolId: string, run: any) {
     const stored = ((run.extracurricularSnapshot as any)?.classes ?? []) as any[];
-    const members = await this.memberFacts(client, schoolId, stored.map((item) => item.id), run.billingMonth);
+    const members = await this.memberFacts(client, schoolId, stored.map((item) => item.id), run);
     return { classes: stored.map((item) => ({ ...item, members: members.filter((member: any) => member.classId === item.id) })) };
   }
   // The resolution a run uses: live while DRAFT/READY, snapshot-based once generated.
@@ -2762,8 +2811,8 @@ export class FinanceService {
     return !item.excluded && item.receivableActive;
   }
   // One merged line per extracurricular Receivable for an enrollment: default price, quantity 1, no proration.
-  private extracurricularLines(resolution: { classes: any[] }, enrollmentId: string, billingMonth: string) {
-    const { startIso, endIso } = this.monthBounds(billingMonth);
+  private extracurricularLines(resolution: { classes: any[] }, enrollmentId: string, run: { periodStartsOn: Date; periodEndsOn: Date }) {
+    const { startIso, endIso } = this.periodBounds(run);
     const byReceivable = new Map<string, any>();
     for (const item of resolution.classes) {
       if (!this.extracurricularBillable(item)) continue;
@@ -2805,13 +2854,17 @@ export class FinanceService {
     templateLines: any[] = [],
     extracurricular: { classes: any[] } = { classes: [] },
   ) {
-    const asOf = this.asOf(run.billingMonth);
+    const asOf: Date = run.periodStartsOn;
+    // Sprint change 2026-10-12 §2.4: a CLASS run takes the Students who belong to its Class at least one day in the period.
+    const period = this.periodBounds(run);
+    const classScoped = run.scope === "CLASS";
+    const inRunClass = { classId: run.classId, effectiveFrom: { lt: period.end }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: period.start } }] };
     const requestedStudentIds = studentIds ? [...new Set(studentIds)].sort() : null;
     const enrollments = await client.studentEnrollment.findMany({
       where: {
         schoolId,
         schoolYearId: run.schoolYearId,
-        ...(requestedStudentIds ? { studentId: { in: requestedStudentIds } } : {}),
+        ...(requestedStudentIds ? { studentId: { in: requestedStudentIds } } : classScoped ? { classAssignments: { some: inRunClass } } : {}),
       },
       include: {
         student: true,
@@ -2828,7 +2881,7 @@ export class FinanceService {
     });
     const assignmentByEnrollment = new Map<string, any>();
     for (const assignment of assignments) {
-      if (assignment.effectiveFrom > asOf || (assignment.effectiveTo && assignment.effectiveTo <= asOf)) continue;
+      if (classScoped ? assignment.classId !== run.classId || assignment.effectiveFrom >= period.end || (assignment.effectiveTo && assignment.effectiveTo <= period.start) : assignment.effectiveFrom > asOf || (assignment.effectiveTo && assignment.effectiveTo <= asOf)) continue;
       if (!assignmentByEnrollment.has(assignment.enrollmentId)) assignmentByEnrollment.set(assignment.enrollmentId, assignment);
     }
     const eligible: any[] = [];
@@ -2850,10 +2903,12 @@ export class FinanceService {
         });
       if (!enrollment) skipped("NO_ENROLLMENT");
       else if (
-        enrollment.effectiveFrom > asOf ||
-        (enrollment.endedOn && enrollment.endedOn <= asOf)
+        classScoped
+          ? enrollment.effectiveFrom >= period.end || (enrollment.endedOn && enrollment.endedOn <= period.start)
+          : enrollment.effectiveFrom > asOf || (enrollment.endedOn && enrollment.endedOn <= asOf)
       )
         skipped("ENROLLMENT_NOT_EFFECTIVE");
+      else if (classScoped && !assignment) skipped("NO_CLASS_ASSIGNMENT");
       // Decision 2026-10-08: an extracurricular-only Student is eligible without a class, for the lines that apply to them only.
       else if (enrollment.lifecycle === EXTRACURRICULAR_ONLY)
         eligible.push({
@@ -2899,12 +2954,12 @@ export class FinanceService {
     }
     const promotionFacts = (await this.promotionFacts(client, schoolId, asOf, rosterStudentIds, [...templateLines.map((line) => line.receivableId), ...extracurricular.classes.filter((item) => this.extracurricularBillable(item)).map((item) => item.receivableId)])).sort((a: any, b: any) => a.studentId.localeCompare(b.studentId) || a.receivableId.localeCompare(b.receivableId) || a.policyId.localeCompare(b.policyId) || a.assignmentId.localeCompare(b.assignmentId));
     // D11: coverage issued in an earlier SchoolYear still covers this month.
-    const covered = await client.studentPromotionalCoverage.findMany({ where: { schoolId, studentId: { in: rosterStudentIds }, billingMonth: run.billingMonth }, select: { studentId: true, receivableId: true } });
+    const covered = classScoped ? [] : await client.studentPromotionalCoverage.findMany({ where: { schoolId, studentId: { in: rosterStudentIds }, billingMonth: run.billingMonth }, select: { studentId: true, receivableId: true } });
     const coveredKeys = new Set(covered.map((item: any) => `${item.studentId}:${item.receivableId}`));
     // Decision 2026-10-02 §3.4: an eligible Student with no applicable template line (after scope) is skipped, never billed an empty Invoice.
     const applicable: any[] = [];
     const extraByStudent = new Map<string, any[]>();
-    for (const item of eligible) extraByStudent.set(item.studentId, this.extracurricularLines(extracurricular, item.enrollment.id, run.billingMonth));
+    for (const item of eligible) extraByStudent.set(item.studentId, this.extracurricularLines(extracurricular, item.enrollment.id, run));
     for (const item of eligible) {
       if (templateLines.some((line) => this.inScope(line, item)) || extraByStudent.get(item.studentId)!.length) applicable.push(item);
       else skips.push({ studentId: item.studentId, studentCode: item.studentCode, fullName: item.fullName, reason: "NO_APPLICABLE_LINES" });
@@ -2995,7 +3050,7 @@ export class FinanceService {
     }
 
     const run = await this.lockRun(tx, schoolId, invoice.collectionRunId);
-    if (run.status === "CLOSED" || run.type !== "MONTHLY") {
+    if (run.status === "CLOSED" || run.scope !== "SCHOOL") {
       throw new ConflictException({
         code: "COLLECTION_RUN_STATE_CONFLICT",
         message: "Chỉ áp dụng gói nộp trước cho đợt thu tháng chưa đóng.",
@@ -3362,7 +3417,7 @@ export class FinanceService {
         }
 
         const run = await this.lockRun(tx, schoolId, invoice.collectionRunId);
-        if (run.status === "CLOSED" || run.type !== "MONTHLY") {
+        if (run.status === "CLOSED" || run.scope !== "SCHOOL") {
           throw new ConflictException({
             code: "COLLECTION_RUN_STATE_CONFLICT",
             message: "Chỉ áp dụng gói nộp trước cho đợt thu tháng chưa đóng.",
@@ -3517,7 +3572,7 @@ export class FinanceService {
   private async recheckPromotion(tx: any, schoolId: string, invoice: any, billingMonth: string) {
     const calculatedLines = invoice.lines.filter((line: any) => line.kind !== "PRIOR_DEBT" && line.promotionEvaluationProvenance);
     if (!calculatedLines.length) return [];
-    const facts = await this.promotionFacts(tx, schoolId, this.asOf(billingMonth), [invoice.studentId], calculatedLines.map((line: any) => line.receivableId));
+    const facts = await this.promotionFacts(tx, schoolId, invoice.rosterAsOf ?? this.asOf(billingMonth), [invoice.studentId], calculatedLines.map((line: any) => line.receivableId));
     const applications: any[] = [];
     for (const line of calculatedLines) {
       const rechecked = this.evaluatePromotionLine(invoice.studentId, { ...line, amount: line.grossAmount, receivableName: line.receivableNameSnapshot }, facts);
@@ -3529,7 +3584,7 @@ export class FinanceService {
     return applications;
   }
   private async evaluateDraftPromotion(tx: any, schoolId: string, invoice: any, line: any) {
-    const facts = await this.promotionFacts(tx, schoolId, this.asOf(invoice.billingMonth), [invoice.studentId], [line.receivableId]);
+    const facts = await this.promotionFacts(tx, schoolId, invoice.rosterAsOf ?? this.asOf(invoice.billingMonth), [invoice.studentId], [line.receivableId]);
     return this.evaluatePromotionLine(invoice.studentId, line, facts);
   }
   private async createIssuedPromotionApplications(tx: any, schoolId: string, invoiceId: string, applications: any[]) {
@@ -3574,7 +3629,7 @@ export class FinanceService {
   // The preview shows the leave-day deduction proposed from current facts; it is not part of the READY
   // fingerprint because generation re-reads leave days and refund prices at generation time.
   private async previewDeductions<T extends { eligible: any[] }>(client: any, schoolId: string, run: any, preview: T) {
-    const context = await this.deductionContext(client, schoolId, run.billingMonth, preview.eligible.map((row) => row.studentId), [...new Set<string>(preview.eligible.flatMap((row) => row.lines.map((line: any) => line.receivableId)))]);
+    const context = await this.deductionContext(client, schoolId, run.billingMonth, run.scope === "CLASS" ? [] : preview.eligible.map((row) => row.studentId), [...new Set<string>(preview.eligible.flatMap((row) => row.lines.map((line: any) => line.receivableId)))]);
     return { ...preview, eligible: preview.eligible.map((row) => ({ ...row, lines: row.lines.map((line: any) => {
       const receivable = context.receivables.get(line.receivableId);
       const proposal = this.deductionProposal(BigInt(receivable?.refundUnitPrice ?? 0), run.billingMonth, context.days.get(row.studentId) ?? [], [], Boolean(receivable?.autoLeaveDeduction));
@@ -3737,7 +3792,7 @@ export class FinanceService {
         // An empty template is allowed; generation is refused only when no Student would get any line.
         if (!snapshots.length && roster.skips.some((item: any) => item.reason === "NO_APPLICABLE_LINES")) throw new ConflictException({ code: "COLLECTION_RUN_NO_APPLICABLE_LINES", message: "Không học sinh nào có khoản thu áp dụng. Hãy thêm khoản thu hoặc kiểm tra phạm vi trước khi tạo hóa đơn." });
         await tx.collectionRun.update({ where: { id: run.id }, data: { templateSnapshot: templateLines, extracurricularSnapshot: this.snapshotOfResolution(extracurricular) as any } });
-        const deductions = await this.deductionContext(tx, schoolId, run.billingMonth, snapshots.map((item: any) => item.studentId), templateLines.map((line: any) => line.receivableId));
+        const deductions = await this.deductionContext(tx, schoolId, run.billingMonth, run.scope === "CLASS" ? [] : snapshots.map((item: any) => item.studentId), templateLines.map((line: any) => line.receivableId));
         const generation = await tx.collectionRunGeneration.create({ data: { schoolId, collectionRunId: run.id, operationId: operation.id, actorIdentityId: identityId, membershipId: actor.membershipId, totalCount: snapshots.length + roster.skips.length, processedCount: roster.skips.length, eligibleCount: 0, skippedCount: roster.skips.length } });
         await tx.collectionRunGenerationItem.createMany({ data: [
           ...snapshots.map((item: any, ordinal: number) => ({ schoolId, generationId: generation.id, studentId: item.studentId, ordinal, snapshot: this.invoiceData(schoolId, run, item, templateLines, deductions) })),
@@ -3867,7 +3922,7 @@ export class FinanceService {
         const candidate = roster.snapshots[0] as any;
         const skipped = [...roster.skips];
         const insertedStudentIds = candidate
-          ? await this.insertInvoices(tx, [this.invoiceData(schoolId, run, candidate, templateLines, await this.deductionContext(tx, schoolId, run.billingMonth, [studentId], templateLines.map((line: any) => line.receivableId)))])
+          ? await this.insertInvoices(tx, [this.invoiceData(schoolId, run, candidate, templateLines, await this.deductionContext(tx, schoolId, run.billingMonth, run.scope === "CLASS" ? [] : [studentId], templateLines.map((line: any) => line.receivableId)))])
          : new Set<string>();
        const createdIds = candidate && insertedStudentIds.has(studentId) ? this.noticeInvoiceIds(await tx.invoice.findMany({ where: { schoolId, collectionRunId: run.id, studentId, revisesInvoiceId: null }, select: { id: true, studentId: true, channel: true } })).get(studentId) ?? [] : [];
        const created = candidate && insertedStudentIds.has(studentId) ? [{ ...candidate, invoiceId: createdIds[0], invoiceIds: createdIds }] : [];
@@ -3881,6 +3936,8 @@ export class FinanceService {
   // D9: Students whose enrollment ended during the month before the run. endedOn is the first day without
   // enrollment, so the last attended day (endedOn - 1) falls in the previous month.
   private async settlementCandidates(client: any, schoolId: string, run: any) {
+    // Month-based settlement stays SCHOOL-scope; a CLASS run reads its preceding period in Story 5.51.
+    if (run.scope !== "SCHOOL") return [];
     const { start, end } = this.previousMonth(run.billingMonth);
     const enrollments = await client.studentEnrollment.findMany({ where: { schoolId, lifecycle: { in: ["WITHDRAWN", "GRADUATED"] }, endedOn: { gt: start, lte: end } }, include: { student: true, classAssignments: { include: { classroom: true }, orderBy: [{ effectiveFrom: "desc" }, { id: "asc" }] } }, orderBy: [{ studentId: "asc" }, { endedOn: "desc" }] });
     const invoices = enrollments.length ? await client.invoice.findMany({ where: { schoolId, collectionRunId: run.id, studentId: { in: enrollments.map((item: any) => item.studentId) }, revisesInvoiceId: null }, select: { id: true, studentId: true, channel: true, status: true, total: true, kind: true }, orderBy: [{ channel: "asc" }] }) : [];
@@ -3906,7 +3963,7 @@ export class FinanceService {
       const run = await this.lockRun(tx, schoolId, runId);
       const year = await this.lockYear(tx, schoolId, run.schoolYearId);
       if (year.closedAt) throw new ConflictException({ code: "SCHOOL_YEAR_CLOSED", message: "Năm học đã đóng chỉ có thể xem." });
-      if (run.status !== "GENERATED" || run.type !== "MONTHLY") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ tạo hóa đơn quyết toán khi đợt thu đã tạo hóa đơn." });
+      if (run.status !== "GENERATED" || run.scope !== "SCHOOL") throw new ConflictException({ code: "COLLECTION_RUN_STATE_CONFLICT", message: "Chỉ tạo hóa đơn quyết toán khi đợt thu đã tạo hóa đơn." });
       const candidate = (await this.settlementCandidates(tx, schoolId, run)).find((item: any) => item.enrollment.studentId === studentId);
       if (!candidate) throw new NotFoundException({ code: "SETTLEMENT_STUDENT_NOT_ELIGIBLE", message: "Học sinh không nghỉ học trong tháng trước đợt thu này." });
       if (candidate.invoices.length) throw new ConflictException({ code: "SETTLEMENT_EXISTS", message: "Học sinh đã có hóa đơn quyết toán trong đợt thu này." });
@@ -3920,7 +3977,7 @@ export class FinanceService {
       }).filter((line) => line.data.deductionQuantity > 0);
       const packageLines = (await this.packageRefunds(tx, schoolId, studentId, enrollment.endedOn)).map((refund: any) => ({ channel: taxChannel(refund.taxCategory), refund }));
       await this.lockReceivablesShared(tx, schoolId, [...mealLines.map((line: any) => line.data.receivableId), ...packageLines.map((line: any) => line.refund.receivable?.id)]);
-      const channels = [...new Set<PaymentChannel>([...mealLines, ...packageLines].map((line) => line.channel).concat(await this.pendingCarryChannels(tx, schoolId, studentId, run.schoolYearId, run.billingMonth)))].sort((a, b) => (a === b ? 0 : a === "SCHOOL" ? -1 : 1));
+      const channels = [...new Set<PaymentChannel>([...mealLines, ...packageLines].map((line) => line.channel).concat(await this.pendingCarryChannels(tx, schoolId, studentId, run.schoolYearId, run.periodStartsOn)))].sort((a, b) => (a === b ? 0 : a === "SCHOOL" ? -1 : 1));
       if (!channels.length) throw new ConflictException({ code: "SETTLEMENT_NOTHING_TO_SETTLE", message: "Không có tiền ăn chưa dùng, học phí nộp trước hay số dư chuyển kỳ cần quyết toán cho học sinh này." });
       const asOf = this.asOf(run.billingMonth);
       const created: string[] = [];
@@ -3935,7 +3992,7 @@ export class FinanceService {
         } });
         for (const line of mealLines.filter((item) => item.channel === channel)) await tx.invoiceLine.create({ data: { ...line.data, invoiceId: invoice.id } });
         for (const line of packageLines.filter((item) => item.channel === channel)) await tx.invoiceLine.create({ data: this.packageLine(schoolId, invoice.id, line.refund) });
-        await this.materializeCarries(tx, schoolId, invoice.id, studentId, run.schoolYearId, run.billingMonth, channel);
+        await this.materializeCarries(tx, schoolId, invoice.id, studentId, run.schoolYearId, channel);
         created.push(invoice.id);
       }
       const outcome = await this.refreshInvoice(tx, schoolId, created[0]!);
@@ -4000,7 +4057,7 @@ export class FinanceService {
     }).filter((line) => line.deductionQuantity > 0) : [];
     return {
       schoolId, studentId: item.studentId, collectionRunId: run.id, schoolYearId: run.schoolYearId,
-      billingMonth: run.billingMonth, rosterAsOf: this.asOf(run.billingMonth),
+      billingMonth: run.billingMonth, rosterAsOf: run.periodStartsOn,
       studentCodeSnapshot: enrollment.student.studentCode, studentNameSnapshot: enrollment.student.fullName,
       enrollmentIdSnapshot: enrollment.id, enrollmentLifecycleSnapshot: enrollment.lifecycle,
       enrollmentEffectiveFromSnapshot: enrollment.effectiveFrom, enrollmentEndedOnSnapshot: enrollment.endedOn,
@@ -4008,7 +4065,7 @@ export class FinanceService {
       classAssignmentEffectiveToSnapshot: assignment?.effectiveTo ?? null, classIdSnapshot: assignment?.classId ?? null,
       classNameSnapshot: assignment?.classroom.name ?? null,
        selectionProvenance: { policy: "COLLECTION_RUN_DEFAULT_ROSTER_V1", runId: run.id, billingMonth: run.billingMonth,
-        rosterAsOf: this.asOf(run.billingMonth).toISOString(), enrollmentId: enrollment.id,
+        rosterAsOf: run.periodStartsOn.toISOString(), enrollmentId: enrollment.id,
         enrollmentInterval: [enrollment.effectiveFrom.toISOString(), enrollment.endedOn?.toISOString() ?? null],
         assignmentId: assignment?.id ?? null, assignmentInterval: assignment ? [assignment.effectiveFrom.toISOString(), assignment.effectiveTo?.toISOString() ?? null] : null },
       lines: [...templateLines, ...(item.extracurricularLines ?? [])].filter((line: any) => !item.calculatedLines || item.calculatedLines.some((candidate: any) => candidate.receivableId === line.receivableId)).map((line: any) => {
@@ -4066,21 +4123,23 @@ export class FinanceService {
     if (lines.length) await tx.invoiceLine.createMany({ data: lines });
     for (const invoice of inserted) {
       const target = parts.find((candidate) => candidate.studentId === invoice.studentId && candidate.channel === invoice.channel)!;
-      await this.materializeCarries(tx, target.schoolId, invoice.id, target.studentId, target.schoolYearId, target.billingMonth, invoice.channel);
+      await this.materializeCarries(tx, target.schoolId, invoice.id, target.studentId, target.schoolYearId, invoice.channel);
     }
     return new Set(inserted.map((invoice: { studentId: string }) => invoice.studentId));
   }
   // A difference is money owed to or held in one account, so it only carries within its payment channel.
-  // Channels where a monthly difference of the Student still has an amount not carried yet.
-  private async pendingCarryChannels(tx: any, schoolId: string, studentId: string, schoolYearId: string, billingMonth: string) {
-    const differences = await tx.settlementDifference.findMany({ where: { schoolId, studentId, schoolYearId, invoice: { collectionRun: { type: "MONTHLY", billingMonth: { lt: billingMonth } } } }, include: { carries: { select: { amount: true } }, invoice: { select: { channel: true } } } });
+  // Channels where a difference of an earlier-period run of the Student still has an amount not carried yet.
+  private async pendingCarryChannels(tx: any, schoolId: string, studentId: string, schoolYearId: string, periodStartsOn: Date) {
+    const differences = await tx.settlementDifference.findMany({ where: { schoolId, studentId, schoolYearId, invoice: { collectionRun: { periodStartsOn: { lt: periodStartsOn } } } }, include: { carries: { select: { amount: true } }, invoice: { select: { channel: true } } } });
     return differences.filter((difference: any) => (difference.signedAmount < 0n ? -difference.signedAmount : difference.signedAmount) > difference.carries.reduce((sum: bigint, carry: any) => sum + BigInt(carry.amount), 0n)).map((difference: any) => difference.invoice.channel as PaymentChannel);
   }
-  private async materializeCarries(tx: any, schoolId: string, invoiceId: string, studentId: string, schoolYearId: string, billingMonth: string, channel: PaymentChannel) {
+  private async materializeCarries(tx: any, schoolId: string, invoiceId: string, studentId: string, schoolYearId: string, channel: PaymentChannel) {
     await tx.$queryRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
+    // Sprint change 2026-10-12: "earlier" and "next" follow the run period, so a carry also crosses Class runs.
+    const { collectionRun: { periodStartsOn } } = await tx.invoice.findFirstOrThrow({ where: { id: invoiceId, schoolId }, select: { collectionRun: { select: { periodStartsOn: true } } } });
     const differences = await tx.settlementDifference.findMany({
-      where: { schoolId, studentId, schoolYearId, invoice: { channel, collectionRun: { type: "MONTHLY", billingMonth: { lt: billingMonth } } } },
-      include: { carries: true, invoice: { select: { billingMonth: true } } }, orderBy: { createdAt: "asc" },
+      where: { schoolId, studentId, schoolYearId, invoice: { channel, collectionRun: { periodStartsOn: { lt: periodStartsOn } } } },
+      include: { carries: true, invoice: { select: { collectionRun: { select: { periodStartsOn: true } } } } }, orderBy: { createdAt: "asc" },
     });
     if (!differences.length) return;
     let target = await tx.invoice.findFirstOrThrow({ where: { id: invoiceId, schoolId } });
@@ -4092,9 +4151,9 @@ export class FinanceService {
           schoolYearId,
           channel,
           status: "DRAFT",
-          collectionRun: { type: "MONTHLY", billingMonth: { gt: difference.invoice.billingMonth } },
+          collectionRun: { periodStartsOn: { gt: difference.invoice.collectionRun.periodStartsOn } },
         },
-        orderBy: { billingMonth: "asc" },
+        orderBy: [{ collectionRun: { periodStartsOn: "asc" } }, { collectionRunId: "asc" }],
         select: { id: true },
       });
       if (eligible?.id !== invoiceId) continue;

@@ -1639,6 +1639,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
             schoolId: current.school.id,
             schoolYearId: current.year.id,
             billingMonth: "not-a-month",
+            name: "Tháng lỗi",
+            periodStartsOn: new Date("2026-08-01T00:00:00.000Z"),
+            periodEndsOn: new Date("2026-08-31T00:00:00.000Z"),
           },
         }),
       ).rejects.toMatchObject({ code: "P2039" });

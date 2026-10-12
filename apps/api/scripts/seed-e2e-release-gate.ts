@@ -697,6 +697,9 @@ try {
               schoolId: school.id,
               schoolYearId: year.id,
               billingMonth: "2026-09",
+              name: "Tháng 09/2026",
+              periodStartsOn: new Date("2026-09-01T00:00:00.000Z"),
+              periodEndsOn: new Date("2026-09-30T00:00:00.000Z"),
               status: "GENERATED",
             },
           });

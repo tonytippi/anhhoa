@@ -157,6 +157,7 @@ model Class {
   dailyJournals              DailyJournal[]
   dailyJournalMedia          DailyJournalMedia[]
   templateScopeClasses       CollectionRunTemplateScopeClass[]
+  collectionRuns             CollectionRun[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, id])
@@ -795,8 +796,10 @@ enum ReceivableStatus {
   INACTIVE
 }
 
-enum CollectionRunType {
-  MONTHLY
+// A run bills the whole School for one calendar month or one Class for a period Finance enters (a unit).
+enum CollectionRunScope {
+  SCHOOL
+  CLASS
 }
 
 enum CollectionRunStatus {
@@ -832,7 +835,12 @@ model CollectionRun {
   id                        String                                  @id @default(uuid()) @db.Uuid
   schoolId                  String                                  @db.Uuid
   schoolYearId              String                                  @db.Uuid
-  type                      CollectionRunType                       @default(MONTHLY)
+  scope                     CollectionRunScope                      @default(SCHOOL)
+  classId                   String?                                 @db.Uuid
+  name                      String
+  // Inclusive service period; billingMonth is the month of periodStartsOn, used for filters and reports only.
+  periodStartsOn            DateTime                                @db.Date
+  periodEndsOn              DateTime                                @db.Date
   billingMonth              String
   status                    CollectionRunStatus                     @default(DRAFT)
   version                   Int                                     @default(1)
@@ -840,6 +848,7 @@ model CollectionRun {
   updatedAt                 DateTime                                @updatedAt @db.Timestamptz(3)
   school                    School                                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   schoolYear                SchoolYear                              @relation(fields: [schoolId, schoolYearId], references: [schoolId, id], onDelete: Restrict)
+  classroom                 Class?                                  @relation(fields: [schoolId, schoolYearId, classId], references: [schoolId, schoolYearId, id], onDelete: Restrict)
   selections                CollectionRunSelection[]
   lifecycleTransitions      CollectionRunLifecycleTransition[]
   invoices                  Invoice[]
@@ -851,10 +860,11 @@ model CollectionRun {
   readyPreviewFingerprint   String?
   extracurricularExclusions CollectionRunExtracurricularExclusion[]
 
+  // SQL-only: partial unique (schoolId, schoolYearId, billingMonth) for SCHOOL scope; no overlapping periods per Class.
   @@unique([schoolId, id])
-  @@unique([schoolId, schoolYearId, billingMonth])
   @@unique([schoolId, id, schoolYearId, billingMonth])
   @@index([schoolId, schoolYearId, billingMonth])
+  @@index([schoolId, classId, periodStartsOn])
 }
 
 model CollectionRunTemplateLine {

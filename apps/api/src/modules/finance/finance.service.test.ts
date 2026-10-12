@@ -115,7 +115,7 @@ describe('FinanceService validation', () => {
       cls('gone', 'Gone', [['excludedOnly', '2026-09-01', null]], { excluded: true }),
       cls('inactive', 'Inactive receivable', [['full', '2026-09-01', null]], { receivableActive: false, receivableId: 'other' }),
     ] };
-    const lines = (enrollmentId: string) => service.extracurricularLines(resolution, enrollmentId, '2026-09');
+    const lines = (enrollmentId: string) => service.extracurricularLines(resolution, enrollmentId, { periodStartsOn: new Date('2026-09-01T00:00:00.000Z'), periodEndsOn: new Date('2026-09-30T00:00:00.000Z') });
     expect(lines('full')).toHaveLength(1);
     expect(lines('full')[0]).toMatchObject({ kind: 'EXTRACURRICULAR', receivableId: 'english', quantity: 1, amount: '600', defaultUnitPrice: '600', templateLineId: null, extracurricular: { flags: [], classes: [{ id: 'a1', effectiveFrom: '2026-09-01', effectiveTo: null }] } });
     expect(lines('moved')).toHaveLength(1);
@@ -170,7 +170,7 @@ describe('FinanceService validation', () => {
   });
   it('summarizes generated run Invoices from server BIGINT totals, excluding cancelled replacements', async () => {
     const invoice = (id: string, status: string, total: bigint) => ({ id, studentId: id, studentCodeSnapshot: id, studentNameSnapshot: id, classNameSnapshot: 'Lá 1', status, total });
-    const run = { id: crypto.randomUUID(), schoolYearId: 'year', billingMonth: '2026-10', type: 'MONTHLY', status: 'GENERATED', version: 3, templateLines: [], coverageSelections: [], lifecycleTransitions: [], createdAt: new Date(), updatedAt: new Date(), invoices: [invoice('a', 'DRAFT', 9007199254740993n), invoice('b', 'ISSUED', 150000n), invoice('c', 'CLOSED', 135000n), invoice('d', 'CANCELLED', 150000n)] };
+    const run = { id: crypto.randomUUID(), schoolYearId: 'year', billingMonth: '2026-10', scope: 'SCHOOL', classId: null, name: 'Tháng 10/2026', periodStartsOn: new Date('2026-10-01T00:00:00.000Z'), periodEndsOn: new Date('2026-10-31T00:00:00.000Z'), status: 'GENERATED', version: 3, templateLines: [], coverageSelections: [], lifecycleTransitions: [], createdAt: new Date(), updatedAt: new Date(), invoices: [invoice('a', 'DRAFT', 9007199254740993n), invoice('b', 'ISSUED', 150000n), invoice('c', 'CLOSED', 135000n), invoice('d', 'CANCELLED', 150000n)] };
     const prisma = { collectionRun: { findFirst: vi.fn().mockResolvedValue(run) } };
     const school = crypto.randomUUID();
     const result = await new FinanceService(prisma as never, authorization as never).run('identity', school, run.id);
@@ -297,7 +297,7 @@ describe('FinanceService validation', () => {
   });
   it('uses a bounded opaque cursor and deterministic CollectionRun and Invoice orders', async () => {
     const school = crypto.randomUUID(); const idA = '11111111-1111-4111-8111-111111111111'; const idB = '22222222-2222-4222-8222-222222222222';
-    const run = (id: string, billingMonth: string) => ({ id, schoolId: school, schoolYearId: crypto.randomUUID(), billingMonth, type: 'MONTHLY', status: 'GENERATED', version: 1, selections: [], coverageSelections: [], templateLines: [], invoices: [{ id: idB, studentId: crypto.randomUUID(), studentCodeSnapshot: 'HS001', studentNameSnapshot: 'B', classNameSnapshot: 'Lá', status: 'DRAFT', total: 1n }, { id: idA, studentId: crypto.randomUUID(), studentCodeSnapshot: 'HS001', studentNameSnapshot: 'A', classNameSnapshot: 'Lá', status: 'DRAFT', total: 1n }], lifecycleTransitions: [], createdAt: new Date(), updatedAt: new Date() });
+    const run = (id: string, billingMonth: string) => ({ id, schoolId: school, schoolYearId: crypto.randomUUID(), billingMonth, scope: 'SCHOOL', classId: null, name: 'Tháng 10/2026', periodStartsOn: new Date('2026-10-01T00:00:00.000Z'), periodEndsOn: new Date('2026-10-31T00:00:00.000Z'), status: 'GENERATED', version: 1, selections: [], coverageSelections: [], templateLines: [], invoices: [{ id: idB, studentId: crypto.randomUUID(), studentCodeSnapshot: 'HS001', studentNameSnapshot: 'B', classNameSnapshot: 'Lá', status: 'DRAFT', total: 1n }, { id: idA, studentId: crypto.randomUUID(), studentCodeSnapshot: 'HS001', studentNameSnapshot: 'A', classNameSnapshot: 'Lá', status: 'DRAFT', total: 1n }], lifecycleTransitions: [], createdAt: new Date(), updatedAt: new Date() });
     const prisma = { collectionRun: { findMany: vi.fn().mockResolvedValue([run(idB, '2026-09'), run(idA, '2026-09')]), findFirst: vi.fn().mockResolvedValue({ id: idA }) } };
     const service = new FinanceService(prisma as never, authorization as never);
     const result = await service.runs('identity', school, { limit: '1' });
