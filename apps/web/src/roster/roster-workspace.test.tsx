@@ -575,3 +575,62 @@ describe("RosterWorkspace class default receiving account", () => {
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/finance/classes/class-a/default-bank-account") && options?.method === "PUT" && options.body === JSON.stringify({ bankAccountId: "bank-an", schoolBankAccountId: "bank-school" }))).toBe(true));
   });
 });
+
+// Sprint change 2026-10-12: such a School keeps one open-ended SchoolYear that the portal uses silently.
+describe("RosterWorkspace for a School without school years", () => {
+  const openYear = { id: "year-a", name: "Sao Mai", startsOn: "2026-01-01", endsOn: null, isActive: true };
+  const archived = { ...classroom, id: "class-old", name: "Starters 2025", status: "ARCHIVED", activeStudentCount: 0 };
+  const centerFetch = () => vi.fn((url: string) => {
+    if (url.endsWith("/school-years")) return Promise.resolve(response([openYear]));
+    if (url.endsWith("/classes")) return Promise.resolve(response([classroom, archived]));
+    if (url.includes("/students?")) return Promise.resolve(pagedResponse(list()));
+    return Promise.resolve(response([]));
+  });
+
+  it("hides the school-year label and lists ACTIVE classes first, with archived ones behind the status filter", async () => {
+    vi.stubGlobal("fetch", centerFetch());
+    render(<RosterWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" denied={vi.fn()} section="classes" usesSchoolYears={false} />);
+    const table = await screen.findByRole("table", { name: "Lớp học của Anh ngữ Sao Mai" });
+    expect(await within(table).findByRole("rowheader", { name: "Lớp Mầm" })).toBeTruthy();
+    expect(within(table).queryByRole("rowheader", { name: "Starters 2025" })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/[Nn]ăm học|Sao Mai ·/);
+    expect(screen.queryByText("Sao Mai")).toBeNull();
+    const filter = within(screen.getByRole("form", { name: "Lọc lớp học" })).getByLabelText("Trạng thái") as HTMLSelectElement;
+    expect(filter.value).toBe("ACTIVE");
+    fireEvent.change(filter, { target: { value: "ARCHIVED" } });
+    expect(within(table).getByRole("rowheader", { name: "Starters 2025" })).toBeTruthy();
+    expect(within(table).queryByRole("rowheader", { name: "Lớp Mầm" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Thêm lớp học" }));
+    expect(screen.getByRole("dialog", { name: "Thêm lớp học" })).toBeTruthy();
+  });
+
+  it("offers only the class transfer, with no year kind, source year or destination year", async () => {
+    vi.stubGlobal("fetch", centerFetch());
+    render(<RosterWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" denied={vi.fn()} section="transitions" usesSchoolYears={false} />);
+    expect(await screen.findByLabelText("Lớp nguồn")).toBeTruthy();
+    expect(screen.getByLabelText("Lớp đích")).toBeTruthy();
+    expect(screen.queryByLabelText("Loại chuyển")).toBeNull();
+    expect(screen.queryByLabelText("Năm học nguồn")).toBeNull();
+    expect(screen.queryByLabelText("Năm học đích")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/[Nn]ăm học/);
+  });
+
+  it("renders no year management or close-year form even when the years section is requested", async () => {
+    vi.stubGlobal("fetch", centerFetch());
+    render(<RosterWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" denied={vi.fn()} section="years" usesSchoolYears={false} onOpenTransition={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText(/Đang tải/)).toBeNull());
+    expect(screen.queryByRole("button", { name: "Tạo năm học" })).toBeNull();
+    expect(screen.queryByText("Đóng năm học")).toBeNull();
+    expect(screen.queryByRole("table", { name: /Năm học của/ })).toBeNull();
+  });
+
+  it("keeps the school-year label and every class for a School that uses school years", async () => {
+    vi.stubGlobal("fetch", centerFetch());
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="classes" />);
+    const table = await screen.findByRole("table", { name: "Lớp thuộc Sao Mai" });
+    expect(screen.getByText("Năm học: Sao Mai")).toBeTruthy();
+    expect(within(table).getByRole("rowheader", { name: "Starters 2025" })).toBeTruthy();
+    expect(within(table).getByRole("rowheader", { name: "Lớp Mầm" })).toBeTruthy();
+    expect(screen.queryByRole("form", { name: "Lọc lớp học" })).toBeNull();
+  });
+});

@@ -110,9 +110,13 @@ type Year = {
   id: string;
   name: string;
   startsOn: string;
-  endsOn: string;
+  // Null for the single open-ended SchoolYear of a School that does not use school years.
+  endsOn: string | null;
   closedAt: string | null;
 };
+// Sprint change 2026-10-12: server-owned feature map of the School; the workspace reads it and never the School kind.
+export type FinanceSchoolFeatures = { usesSchoolYears: boolean; collectionRunScope: "SCHOOL" | "CLASS" };
+const preschoolFeatures: FinanceSchoolFeatures = { usesSchoolYears: true, collectionRunScope: "SCHOOL" };
 type Candidate = { id: string; studentCode: string; fullName: string };
 type PromotionCandidates = {
   schoolYear: { id: string; name: string } | null;
@@ -184,10 +188,16 @@ type Run = {
   id: string;
   schoolYearId: string;
   billingMonth: string;
-  type: "MONTHLY";
+  // A SCHOOL run covers one calendar month of the whole School; a CLASS run covers the period Finance entered for one Class.
+  scope?: "SCHOOL" | "CLASS";
+  classId?: string | null;
+  className?: string | null;
+  name?: string;
+  periodStartsOn?: string;
+  periodEndsOn?: string;
   status: "DRAFT" | "READY" | "GENERATED" | "CLOSED";
   version: number;
-  previousOpenRun?: { id: string; billingMonth: string } | null;
+  previousOpenRun?: { id: string; billingMonth: string; name?: string; periodStartsOn?: string; periodEndsOn?: string } | null;
   templateLines: Array<TemplateLine>;
   coverageSelections?: Array<{ studentId: string; versionId: string; billingMonth: string }>;
   invoices?: Array<{
@@ -200,6 +210,8 @@ type Run = {
     total: string;
     channel?: PaymentChannel;
     kind?: "NORMAL" | "SETTLEMENT";
+    // Run detail only: a line of this invoice repeats a receivable the Student has in another run with an overlapping period.
+    periodOverlap?: boolean;
   }>;
   notices?: RunNotice[];
   summary?: PreviewSummary | InvoiceSummary;
@@ -321,6 +333,7 @@ type BankAccount = {
 };
 type Invoice = {
   id: string;
+  collectionRunId?: string;
   paymentTotal?: string;
   noticeTotal?: string;
   channel?: PaymentChannel;
@@ -435,6 +448,7 @@ type PriorDebt = {
   student: { id: string; code: string; name: string };
   className: string;
   billingMonth: string;
+  periodLabel?: string;
   channel: PaymentChannel;
   account: ReceivingAccount | null;
   outstanding: string;
@@ -520,9 +534,20 @@ const billingMonthLabel = (month: string) => {
   const [year, value] = (month ?? "").split("-");
   return year && value ? `${value}/${year}` : month;
 };
+const isClassRun = (run: Pick<Run, "scope"> | undefined) => run?.scope === "CLASS";
+// What follows "đợt"/"Đợt thu": a SCHOOL run keeps its month, a CLASS run reads "Starters A · Unit 3".
+const runTitle = (run: Pick<Run, "scope" | "billingMonth" | "className" | "name">) =>
+  isClassRun(run) ? [run.className, run.name].filter(Boolean).join(" · ") : billingMonthLabel(run.billingMonth);
+const runPeriod = (run: Pick<Run, "periodStartsOn" | "periodEndsOn">) =>
+  run.periodStartsOn && run.periodEndsOn ? `${displayDate(run.periodStartsOn)} – ${displayDate(run.periodEndsOn)}` : "";
+// The API labels a whole-run line "Toàn bộ"; in a CLASS run that scope is the Class.
+const scopeLabel = (run: Pick<Run, "scope"> | undefined, scope: { type: string; label: string } | undefined) =>
+  isClassRun(run) && (scope?.type ?? "ALL") === "ALL" ? "Cả lớp" : (scope?.label ?? "Toàn bộ");
+type RunClassOption = { id: string; name: string; latestRun: { id: string; name: string; periodStartsOn: string; periodEndsOn: string } | null };
+const emptyClassRun = { classId: "", name: "", periodStartsOn: "", periodEndsOn: "" };
 // Months whose first day falls inside [startsOn, endsOn), matching the server's billing-month check.
 const schoolYearMonths = (year?: Year) => {
-  if (!year) return [];
+  if (!year?.endsOn) return [];
   const months: string[] = [];
   const [startYear, startMonth, startDay] = year.startsOn.slice(0, 10).split("-").map(Number);
   let cursor = new Date(Date.UTC(startYear!, startMonth! - 1 + (startDay === 1 ? 0 : 1), 1));
@@ -681,7 +706,10 @@ function RunNoticeTable({
   actionLabel,
   currentInvoiceId,
   onReview,
+  overlapInvoiceIds,
 }: {
+  // Parts the server flagged "Trùng kỳ"; the badge sits on the Student row for Finance to review before issuing.
+  overlapInvoiceIds?: Set<string>;
   notices: RunNotice[];
   caption: string;
   actionLabel: string;
@@ -727,6 +755,12 @@ function RunNoticeTable({
                   <td>
                     {notice.studentCode} / {notice.studentName}
                     {notice.kind === "SETTLEMENT" && <small> · Quyết toán</small>}
+                    {notice.parts.some((item) => overlapInvoiceIds?.has(item.id)) && (
+                      <>
+                        {" "}
+                        <span className="badge warning">Trùng kỳ</span>
+                      </>
+                    )}
                   </td>
                   <td>{notice.className}</td>
                   <td className="finance-money">{part(notice, "SCHOOL")}</td>
@@ -1145,9 +1179,11 @@ export function FinanceWorkspace({
   onDetailUnavailable,
   onListSearchChange,
   onOpenExtracurricularClasses,
+  features = preschoolFeatures,
 }: {
   schoolId: string;
   schoolName: string;
+  features?: FinanceSchoolFeatures;
   page: FinancePage;
   runId?: string;
   invoiceId?: string;
@@ -1162,7 +1198,7 @@ export function FinanceWorkspace({
   onListSearchChange?: (search: string) => void;
   onOpenExtracurricularClasses?: () => void;
 }) {
-  void schoolName;
+  const classRuns = features.collectionRunScope === "CLASS";
   const [catalog, setCatalog] = useState<Catalog>();
   const [promotionData, setPromotionData] = useState({ schoolId, policies: [] as PromotionPolicy[] });
   const [assignmentFilter, setAssignmentFilter] = useState({ q: "", officialClassId: "" });
@@ -1216,6 +1252,8 @@ export function FinanceWorkspace({
   const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string; invoiceId: string }>();
   const [editingLineInvoiceId, setEditingLineInvoiceId] = useState<string>();
   const [open, setOpen] = useState({ schoolYearId: "", billingMonth: "" });
+  const [openClass, setOpenClass] = useState(emptyClassRun);
+  const [activeClasses, setActiveClasses] = useState<{ schoolId: string; classes?: RunClassOption[]; failed?: boolean }>();
   const [runDialog, setRunDialog] = useState(false);
   const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[] }>();
   const [templateDialog, setTemplateDialog] = useState<TemplateDialog>();
@@ -1382,6 +1420,16 @@ export function FinanceWorkspace({
     setRuns(nextRuns.runs);
     setRunsCursor(nextRuns.meta?.nextCursor ?? null);
     setPromotionData({ schoolId, policies: nextPolicies.policies ?? [] });
+  };
+  // The Class picker of "Mở đợt thu": ACTIVE classes with the latest run of each, which the new run copies its whole-class lines from.
+  const loadActiveClasses = async () => {
+    const scopeSchool = schoolId;
+    try {
+      const next = await get<{ classes: RunClassOption[] }>(`/api/app/schools/${scopeSchool}/finance/collection-run-classes`);
+      if (activeSchool.current === scopeSchool) setActiveClasses({ schoolId: scopeSchool, classes: Array.isArray(next?.classes) ? next.classes : [] });
+    } catch {
+      if (activeSchool.current === scopeSchool) setActiveClasses({ schoolId: scopeSchool, failed: true });
+    }
   };
   const loadBankAccounts = async () => {
     const next = await get<{ accounts: BankAccount[] }>(`/api/app/schools/${schoolId}/finance/bank-accounts`);
@@ -1601,6 +1649,7 @@ export function FinanceWorkspace({
     resetLineForm();
     setLineDialog(false);
     setOpen({ schoolYearId: "", billingMonth: "" });
+    setOpenClass(emptyClassRun);
     setRunDialog(false);
     setInvoiceQueue(undefined);
     setTemplateDialog(undefined);
@@ -1671,6 +1720,10 @@ export function FinanceWorkspace({
   const dirty = Boolean(
     open.schoolYearId ||
     open.billingMonth ||
+    openClass.classId ||
+    openClass.name ||
+    openClass.periodStartsOn ||
+    openClass.periodEndsOn ||
     receivable.kind ||
     receivable.code ||
     receivable.displayName ||
@@ -1775,15 +1828,19 @@ export function FinanceWorkspace({
     if (runDialog) runDialogRef.current?.querySelector<HTMLElement>("select, input, button")?.focus();
   }, [runDialog]);
   useEffect(() => {
-    if (!runDialog || open.schoolYearId || !catalog?.schoolYears?.length) return;
+    if (runDialog && classRuns && catalog) void loadActiveClasses();
+  }, [runDialog, classRuns, Boolean(catalog), schoolId]);
+  useEffect(() => {
+    if (classRuns || !runDialog || open.schoolYearId || !catalog?.schoolYears?.length) return;
     const today = todayInVietnam();
-    const current = catalog.schoolYears.find((year) => year.startsOn <= today && year.endsOn >= today && !year.closedAt);
+    const current = catalog.schoolYears.find((year) => year.startsOn <= today && (!year.endsOn || year.endsOn >= today) && !year.closedAt);
     const sole = catalog.schoolYears.length === 1 ? catalog.schoolYears[0] : undefined;
     if (current ?? sole) setOpen((value) => ({ ...value, schoolYearId: (current ?? sole)!.id }));
   }, [runDialog, open.schoolYearId, catalog?.schoolYears]);
   useEffect(() => {
     if (promotionTransition) document.querySelector<HTMLElement>("#finance-promotion-transition-confirm")?.focus();
   }, [promotionTransition]);
+  const chosenRunClass = (activeClasses?.schoolId === schoolId ? activeClasses.classes ?? [] : []).find((item) => item.id === openClass.classId);
   const closeAddStudents = () => {
     setAddStudentsOpen(false);
     addStudentsTrigger.current?.focus();
@@ -1918,7 +1975,9 @@ export function FinanceWorkspace({
       void loadGeneratedStudents(normalized.id).catch(() =>
         setMessage("Không thể tải học sinh để thêm vào đợt đã tạo."),
       );
-      void loadSettlements(normalized.id).catch(() => setMessage("Không thể tải danh sách học sinh cần quyết toán."));
+      // Settlement follows the calendar month and only exists for a SCHOOL run.
+      if (isClassRun(normalized)) setSettlements(undefined);
+      else void loadSettlements(normalized.id).catch(() => setMessage("Không thể tải danh sách học sinh cần quyết toán."));
       void loadPriorDebts(normalized.id).catch(() => setMessage("Không thể tải công nợ kỳ trước."));
     } else {
       setSettlements(undefined);
@@ -1927,9 +1986,10 @@ export function FinanceWorkspace({
   };
   const openRun = async (event: FormEvent) => {
     event.preventDefault();
-    const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs`, "POST", open, "run");
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/collection-runs`, "POST", classRuns ? { ...openClass, name: openClass.name.trim() } : open, "run");
     if (outcome) {
       setOpen({ schoolYearId: "", billingMonth: "" });
+      setOpenClass(emptyClassRun);
       closeManagedDialog(() => setRunDialog(false));
       onOpenRun?.((outcome as Run).id);
       if (!onOpenRun) chooseRun(outcome as Run);
@@ -1945,7 +2005,9 @@ export function FinanceWorkspace({
       token = ++scopeRequest.current.token;
     void get<ScopeOptions>(
       `/api/app/schools/${scopeSchool}/finance/collection-runs/${scopeRun}/scope-options${(() => {
-        const params = new URLSearchParams({ ...(query ? { q: query } : {}), ...(officialClassId ? { officialClassId } : {}) });
+        // A CLASS run only names Students of its own Class.
+        const classId = isClassRun(run) ? (run.classId ?? "") : officialClassId;
+        const params = new URLSearchParams({ ...(query ? { q: query } : {}), ...(classId ? { officialClassId: classId } : {}) });
         return params.toString() ? `?${params}` : "";
       })()}`,
     )
@@ -2814,11 +2876,20 @@ export function FinanceWorkspace({
       : issueParts.length > 1
         ? "Phát hành phiếu thu"
         : "Phát hành hóa đơn";
-  // Run lock (decision 2026-10-08): the server refuses issuing while an earlier MONTHLY run is open; a revision is exempt.
+  // Run lock (decision 2026-10-08): the server refuses issuing while an earlier run of the same scope target (the School, or the Class) is open; a revision is exempt.
   const previousRunMessage =
     run?.previousOpenRun && !invoice?.revisesInvoiceId
-      ? `Đợt thu tháng ${billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước khi phát hành hóa đơn đợt này.`
+      ? isClassRun(run)
+        ? `Đợt thu ${run.previousOpenRun.name ?? billingMonthLabel(run.previousOpenRun.billingMonth)} của lớp ${run.className ?? ""} chưa đóng. Cần đóng đợt đó trước khi phát hành hóa đơn đợt này.`
+        : `Đợt thu tháng ${billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước khi phát hành hóa đơn đợt này.`
       : "";
+  // Period of the open invoice as read after "Đợt thu" / "·": its month, or the Class and run name of a CLASS run.
+  const invoiceRun = invoice && run && (!invoice.collectionRunId || invoice.collectionRunId === run.id) ? run : undefined;
+  const invoicePeriod = invoice
+    ? invoiceRun && isClassRun(invoiceRun)
+      ? runTitle(invoiceRun)
+      : `tháng ${billingMonthLabel(invoice.billingMonth)}`
+    : "";
   // Amendment A4: a negative monthly part closes at issue and its credit carries into next month.
   const negativeMonthlyPart = issueParts.find((part) => part.kind !== "SETTLEMENT" && BigInt(part.total) < 0n);
   const paymentParts = noticeParts.filter((part) => part.paymentImageAvailable && part.issue);
@@ -3275,13 +3346,141 @@ export function FinanceWorkspace({
               onClick={(event) => {
                 setErrors({});
                 setOpen({ schoolYearId: "", billingMonth: "" });
+                setOpenClass(emptyClassRun);
                 openManagedDialog(event.currentTarget, () => setRunDialog(true));
               }}
             >
-              Tạo đợt thu
+              {classRuns ? "Mở đợt thu" : "Tạo đợt thu"}
             </button>
           </form>
-          {runDialog && (
+          {runDialog && classRuns && (
+            <div className="dialog-backdrop">
+              <div
+                ref={runDialogRef}
+                className="dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="finance-run-title"
+                onKeyDown={(event) =>
+                  handleManagedDialogKeyDown(
+                    event,
+                    () => setRunDialog(false),
+                    () => setOpenClass(emptyClassRun),
+                  )
+                }
+              >
+                <form onSubmit={openRun}>
+                  <h3 id="finance-run-title">Mở đợt thu</h3>
+                  <p className="muted">Mỗi đợt thu thuộc một lớp và một kỳ. Máy chủ kiểm tra lớp và kỳ trước khi tạo.</p>
+                  <div className="dialog-grid">
+                    <div className="full">
+                      <label>
+                        Lớp
+                        <select
+                          required
+                          value={openClass.classId}
+                          onChange={(event) => setOpenClass({ ...openClass, classId: event.target.value })}
+                          {...field("run", "classId")}
+                        >
+                          <option value="">Chọn lớp đang hoạt động</option>
+                          {(activeClasses?.schoolId === schoolId ? activeClasses.classes ?? [] : []).map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {scope === "run" && errors.classId && (
+                        <small id="invoice-run-classId-error" role="alert">
+                          {errors.classId}
+                        </small>
+                      )}
+                      {activeClasses?.schoolId === schoolId && activeClasses.failed && (
+                        <small role="alert">Không thể tải danh sách lớp đang hoạt động.</small>
+                      )}
+                    </div>
+                    <div className="full">
+                      <label>
+                        Tên đợt
+                        <input
+                          required
+                          maxLength={60}
+                          placeholder="Ví dụ: Unit 3"
+                          value={openClass.name}
+                          onChange={(event) => setOpenClass({ ...openClass, name: event.target.value })}
+                          {...field("run", "name")}
+                        />
+                      </label>
+                      {scope === "run" && errors.name && (
+                        <small id="invoice-run-name-error" role="alert">
+                          {errors.name}
+                        </small>
+                      )}
+                    </div>
+                    <div>
+                      <label>
+                        Từ ngày
+                        <DateInput
+                          required
+                          value={openClass.periodStartsOn}
+                          onChange={(event) => setOpenClass({ ...openClass, periodStartsOn: event.target.value })}
+                          {...field("run", "periodStartsOn")}
+                        />
+                      </label>
+                    </div>
+                    <div>
+                      <label>
+                        Đến ngày
+                        <DateInput
+                          required
+                          value={openClass.periodEndsOn}
+                          onChange={(event) => setOpenClass({ ...openClass, periodEndsOn: event.target.value })}
+                          {...(scope === "run" && errors.periodStartsOn && !errors.periodEndsOn
+                            ? { "aria-invalid": true, "aria-describedby": "invoice-run-periodStartsOn-error" }
+                            : field("run", "periodEndsOn"))}
+                        />
+                      </label>
+                    </div>
+                    {scope === "run" && errors.periodStartsOn && (
+                      <small className="full" id="invoice-run-periodStartsOn-error" role="alert">
+                        {errors.periodStartsOn}
+                      </small>
+                    )}
+                    {scope === "run" && errors.periodEndsOn && (
+                      <small className="full" id="invoice-run-periodEndsOn-error" role="alert">
+                        {errors.periodEndsOn}
+                      </small>
+                    )}
+                    {chosenRunClass && (
+                      <small className="muted full">
+                        {chosenRunClass.latestRun
+                          ? `Khoản thu của đợt mới được sao chép từ đợt ${chosenRunClass.latestRun.name} của lớp ${chosenRunClass.name}; sửa được khi đợt còn Nháp.`
+                          : "Đợt đầu tiên của lớp chưa có khoản thu; thêm khoản thu sau khi mở."}
+                      </small>
+                    )}
+                  </div>
+                  <div className="dialog-actions">
+                    <button
+                      type="button"
+                      disabled={Boolean(pending)}
+                      onClick={() =>
+                        closeNewDialog(
+                          () => setRunDialog(false),
+                          () => setOpenClass(emptyClassRun),
+                        )
+                      }
+                    >
+                      Hủy
+                    </button>
+                    <button className="primary-action" disabled={Boolean(pending)}>
+                      Xác nhận mở đợt thu
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+          {runDialog && !classRuns && (
             <div className="dialog-backdrop">
               <div
                 ref={runDialogRef}
@@ -3371,7 +3570,60 @@ export function FinanceWorkspace({
               </div>
             </div>
           )}
-          <div className="table-scroll">
+          {classRuns && (
+            <div className="table-scroll">
+              <table>
+                <caption>Danh sách đợt thu của {schoolName}</caption>
+                <thead>
+                  <tr>
+                    <th>Lớp</th>
+                    <th>Tên đợt</th>
+                    <th>Kỳ</th>
+                    <th>Trạng thái</th>
+                    <th>Tùy chọn</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.length ? (
+                    runs.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          <b>{item.className ?? "—"}</b>
+                        </td>
+                        <td>{item.name}</td>
+                        <td>{runPeriod(item)}</td>
+                        <td>
+                          <span
+                            className={`finance-badge finance-badge-${item.status === "DRAFT" || item.status === "CLOSED" ? "neutral" : item.status === "READY" ? "info" : "success"}`}
+                          >
+                            {runStatusLabel(item.status)}
+                          </span>
+                        </td>
+                        <td>
+                          <AnchoredActionMenu
+                            label={`Tùy chọn cho đợt thu ${runTitle(item)}`}
+                            disabled={Boolean(pending)}
+                            onTriggerOpen={(trigger) => {
+                              rowMenuTrigger.current = trigger;
+                            }}
+                          >
+                            <AnchoredActionMenuItem onClick={() => onOpenRun?.(item.id) ?? chooseRun(item)}>
+                              Mở chi tiết
+                            </AnchoredActionMenuItem>
+                          </AnchoredActionMenu>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!classRuns && <div className="table-scroll">
             <table>
               <caption>Đợt thu theo trường</caption>
               <thead>
@@ -3420,7 +3672,7 @@ export function FinanceWorkspace({
                 )}
               </tbody>
             </table>
-          </div>
+          </div>}
           {runsCursor && (
             <button
               type="button"
@@ -3435,12 +3687,41 @@ export function FinanceWorkspace({
               Xem thêm đợt thu
             </button>
           )}
+          {classRuns && (
+            <details className="finance-guide">
+              <summary>Hướng dẫn</summary>
+              <p>
+                Mỗi đợt thu thuộc một lớp đang hoạt động và một kỳ do kế toán nhập ngày bắt đầu, ngày kết thúc. Nhiều
+                lớp có thể có đợt mở cùng lúc; hai đợt của cùng một lớp không được trùng ngày.
+              </p>
+              <p>
+                Đợt đầu tiên của lớp chưa có khoản thu. Từ đợt thứ hai, hệ thống sao chép khoản thu của đợt liền trước
+                cùng lớp; sửa được khi đợt còn Nháp.
+              </p>
+              <p>
+                Hóa đơn của một đợt chỉ phát hành được sau khi đợt trước của cùng lớp đã đóng. Đợt của lớp khác không
+                ảnh hưởng.
+              </p>
+            </details>
+          )}
         </section>
       )}
       {page === "collection-runs" && (runId || !onOpenRun) && run && !invoiceRouteActive && (
         <>
           <header className="finance-run-header">
             <div>
+              {isClassRun(run) ? (
+                <>
+                  <p className="finance-eyebrow">
+                    Đợt thu · Lớp {run.className} · Kỳ {runPeriod(run)}
+                  </p>
+                  <h1 id="run-detail-title" tabIndex={-1}>
+                    {runTitle(run)} · {runStatusLabel(run.status)}
+                  </h1>
+                  <p>Máy chủ xác định học sinh thuộc lớp {run.className} ít nhất một ngày trong kỳ.</p>
+                </>
+              ) : (
+                <>
               <p className="finance-eyebrow">
                 Đợt thu ·{" "}
                 {(catalog?.schoolYears ?? []).find((year) => year.id === run.schoolYearId)?.name ??
@@ -3452,6 +3733,8 @@ export function FinanceWorkspace({
               <p>
                 Máy chủ xác định học sinh đang theo học, có phân lớp hiệu lực và lớp đang hoạt động tại đầu tháng thu.
               </p>
+                </>
+              )}
             </div>
             {onBackToRuns && (
               <button type="button" onClick={onBackToRuns}>
@@ -3479,10 +3762,12 @@ export function FinanceWorkspace({
               <div className="finance-card-heading finance-catalog-heading">
                 <div>
                   <h2 id="run-template-title">Khoản thu trong đợt</h2>
+                  {!isClassRun(run) && (
                   <p>
                     Khoản cố định được tự thêm khi mở đợt thu. Số học sinh và tạm tính do máy chủ tính sau khi xem
                     trước.
                   </p>
+                  )}
                 </div>
                 <button
                   className="primary-action"
@@ -3524,7 +3809,7 @@ export function FinanceWorkspace({
                                 </>
                               )}
                             </td>
-                            <td>{item.scope?.label ?? "Toàn bộ"}</td>
+                            <td>{scopeLabel(run, item.scope)}</td>
                             <td>
                               {item.quantity} {item.unitLabel}
                             </td>
@@ -3573,19 +3858,25 @@ export function FinanceWorkspace({
           {run.status === "DRAFT" && (
             <section aria-labelledby="run-extracurricular-title">
               <div className="finance-card-heading">
-                <h2 id="run-extracurricular-title">Lớp ngoại khóa trong đợt</h2>
+                <h2 id="run-extracurricular-title">{isClassRun(run) ? "Dịch vụ trong đợt" : "Lớp ngoại khóa trong đợt"}</h2>
+                {!isClassRun(run) && (
                 <p>
                   Máy chủ lấy thành viên có hiệu lực ít nhất một ngày trong tháng của mỗi lớp ngoại khóa đang hoạt động.
                 </p>
+                )}
               </div>
               <div className="table-scroll">
                 <table>
-                  <caption>Lớp ngoại khóa tính vào đợt thu tháng {billingMonthLabel(run.billingMonth)}</caption>
+                  <caption>
+                    {isClassRun(run)
+                      ? `Dịch vụ tính vào đợt thu ${runTitle(run)}`
+                      : `Lớp ngoại khóa tính vào đợt thu tháng ${billingMonthLabel(run.billingMonth)}`}
+                  </caption>
                   <thead>
                     <tr>
-                      <th>Lớp ngoại khóa</th>
+                      <th>{isClassRun(run) ? "Dịch vụ" : "Lớp ngoại khóa"}</th>
                       <th>Khoản thu</th>
-                      <th className="finance-money">Số HS trong tháng</th>
+                      <th className="finance-money">{isClassRun(run) ? "Số HS trong kỳ" : "Số HS trong tháng"}</th>
                       <th className="finance-money">Tạm tính</th>
                       <th>Trạng thái trong đợt</th>
                       <th>Tùy chọn</th>
@@ -3617,6 +3908,12 @@ export function FinanceWorkspace({
                               </td>
                               <td className="finance-money">
                                 {item.memberCount}
+                                {isClassRun(run) && (
+                                  <>
+                                    <br />
+                                    <small className="muted">Chỉ tính học sinh của lớp {run.className}</small>
+                                  </>
+                                )}
                                 {item.transferredCount > 0 && (
                                   <>
                                     <br />
@@ -3665,12 +3962,16 @@ export function FinanceWorkspace({
                         })
                       ) : (
                         <tr>
-                          <td colSpan={6}>Chưa có lớp ngoại khóa đang hoạt động trong năm học này.</td>
+                          <td colSpan={6}>
+                            {isClassRun(run)
+                              ? "Chưa có dịch vụ đang hoạt động."
+                              : "Chưa có lớp ngoại khóa đang hoạt động trong năm học này."}
+                          </td>
                         </tr>
                       )
                     ) : (
                       <tr>
-                        <td colSpan={6}>Đang tải lớp ngoại khóa.</td>
+                        <td colSpan={6}>{isClassRun(run) ? "Đang tải dịch vụ." : "Đang tải lớp ngoại khóa."}</td>
                       </tr>
                     )}
                   </tbody>
@@ -3682,7 +3983,11 @@ export function FinanceWorkspace({
             <section aria-labelledby="preview-title">
               <div className="finance-card-heading">
                 <h2 id="preview-title">{preview ? "Kết quả xem trước từ máy chủ" : "Xem trước danh sách học sinh"}</h2>
-                <p>Bản xem trước do máy chủ xác định từ danh sách học sinh hợp lệ tại đầu tháng thu.</p>
+                <p>
+                  {isClassRun(run)
+                    ? "Bản xem trước do máy chủ xác định từ danh sách học sinh của lớp trong kỳ."
+                    : "Bản xem trước do máy chủ xác định từ danh sách học sinh hợp lệ tại đầu tháng thu."}
+                </p>
               </div>
               {!preview && (
                 <div className="finance-actions">
@@ -3718,8 +4023,8 @@ export function FinanceWorkspace({
                         {(preview.lineSummaries ?? []).map((line) => (
                           <tr key={line.templateLineId ?? `extra-${line.receivableId}`}>
                             <td>{line.receivableName}</td>
-                            <td>{kindShortLabel(line.kind)}</td>
-                            <td>{line.scope.label}</td>
+                            <td>{isClassRun(run) && line.kind === "EXTRACURRICULAR" ? "Dịch vụ" : kindShortLabel(line.kind)}</td>
+                            <td>{line.kind === "EXTRACURRICULAR" ? line.scope.label : scopeLabel(run, line.scope)}</td>
                             <td className="finance-money">
                               {line.studentCount}
                               {line.note && (
@@ -3844,7 +4149,26 @@ export function FinanceWorkspace({
               )}
             </section>
           )}
-          {run.status === "DRAFT" && (
+          {run.status === "DRAFT" && isClassRun(run) && (
+            <details className="finance-guide">
+              <summary>Hướng dẫn</summary>
+              <p>
+                Từ đợt thứ hai của lớp, khoản thu được sao chép từ đợt liền trước cùng lớp. Đợt thu theo lớp không tự
+                thêm khoản thu cố định; sửa số lượng, thêm hoặc bỏ dòng khi đợt còn Nháp. Phạm vi của mỗi dòng là cả lớp
+                hoặc học sinh cụ thể.
+              </p>
+              <p>
+                Máy chủ lấy thành viên dịch vụ có hiệu lực ít nhất một ngày trong kỳ và chỉ tính học sinh của lớp này. Số
+                lượng mặc định là 1 cho cả unit; kế toán sửa trên hóa đơn nháp. Loại hoặc khôi phục dịch vụ chỉ áp dụng cho
+                đợt này.
+              </p>
+              <p>
+                Đơn giá, số học sinh và tạm tính do máy chủ xác nhận. Mọi thay đổi khoản thu hoặc dịch vụ sau khi xem
+                trước cần xem trước lại.
+              </p>
+            </details>
+          )}
+          {run.status === "DRAFT" && !isClassRun(run) && (
             <details className="finance-guide">
               <summary>Hướng dẫn</summary>
               <p>
@@ -3961,13 +4285,30 @@ export function FinanceWorkspace({
             <section aria-labelledby="run-invoices-title">
               {run.previousOpenRun && (
                 <div className="finance-actions finance-actions-split">
+                  {isClassRun(run) ? (
+                    <div className="finance-alert">
+                      Chưa thể phát hành hóa đơn của đợt này: cần đóng đợt{" "}
+                      <b>{run.previousOpenRun.name ?? billingMonthLabel(run.previousOpenRun.billingMonth)}</b>
+                      {runPeriod(run.previousOpenRun) ? ` (${runPeriod(run.previousOpenRun)})` : ""} của lớp{" "}
+                      {run.className} trước.{" "}
+                      <details>
+                        <summary>Xem lý do</summary>
+                        Hóa đơn của một đợt chỉ phát hành được sau khi đợt trước của cùng lớp đã đóng. Đợt của lớp khác
+                        không ảnh hưởng.
+                      </details>
+                    </div>
+                  ) : (
                   <p className="finance-alert">
                     Đợt thu tháng {billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước
                     khi phát hành hóa đơn đợt này.
                   </p>
+                  )}
                   {onOpenRun && (
                     <button type="button" onClick={() => onOpenRun(run.previousOpenRun!.id)}>
-                      Mở đợt thu {billingMonthLabel(run.previousOpenRun.billingMonth)}
+                      Mở đợt thu{" "}
+                      {isClassRun(run)
+                        ? (run.previousOpenRun.name ?? billingMonthLabel(run.previousOpenRun.billingMonth))
+                        : billingMonthLabel(run.previousOpenRun.billingMonth)}
                     </button>
                   )}
                 </div>
@@ -3993,6 +4334,7 @@ export function FinanceWorkspace({
               <RunNoticeTable
                 notices={run.notices ?? []}
                 caption="Hóa đơn hiện có trong đợt thu"
+                overlapInvoiceIds={new Set((run.invoices ?? []).filter((item) => item.periodOverlap).map((item) => item.id))}
                 actionLabel="Rà soát hóa đơn"
                 currentInvoiceId={invoice?.id}
                 onReview={reviewInvoice}
@@ -4003,7 +4345,8 @@ export function FinanceWorkspace({
                     <div className="finance-card-heading">
                       <h3 id="run-prior-debts-title">Công nợ kỳ trước</h3>
                       <p>
-                        Hóa đơn đã phát hành nhưng chưa thu của các đợt đã đóng. Chuyển vào hóa đơn tháng này để phụ
+                        Hóa đơn đã phát hành nhưng chưa thu của các đợt đã đóng. Chuyển vào hóa đơn{" "}
+                        {isClassRun(run) ? "đợt này" : "tháng này"} để phụ
                         huynh nộp cùng; hóa đơn cũ sẽ không còn ở trang Thu tiền.
                       </p>
                     </div>
@@ -4018,7 +4361,7 @@ export function FinanceWorkspace({
                         <tr>
                           <th>Học sinh</th>
                           <th>Lớp</th>
-                          <th>Tháng</th>
+                          <th>{isClassRun(run) ? "Kỳ" : "Tháng"}</th>
                           <th>Tài khoản nhận</th>
                           <th className="finance-money">Còn nợ (đ)</th>
                           <th>Thao tác</th>
@@ -4031,12 +4374,12 @@ export function FinanceWorkspace({
                               {debt.student.code} / {debt.student.name}
                             </td>
                             <td>{debt.className}</td>
-                            <td>{billingMonthLabel(debt.billingMonth)}</td>
+                            <td>{isClassRun(run) && debt.periodLabel ? debt.periodLabel : billingMonthLabel(debt.billingMonth)}</td>
                             <td>{debt.account ? <ReceivingAccountLabel account={debt.account} /> : "—"}</td>
                             <td className="finance-money">{vnd(debt.outstanding)}</td>
                             <td>
                               <button type="button" disabled={Boolean(pending)} onClick={() => setPriorDebtConfirmation({ debts: [debt], total: debt.outstanding })}>
-                                Chuyển vào hóa đơn tháng này
+                                {isClassRun(run) ? "Chuyển vào hóa đơn đợt này" : "Chuyển vào hóa đơn tháng này"}
                               </button>
                             </td>
                           </tr>
@@ -4169,7 +4512,7 @@ export function FinanceWorkspace({
               <header className="finance-run-header">
                 <div>
                   <p className="finance-eyebrow">
-                    Đợt thu tháng {billingMonthLabel(invoice.billingMonth)} ·{" "}
+                    Đợt thu {invoicePeriod} ·{" "}
                     <span id="invoice-review-student">
                       {invoice.student.code} / {invoice.student.name}
                     </span>{" "}
@@ -4656,7 +4999,7 @@ export function FinanceWorkspace({
                   ))}
                 </section>
               )}
-              {invoice.status === "DRAFT" && (
+              {invoice.status === "DRAFT" && !isClassRun(invoiceRun) && (
                 <section aria-label="Ưu đãi nộp trước đang soạn">
                   <h4>Quản lý ưu đãi nộp trước</h4>
                   <p>
@@ -4784,8 +5127,7 @@ export function FinanceWorkspace({
                 onKeyDown={trapIssueFocus}
               >
                 <h3 id="finance-issue-title">
-                  {issueActionLabel} cho {invoice.student.code} / {invoice.student.name} · tháng{" "}
-                  {billingMonthLabel(invoice.billingMonth)}
+                  {issueActionLabel} cho {invoice.student.code} / {invoice.student.name} · {invoicePeriod}
                 </h3>
                 <p>
                   Lớp {invoice.student.className}. Tổng cần thu do máy chủ xác nhận:{" "}
@@ -4854,8 +5196,7 @@ export function FinanceWorkspace({
                 onKeyDown={trapRevisionFocus}
               >
                 <h3 id="finance-revision-title">
-                  Chuẩn bị bản điều chỉnh cho {invoice.student.code} / {invoice.student.name} · tháng{" "}
-                  {billingMonthLabel(invoice.billingMonth)}
+                  Chuẩn bị bản điều chỉnh cho {invoice.student.code} / {invoice.student.name} · {invoicePeriod}
                 </h3>
                 <p>Hóa đơn đã phát hành vẫn giữ nguyên cho đến khi bản thay thế được phát hành.</p>
                 {revisionParts.length > 1 && (
@@ -4907,8 +5248,7 @@ export function FinanceWorkspace({
                 onKeyDown={trapDiscardFocus}
               >
                 <h3 id="finance-discard-title">
-                  Hủy bản điều chỉnh cho {invoice.student.code} / {invoice.student.name} · tháng{" "}
-                  {billingMonthLabel(invoice.billingMonth)}
+                  Hủy bản điều chỉnh cho {invoice.student.code} / {invoice.student.name} · {invoicePeriod}
                 </h3>
                 <p>Bản điều chỉnh sẽ bị xóa; hóa đơn đã phát hành giữ nguyên.</p>
                 <label>
@@ -4942,7 +5282,7 @@ export function FinanceWorkspace({
                 aria-labelledby="finance-close-run-title"
                 onKeyDown={trapCloseFocus}
               >
-                <h3 id="finance-close-run-title">Đóng đợt thu {billingMonthLabel(run.billingMonth)}</h3>
+                <h3 id="finance-close-run-title">Đóng đợt thu {runTitle(run)}</h3>
                 <p>
                   {run.summary && "invoiceCount" in run.summary
                     ? `${run.summary.invoiceCount} hóa đơn, tổng ${vnd(run.summary.invoiceTotal)} đ do máy chủ xác nhận.`
@@ -4978,7 +5318,7 @@ export function FinanceWorkspace({
                     disabled={Boolean(pending) || !closeReason.trim()}
                     onClick={() => void closeRun()}
                   >
-                    Đóng đợt thu {billingMonthLabel(run.billingMonth)}
+                    Đóng đợt thu {runTitle(run)}
                   </button>
                 </div>
               </div>
@@ -4994,7 +5334,7 @@ export function FinanceWorkspace({
                 aria-labelledby="finance-generate-title"
                 onKeyDown={(event) => { if (event.key === "Escape" && !pending) setGenerateConfirmation(false); else trapDialogFocus(event); }}
               >
-                <h3 id="finance-generate-title">Tạo hóa đơn nháp cho đợt {billingMonthLabel(run.billingMonth)}</h3>
+                <h3 id="finance-generate-title">Tạo hóa đơn nháp cho đợt {runTitle(run)}</h3>
                 <p>
                   {run.summary && "eligibleCount" in run.summary
                     ? `${run.summary.eligibleCount} học sinh đủ điều kiện, ${run.summary.skippedCount} học sinh bị bỏ qua, cần thu dự kiến ${vnd(run.summary.expectedTotal)} đ.`
@@ -5088,7 +5428,7 @@ export function FinanceWorkspace({
                 <p>
                   Chuyển {priorDebtConfirmation.debts.length} hóa đơn, tổng{" "}
                   {vnd(priorDebtConfirmation.total)} đ,
-                  vào hóa đơn tháng {billingMonthLabel(run.billingMonth)}. Thao tác này không hoàn tác được.
+                  vào hóa đơn {isClassRun(run) ? `đợt ${runTitle(run)}` : `tháng ${billingMonthLabel(run.billingMonth)}`}. Thao tác này không hoàn tác được.
                 </p>
                 <div className="dialog-actions">
                   <button
@@ -5127,7 +5467,7 @@ export function FinanceWorkspace({
               >
                 <h3 id="finance-add-student-title">
                   Thêm {additionConfirmation.studentCode} / {additionConfirmation.fullName} vào đợt{" "}
-                  {billingMonthLabel(run.billingMonth)}
+                  {runTitle(run)}
                 </h3>
                 <p>Máy chủ sẽ xác nhận điều kiện học sinh và dùng bản chốt khoản thu của đợt.</p>
                 <div className="dialog-actions">
@@ -5430,7 +5770,7 @@ export function FinanceWorkspace({
                       )}
                     </select>
                   </label>
-                  {!templateDialog.lineId && <small className="muted" id="template-receivable-hint">Chỉ khoản thu linh hoạt đang áp dụng. Khoản Ngoại khóa thu theo lớp ngoại khóa.</small>}
+                  {!templateDialog.lineId && <small className="muted" id="template-receivable-hint">{isClassRun(run) ? "Chỉ khoản thu linh hoạt đang áp dụng. Khoản Dịch vụ thu theo nhóm dịch vụ." : "Chỉ khoản thu linh hoạt đang áp dụng. Khoản Ngoại khóa thu theo lớp ngoại khóa."}</small>}
                   {errors.receivableId && <small role="alert">{errors.receivableId}</small>}
                 </div>
                 <div>
@@ -5450,12 +5790,16 @@ export function FinanceWorkspace({
                 </div>
                 <fieldset className="chip-group full" disabled={templateDialog.kind === "FIXED"}>
                   <legend>Phạm vi</legend>
-                  {(
-                    [
-                      ["ALL", "Toàn bộ"],
-                      ["CLASSES", "Lớp chính thức"],
-                      ["STUDENTS", "Học sinh cụ thể"],
-                    ] as const
+                  {(isClassRun(run)
+                    ? ([
+                        ["ALL", "Cả lớp"],
+                        ["STUDENTS", "Học sinh cụ thể"],
+                      ] as const)
+                    : ([
+                        ["ALL", "Toàn bộ"],
+                        ["CLASSES", "Lớp chính thức"],
+                        ["STUDENTS", "Học sinh cụ thể"],
+                      ] as const)
                   ).map(([value, label]) => (
                     <label key={value}>
                       <input
@@ -5500,7 +5844,7 @@ export function FinanceWorkspace({
                 )}
                 {templateDialog.scopeType === "STUDENTS" && templateDialog.kind !== "FIXED" && (
                   <>
-                    <label>
+                    {!isClassRun(run) && <label>
                       Lớp chính thức
                       <select
                         value={templateDialog.officialClassId}
@@ -5516,8 +5860,8 @@ export function FinanceWorkspace({
                         ))}
                         <option value="EXTRACURRICULAR_ONLY">Chỉ ngoại khóa</option>
                       </select>
-                    </label>
-                    <label>
+                    </label>}
+                    <label className={isClassRun(run) ? "full" : undefined}>
                       Tìm học sinh
                       <input
                         type="search"
@@ -5534,7 +5878,7 @@ export function FinanceWorkspace({
                     </label>
                     <div className="full table-scroll picker-scroll">
                       <table>
-                        <caption>Học sinh</caption>
+                        <caption>{isClassRun(run) ? `Học sinh · ${run?.className ?? ""}` : "Học sinh"}</caption>
                         <thead>
                           <tr>
                             <th>
@@ -5569,7 +5913,7 @@ export function FinanceWorkspace({
                             </th>
                             <th>Mã HS</th>
                             <th>Họ tên</th>
-                            <th>Lớp chính thức</th>
+                            <th>{isClassRun(run) ? "Lớp" : "Lớp chính thức"}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -5693,14 +6037,18 @@ export function FinanceWorkspace({
               </h3>
               <p className="muted">
                 {classExclusion.excluded
-                  ? "Thành viên của lớp sẽ không có dòng khoản thu ngoại khóa trong đợt này. Lớp và thành viên không thay đổi; cần xem trước lại."
-                  : "Thành viên có hiệu lực trong tháng sẽ được tính lại khoản thu của lớp; cần xem trước lại."}
+                  ? isClassRun(run)
+                    ? "Thành viên của dịch vụ sẽ không có dòng khoản thu dịch vụ trong đợt này. Dịch vụ và thành viên không thay đổi; cần xem trước lại."
+                    : "Thành viên của lớp sẽ không có dòng khoản thu ngoại khóa trong đợt này. Lớp và thành viên không thay đổi; cần xem trước lại."
+                  : isClassRun(run)
+                    ? "Thành viên có hiệu lực trong kỳ sẽ được tính lại khoản thu của dịch vụ; cần xem trước lại."
+                    : "Thành viên có hiệu lực trong tháng sẽ được tính lại khoản thu của lớp; cần xem trước lại."}
               </p>
               <label>
                 Lý do (không bắt buộc)
                 <input
                   autoFocus
-                  placeholder="Ví dụ: Lớp nghỉ cả tháng"
+                  placeholder={isClassRun(run) ? "Ví dụ: Lớp không dùng xe trong unit này" : "Ví dụ: Lớp nghỉ cả tháng"}
                   value={classExclusion.reason}
                   onChange={(event) => setClassExclusion({ ...classExclusion, reason: event.target.value })}
                 />
@@ -6221,7 +6569,7 @@ export function FinanceWorkspace({
                 <div className="full table-scroll picker-scroll">
                   <table>
                     <caption>
-                      Học sinh{assignmentCandidates?.schoolYear ? ` · ${assignmentCandidates.schoolYear.name}` : ""}
+                      Học sinh{features.usesSchoolYears && assignmentCandidates?.schoolYear ? ` · ${assignmentCandidates.schoolYear.name}` : ""}
                     </caption>
                     <thead>
                       <tr>

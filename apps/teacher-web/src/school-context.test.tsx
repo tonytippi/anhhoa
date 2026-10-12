@@ -64,4 +64,18 @@ describe('Teacher SchoolContext', () => {
     await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).includes('/operations/'))).toHaveLength(2));
     expect(fetch.mock.calls.filter(([, options]) => (options as RequestInit | undefined)?.method === 'POST')).toHaveLength(1);
   });
+  it('hides Nhật ký and Đón trả entry points when the School features turn them off, and keeps them otherwise', async () => {
+    const navigation = [{ id: 'attendance', label: 'Điểm danh' }, { id: 'daily-journal', label: 'Nhận xét trong ngày' }, { id: 'handover', label: 'Bàn giao' }];
+    const fetchWith = (features?: object) => vi.fn((input: string) => Promise.resolve(new Response(JSON.stringify(input.endsWith('/schools') ? { data: [schoolA] } : input.endsWith('/a') ? { data: { ...schoolA, navigation, ...(features ? { features } : {}) } } : { data: [] }))));
+    window.history.replaceState({}, '', '/schools/truong-a'); vi.stubGlobal('fetch', fetchWith({ usesSchoolYears: false, collectionRunScope: 'CLASS', dailyJournal: false, handover: false })); render(<SchoolContext clear={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'PassionEdu - Giáo viên - Trường A' });
+    const center = screen.getByRole('navigation', { name: 'Điều hướng trường' });
+    expect(center.textContent).toContain('Điểm danh'); expect(center.textContent).not.toContain('Nhận xét trong ngày'); expect(center.textContent).not.toContain('Bàn giao');
+    expect(screen.queryByRole('heading', { name: 'Nhận xét trong ngày' })).toBeNull(); expect(screen.queryByRole('heading', { name: /Bàn giao/ })).toBeNull();
+    cleanup(); window.history.replaceState({}, '', '/schools/truong-a'); vi.stubGlobal('fetch', fetchWith({ usesSchoolYears: true, collectionRunScope: 'SCHOOL', dailyJournal: true, handover: true })); render(<SchoolContext clear={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'PassionEdu - Giáo viên - Trường A' });
+    const preschool = screen.getByRole('navigation', { name: 'Điều hướng trường' });
+    expect(preschool.textContent).toContain('Nhận xét trong ngày'); expect(preschool.textContent).toContain('Bàn giao');
+    expect(screen.getByRole('heading', { name: 'Nhận xét trong ngày' })).toBeTruthy(); expect(screen.getByRole('heading', { name: /Bàn giao/ })).toBeTruthy();
+  });
 });

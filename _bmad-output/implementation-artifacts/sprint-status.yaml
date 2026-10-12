@@ -22,7 +22,7 @@ development_status:
   1-5-tenant-graph-mutation-protection-va-audit-provenance: done
   1-6-release-gate-tenant-isolation-va-audience-access: done
   1-7-home-only-school-chooser-va-leave-guard: ready-for-dev
-  1-8-loai-truong-va-feature-theo-loai: in-progress
+  1-8-loai-truong-va-feature-theo-loai: review
   epic-1-retrospective: optional
 
   epic-2: in-progress
@@ -32,7 +32,7 @@ development_status:
   2-4-quan-ly-staff-chuc-danh-va-phan-cong-theo-capability-effective-date: done
   2-5-chuyen-lop-chuyen-nam-va-close-year-bang-preview-co-doi-soat: done
   2-6-trang-thai-chi-ngoai-khoa-va-chuyen-doi-voi-chinh-khoa: review
-  2-7-school-khong-dung-nam-hoc: in-progress
+  2-7-school-khong-dung-nam-hoc: review
   epic-2-retrospective: optional
 
   epic-3: in-progress
@@ -107,8 +107,8 @@ development_status:
   5-49-huy-ban-dieu-chinh-nhap: review
   5-50-dot-thu-theo-pham-vi-va-ky-dich-vu: review
   5-51-quy-tac-theo-ky-cho-no-cu-carry-dich-vu-va-co-trung-ky: review
-  5-52-giao-dien-dot-thu-theo-lop-va-parent-period-label: backlog
-  5-53-release-gate-trung-tam-ngoai-ngu: backlog
+  5-52-giao-dien-dot-thu-theo-lop-va-parent-period-label: review
+  5-53-release-gate-trung-tam-ngoai-ngu: in-progress
   epic-5-retrospective: optional
 
   epic-6: done

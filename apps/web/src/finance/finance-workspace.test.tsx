@@ -11,7 +11,12 @@ const run = {
   id: "11111111-1111-4111-8111-111111111111",
   schoolYearId: "year-a",
   billingMonth: "2026-09",
-  type: "MONTHLY",
+  scope: "SCHOOL",
+  classId: null,
+  className: null,
+  name: "Tháng 09/2026",
+  periodStartsOn: "2026-09-01",
+  periodEndsOn: "2026-09-30",
   status: "DRAFT",
   version: 2,
 };

@@ -69,10 +69,11 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     const s = await setup();
     const unit1 = await open(s, s.starters.id, "Unit 1", "2026-08-03", "2026-09-26");
     expect(unit1.outcome).toMatchObject({ scope: "CLASS", classId: s.starters.id, className: "Starters A", name: "Unit 1", periodStartsOn: "2026-08-03", periodEndsOn: "2026-09-26", billingMonth: "2026-08", status: "DRAFT", templateLines: [] });
+    await expect(finance.runClassOptions(s.identity.id, s.school.id)).resolves.toEqual({ classes: [{ id: s.movers.id, name: "Movers B", latestRun: null }, { id: s.starters.id, name: "Starters A", latestRun: { id: id(unit1), name: "Unit 1", periodStartsOn: "2026-08-03", periodEndsOn: "2026-09-26" } }] });
     // Another Class shares the month and the dates freely.
     await expect(open(s, s.movers.id, "Unit 6", "2026-08-17", "2026-10-10")).resolves.toMatchObject({ outcome: { scope: "CLASS", billingMonth: "2026-08" } });
     for (const [from, to] of [["2026-09-26", "2026-11-20"], ["2026-07-01", "2026-08-03"], ["2026-08-10", "2026-08-20"]])
-      await expect(open(s, s.starters.id, "Unit 2", from!, to!)).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_PERIOD_OVERLAP" } });
+      await expect(open(s, s.starters.id, "Unit 2", from!, to!)).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_PERIOD_OVERLAP", fieldErrors: { periodStartsOn: "Kỳ này trùng với đợt Unit 1 (03/08/2026 – 26/09/2026) của lớp Starters A." } } });
     await expect(open(s, s.starters.id, "Unit 2", "2026-11-01", "2026-10-01")).rejects.toMatchObject({ status: 400, response: { fieldErrors: { periodEndsOn: expect.any(String) } } });
     await expect(finance.openRun(s.identity.id, s.school.id, uuid(), uuid(), { schoolYearId: s.year.id, billingMonth: "2026-10" })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_SCOPE_NOT_ALLOWED" } });
     const foreign = await setup();
@@ -129,6 +130,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     const [secondInvoice] = await generate(s, id(second));
     // Unit 1 of the same Class is not CLOSED yet.
     await expect(finance.issueInvoice(s.identity.id, s.school.id, secondInvoice!.id, uuid(), uuid(), {})).rejects.toMatchObject({ status: 409, response: { code: "PREVIOUS_RUN_NOT_CLOSED", message: expect.stringContaining("Unit 1") } });
+    await expect(finance.run(s.identity.id, s.school.id, id(second))).resolves.toMatchObject({ previousOpenRun: { id: first, name: "Unit 1", periodStartsOn: "2026-08-03", periodEndsOn: "2026-09-26" } });
     // The other Class is not held back by it.
     const movers = id(await open(s, s.movers.id, "Unit 6", "2026-10-05", "2026-11-28"));
     await finance.saveTemplateLine(s.identity.id, s.school.id, movers, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
@@ -158,6 +160,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     expect(line(mover.studentId).amount).toBe(3_600_000n);
     const detail: any = await finance.invoice(s.identity.id, s.school.id, invoices.find((invoice) => invoice.studentId === mover.studentId)!.id);
     expect(JSON.stringify(detail)).toContain("Trùng kỳ");
+    const runDetail: any = await finance.run(s.identity.id, s.school.id, second);
+    expect(runDetail.invoices.filter((invoice: any) => invoice.periodOverlap).map((invoice: any) => invoice.studentId)).toEqual([mover.studentId]);
     expect(stays.studentId).not.toBe(mover.studentId);
   });
 
@@ -194,7 +198,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     expect(await prisma.settlementCarry.count({ where: { schoolId: s.school.id, invoiceId: invoiceOf(shortPayer.studentId).id, type: "SHORTFALL_CARRY", amount: 100_000n } })).toBe(1);
     // The unpaid Unit 1 invoice is listed as prior debt of the Movers B run and transfers into its DRAFT.
     const debts: any = await finance.priorDebts(s.identity.id, s.school.id, second);
-    expect(debts).toMatchObject({ total: "3600000", debts: [{ student: { id: debtor.studentId }, outstanding: "3600000" }] });
+    expect(debts).toMatchObject({ total: "3600000", debts: [{ student: { id: debtor.studentId }, outstanding: "3600000", periodLabel: "Starters A · Unit 1" }] });
     await finance.transferPriorDebts(s.identity.id, s.school.id, second, uuid(), uuid(), { sourceInvoiceIds: [debts.debts[0].sourceInvoiceId] });
     const target = await prisma.invoice.findFirstOrThrow({ where: { id: invoiceOf(debtor.studentId).id }, include: { lines: true } });
     expect(target.total).toBe(7_200_000n);

@@ -29,6 +29,8 @@ const flagLabels: Record<string, string> = { CLASS_CHANGE: "Chuyển lớp trong
 const overlapText = (detail: any) => detail?.overlap?.runName ? `đã có trên hóa đơn của đợt thu ${detail.overlap.runName}` : "";
 // What a Parent reads as the period of an obligation: the run name, with the Class for a CLASS run ("Starters A · Unit 3").
 const runPeriodLabel = (run: { name: string; classroom?: { name: string } | null } | null | undefined, billingMonth: string) => run ? [run.classroom?.name, run.name].filter(Boolean).join(" · ") : `Tháng ${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
+const isoDay = (value: Date) => value.toISOString().slice(0, 10);
+const viDay = (value: Date) => `${isoDay(value).slice(8, 10)}/${isoDay(value).slice(5, 7)}/${isoDay(value).slice(0, 4)}`;
 const runLabel = (name: string) => name.replace(/^Tháng /, "tháng ");
 const officialClassFilter = (value: unknown) => (value === EXTRACURRICULAR_ONLY ? EXTRACURRICULAR_ONLY : null);
 const receivableGroupKinds = ["FIXED", "FLEXIBLE", "EXTRACURRICULAR"] as const;
@@ -831,7 +833,7 @@ export class FinanceService {
     const mine = await db.invoice.findMany({ where: { schoolId, collectionRunId: run.id, revisesInvoiceId: null, status: { not: "CANCELLED" } }, select: { studentId: true } });
     const students = new Set<string>(mine.map((item: any) => item.studentId));
     if (!students.size) return [];
-    const sources = await db.invoice.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ISSUED", receipt: null, payout: null, settlementTransferTo: null, coverageFacts: { none: {} }, studentId: { in: [...students] }, ...(onlyIds ? { id: { in: onlyIds } } : {}), collectionRun: { status: "CLOSED", periodStartsOn: { lt: run.periodStartsOn } } }, include: { debtTransfersFrom: { select: { amount: true } } }, orderBy: FinanceService.receiptQueueOrder });
+    const sources = await db.invoice.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, status: "ISSUED", receipt: null, payout: null, settlementTransferTo: null, coverageFacts: { none: {} }, studentId: { in: [...students] }, ...(onlyIds ? { id: { in: onlyIds } } : {}), collectionRun: { status: "CLOSED", periodStartsOn: { lt: run.periodStartsOn } } }, include: { debtTransfersFrom: { select: { amount: true } }, collectionRun: { select: { name: true, classroom: { select: { name: true } } } } }, orderBy: FinanceService.receiptQueueOrder });
     return sources.map((source: any) => ({ source, outstanding: BigInt(source.obligationTotalSnapshot ?? 0) - source.debtTransfersFrom.reduce((sum: bigint, item: any) => sum + BigInt(item.amount), 0n) })).filter((item: any) => item.outstanding > 0n);
   }
   async priorDebts(identityId: string, schoolId: string, runId: string) {
@@ -840,7 +842,7 @@ export class FinanceService {
     if (!run) throw new NotFoundException({ code: "COLLECTION_RUN_NOT_FOUND", message: "Không tìm thấy đợt thu." });
     const rows = await this.priorDebtSources(this.prisma, schoolId, run);
     // The total is server-owned so the confirmation never adds money in the browser.
-    return { total: rows.reduce((sum: bigint, row: any) => sum + BigInt(row.outstanding), 0n).toString(), debts: rows.map(({ source, outstanding }: any) => ({ sourceInvoiceId: source.id, student: { id: source.studentId, code: source.studentCodeSnapshot, name: source.studentNameSnapshot }, className: classLabel(source.classNameSnapshot), billingMonth: source.billingMonth, channel: source.channel ?? "PERSONAL", account: this.accountDto(source), outstanding: outstanding.toString(), obligationCode: source.obligationCodeSnapshot })) };
+    return { total: rows.reduce((sum: bigint, row: any) => sum + BigInt(row.outstanding), 0n).toString(), debts: rows.map(({ source, outstanding }: any) => ({ sourceInvoiceId: source.id, student: { id: source.studentId, code: source.studentCodeSnapshot, name: source.studentNameSnapshot }, className: classLabel(source.classNameSnapshot), billingMonth: source.billingMonth, periodLabel: runPeriodLabel(source.collectionRun, source.billingMonth), channel: source.channel ?? "PERSONAL", account: this.accountDto(source), outstanding: outstanding.toString(), obligationCode: source.obligationCodeSnapshot })) };
   }
   // Accountant-initiated, all or nothing: each source's whole outstanding becomes a PRIOR_DEBT line on the same-channel DRAFT part of the Student's notice in this run.
   async transferPriorDebts(identityId: string, schoolId: string, runId: string, key: string, operationId: string, body: any) {
@@ -2227,8 +2229,9 @@ export class FinanceService {
     classroom: { select: { name: true } },
   };
   // Sprint change 2026-10-12: runs settle in period order within their scope target (the School, or one Class).
-  private async previousOpenRun(db: any, schoolId: string, run: { scope: string; classId: string | null; periodStartsOn: Date }): Promise<{ id: string; billingMonth: string; name: string } | null> {
-    return db.collectionRun.findFirst({ where: { schoolId, scope: run.scope, classId: run.classId, periodStartsOn: { lt: run.periodStartsOn }, status: { not: "CLOSED" } }, orderBy: [{ periodStartsOn: "asc" }, { id: "asc" }], select: { id: true, billingMonth: true, name: true } });
+  private async previousOpenRun(db: any, schoolId: string, run: { scope: string; classId: string | null; periodStartsOn: Date }): Promise<{ id: string; billingMonth: string; name: string; periodStartsOn: string; periodEndsOn: string } | null> {
+    const previous = await db.collectionRun.findFirst({ where: { schoolId, scope: run.scope, classId: run.classId, periodStartsOn: { lt: run.periodStartsOn }, status: { not: "CLOSED" } }, orderBy: [{ periodStartsOn: "asc" }, { id: "asc" }], select: { id: true, billingMonth: true, name: true, periodStartsOn: true, periodEndsOn: true } });
+    return previous && { ...previous, periodStartsOn: isoDay(previous.periodStartsOn), periodEndsOn: isoDay(previous.periodEndsOn) };
   }
   private runDto(run: any) {
     const status = run.lifecycleTransitions?.[0]?.status ?? run.status;
@@ -2584,7 +2587,10 @@ export class FinanceService {
         code: "COLLECTION_RUN_NOT_FOUND",
         message: "Không tìm thấy đợt thu.",
       });
-    const dto = { ...this.runDto(run), previousOpenRun: await this.previousOpenRun(this.prisma, schoolId, run) };
+    // The invoice rows of the detail say which Students carry a "Trùng kỳ" line, so Finance sees it without opening each Invoice.
+    const overlapped = new Set((await this.prisma.invoiceLine.findMany({ where: { schoolId, invoice: { collectionRunId: run.id, status: { not: "CANCELLED" } }, sourceDetail: { path: ["flags"], array_contains: "PERIOD_OVERLAP" } }, select: { invoiceId: true } })).map((line) => line.invoiceId));
+    const base = this.runDto(run);
+    const dto = { ...base, invoices: base.invoices.map((invoice: any) => ({ ...invoice, periodOverlap: overlapped.has(invoice.id) })), previousOpenRun: await this.previousOpenRun(this.prisma, schoolId, run) };
     if (dto.status !== "READY") return dto;
     // READY keeps no stored preview; re-derive it read-only exactly as generation will re-evaluate the roster.
     const templateLines = await this.templateSnapshot(this.prisma, schoolId, run, false, true);
@@ -2729,6 +2735,13 @@ export class FinanceService {
       };
     }
   }
+  // The Classes Finance may open a run for, each with its latest run so the dialog can say what the next one copies and where it may start.
+  async runClassOptions(identityId: string, schoolId: string) {
+    schoolId = this.school(schoolId);
+    await this.actor(identityId, schoolId);
+    const classes = await this.prisma.class.findMany({ where: { schoolId, status: "ACTIVE", schoolYear: { closedAt: null } }, select: { id: true, name: true, collectionRuns: { where: { scope: "CLASS" }, orderBy: [{ periodStartsOn: "desc" }, { id: "desc" }], take: 1, select: { id: true, name: true, periodStartsOn: true, periodEndsOn: true } } }, orderBy: [{ name: "asc" }, { id: "asc" }] });
+    return { classes: classes.map((item) => ({ id: item.id, name: item.name, latestRun: item.collectionRuns[0] ? { id: item.collectionRuns[0].id, name: item.collectionRuns[0].name, periodStartsOn: isoDay(item.collectionRuns[0].periodStartsOn), periodEndsOn: isoDay(item.collectionRuns[0].periodEndsOn) } : null })) };
+  }
   // Sprint change 2026-10-12 §2.3: a CLASS run bills one Class for an inclusive period Finance enters (a unit). No FIXED seed: the first
   // run of a Class starts empty and a later one copies the whole-class lines of the preceding run of that Class.
   private async openClassRun(identityId: string, schoolId: string, actor: any, key: string, operationId: string, body: any) {
@@ -2743,8 +2756,8 @@ export class FinanceService {
       if (classroom.status !== "ACTIVE") throw validation("classId", "Chỉ mở đợt thu cho lớp đang hoạt động.");
       if (classroom.schoolYear.closedAt) throw new ConflictException({ code: "SCHOOL_YEAR_CLOSED", message: "Năm học đã đóng chỉ có thể xem." });
       if (periodStartsOn < classroom.schoolYear.startsOn || periodEndsOn >= yearEnd(classroom.schoolYear.endsOn)) throw validation("periodStartsOn", "Kỳ thu phải thuộc năm học của lớp.");
-      const overlapping = await tx.collectionRun.findFirst({ where: { schoolId, scope: "CLASS", classId: input.classId, periodStartsOn: { lte: periodEndsOn }, periodEndsOn: { gte: periodStartsOn } }, select: { name: true } });
-      if (overlapping) throw new ConflictException({ code: "COLLECTION_RUN_PERIOD_OVERLAP", message: `Kỳ này trùng với đợt thu ${overlapping.name} của lớp.`, fieldErrors: { periodStartsOn: `Trùng với đợt thu ${overlapping.name}.` } });
+      const overlapping = await tx.collectionRun.findFirst({ where: { schoolId, scope: "CLASS", classId: input.classId, periodStartsOn: { lte: periodEndsOn }, periodEndsOn: { gte: periodStartsOn } }, orderBy: { periodStartsOn: "asc" }, select: { name: true, periodStartsOn: true, periodEndsOn: true } });
+      if (overlapping) { const message = `Kỳ này trùng với đợt ${overlapping.name} (${viDay(overlapping.periodStartsOn)} – ${viDay(overlapping.periodEndsOn)}) của lớp ${classroom.name}.`; throw new ConflictException({ code: "COLLECTION_RUN_PERIOD_OVERLAP", message, fieldErrors: { periodStartsOn: message } }); }
       const previous = await tx.collectionRun.findFirst({ where: { schoolId, scope: "CLASS", classId: input.classId, periodStartsOn: { lt: periodStartsOn } }, orderBy: [{ periodStartsOn: "desc" }, { id: "desc" }], include: { templateLines: { where: { scopeType: "ALL" }, include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } }, orderBy: { id: "asc" } } } });
       const copied = (previous?.templateLines ?? []).filter((line: any) => line.receivable.lifecycleTransitions[0]?.status === "ACTIVE");
       await this.lockReceivablesShared(tx, schoolId, copied.map((line: any) => line.receivableId));

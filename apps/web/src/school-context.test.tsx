@@ -8,7 +8,7 @@ const schoolB = { schoolId: 'uuid-b', schoolSlug: 'sunrise', schoolName: 'Trư�
 const context = (school = schoolA) => ({ ...school, membershipId: `member-${school.schoolId}`, capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE'], navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'roster', label: 'Danh bộ' }] });
 const fetchFor = () => vi.fn((url: string) => Promise.resolve(new Response(JSON.stringify(url === '/api/app/schools' ? { data: [schoolA, schoolB] } : url.endsWith('/uuid-a') ? { data: context(schoolA) } : url.endsWith('/uuid-b') ? { data: context(schoolB) } : url.includes('/overview') ? { data: { date: '2026-02-09', isToday: true, metrics: { students: 0, staff: 0, present: 0, approvedLeave: 0, pickedUp: 0, unresolved: { label: 'Chưa đến lớp', count: 0 }, notRecorded: 0 }, classes: [] } } : url.includes('/students?') ? { data: [{ id: 'student-a', studentCode: 'S1', fullName: 'Bé An', hasPhoto: false, enrollment: { id: 'enrollment-a', lifecycle: 'ENROLLED', effectiveFrom: '2026-01-01', classroom: null }, relatives: { mother: null, father: null, otherRelativeCount: 0 } }], meta: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 } } : url.includes('/school-years') ? { data: [{ id: 'year-a', name: 'Năm 2026', startsOn: '2026-01-01', endsOn: '2027-01-01', isActive: true }] } : { data: [], meta: { page: 1, pageSize: 25, totalItems: 0, totalPages: 1 } }))));
 const financeContext = { ...context(schoolA), capabilities: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'], navigation: [{ id: 'overview', label: 'Tổng quan' }, { id: 'collection-runs', label: 'Đợt thu' }] };
-const financeRun = { id: 'run-a', schoolYearId: 'year-a', billingMonth: '2026-09', type: 'MONTHLY', status: 'DRAFT', version: 1, templateLines: [] };
+const financeRun = { id: 'run-a', schoolYearId: 'year-a', billingMonth: '2026-09', scope: 'SCHOOL', classId: null, className: null, name: 'Tháng 09/2026', periodStartsOn: '2026-09-01', periodEndsOn: '2026-09-30', status: 'DRAFT', version: 1, templateLines: [] };
 const financeFetch = (detailStatus = 200) => vi.fn((url: string) => Promise.resolve(
   url === '/api/app/schools' ? new Response(JSON.stringify({ data: [schoolA] })) :
   url.endsWith('/uuid-a') ? new Response(JSON.stringify({ data: financeContext })) :
@@ -103,5 +103,28 @@ describe('SchoolContext Home-only chooser', () => {
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Đóng đợt thu' }));
     await screen.findByRole('heading', { name: 'Đóng đợt thu', level: 1 });
     expect(window.location.pathname).toBe('/schools/peakland/guides/dong-dot-thu');
+  });
+  it('hides Năm học and names extracurricular classes Dịch vụ for a School without school years, and keeps both for a preschool', async () => {
+    const navigation = [{ id: 'overview', label: 'Tổng quan' }, { id: 'roster', label: 'Danh bộ' }, { id: 'settings', label: 'Cấu hình trường' }, { id: 'extracurricular-classes', label: 'Lớp ngoại khóa' }, { id: 'collection-runs', label: 'Đợt thu' }];
+    const withKind = (extra: object) => { const base = fetchFor(); return vi.fn((url: string) => url.endsWith('/uuid-a') ? Promise.resolve(new Response(JSON.stringify({ data: { ...context(schoolA), capabilities: ['SCHOOL_CONTEXT_READ', 'ROSTER_MANAGE', 'SETTINGS_MANAGE', 'FINANCE_MANAGE'], navigation, ...extra } }))) : base(url)); };
+    window.history.replaceState({}, '', '/schools/peakland/overview');
+    vi.stubGlobal('fetch', withKind({ schoolKind: 'LANGUAGE_CENTER', features: { usesSchoolYears: false, collectionRunScope: 'CLASS', dailyJournal: false, handover: false } }));
+    const center = renderContext(); await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
+    fireEvent.click(screen.getByRole('button', { name: 'Cấu hình trường' }));
+    const settings = document.getElementById('settings-submenu')!;
+    expect(within(settings).queryByRole('button', { name: 'Năm học' })).toBeNull(); expect(within(settings).getByRole('button', { name: 'Chức danh' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Danh bộ' }));
+    const roster = document.getElementById('roster-submenu')!;
+    expect(within(roster).getByRole('button', { name: 'Dịch vụ' })).toBeTruthy(); expect(within(roster).queryByRole('button', { name: 'Lớp ngoại khóa' })).toBeNull();
+    expect(document.querySelector('.school-context-header')!.textContent).not.toMatch(/[Nn]ăm học/);
+    window.history.pushState({}, '', '/schools/peakland/years'); fireEvent.popState(window);
+    await waitFor(() => expect(window.location.pathname).toBe('/schools/peakland/overview'));
+    center.unmount(); window.history.replaceState({}, '', '/schools/peakland/overview');
+    vi.stubGlobal('fetch', withKind({ schoolKind: 'PRESCHOOL', features: { usesSchoolYears: true, collectionRunScope: 'SCHOOL', dailyJournal: true, handover: true } }));
+    renderContext(); await screen.findByRole('heading', { name: 'Tổng quan vận hành' });
+    fireEvent.click(screen.getByRole('button', { name: 'Cấu hình trường' }));
+    expect(within(document.getElementById('settings-submenu')!).getByRole('button', { name: 'Năm học' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Danh bộ' }));
+    expect(within(document.getElementById('roster-submenu')!).getByRole('button', { name: 'Lớp ngoại khóa' })).toBeTruthy();
   });
 });

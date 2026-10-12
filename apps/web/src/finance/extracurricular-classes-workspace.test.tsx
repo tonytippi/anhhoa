@@ -409,4 +409,22 @@ describe("ExtracurricularClassesWorkspace", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(JSON.parse(String((posts(fetch)[0]![1] as RequestInit).body))).toEqual({ name: "Vẽ 3", schoolYearId: "year", receivableId: "drawing", separateAttendance: false });
   });
+
+  it("hides every school-year selector and label and takes the page title for a School without school years", async () => {
+    const fetch = route({ "extracurricular-classes": (_url, options) => (options?.method === "POST" ? response({ status: "COMPLETED", outcome: { id: "new" } }) : response(list)) });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props("", { usesSchoolYears: false, title: "Dịch vụ" })} />);
+    expect(await screen.findByRole("heading", { name: "Dịch vụ · Trường Ánh Hoa", level: 1 })).toBeTruthy();
+    expect(await screen.findByRole("table", { name: "Dịch vụ · Trường Ánh Hoa" })).toBeTruthy();
+    expect(screen.queryByLabelText("Năm học")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Năm học|2026-2027/);
+    fireEvent.click(screen.getByRole("button", { name: "Thêm lớp ngoại khóa" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm lớp ngoại khóa" });
+    expect(within(dialog).queryByLabelText("Năm học")).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Đưa đón" } });
+    fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "drawing" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
+    await waitFor(() => expect(posts(fetch)).toHaveLength(1));
+    expect(JSON.parse(String((posts(fetch)[0]![1] as RequestInit).body))).toEqual({ name: "Đưa đón", schoolYearId: "year", receivableId: "drawing", separateAttendance: false });
+  });
 });

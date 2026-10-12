@@ -83,6 +83,21 @@ describe('ParentShell', () => {
     expect(screen.queryByText(/Tôi đã thanh toán|VietQR|Sao chép/)).toBeNull();
   });
 
+  it('shows the run period label of an obligation and falls back to the month when the label is absent', async () => {
+    window.history.replaceState(null, '', '/obligations');
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trung tâm A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    const base = { studentId: 'student-a', issuedTotal: '3600000', actualReceipt: '0', outcome: null, outstanding: '3600000', state: 'ISSUED', effectiveAt: '2026-10-01T00:00:00.000Z', paymentInstruction: { receivingBank: 'Ngân hàng A', accountNumber: '123', accountHolderName: 'Trung tâm A', transferContent: 'BE AN' } };
+    const labelled = { ...base, id: 'invoice-u', obligationCode: 'OBL-202609-000050', period: '2026-09', periodLabel: 'Starters A · Unit 3' };
+    const legacy = { ...base, id: 'invoice-m', obligationCode: 'OBL-202608-000007', period: '2026-08' };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => String(input).includes('/obligations') ? Promise.resolve(new Response(JSON.stringify({ data: String(input).endsWith('/obligations') ? [labelled, legacy] : labelled }))) : parentResponse(session, input)));
+    render(<ParentShell />);
+    const card = await screen.findByRole('button', { name: /OBL-202609-000050/ });
+    expect(card.textContent).toContain('Starters A · Unit 3'); expect(card.textContent).not.toContain('2026-09');
+    expect(screen.getByRole('button', { name: /OBL-202608-000007/ }).textContent).toContain('2026-08');
+    fireEvent.click(card);
+    expect((await screen.findByText('Kỳ thu')).nextElementSibling?.textContent).toBe('Starters A · Unit 3');
+  });
+
   it('loads and preserves the obligation list for an initial or refreshed obligations route', async () => {
     window.history.replaceState(null, '', '/obligations');
     const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };

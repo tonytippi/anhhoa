@@ -13,7 +13,7 @@ type SchoolYear = {
   id: string;
   name: string;
   startsOn: string;
-  endsOn: string;
+  endsOn: string | null;
   isActive: boolean;
   closedAt?: string | null;
 };
@@ -187,6 +187,7 @@ export function RosterWorkspace({
   onOpenTransition,
   onBackToRoster,
   section = "all",
+  usesSchoolYears = true,
 }: {
   schoolId: string;
   schoolName: string;
@@ -196,8 +197,11 @@ export function RosterWorkspace({
   onOpenTransition?: () => void;
   onBackToRoster?: () => void;
   section?: "all" | "students" | "parents" | "staff" | "classes" | "years" | "positions" | "transitions";
+  // Sprint change 2026-10-12: a School without school years keeps one open-ended SchoolYear that the portal never shows.
+  usesSchoolYears?: boolean;
 }) {
   const [years, setYears] = useState<SchoolYear[]>([]);
+  const [classStatus, setClassStatus] = useState<"ACTIVE" | "ARCHIVED" | "">("ACTIVE");
   const [yearId, setYearId] = useState("");
   const [classes, setClasses] = useState<Classroom[]>([]);
   const [students, setStudents] = useState<RosterRow[]>([]);
@@ -1341,8 +1345,8 @@ export function RosterWorkspace({
   const confirmRosterTransition = async () => {
     if (!transitionPreview || readOnly) return;
     confirmedTransition.current = {
-      source: `${selected?.name ?? ""} · ${classes.find((item) => item.id === transition.sourceClassId)?.name ?? ""}`,
-      destination: `${transitionPreview.destination.schoolYearName} · ${transitionPreview.destination.className}`,
+      source: `${usesSchoolYears ? `${selected?.name ?? ""} · ` : ""}${classes.find((item) => item.id === transition.sourceClassId)?.name ?? ""}`,
+      destination: `${usesSchoolYears ? `${transitionPreview.destination.schoolYearName} · ` : ""}${transitionPreview.destination.className}`,
       effectiveFrom: transition.effectiveFrom,
       moved: transitionPreview.movable.map((item) => item.student.fullName),
       excluded: transitionPreview.excluded.map((item) => ({
@@ -1515,6 +1519,8 @@ export function RosterWorkspace({
   const selected = years.find((item) => item.id === yearId);
   const readOnly = Boolean(selected?.closedAt);
   const disabled = Boolean(pending);
+  // Such a School archives finished classes instead of rolling a year over, so its class list opens on the active ones.
+  const listedClasses = usesSchoolYears || !classStatus ? classes : classes.filter((item) => item.status === classStatus);
   const showStudentIntake = section === "all" || studentIntakeOpen;
   const reloadRoster = (page = rosterMeta.page) => {
     if (yearId) void loadYear(yearId, generation.current, rosterQuery, page);
@@ -1747,9 +1753,9 @@ export function RosterWorkspace({
   return (
     <section className={`roster-workspace roster-workspace-${section}`} aria-labelledby="roster-title">
       <h2 id="roster-title">{({ all: "Danh bộ", students: "Học sinh", parents: "Phụ huynh", staff: "Nhân viên", classes: "Lớp học", years: "Năm học", positions: "Chức danh", transitions: "Chuyển danh bộ" } as const)[section]}</h2>
-      <p>
+      {usesSchoolYears && <p>
         {selected ? `Năm học: ${selected.name}` : "Chưa có năm học"}
-      </p>
+      </p>}
       {message && !positionDraft && (
         <div ref={summary} tabIndex={-1} role="alert">
           {message}
@@ -1937,7 +1943,7 @@ export function RosterWorkspace({
       </div>
       {staffMeta.totalPages > 1 && <nav className="pagination" aria-label="Phân trang nhân viên"><button type="button" disabled={staffLoading || staffMeta.page === 1} onClick={() => void reloadStaff(staffMeta.page - 1)}>Trước</button>{Array.from({ length: Math.min(5, staffMeta.totalPages) }, (_, index) => staffMeta.totalPages <= 5 ? index + 1 : Math.min(staffMeta.totalPages - 4, Math.max(1, staffMeta.page - 2)) + index).map((page) => <button key={page} type="button" disabled={staffLoading || page === staffMeta.page} aria-current={page === staffMeta.page ? "page" : undefined} onClick={() => void reloadStaff(page)}>{page}</button>)}<button type="button" disabled={staffLoading || staffMeta.page === staffMeta.totalPages} onClick={() => void reloadStaff(staffMeta.page + 1)}>Sau</button></nav>}
       </>}
-      {(section === "all" || section === "years") && <>
+      {usesSchoolYears && (section === "all" || section === "years") && <>
       <form className="roster-form" onSubmit={createYear}>
         <h3>Tạo năm học</h3>
         <label>
@@ -1997,7 +2003,7 @@ export function RosterWorkspace({
                     </button>
                   </th>
                   <td>
-                    {item.startsOn} - {item.endsOn}
+                    {item.startsOn} - {item.endsOn ?? "Không giới hạn"}
                   </td>
                   <td>
                     {item.isActive ? "Đang hoạt động" : "Không hoạt động"}
@@ -2171,7 +2177,7 @@ export function RosterWorkspace({
                 <thead>
                   <tr>
                     <th>Nhân sự</th>
-                    <th>Lớp / năm học</th>
+                    <th>{usesSchoolYears ? "Lớp / năm học" : "Lớp"}</th>
                     <th>Khoảng hiệu lực</th>
                     <th>Quyền truy cập</th>
                     <th>Lý do</th>
@@ -2184,7 +2190,7 @@ export function RosterWorkspace({
                       <tr key={item.id}>
                         <th scope="row">{item.staff.fullName}</th>
                         <td>
-                          {item.classroom.name} / {item.schoolYear.name}
+                          {item.classroom.name}{usesSchoolYears ? ` / ${item.schoolYear.name}` : ""}
                         </td>
                         <td>
                           {item.effectiveFrom} đến{" "}
@@ -2244,7 +2250,7 @@ export function RosterWorkspace({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6}>Chưa có phân công trong năm học này.</td>
+                      <td colSpan={6}>{usesSchoolYears ? "Chưa có phân công trong năm học này." : "Chưa có phân công."}</td>
                     </tr>
                   )}
                 </tbody>
@@ -2256,7 +2262,7 @@ export function RosterWorkspace({
               <button ref={classIntakeTrigger} type="button" className="primary-action" disabled={disabled} onClick={() => { setClassName(""); setClassErrors({}); setClassIntakeOpen(true); }}>Thêm lớp học</button>
             </div>}
             {classIntakeOpen && <div className="student-intake-backdrop"><div ref={classIntakeDialog} className="student-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="class-intake-title" onKeyDown={trapClassIntakeDialog}><form className="roster-form student-intake-form" onSubmit={createClass}>
-              <h3 id="class-intake-title">Thêm lớp cho {selected?.name}</h3>
+              <h3 id="class-intake-title">{usesSchoolYears ? `Thêm lớp cho ${selected?.name}` : "Thêm lớp học"}</h3>
               <label>
                 Tên lớp
                 <input
@@ -2268,9 +2274,12 @@ export function RosterWorkspace({
               {classErrors.name && <small id="name-error">{classErrors.name}</small>}
               <div className="student-intake-actions"><button type="button" disabled={disabled} onClick={closeClassIntake}>Đóng</button><button disabled={disabled}>Tạo lớp</button></div>
             </form></div></div>}
+            {!usesSchoolYears && <form className="roster-list-filters" aria-label="Lọc lớp học" onSubmit={(event) => event.preventDefault()}>
+              <label>Trạng thái<select value={classStatus} onChange={(event) => setClassStatus(event.target.value as typeof classStatus)}><option value="ACTIVE">Đang hoạt động</option><option value="ARCHIVED">Đã lưu trữ</option><option value="">Tất cả trạng thái</option></select></label>
+            </form>}
             <div className="table-scroll student-list-table class-list-table">
               <table>
-                <caption>Lớp thuộc {selected?.name}</caption>
+                <caption>{usesSchoolYears ? `Lớp thuộc ${selected?.name}` : `Lớp học của ${schoolName}`}</caption>
                 <thead>
                   <tr>
                     <th>Tên lớp</th>
@@ -2281,8 +2290,8 @@ export function RosterWorkspace({
                   </tr>
                 </thead>
                 <tbody>
-                  {classes.length ? (
-                    classes.map((item) => (
+                  {listedClasses.length ? (
+                    listedClasses.map((item) => (
                       <tr key={item.id}>
                         <th scope="row">{item.name}</th>
                         <td>
@@ -2338,7 +2347,7 @@ export function RosterWorkspace({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5}>Năm học này chưa có lớp.</td>
+                      <td colSpan={5}>{usesSchoolYears ? "Năm học này chưa có lớp." : classStatus === "ACTIVE" ? "Chưa có lớp đang hoạt động." : "Chưa có lớp."}</td>
                     </tr>
                   )}
                 </tbody>
@@ -2365,7 +2374,7 @@ export function RosterWorkspace({
                 <p>
                   Hệ thống sẽ phân loại học sinh theo lịch sử nguồn, lớp đích và ngày hiệu lực.
                 </p>
-                <label>
+                {usesSchoolYears && <label>
                   Loại chuyển
                   <select
                     value={transition.kind}
@@ -2384,10 +2393,10 @@ export function RosterWorkspace({
                     <option value="CLASS_TRANSFER">Chuyển lớp trong năm học</option>
                     <option value="YEAR_TRANSITION">Chuyển sang năm học mới</option>
                   </select>
-                </label>
+                </label>}
                 <fieldset className="roster-transition-side">
                   <legend>Nguồn</legend>
-                  <label>
+                  {usesSchoolYears && <label>
                     Năm học nguồn
                     <select value={yearId} onChange={(event) => selectYear(event.target.value)}>
                       {years.map((item) => (
@@ -2396,7 +2405,7 @@ export function RosterWorkspace({
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </label>}
                   <label>
                     Lớp nguồn
                     <select
@@ -2508,7 +2517,7 @@ export function RosterWorkspace({
                     <input
                       value={transition.reason}
                       {...field(transitionErrors, "reason", "transition-")}
-                      placeholder="Ví dụ: Lên lớp đầu năm học"
+                      placeholder={usesSchoolYears ? "Ví dụ: Lên lớp đầu năm học" : "Ví dụ: Chuyển lớp theo trình độ"}
                       onChange={(event) => {
                         setTransition((current) => ({
                           ...current,
@@ -2530,8 +2539,8 @@ export function RosterWorkspace({
                 <div className="roster-transition-summary">
                   <section aria-labelledby="transition-route-title">
                     <h3 id="transition-route-title">Nguồn và đích</h3>
-                    <p><b>Nguồn:</b> {selected?.name} · {classes.find((item) => item.id === transition.sourceClassId)?.name}</p>
-                    <p><b>Đích:</b> {transitionPreview.destination.schoolYearName} · {transitionPreview.destination.className}</p>
+                    <p><b>Nguồn:</b> {usesSchoolYears ? `${selected?.name} · ` : ""}{classes.find((item) => item.id === transition.sourceClassId)?.name}</p>
+                    <p><b>Đích:</b> {usesSchoolYears ? `${transitionPreview.destination.schoolYearName} · ` : ""}{transitionPreview.destination.className}</p>
                     <p><b>Ngày hiệu lực:</b> {formatDate(transition.effectiveFrom)}</p>
                   </section>
                   <section aria-labelledby="transition-preview-title">
@@ -2695,7 +2704,7 @@ export function RosterWorkspace({
               </section>
             )}
             </>}
-            {(section === "all" || section === "years") && <>
+            {usesSchoolYears && (section === "all" || section === "years") && <>
             {section === "years" && onOpenTransition && (
               <section className="roster-form roster-transition-entry" aria-labelledby="transition-entry-title">
                 <h3 id="transition-entry-title">Chuyển danh bộ</h3>
@@ -2887,7 +2896,7 @@ export function RosterWorkspace({
                   ) : !rosterLoadFailed && (
                     <tr>
                       <td colSpan={8} className="student-empty-state">
-                        <strong>Chưa có học sinh trong năm học này</strong>
+                        <strong>{usesSchoolYears ? "Chưa có học sinh trong năm học này" : "Chưa có học sinh"}</strong>
                         <span>Thêm hồ sơ đầu tiên để bắt đầu quản lý danh sách và phân lớp.</span>
                         {selected?.isActive && <button type="button" onClick={() => setStudentIntakeOpen(true)}>Thêm học sinh đầu tiên</button>}
                       </td>
@@ -2918,7 +2927,7 @@ export function RosterWorkspace({
                         <td className="roster-row-actions"><button ref={rowMenu === item.id ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.fullName}`} aria-haspopup="menu" aria-expanded={rowMenu === item.id} onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setRowMenu(item.id); } }} onClick={() => setRowMenu(rowMenu === item.id ? undefined : item.id)}>...</button>
                           {rowMenu === item.id && <div ref={rowMenuElement} className="roster-action-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); } else if (event.key === "Tab") setRowMenu(undefined); }}><button type="button" role="menuitem" onClick={() => { parentDetailTrigger.current = rowMenuTrigger.current; setRowMenu(undefined); setParentDetail(item); }}>Xem chi tiết phụ huynh</button></div>}
                         </td>
-                      </tr>) : !rosterLoadFailed && <tr><td colSpan={6} className="student-empty-state"><strong>Chưa có phụ huynh liên kết trong năm học này</strong><span>Danh sách chỉ hiển thị liên kết đang hiệu lực.</span></td></tr>}
+                      </tr>) : !rosterLoadFailed && <tr><td colSpan={6} className="student-empty-state"><strong>{usesSchoolYears ? "Chưa có phụ huynh liên kết trong năm học này" : "Chưa có phụ huynh liên kết"}</strong><span>Danh sách chỉ hiển thị liên kết đang hiệu lực.</span></td></tr>}
                   </tbody>
                 </table>
               </div>
