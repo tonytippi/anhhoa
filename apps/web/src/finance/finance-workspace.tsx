@@ -4497,6 +4497,7 @@ export function FinanceWorkspace({
               <RunNoticeTable
                 notices={run.notices ?? []}
                 caption="Hóa đơn đã khóa theo đợt thu"
+                overlapInvoiceIds={new Set((run.invoices ?? []).filter((item) => item.periodOverlap).map((item) => item.id))}
                 actionLabel="Xem hóa đơn"
                 onReview={reviewInvoice}
               />

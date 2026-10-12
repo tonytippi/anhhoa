@@ -15,6 +15,7 @@ type Row = {
   class: { id: string; name: string };
   schoolYearId: string;
   billingMonth: string;
+  periodLabel?: string;
   issuedAt: string;
   outstanding: string;
   direction?: Direction;
@@ -103,7 +104,10 @@ export function ReceiptQueueWorkspace({
   schoolName,
   denied,
   onStatusChange,
+  classRuns = false,
 }: {
+  // Sprint change 2026-10-12: a School that bills by Class reads the run period ("Starters A · Unit 3") instead of the month.
+  classRuns?: boolean;
   schoolId: string;
   schoolName: string;
   denied: () => void;
@@ -477,7 +481,7 @@ export function ReceiptQueueWorkspace({
           <tr>
             <th>Học sinh</th>
             <th>Lớp</th>
-            <th>Tháng</th>
+            <th>{classRuns ? "Kỳ" : "Tháng"}</th>
             <th>Tài khoản nhận</th>
             <th>Còn phải thu</th>
             <th>Trạng thái</th>
@@ -492,7 +496,7 @@ export function ReceiptQueueWorkspace({
                   {row.student.code} / {row.student.name}
                 </td>
                 <td>{row.class.name}</td>
-                <td>{monthLabel(row.billingMonth)}</td>
+                <td>{classRuns && row.periodLabel ? row.periodLabel : monthLabel(row.billingMonth)}</td>
                 <td>{row.account ? <ReceivingAccountLabel account={row.account} /> : accountLabel(row.channel)}</td>
                 <td>
                   {isRefund(row) ? `Hoàn ${vnd((-BigInt(row.outstanding)).toString())}` : vnd(row.outstanding)} đ

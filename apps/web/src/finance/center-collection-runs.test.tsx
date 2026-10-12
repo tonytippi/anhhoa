@@ -204,6 +204,17 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
     expect(screen.getByText(/Đợt thu Starters A · Unit 3 ·/)).toBeTruthy();
     expect(screen.queryByText("Quản lý ưu đãi nộp trước")).toBeNull();
   });
+
+  it("keeps the Trùng kỳ row badge on the locked table of a CLOSED run", async () => {
+    const part = (id: string, studentId: string, code: string, name: string, periodOverlap: boolean) => ({ id, studentId, studentCode: code, studentName: name, className: "Starters A", status: "CLOSED", total: "3600000", periodOverlap });
+    const notice = (id: string, studentId: string, code: string, name: string) => ({ invoiceId: id, studentId, studentCode: code, studentName: name, className: "Starters A", kind: "NORMAL", status: "COMPLETED", settledParts: 1, partCount: 1, total: "3600000", parts: [{ id, channel: "PERSONAL", status: "CLOSED", total: "3600000", account: null }] });
+    const run = { ...startersRun, status: "CLOSED", invoices: [part("invoice-a", "student-a", "SM-047", "Vũ Khánh An", true), part("invoice-b", "student-b", "SM-012", "Phạm Ngọc Hân", false)], notices: [notice("invoice-a", "student-a", "SM-047", "Vũ Khánh An"), notice("invoice-b", "student-b", "SM-012", "Phạm Ngọc Hân")] };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-runs") ? response(run) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" features={centerFeatures} page="collection-runs" runId={run.id} onOpenRun={vi.fn()} onBackToRuns={vi.fn()} denied={vi.fn()} />);
+    const locked = await screen.findByRole("table", { name: "Hóa đơn đã khóa theo đợt thu" });
+    expect(within(within(locked).getByText(/SM-047/).closest("tr")!).getByText("Trùng kỳ").className).toContain("warning");
+    expect(within(within(locked).getByText(/SM-012/).closest("tr")!).queryByText("Trùng kỳ")).toBeNull();
+  });
 });
 
 describe("FinanceWorkspace · collection runs of a School-scoped School stay as before", () => {

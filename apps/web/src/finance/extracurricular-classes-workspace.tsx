@@ -40,17 +40,25 @@ const memberBadge = (member: Member): [string, string] => {
   return ["success", "Đang tham gia"];
 };
 
-export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, onSearchChange, denied, onStatusChange, usesSchoolYears = true, title = "Lớp ngoại khóa" }: {
+// One wording per School kind for the same extracurricular group.
+const wording = {
+  class: { title: "Lớp ngoại khóa", noun: "lớp ngoại khóa", kind: "Ngoại khóa", name: "Tên lớp", subject: "Lớp", ofIt: "của lớp" },
+  service: { title: "Dịch vụ", noun: "dịch vụ", kind: "Dịch vụ", name: "Tên dịch vụ", subject: "Dịch vụ", ofIt: "của dịch vụ" },
+};
+
+export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, onSearchChange, denied, onStatusChange, usesSchoolYears = true, service = false }: {
   schoolId: string;
   schoolName: string;
-  // Sprint change 2026-10-12: a School without school years never shows its single SchoolYear; a language center names this page "Dịch vụ".
+  // Sprint change 2026-10-12: a School without school years never shows its single SchoolYear; a language center calls these groups "dịch vụ".
   usesSchoolYears?: boolean;
-  title?: string;
+  service?: boolean;
   search: string;
   onSearchChange: (search: string) => void;
   denied: () => void;
   onStatusChange?: (status: { dirty: boolean; pending: boolean }) => void;
 }) {
+  const t = wording[service ? "service" : "class"];
+  const title = t.title;
   const classId = new URLSearchParams(search).get("class") ?? "";
   const [list, setList] = useState<ListData>();
   const [filters, setFilters] = useState({ q: "", schoolYearId: "", receivableId: "", status: "" });
@@ -83,8 +91,8 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   const request = async <T,>(path: string, allowNotFoundRedirect = true) => {
     const response = await fetch(`${apiUrl}${path}`, { credentials: "include" });
     if ([401, 403].includes(response.status)) { denied(); throw new Error(); }
-    if (response.status === 404 && classIdRef.current && allowNotFoundRedirect) { onSearchChange(""); throw new Error("Không tìm thấy lớp ngoại khóa."); }
-    if (!response.ok) throw new Error("Không thể tải dữ liệu lớp ngoại khóa.");
+    if (response.status === 404 && classIdRef.current && allowNotFoundRedirect) { onSearchChange(""); throw new Error(`Không tìm thấy ${t.noun}.`); }
+    if (!response.ok) throw new Error(`Không thể tải dữ liệu ${t.noun}.`);
     return ((await response.json()) as { data: T }).data;
   };
   const base = `/api/app/schools/${schoolId}/finance/extracurricular-classes`;
@@ -381,9 +389,9 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
           <form onSubmit={editClass}>
             <h3 id="xc-edit-title">Chỉnh sửa · {cls.name}</h3>
             <div className="dialog-grid">
-              <div><label>Tên lớp<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
+              <div><label>{t.name}<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
               {usesSchoolYears && <label>Năm học<input value={cls.schoolYearName} disabled /></label>}
-              <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-edit-receivable-help" : "xc-edit-receivable-help"}>{options.length ? options.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>) : <option value={cls.receivableId}>{cls.receivableName} · {price(cls)}</option>}</select></label><p id="xc-edit-receivable-help" className="muted">{shared.length ? `Dùng chung với: ${shared.join(", ")}.` : "Chỉ khoản thu Ngoại khóa đang áp dụng."}</p>{fieldError("receivableId")}</div>
+              <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-edit-receivable-help" : "xc-edit-receivable-help"}>{options.length ? options.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>) : <option value={cls.receivableId}>{cls.receivableName} · {price(cls)}</option>}</select></label><p id="xc-edit-receivable-help" className="muted">{shared.length ? `Dùng chung với: ${shared.join(", ")}.` : `Chỉ khoản thu ${t.kind} đang áp dụng.`}</p>{fieldError("receivableId")}</div>
               <div className="full"><label><input type="checkbox" checked={form.separateAttendance} onChange={(event) => setForm({ ...form, separateAttendance: event.target.checked })} /> Điểm danh riêng</label></div>
               <div className="full"><label>Lý do<input placeholder="Ví dụ: Lớp chuyển sang chương trình nâng cao" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
               <p className="muted full">Đổi khoản thu chỉ áp dụng cho dòng hóa đơn tạo sau đó; hóa đơn đã tạo giữ nguyên, đợt thu còn nháp cần xem trước lại.</p>
@@ -405,7 +413,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
       {dialog === "lifecycle" && <div className="dialog-backdrop"><div ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="xc-lifecycle-title" onKeyDown={keyDown}>
         <form onSubmit={changeLifecycle}>
           <h3 id="xc-lifecycle-title">{inactive ? "Kích hoạt lại" : "Ngừng hoạt động"} {cls.name}</h3>
-          <p>{inactive ? "Lớp sẽ được tính vào đợt thu mới. Hệ thống kiểm tra khoản thu của lớp còn áp dụng." : "Lớp sẽ không được tính vào đợt thu mới. Thành viên và lịch sử vẫn được giữ để đối soát."}</p>
+          <p>{inactive ? `${t.subject} sẽ được tính vào đợt thu mới. Hệ thống kiểm tra khoản thu ${t.ofIt} còn áp dụng.` : `${t.subject} sẽ không được tính vào đợt thu mới. Thành viên và lịch sử vẫn được giữ để đối soát.`}</p>
           <div><label>Lý do<input value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
           <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>{inactive ? "Kích hoạt lại" : "Ngừng hoạt động"}</button></div>
         </form>
@@ -421,10 +429,10 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
         <h1 id="xc-title">{title} · {schoolName}</h1>
         <p className="muted">{yearName ? `Năm học ${yearName} · ` : ""}Dữ liệu do hệ thống xác nhận.</p>
       </div>
-      <button className="primary-action" type="button" disabled={blocked} onClick={(event) => open("create", event.currentTarget)}>Thêm lớp ngoại khóa</button>
+      <button className="primary-action" type="button" disabled={blocked} onClick={(event) => open("create", event.currentTarget)}>Thêm {t.noun}</button>
     </div>
-    <form className="finance-list-toolbar" aria-label="Lọc lớp ngoại khóa" onSubmit={(event) => { event.preventDefault(); setApplied(filters); }}>
-      <label>Tìm kiếm<input type="search" placeholder="Tên lớp ngoại khóa" autoComplete="off" value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} /></label>
+    <form className="finance-list-toolbar" aria-label={`Lọc ${t.noun}`} onSubmit={(event) => { event.preventDefault(); setApplied(filters); }}>
+      <label>Tìm kiếm<input type="search" placeholder={`Tên ${t.noun}`} autoComplete="off" value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} /></label>
       {usesSchoolYears && <label>Năm học<select value={filters.schoolYearId} onChange={(event) => setFilters({ ...filters, schoolYearId: event.target.value })}><option value="">Tất cả năm học</option>{years.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}</select></label>}
       <label>Khoản thu<select value={filters.receivableId} onChange={(event) => setFilters({ ...filters, receivableId: event.target.value })}><option value="">Tất cả khoản thu</option>{list?.receivables.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
       <label>Trạng thái<select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Tất cả trạng thái</option><option value="ACTIVE">Đang hoạt động</option><option value="INACTIVE">Ngừng hoạt động</option></select></label>
@@ -433,7 +441,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
     <div className="table-scroll">
       <table>
         <caption>{title} · {schoolName}{yearName ? ` · Năm học ${yearName}` : ""}</caption>
-        <thead><tr><th>Lớp ngoại khóa</th><th>Khoản thu</th><th>Học sinh hiện tại</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
+        <thead><tr><th>{t.title}</th><th>Khoản thu</th><th>Học sinh hiện tại</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
         <tbody>
           {list ? (list.classes.length ? list.classes.map((item) => <tr key={item.id}>
             <td><b>{item.name}</b>{item.separateAttendance && <><br /><small className="muted">Điểm danh riêng</small></>}</td>
@@ -441,27 +449,27 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
             <td>{item.currentMembers} học sinh</td>
             <td><span className={`badge ${item.status === "ACTIVE" ? "success" : "neutral"}`}>{statusLabel(item.status)}</span></td>
             <td><a href={`?class=${item.id}`} onClick={go(`?class=${item.id}`)}>Xem thành viên</a></td>
-          </tr>) : <tr><td colSpan={5}>Chưa có lớp ngoại khóa.</td></tr>) : <tr><td colSpan={5}>Đang tải lớp ngoại khóa.</td></tr>}
+          </tr>) : <tr><td colSpan={5}>Chưa có {t.noun}.</td></tr>) : <tr><td colSpan={5}>Đang tải {t.noun}.</td></tr>}
         </tbody>
       </table>
     </div>
     <details className="finance-guide">
       <summary>Hướng dẫn</summary>
-      <p>Mỗi lớp ngoại khóa gắn một khoản thu Ngoại khóa ở trang Khoản thu. Nhiều lớp có thể dùng chung một khoản thu và có cùng giá; muốn giá khác, tạo khoản thu khác.</p>
+      <p>Mỗi {t.noun} gắn một khoản thu {t.kind} ở trang Khoản thu. Nhiều lớp có thể dùng chung một khoản thu và có cùng giá; muốn giá khác, tạo khoản thu khác.</p>
       <p>Thành viên có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp trong đợt thu tháng đó. Vào/nghỉ giữa tháng và chuyển lớp trong tháng được đánh dấu trên hóa đơn nháp để kế toán điều chỉnh; hệ thống không tự chia theo ngày.</p>
-      <p>Lớp ngoại khóa không thay đổi lớp chính thức, điểm danh hay quyền của giáo viên.</p>
+      <p>{t.title} không thay đổi lớp chính thức, điểm danh hay quyền của giáo viên.</p>
     </details>
     {dialog === "create" && <div className="dialog-backdrop"><div ref={dialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="xc-create-title" onKeyDown={keyDown}>
       <form onSubmit={createClass}>
-        <h3 id="xc-create-title">Thêm lớp ngoại khóa</h3>
+        <h3 id="xc-create-title">Thêm {t.noun}</h3>
         <div className="dialog-grid">
-          <div><label>Tên lớp<input placeholder="Ví dụ: Tiếng Anh A2 (T3-T5)" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
+          <div><label>{t.name}<input placeholder="Ví dụ: Tiếng Anh A2 (T3-T5)" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
           {usesSchoolYears && <div><label>Năm học<select value={form.schoolYearId} onChange={(event) => setForm({ ...form, schoolYearId: event.target.value })} {...field("schoolYearId")}>{years.filter((year) => !year.closedAt).map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}</select></label>{fieldError("schoolYearId")}</div>}
-          <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-receivable-help" : "xc-receivable-help"}><option value="">Chọn khoản thu Ngoại khóa</option>{list?.receivables.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>)}</select></label>
-            <p id="xc-receivable-help" className="muted">{chosenReceivable?.sharedWith.length ? `Dùng chung với: ${chosenReceivable.sharedWith.join(", ")}.` : "Chỉ khoản thu Ngoại khóa đang áp dụng."}</p>{fieldError("receivableId")}</div>
+          <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-receivable-help" : "xc-receivable-help"}><option value="">Chọn khoản thu {t.kind}</option>{list?.receivables.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>)}</select></label>
+            <p id="xc-receivable-help" className="muted">{chosenReceivable?.sharedWith.length ? `Dùng chung với: ${chosenReceivable.sharedWith.join(", ")}.` : `Chỉ khoản thu ${t.kind} đang áp dụng.`}</p>{fieldError("receivableId")}</div>
           <div className="full"><label><input type="checkbox" checked={form.separateAttendance} onChange={(event) => setForm({ ...form, separateAttendance: event.target.checked })} /> Điểm danh riêng</label><p className="muted">Đánh dấu lớp cần điểm danh riêng (ví dụ lớp buổi tối). Chức năng điểm danh sẽ có sau.</p></div>
         </div>
-        <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Lưu lớp ngoại khóa</button></div>
+        <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Lưu {t.noun}</button></div>
       </form>
     </div></div>}
   </>);

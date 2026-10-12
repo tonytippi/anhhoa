@@ -216,4 +216,21 @@ describe("FinanceReportsWorkspace", () => {
     vi.unstubAllGlobals();
     expect(assign).not.toHaveBeenCalled();
   });
+
+  it("names runs by their period label for a class-scoped School and keeps the month wording otherwise", async () => {
+    const runs = report({ workspace: "collection-runs", summary: { openDifference: "0", carryAdjustment: "0", revisionCancellation: "0" }, charts: { byMonth: [], byClass: [], runStatus: [{ collectionRunId: "run-u3", billingMonth: "2026-09", issued: 3, exact: 2, shortfall: 1, overpayment: 0, refunded: 0, awaitingReceipt: 0, awaitingPayout: 0 }], aging: [], topDebtors: [], cashByWeek: [] }, rows: [{ id: "run-u3", billingMonth: "2026-09", periodLabel: "Starters A · Unit 3", netBilled: "300", actualReceipt: "200", carryAdjustment: "0" }, { id: "run-old", billingMonth: "2026-06", periodLabel: null, netBilled: "100", actualReceipt: "100", carryAdjustment: "0" }] });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(runs))));
+    const center = render(<FinanceReportsWorkspace {...props({ classRuns: true })} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Đối soát đợt thu" }));
+    const table = await screen.findByRole("table", { name: "Đối soát theo đợt thu" });
+    expect(within(table).getAllByRole("columnheader")[0]!.textContent).toBe("Đợt thu");
+    expect(within(table).getAllByRole("row").slice(1).map((item) => within(item).getAllByRole("cell")[0]!.textContent)).toEqual(["Starters A · Unit 3", "Thu tháng 06/2026"]);
+    expect(screen.getByRole("region", { name: "Trạng thái hóa đơn · Đợt thu Starters A · Unit 3" })).toBeTruthy();
+    center.unmount();
+    render(<FinanceReportsWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Đối soát đợt thu" }));
+    const monthly = await screen.findByRole("table", { name: "Đối soát theo đợt thu" });
+    expect(within(monthly).getAllByRole("row").slice(1).map((item) => within(item).getAllByRole("cell")[0]!.textContent)).toEqual(["Thu tháng 09/2026", "Thu tháng 06/2026"]);
+    expect(screen.getByRole("region", { name: "Trạng thái hóa đơn · Đợt thu tháng 09/2026" })).toBeTruthy();
+  });
 });

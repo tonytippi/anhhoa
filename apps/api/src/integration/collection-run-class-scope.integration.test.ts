@@ -103,6 +103,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     expect(total(a.studentId)).toBe(4_400_000n);
     expect(total(b.studentId)).toBe(3_600_000n);
     expect(invoices[0]).toMatchObject({ billingMonth: "2026-08", rosterAsOf: date("2026-08-03") });
+    // Line badges of a CLASS run speak of the class and of services.
+    const badges = ((await finance.invoice(s.identity.id, s.school.id, invoices.find((invoice) => invoice.studentId === a.studentId)!.id)) as any).lines.map((line: any) => line.sourceBadge.label).sort();
+    expect(badges).toEqual(["Dịch vụ · Đưa đón", "Linh hoạt · Cả lớp"]);
     // A Student who joins the Class in the middle of the unit is addable; one who joins after it is not.
     const late = await s.enroll(s.starters, "2026-09-01");
     const afterwards = await s.enroll(s.starters, "2026-09-27");
@@ -181,6 +184,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     await finance.saveTemplateLine(s.identity.id, s.school.id, first, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
     const firstInvoices = await generate(s, first);
     for (const invoice of firstInvoices) await finance.issueInvoice(s.identity.id, s.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
+    const queue: any = await finance.receiptQueue(s.identity.id, s.school.id, { billingMonth: "ALL" });
+    expect(queue.invoices.map((invoice: any) => invoice.periodLabel)).toEqual(["Starters A · Unit 1", "Starters A · Unit 1"]);
     // One Student pays 100.000đ short; the other pays nothing.
     await finance.closeInvoice(s.identity.id, s.school.id, firstInvoices.find((invoice) => invoice.studentId === shortPayer.studentId)!.id, uuid(), uuid(), { actualAmount: "3500000" });
     await finance.closeRun(s.identity.id, s.school.id, first, uuid(), uuid(), { reason: "Hết unit" });
@@ -202,6 +207,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     await finance.transferPriorDebts(s.identity.id, s.school.id, second, uuid(), uuid(), { sourceInvoiceIds: [debts.debts[0].sourceInvoiceId] });
     const target = await prisma.invoice.findFirstOrThrow({ where: { id: invoiceOf(debtor.studentId).id }, include: { lines: true } });
     expect(target.total).toBe(7_200_000n);
+    const report: any = await finance.report(s.identity.id, s.school.id, "collection-runs", {});
+    expect(report.rows.map((row: any) => row.periodLabel)).toEqual(["Starters A · Unit 1"]);
     expect(target.lines.find((line) => line.kind === "PRIOR_DEBT")).toMatchObject({ amount: 3_600_000n, sourceReason: expect.stringContaining("Unit 1") });
   });
 });

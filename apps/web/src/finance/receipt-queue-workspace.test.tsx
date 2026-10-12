@@ -135,4 +135,22 @@ describe("ReceiptQueueWorkspace", () => {
     expect(fetch.mock.calls.some(([url]) => String(url).includes("receipt-queue?") && String(url).includes("bankAccountId=bank-an"))).toBe(true);
     expect(select.value).toBe("bank-an");
   });
+
+  it("shows the run period label in a Kỳ column for a class-scoped School and keeps the month column otherwise", async () => {
+    const labelled = { ...queue, invoices: [{ ...row, periodLabel: "Starters A · Unit 3" }] };
+    const fetch = () => vi.fn((url: string) => Promise.resolve(url.includes("/classes") ? response({ classes: [], months: ["2026-09"], accounts: [] }) : response(labelled)));
+    vi.stubGlobal("fetch", fetch());
+    const center = render(<ReceiptQueueWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" classRuns denied={vi.fn()} />);
+    const table = await screen.findByRole("table", { name: "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi" });
+    const cells = within((await within(table).findByText(/HS001/)).closest("tr")!).getAllByRole("cell");
+    expect(within(table).getAllByRole("columnheader")[2]!.textContent).toBe("Kỳ");
+    expect(cells[2]!.textContent).toBe("Starters A · Unit 3");
+    expect(screen.getByLabelText("Tháng thu")).toBeTruthy();
+    center.unmount();
+    vi.stubGlobal("fetch", fetch());
+    render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    const monthly = await screen.findByRole("table", { name: "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi" });
+    expect(within(monthly).getAllByRole("columnheader")[2]!.textContent).toBe("Tháng");
+    expect(within((await within(monthly).findByText(/HS001/)).closest("tr")!).getAllByRole("cell")[2]!.textContent).toBe("09/2026");
+  });
 });

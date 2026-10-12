@@ -26,6 +26,7 @@ const extracurricularOnlyLabel = "Chỉ ngoại khóa";
 const classLabel = (name: string | null | undefined) => name ?? extracurricularOnlyLabel;
 // A SCHOOL run is named "Tháng MM/YYYY" by the API; mid-sentence it reads "tháng MM/YYYY". A CLASS run keeps the name Finance entered.
 const flagLabels: Record<string, string> = { CLASS_CHANGE: "Chuyển lớp trong tháng", MID_MONTH: "Vào/nghỉ giữa tháng", PERIOD_OVERLAP: "Trùng kỳ" };
+const lineFlagLabel = (code: string, classRun: boolean) => classRun && code === "CLASS_CHANGE" ? "Chuyển nhóm trong kỳ" : classRun && code === "MID_MONTH" ? "Vào/nghỉ giữa kỳ" : flagLabels[code] ?? code;
 const overlapText = (detail: any) => detail?.overlap?.runName ? `đã có trên hóa đơn của đợt thu ${detail.overlap.runName}` : "";
 // What a Parent reads as the period of an obligation: the run name, with the Class for a CLASS run ("Starters A · Unit 3").
 const runPeriodLabel = (run: { name: string; classroom?: { name: string } | null } | null | undefined, billingMonth: string) => run ? [run.classroom?.name, run.name].filter(Boolean).join(" · ") : `Tháng ${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
@@ -201,7 +202,10 @@ export class FinanceService {
     // Derived measures the visual report draws, computed here so the browser never adds money.
     const derived = { otherAdjustments: (BigInt(summary.netBilled) - (BigInt(summary.gross) - BigInt(summary.promotionDiscount) - BigInt(summary.deduction) + BigInt(summary.vat))).toString(), cashOut: (BigInt(summary.payout) - BigInt(summary.refund)).toString(), netCash: (BigInt(summary.actualReceipt) - BigInt(summary.payout) + BigInt(summary.refund)).toString() };
     Object.assign(summary, derived);
-    const runRows = [...new Set(issued.map((item: any) => item.collectionRunId).filter(Boolean))].map((collectionRunId) => { const runEvents = events.filter((item: any) => item.collectionRunId === collectionRunId); const runIssued = issued.filter((item: any) => item.collectionRunId === collectionRunId); const runBilled = (field: "grossAmount" | "discountAmount" | "netAmount" | "vatAmount") => runIssued.reduce((sum: bigint, item: any) => sum + (groupProjection(item)?.[field] ?? BigInt(item[field] ?? 0)), 0n).toString(); return { id: collectionRunId, collectionRunId, billingMonth: runIssued[0]?.billingMonth ?? null, gross: runBilled("grossAmount"), promotionDiscount: runBilled("discountAmount"), vat: runBilled("vatAmount"), netBilled: runBilled("netAmount"), actualReceipt: filters.groupName ? "0" : total(runEvents.filter((item: any) => item.type === "RECEIPT_POSTED")), carryAdjustment: filters.groupName ? "0" : total(runEvents.filter((item: any) => item.type === "SETTLEMENT_CARRY_POSTED")), provenance: { eventIds: runEvents.map((item: any) => item.id), ...(filters.groupName ? { groupAllocation: "UNALLOCATED_WHOLE_INVOICE_EVENT" } : {}) } }; });
+    // Sprint change 2026-10-12: a run row is named by its period label, since CLASS runs share a month.
+    const runIds = workspace === "collection-runs" ? [...new Set<string>(issued.map((item: any) => item.collectionRunId).filter(Boolean))] : [];
+    const runNames = new Map<string, string>((runIds.length ? await this.prisma.collectionRun.findMany({ where: { schoolId, id: { in: runIds } }, select: { id: true, name: true, billingMonth: true, classroom: { select: { name: true } } } }) : []).map((run) => [run.id, runPeriodLabel(run, run.billingMonth)] as [string, string]));
+    const runRows = [...new Set(issued.map((item: any) => item.collectionRunId).filter(Boolean))].map((collectionRunId) => { const runEvents = events.filter((item: any) => item.collectionRunId === collectionRunId); const runIssued = issued.filter((item: any) => item.collectionRunId === collectionRunId); const runBilled = (field: "grossAmount" | "discountAmount" | "netAmount" | "vatAmount") => runIssued.reduce((sum: bigint, item: any) => sum + (groupProjection(item)?.[field] ?? BigInt(item[field] ?? 0)), 0n).toString(); return { id: collectionRunId, collectionRunId, billingMonth: runIssued[0]?.billingMonth ?? null, periodLabel: runNames.get(collectionRunId as string) ?? null, gross: runBilled("grossAmount"), promotionDiscount: runBilled("discountAmount"), vat: runBilled("vatAmount"), netBilled: runBilled("netAmount"), actualReceipt: filters.groupName ? "0" : total(runEvents.filter((item: any) => item.type === "RECEIPT_POSTED")), carryAdjustment: filters.groupName ? "0" : total(runEvents.filter((item: any) => item.type === "SETTLEMENT_CARRY_POSTED")), provenance: { eventIds: runEvents.map((item: any) => item.id), ...(filters.groupName ? { groupAllocation: "UNALLOCATED_WHOLE_INVOICE_EVENT" } : {}) } }; });
     const rows = workspace === "overview" ? issued.map(row) : workspace === "collection-runs" ? runRows : workspace === "outstanding" ? currentInvoices : cashAdjustmentEvents.map(row);
     const charts = await this.reportCharts(schoolId, asOf, filters, issued, events, currentInvoices, groupProjection);
     return { workspace, asOf: asOf.toISOString(), generatedAt: new Date().toISOString(), timezone: "Asia/Ho_Chi_Minh", filters, reportDefinitionVersion: "FINANCE_LEDGER_V5", sourceProvenance: "FinanceLedgerEvent immutable posting projection", summary, charts, rows };
@@ -487,17 +491,19 @@ export class FinanceService {
     const detail = line.sourceDetail ?? {};
     const day = (value: string) => `${value.slice(8, 10)}/${value.slice(5, 7)}`;
     const dayYear = (value: string) => `${day(value)}/${value.slice(0, 4)}`;
+    // A line of a CLASS run (stamped at insertion) speaks of the period and of services instead of the month and extracurricular classes.
+    const classRun = detail.runScope === "CLASS";
     if (line.sourceKind === "EXTRACURRICULAR") {
       const classes = (detail.classes ?? []) as Array<{ name: string; effectiveFrom: string; effectiveTo: string | null }>;
-      const flags = ((detail.flags ?? []) as string[]).map((code) => ({ code, label: flagLabels[code] ?? code }));
+      const flags = ((detail.flags ?? []) as string[]).map((code) => ({ code, label: lineFlagLabel(code, classRun) }));
       const text = classes.length > 1
-        ? classes.map((item, index) => (index === 0 ? `${item.name} đến ${item.effectiveTo ? day(item.effectiveTo) : "hết tháng"}` : `${item.name} từ ${day(item.effectiveFrom)}`)).join(", ") + " · gộp một dòng, không thu trùng"
+        ? classes.map((item, index) => (index === 0 ? `${item.name} đến ${item.effectiveTo ? day(item.effectiveTo) : classRun ? "hết kỳ" : "hết tháng"}` : `${item.name} từ ${day(item.effectiveFrom)}`)).join(", ") + " · gộp một dòng, không thu trùng"
         : classes[0] ? [classes[0].effectiveFrom ? `vào lớp từ ${dayYear(classes[0].effectiveFrom)}` : "", classes[0].effectiveTo ? `nghỉ lớp sau ${dayYear(classes[0].effectiveTo)}` : ""].filter(Boolean).join(" · ") : "";
-      return { kind: "EXTRACURRICULAR", label: `Ngoại khóa · ${classes.map((item) => item.name).join(" → ")}`, flags, detail: flags.length ? [text, overlapText(detail)].filter(Boolean).join(" · ") : "" };
+      return { kind: "EXTRACURRICULAR", label: `${classRun ? "Dịch vụ" : "Ngoại khóa"} · ${classes.map((item) => item.name).join(" → ")}`, flags, detail: flags.length ? [text, overlapText(detail)].filter(Boolean).join(" · ") : "" };
     }
     const scope = detail.scope;
-    const label = line.sourceKind === "TEMPLATE_FIXED" ? "Cố định" : line.sourceKind === "TEMPLATE_FLEXIBLE" ? `Linh hoạt · ${scope?.label ?? "Toàn bộ"}` : "Sửa tay";
-    return { kind: line.sourceKind, label, flags: ((detail.flags ?? []) as string[]).map((code) => ({ code, label: flagLabels[code] ?? code })), detail: overlapText(detail) };
+    const label = line.sourceKind === "TEMPLATE_FIXED" ? "Cố định" : line.sourceKind === "TEMPLATE_FLEXIBLE" ? `Linh hoạt · ${classRun && (scope?.type ?? "ALL") === "ALL" ? "Cả lớp" : scope?.label ?? "Toàn bộ"}` : "Sửa tay";
+    return { kind: line.sourceKind, label, flags: ((detail.flags ?? []) as string[]).map((code) => ({ code, label: lineFlagLabel(code, classRun) })), detail: overlapText(detail) };
   }
   private lineDto(line: any, issued = false) {
     const promotionApplicationSnapshot = issued ? (line.promotionApplications ?? []).sort((a: any, b: any) => a.ordinal - b.ordinal).map((application: any) => this.applicationDto(application)) : null;
@@ -742,7 +748,7 @@ export class FinanceService {
     } catch { throw validation("cursor", "Con trỏ không hợp lệ."); }
   }
   private receiptQueueDto(invoice: any, transferred = 0n) {
-    return { id: invoice.id, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, account: this.accountDto(invoice), collectionRunId: invoice.collectionRunId, student: { id: invoice.studentId, code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, class: { id: invoice.classIdSnapshot ?? EXTRACURRICULAR_ONLY, name: classLabel(invoice.classNameSnapshot) }, schoolYearId: invoice.schoolYearId, billingMonth: invoice.billingMonth, issuedAt: invoice.issuedAt.toISOString(), outstanding: (BigInt(invoice.obligationTotalSnapshot) - transferred).toString(), direction: BigInt(invoice.obligationTotalSnapshot) < 0n ? "REFUND" as const : "COLLECT" as const, status: "ISSUED" as const };
+    return { id: invoice.id, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, account: this.accountDto(invoice), collectionRunId: invoice.collectionRunId, periodLabel: runPeriodLabel(invoice.collectionRun, invoice.billingMonth), student: { id: invoice.studentId, code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, class: { id: invoice.classIdSnapshot ?? EXTRACURRICULAR_ONLY, name: classLabel(invoice.classNameSnapshot) }, schoolYearId: invoice.schoolYearId, billingMonth: invoice.billingMonth, issuedAt: invoice.issuedAt.toISOString(), outstanding: (BigInt(invoice.obligationTotalSnapshot) - transferred).toString(), direction: BigInt(invoice.obligationTotalSnapshot) < 0n ? "REFUND" as const : "COLLECT" as const, status: "ISSUED" as const };
   }
   // The two parts of one Student's monthly notice stay adjacent, school account first: Student code, Student, month, channel, id.
   private static receiptQueueOrder = [{ studentCodeSnapshot: "asc" as const }, { studentId: "asc" as const }, { billingMonth: "asc" as const }, { channel: "asc" as const }, { id: "asc" as const }];
@@ -768,7 +774,7 @@ export class FinanceService {
     const after = cursor ? await this.prisma.invoice.findFirst({ where: { ...baseWhere, id: cursor.id }, select: { id: true, studentId: true, studentCodeSnapshot: true, billingMonth: true, channel: true } }) : null;
     if (cursor && !after) throw validation("cursor", "Con trỏ không thuộc kết quả hiện tại.");
     const where = { ...baseWhere, ...(after ? { AND: [this.receiptQueueAfter(after)] } : {}) };
-    const invoices = await this.prisma.invoice.findMany({ where, select: { id: true, studentId: true, collectionRunId: true, channel: true, studentCodeSnapshot: true, studentNameSnapshot: true, classIdSnapshot: true, classNameSnapshot: true, schoolYearId: true, billingMonth: true, issuedAt: true, obligationTotalSnapshot: true, obligationCodeSnapshot: true, bankAccountIdSnapshot: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true }, orderBy: FinanceService.receiptQueueOrder, take: limit + 1 });
+    const invoices = await this.prisma.invoice.findMany({ where, select: { id: true, studentId: true, collectionRunId: true, collectionRun: { select: { name: true, classroom: { select: { name: true } } } }, channel: true, studentCodeSnapshot: true, studentNameSnapshot: true, classIdSnapshot: true, classNameSnapshot: true, schoolYearId: true, billingMonth: true, issuedAt: true, obligationTotalSnapshot: true, obligationCodeSnapshot: true, bankAccountIdSnapshot: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true }, orderBy: FinanceService.receiptQueueOrder, take: limit + 1 });
     const page = invoices.slice(0, limit), last = page.at(-1);
     const transfers = page.length ? await this.prisma.debtTransfer.groupBy({ by: ["sourceInvoiceId"], where: { schoolId, sourceInvoiceId: { in: page.map((invoice) => invoice.id) } }, _sum: { amount: true } }) : [];
     const transferred = new Map(transfers.map((item) => [item.sourceInvoiceId, BigInt(item._sum.amount ?? 0)]));
@@ -4106,8 +4112,9 @@ export class FinanceService {
   // inside a unit) is flagged for review, never blocked. SCHOOL runs are one per month, so they never overlap each other.
   private async flagPeriodOverlaps(tx: any, invoices: any[]) {
     const { schoolId, collectionRunId } = invoices[0];
-    const run = await tx.collectionRun.findFirst({ where: { id: collectionRunId, schoolId }, select: { periodStartsOn: true, periodEndsOn: true } });
+    const run = await tx.collectionRun.findFirst({ where: { id: collectionRunId, schoolId }, select: { scope: true, periodStartsOn: true, periodEndsOn: true } });
     if (!run) return;
+    if (run.scope === "CLASS") for (const invoice of invoices) for (const line of invoice.lines ?? []) line.sourceDetail = { ...(line.sourceDetail ?? {}), runScope: "CLASS" };
     const existing = await tx.invoiceLine.findMany({
       where: { schoolId, kind: "NORMAL", receivableId: { in: [...new Set(invoices.flatMap((invoice) => (invoice.lines ?? []).map((line: any) => line.receivableId)).filter(Boolean))] }, invoice: { studentId: { in: invoices.map((invoice) => invoice.studentId) }, status: { not: "CANCELLED" }, collectionRunId: { not: collectionRunId }, collectionRun: { periodStartsOn: { lte: run.periodEndsOn }, periodEndsOn: { gte: run.periodStartsOn } } } },
       select: { receivableId: true, invoice: { select: { studentId: true, collectionRun: { select: { name: true, classroom: { select: { name: true } } } } } } },
