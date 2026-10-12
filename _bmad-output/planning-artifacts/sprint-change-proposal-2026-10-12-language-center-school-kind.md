@@ -74,7 +74,7 @@ CollectionRun
 
 ### 2.4 Quy tắc theo kỳ
 
-Một khái niệm dùng chung: **kỳ liền trước** của run. Với `SCHOOL` là tháng dương lịch trước; với `CLASS` là kỳ của run liền trước cùng lớp (không có thì rỗng).
+Thứ tự giữa các run theo `periodStartsOn`. Tự trừ ngày nghỉ và quyết toán vẫn đọc tháng dương lịch trước và chỉ chạy cho run `SCHOOL`.
 
 | Quy tắc | Hiện tại | Sau thay đổi |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ Một khái niệm dùng chung: **kỳ liền trước** của run. Với `SCHOO
 | Phải đóng đợt trước mới phát hành | Run `MONTHLY` có tháng nhỏ hơn | Run cùng phạm vi có `periodStartsOn` nhỏ hơn (cùng School với `SCHOOL`, cùng lớp với `CLASS`) |
 | Nợ kỳ trước | Invoice của run `CLOSED` có tháng nhỏ hơn | Invoice của cùng Student trong run `CLOSED` có `periodStartsOn` nhỏ hơn, bất kể lớp |
 | Carry chênh lệch thu | Run tháng kế tiếp | Run kế tiếp theo `periodStartsOn` có Invoice DRAFT của Student |
-| Tự trừ ngày nghỉ, quyết toán khi kết thúc enrollment | Tháng trước | Kỳ liền trước |
+| Tự trừ ngày nghỉ, quyết toán khi kết thúc enrollment | Tháng trước | Giữ theo tháng, chỉ cho run `SCHOOL`. Run `CLASS` không áp dụng (chốt 2026-10-12: trung tâm không tự trừ ngày nghỉ); kế toán bớt trừ thủ công |
 | Ngoại khóa/dịch vụ | Membership hiệu lực trong tháng | Membership hiệu lực ít nhất một ngày trong kỳ, chỉ cho Student của run |
 
 - **Template run `CLASS`:** không tự thêm Receivable `FIXED` (mỗi lớp có mức học phí riêng). Run đầu của lớp có template rỗng; run sau sao chép các dòng phạm vi `ALL` (cả lớp) còn ACTIVE của run liền trước cùng lớp, kế toán sửa khi `DRAFT`; dòng chọn Student cụ thể là khoản một lần nên không sao chép. Phạm vi dòng: `ALL` (cả lớp) hoặc Student cụ thể; phạm vi theo lớp bị từ chối.
@@ -140,13 +140,13 @@ Một khái niệm dùng chung: **kỳ liền trước** của run. Với `SCHOO
 
 - Given migration, then run hiện có là `SCHOOL` với kỳ trọn tháng và tên "Tháng MM/YYYY"; toàn bộ hành vi và test của run tháng không đổi.
 - Given School `collectionRunScope = CLASS`, when Finance mở run cho một lớp `ACTIVE` với tên và kỳ, then run được tạo, `billingMonth` là tháng của `periodStartsOn`; kỳ chồng run khác cùng lớp, lớp khác School/SchoolYear hoặc scope không được phép bị từ chối.
-- Given run `CLASS`, then selection chỉ gồm Student thuộc lớp ít nhất một ngày trong kỳ; template rỗng ở run đầu, sao chép dòng cả lớp từ run liền trước cùng lớp ở run sau; `FIXED` không tự thêm. Tự trừ ngày nghỉ và quyết toán chưa áp dụng cho run `CLASS` cho đến Story 5.51.
+- Given run `CLASS`, then selection chỉ gồm Student thuộc lớp ít nhất một ngày trong kỳ; template rỗng ở run đầu, sao chép dòng cả lớp từ run liền trước cùng lớp ở run sau; `FIXED` không tự thêm. Tự trừ ngày nghỉ và quyết toán không áp dụng cho run `CLASS`.
 
-### Story 5.51: Quy tắc theo kỳ cho nợ cũ, carry, khấu trừ và dịch vụ
+### Story 5.51: Quy tắc theo kỳ cho nợ cũ, carry, dịch vụ và cờ trùng kỳ
 
 - Given hai run cùng phạm vi, when phát hành Invoice của run sau trong khi run trước chưa `CLOSED`, then `409 PREVIOUS_RUN_NOT_CLOSED` nêu tên run cần đóng; run của lớp khác không chặn.
 - Given Invoice chưa thu của Student ở run `CLOSED` có kỳ sớm hơn (kể cả lớp cũ), then chuyển nợ kỳ trước và carry chênh lệch hoạt động như run tháng.
-- Given run `CLASS`, then dòng ngoại khóa/dịch vụ lấy membership hiệu lực trong kỳ; tự trừ ngày nghỉ và quyết toán dùng kỳ liền trước cùng lớp; coverage bị từ chối.
+- Given run `CLASS`, then dòng ngoại khóa/dịch vụ lấy membership hiệu lực trong kỳ; không có đề xuất tự trừ ngày nghỉ, quyết toán hay coverage.
 - Given Student có dòng cùng Receivable ở run khác chồng kỳ, then dòng mới có cờ **Trùng kỳ**.
 
 ### Story 5.52: Giao diện Đợt thu theo lớp và Parent period label
@@ -156,7 +156,7 @@ Một khái niệm dùng chung: **kỳ liền trước** của run. Với `SCHOO
 
 ### Story 5.53: Release gate
 
-- PostgreSQL tests: partial unique theo scope, chồng kỳ cùng lớp, tenant graph của `classId`, thứ tự theo kỳ, nợ cũ khi đổi lớp, carry, kỳ liền trước, cờ trùng kỳ, idempotency/concurrency.
+- PostgreSQL tests: partial unique theo scope, chồng kỳ cùng lớp, tenant graph của `classId`, thứ tự theo kỳ, nợ cũ khi đổi lớp, carry, cờ trùng kỳ, idempotency/concurrency.
 - Admin E2E trung tâm: provision -> tạo hai lớp -> mở run unit lệch nhau -> thêm đưa đón -> generate -> thêm học viên giữa unit -> phát hành -> thu tiền -> đóng -> mở unit kế tiếp có nợ cũ.
 - Regression mầm non: toàn bộ suite Finance hiện có xanh, không đổi hành vi.
 
@@ -166,7 +166,7 @@ Một khái niệm dùng chung: **kỳ liền trước** của run. Với `SCHOO
 1-8-loai-truong-va-feature-theo-loai: ready-for-dev
 2-7-school-khong-dung-nam-hoc: backlog
 5-50-dot-thu-theo-pham-vi-va-ky-dich-vu: backlog
-5-51-quy-tac-theo-ky-cho-no-cu-carry-khau-tru-va-dich-vu: backlog
+5-51-quy-tac-theo-ky-cho-no-cu-carry-dich-vu-va-co-trung-ky: backlog
 5-52-giao-dien-dot-thu-theo-lop-va-parent-period-label: backlog
 5-53-release-gate-trung-tam-ngoai-ngu: backlog
 ```

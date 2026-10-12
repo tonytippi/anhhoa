@@ -25,6 +25,8 @@ const EXTRACURRICULAR_ONLY = "EXTRACURRICULAR_ONLY" as const;
 const extracurricularOnlyLabel = "Chỉ ngoại khóa";
 const classLabel = (name: string | null | undefined) => name ?? extracurricularOnlyLabel;
 // A SCHOOL run is named "Tháng MM/YYYY" by the API; mid-sentence it reads "tháng MM/YYYY". A CLASS run keeps the name Finance entered.
+const flagLabels: Record<string, string> = { CLASS_CHANGE: "Chuyển lớp trong tháng", MID_MONTH: "Vào/nghỉ giữa tháng", PERIOD_OVERLAP: "Trùng kỳ" };
+const overlapText = (detail: any) => detail?.overlap?.runName ? `đã có trên hóa đơn của đợt thu ${detail.overlap.runName}` : "";
 const runLabel = (name: string) => name.replace(/^Tháng /, "tháng ");
 const officialClassFilter = (value: unknown) => (value === EXTRACURRICULAR_ONLY ? EXTRACURRICULAR_ONLY : null);
 const receivableGroupKinds = ["FIXED", "FLEXIBLE", "EXTRACURRICULAR"] as const;
@@ -483,15 +485,15 @@ export class FinanceService {
     const dayYear = (value: string) => `${day(value)}/${value.slice(0, 4)}`;
     if (line.sourceKind === "EXTRACURRICULAR") {
       const classes = (detail.classes ?? []) as Array<{ name: string; effectiveFrom: string; effectiveTo: string | null }>;
-      const flags = ((detail.flags ?? []) as string[]).map((code) => ({ code, label: code === "CLASS_CHANGE" ? "Chuyển lớp trong tháng" : "Vào/nghỉ giữa tháng" }));
+      const flags = ((detail.flags ?? []) as string[]).map((code) => ({ code, label: flagLabels[code] ?? code }));
       const text = classes.length > 1
         ? classes.map((item, index) => (index === 0 ? `${item.name} đến ${item.effectiveTo ? day(item.effectiveTo) : "hết tháng"}` : `${item.name} từ ${day(item.effectiveFrom)}`)).join(", ") + " · gộp một dòng, không thu trùng"
         : classes[0] ? [classes[0].effectiveFrom ? `vào lớp từ ${dayYear(classes[0].effectiveFrom)}` : "", classes[0].effectiveTo ? `nghỉ lớp sau ${dayYear(classes[0].effectiveTo)}` : ""].filter(Boolean).join(" · ") : "";
-      return { kind: "EXTRACURRICULAR", label: `Ngoại khóa · ${classes.map((item) => item.name).join(" → ")}`, flags, detail: flags.length ? text : "" };
+      return { kind: "EXTRACURRICULAR", label: `Ngoại khóa · ${classes.map((item) => item.name).join(" → ")}`, flags, detail: flags.length ? [text, overlapText(detail)].filter(Boolean).join(" · ") : "" };
     }
     const scope = detail.scope;
     const label = line.sourceKind === "TEMPLATE_FIXED" ? "Cố định" : line.sourceKind === "TEMPLATE_FLEXIBLE" ? `Linh hoạt · ${scope?.label ?? "Toàn bộ"}` : "Sửa tay";
-    return { kind: line.sourceKind, label, flags: [], detail: "" };
+    return { kind: line.sourceKind, label, flags: ((detail.flags ?? []) as string[]).map((code) => ({ code, label: flagLabels[code] ?? code })), detail: overlapText(detail) };
   }
   private lineDto(line: any, issued = false) {
     const promotionApplicationSnapshot = issued ? (line.promotionApplications ?? []).sort((a: any, b: any) => a.ordinal - b.ordinal).map((application: any) => this.applicationDto(application)) : null;
@@ -1475,7 +1477,7 @@ export class FinanceService {
     return { schoolId, invoiceId, receivableId: refund.receivable.id, receivableCodeSnapshot: refund.receivable.code, receivableNameSnapshot: refund.receivable.displayName, unitLabelSnapshot: "gói", defaultUnitPriceSnapshot: refund.receivable.defaultUnitPrice, unitPrice: refund.receivable.defaultUnitPrice, quantity: 0, grossAmount: 0n, discountAmount: 0n, refundUnitPriceSnapshot: refund.refundNet, deductionQuantity: 1, proposedDeductionQuantity: 1, deductionAmount: refund.refundNet, deductionSource: refund.source, netAmount: -refund.refundNet, ...tax, promotionEvaluationProvenance: { version: "PROMOTION_EVALUATION_V1", applications: [] } };
   }
   // Generation context: leave days, receivables refunded on the previous month's issued Invoices, and live refund prices.
-  // Leave deduction reads the previous calendar month. A CLASS run passes no Student, so it proposes none (Story 5.51 reads the preceding period).
+  // Leave deduction reads the previous calendar month. A CLASS run passes no Student, so it proposes none (decision 2026-10-12).
   private async deductionContext(client: any, schoolId: string, billingMonth: string, studentIds: string[], receivableIds: string[]) {
     const days = await this.leaveDeductionDays(client, schoolId, studentIds, billingMonth);
     const previous = new Map<string, Set<string>>();
@@ -3936,7 +3938,7 @@ export class FinanceService {
   // D9: Students whose enrollment ended during the month before the run. endedOn is the first day without
   // enrollment, so the last attended day (endedOn - 1) falls in the previous month.
   private async settlementCandidates(client: any, schoolId: string, run: any) {
-    // Month-based settlement stays SCHOOL-scope; a CLASS run reads its preceding period in Story 5.51.
+    // Settlement is month based and SCHOOL-scope only (decision 2026-10-12: no automatic refund for CLASS runs).
     if (run.scope !== "SCHOOL") return [];
     const { start, end } = this.previousMonth(run.billingMonth);
     const enrollments = await client.studentEnrollment.findMany({ where: { schoolId, lifecycle: { in: ["WITHDRAWN", "GRADUATED"] }, endedOn: { gt: start, lte: end } }, include: { student: true, classAssignments: { include: { classroom: true }, orderBy: [{ effectiveFrom: "desc" }, { id: "asc" }] } }, orderBy: [{ studentId: "asc" }, { endedOn: "desc" }] });
@@ -4084,9 +4086,26 @@ export class FinanceService {
   }
   // One generated Student becomes one Invoice per payment channel that has lines; a Student without
   // lines keeps a single empty PERSONAL Invoice as before.
+  // Sprint change 2026-10-12 §2.4: a Receivable the Student already has on a live Invoice of another run whose period overlaps (a class change
+  // inside a unit) is flagged for review, never blocked. SCHOOL runs are one per month, so they never overlap each other.
+  private async flagPeriodOverlaps(tx: any, invoices: any[]) {
+    const { schoolId, collectionRunId } = invoices[0];
+    const run = await tx.collectionRun.findFirst({ where: { id: collectionRunId, schoolId }, select: { periodStartsOn: true, periodEndsOn: true } });
+    if (!run) return;
+    const existing = await tx.invoiceLine.findMany({
+      where: { schoolId, kind: "NORMAL", receivableId: { in: [...new Set(invoices.flatMap((invoice) => (invoice.lines ?? []).map((line: any) => line.receivableId)).filter(Boolean))] }, invoice: { studentId: { in: invoices.map((invoice) => invoice.studentId) }, status: { not: "CANCELLED" }, collectionRunId: { not: collectionRunId }, collectionRun: { periodStartsOn: { lte: run.periodEndsOn }, periodEndsOn: { gte: run.periodStartsOn } } } },
+      select: { receivableId: true, invoice: { select: { studentId: true, collectionRun: { select: { name: true, classroom: { select: { name: true } } } } } } },
+    });
+    const overlaps = new Map<string, string>(existing.map((line: any) => [`${line.invoice.studentId}:${line.receivableId}`, [line.invoice.collectionRun.classroom?.name, line.invoice.collectionRun.name].filter(Boolean).join(" · ")] as [string, string]));
+    for (const invoice of invoices) for (const line of invoice.lines ?? []) {
+      const runName = overlaps.get(`${invoice.studentId}:${line.receivableId}`);
+      if (runName) line.sourceDetail = { ...(line.sourceDetail ?? {}), flags: [...new Set([...((line.sourceDetail?.flags ?? []) as string[]), "PERIOD_OVERLAP"])], overlap: { runName } };
+    }
+  }
   private async insertInvoices(tx: any, invoices: any[]) {
     if (!invoices.length) return new Set<string>();
     await this.lockReceivablesShared(tx, invoices[0].schoolId, invoices.flatMap((invoice) => (invoice.lines ?? []).map((line: any) => line.receivableId)));
+    await this.flagPeriodOverlaps(tx, invoices);
     const parts = invoices.flatMap(({ lines, ...invoice }) => {
       const channels = [...new Set<PaymentChannel>((lines as any[]).map((line) => line.channel ?? "PERSONAL"))].sort();
       return (channels.length ? channels : ["PERSONAL" as PaymentChannel]).map((channel) => ({ ...invoice, channel, lines: (lines as any[]).filter((line) => (line.channel ?? "PERSONAL") === channel).map(({ channel: _channel, ...line }) => ({ taxCategorySnapshot: "NOT_DECLARED", ...line })) }));

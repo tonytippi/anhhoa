@@ -133,4 +133,28 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     expect(moversInvoice!.studentId).toBe(m.studentId);
     await expect(finance.issueInvoice(s.identity.id, s.school.id, moversInvoice!.id, uuid(), uuid(), {})).rejects.not.toMatchObject({ response: { code: "PREVIOUS_RUN_NOT_CLOSED" } });
   });
+
+  it("flags a Receivable the Student already has on an overlapping run of a previous Class, without blocking", async () => {
+    const s = await setup();
+    const mover = await s.enroll(s.starters, "2026-08-01");
+    const stays = await s.enroll(s.starters, "2026-08-01");
+    const first = id(await open(s, s.starters.id, "Unit 1", "2026-08-03", "2026-09-26"));
+    await finance.saveTemplateLine(s.identity.id, s.school.id, first, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
+    await generate(s, first);
+    // The Student moves to Movers B in the middle of Unit 1; Movers B bills an overlapping period.
+    await prisma.enrollmentClassAssignment.updateMany({ where: { schoolId: s.school.id, enrollmentId: mover.enrollmentId }, data: { effectiveTo: date("2026-09-07") } });
+    await prisma.enrollmentClassAssignment.create({ data: { schoolId: s.school.id, enrollmentId: mover.enrollmentId, schoolYearId: s.year.id, classId: s.movers.id, effectiveFrom: date("2026-09-07"), reason: "Chuyển lớp" } });
+    const fresh = await s.enroll(s.movers, "2026-08-01");
+    const second = id(await open(s, s.movers.id, "Unit 6", "2026-09-07", "2026-10-31"));
+    await finance.saveTemplateLine(s.identity.id, s.school.id, second, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
+    const invoices = await generate(s, second);
+    const line = (studentId: string) => invoices.find((invoice) => invoice.studentId === studentId)!.lines[0]!;
+    expect(invoices.map((invoice) => invoice.studentId).sort()).toEqual([mover.studentId, fresh.studentId].sort());
+    expect(line(mover.studentId).sourceDetail).toMatchObject({ flags: ["PERIOD_OVERLAP"], overlap: { runName: "Starters A · Unit 1" } });
+    expect((line(fresh.studentId).sourceDetail as any)?.flags ?? []).toEqual([]);
+    expect(line(mover.studentId).amount).toBe(3_600_000n);
+    const detail: any = await finance.invoice(s.identity.id, s.school.id, invoices.find((invoice) => invoice.studentId === mover.studentId)!.id);
+    expect(JSON.stringify(detail)).toContain("Trùng kỳ");
+    expect(stays.studentId).not.toBe(mover.studentId);
+  });
 });

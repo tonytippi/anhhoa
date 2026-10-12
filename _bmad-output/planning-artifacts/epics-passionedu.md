@@ -836,12 +836,12 @@ Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
 **When** Finance opens a run for an ACTIVE Class with a name and an inclusive period
 **Then** the run is created with `billingMonth` derived from `periodStartsOn`; an overlapping period of the same Class, a foreign Class or the other scope (`409 COLLECTION_RUN_SCOPE_NOT_ALLOWED`) is refused.
 
-**And** a `CLASS` run selects only Students who belong to that Class at least one day in the period, seeds no `FIXED` line, starts empty for the first run of a Class and copies the whole-class lines of the preceding run of the same Class afterwards; line scope is `ALL` or named Students. Leave deduction and settlement stay off for `CLASS` runs until Story 5.51.
+**And** a `CLASS` run selects only Students who belong to that Class at least one day in the period, seeds no `FIXED` line, starts empty for the first run of a Class and copies the whole-class lines of the preceding run of the same Class afterwards; line scope is `ALL` or named Students. Leave deduction and settlement do not apply to `CLASS` runs.
 
-### Story 5.51: Quy tắc theo kỳ cho nợ cũ, carry, khấu trừ và dịch vụ
+### Story 5.51: Quy tắc theo kỳ cho nợ cũ, carry, dịch vụ và cờ trùng kỳ
 
 As a Finance user,
-I want ordering, old debt and deductions to follow the run period,
+I want ordering, old debt and service lines to follow the run period,
 So that class runs that start on different dates settle correctly.
 
 Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
@@ -854,7 +854,7 @@ Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
 
 **And** prior-debt transfer and settlement carry follow the Student across runs by `periodStartsOn`, including a previous Class.
 
-**And** in a `CLASS` run extracurricular/service lines use memberships effective at least one day in the period, a Student who belongs to the Class at least one day in the period can be added after GENERATED, leave deduction and settlement read the preceding period of the same Class, and prepaid coverage is refused.
+**And** in a `CLASS` run extracurricular/service lines use memberships effective at least one day in the period, a Student who belongs to the Class at least one day in the period can be added after GENERATED, and there is no leave-deduction proposal, settlement or prepaid coverage.
 
 **And** a line whose Receivable the Student already has on a non-cancelled invoice of another run with an overlapping period carries the `Trùng kỳ` flag and is not blocked.
 
@@ -885,7 +885,7 @@ Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
 **Acceptance Criteria:**
 
 **Given** PostgreSQL tests
-**Then** they cover the scope-partial unique, same-Class period overlap, tenant graph of `classId`, period ordering, prior debt after a class change, carry, preceding period, the overlap flag, idempotency and concurrency.
+**Then** they cover the scope-partial unique, same-Class period overlap, tenant graph of `classId`, period ordering, prior debt after a class change, carry, the overlap flag, idempotency and concurrency.
 
 **And** an Admin E2E for a center runs provision, two classes, staggered unit runs, a transport service, generate, a mid-unit Student, issue, receipt, close and the next unit with old debt; the whole existing Finance suite stays green for a preschool.
 
