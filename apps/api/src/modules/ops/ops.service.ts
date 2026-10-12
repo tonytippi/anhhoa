@@ -1,11 +1,12 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../identity/prisma.service.js';
+import { isSchoolKind } from '../common/school-features.js';
 import { auditData } from '../common/audit.js';
 import { requestFingerprint } from '../common/mutation-protection.js';
 import { isOperationIdempotencyCollision } from '../common/operation-idempotency.js';
 import { defaultReceivableGroupNames, defaultReceivableGroups, provisionDefaultReceivableGroupsFingerprint, provisionDefaultReceivableGroupsRoute } from '../finance/default-receivable-groups.js';
 
-type ProvisionInput = { name?: unknown; slug?: unknown; ownerEmail?: unknown; studentCodePrefix?: unknown };
+type ProvisionInput = { name?: unknown; slug?: unknown; ownerEmail?: unknown; studentCodePrefix?: unknown; kind?: unknown };
 const email = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,18 +25,18 @@ export class OpsService {
     const schools = await this.prisma.school.findMany({ orderBy: { createdAt: 'desc' }, include: { initialOwnerIdentity: true } });
     return schools.map((school) => {
       const owner = school.initialOwnerIdentity;
-      return { id: school.id, name: school.name, slug: school.slug, studentCodePrefix: school.studentCodePrefix, status: school.status, ownerEmail: owner?.emailNormalized ?? '', ownerBound: Boolean(owner?.googleSubject), updatedAt: school.updatedAt.toISOString() };
+      return { id: school.id, name: school.name, slug: school.slug, kind: school.kind, studentCodePrefix: school.studentCodePrefix, status: school.status, ownerEmail: owner?.emailNormalized ?? '', ownerBound: Boolean(owner?.googleSubject), updatedAt: school.updatedAt.toISOString() };
     });
   }
 
   async provision(identityId: string, key: string, operationId: string, input: ProvisionInput) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu khởi tạo không hợp lệ.' });
-    const grant = await this.grantFor(identityId); const name = typeof input.name === 'string' ? input.name.trim() : ''; const slug = typeof input.slug === 'string' ? input.slug.trim().toLowerCase() : ''; const ownerEmail = email(input.ownerEmail); const studentCodePrefix = typeof input.studentCodePrefix === 'string' ? input.studentCodePrefix.trim().toUpperCase() : '';
-    if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail) || !/^[A-Z][A-Z0-9]{0,19}$/.test(studentCodePrefix)) throw new ConflictException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu khởi tạo không hợp lệ.' });
-    return this.mutate(grant.id, identityId, 'POST /api/ops/schools', key, operationId, { name, slug, ownerEmail, studentCodePrefix }, undefined, async (tx, operationId) => {
+    const grant = await this.grantFor(identityId); const name = typeof input.name === 'string' ? input.name.trim() : ''; const slug = typeof input.slug === 'string' ? input.slug.trim().toLowerCase() : ''; const ownerEmail = email(input.ownerEmail); const studentCodePrefix = typeof input.studentCodePrefix === 'string' ? input.studentCodePrefix.trim().toUpperCase() : ''; const kind = input.kind;
+    if (!isSchoolKind(kind) || !name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail) || !/^[A-Z][A-Z0-9]{0,19}$/.test(studentCodePrefix)) throw new ConflictException({ code: 'VALIDATION_ERROR', message: 'Dữ liệu khởi tạo không hợp lệ.' });
+    return this.mutate(grant.id, identityId, 'POST /api/ops/schools', key, operationId, { name, slug, ownerEmail, studentCodePrefix, kind }, undefined, async (tx, operationId) => {
       const owner = await tx.userIdentity.upsert({ where: { emailNormalized: ownerEmail }, create: { emailNormalized: ownerEmail }, update: {} });
       if (owner.id === identityId) throw new ForbiddenException({ code: 'OPS_OWNER_BOOTSTRAP_DENIED', message: 'Platform Operator không thể là chủ sở hữu đầu tiên của trường.' });
-      const school = await tx.school.create({ data: { name, slug, studentCodePrefix, initialOwnerIdentityId: owner.id } });
+      const school = await tx.school.create({ data: { name, slug, kind, studentCodePrefix, initialOwnerIdentityId: owner.id } });
        const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: owner.id } });
        const positions = await Promise.all([
          ['HIEU_TRUONG', 'Hiệu trưởng'], ['QUAN_LY_TRUONG', 'Quản lý trường'], ['KE_TOAN', 'Kế toán'], ['GIAO_VIEN', 'Giáo viên'], ['TUYEN_SINH', 'Nhân viên tuyển sinh'], ['BEP', 'Bếp'], ['Y_TE', 'Y tế'],
@@ -47,8 +48,8 @@ export class OpsService {
         await tx.staffProfile.create({ data: { schoolId: school.id, fullName: ownerEmail, email: ownerEmail, phone: 'Chưa cập nhật', dateOfBirth: new Date('1900-01-01T00:00:00.000Z'), gender: 'Chưa cập nhật', address: 'Chưa cập nhật', primaryPositionId: ownerPosition.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
         await tx.operation.create({ data: { schoolId: school.id, actorType: 'PLATFORM_OPERATOR_GRANT', actorReference: grant.id, platformOperatorGrantId: grant.id, actorIdentityId: identityId, route: provisionDefaultReceivableGroupsRoute, idempotencyKey: operationId, fingerprint: requestFingerprint(provisionDefaultReceivableGroupsFingerprint(school.id, operationId)), status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
         await tx.receivableGroup.createMany({ data: defaultReceivableGroups.map(({ kind, name }) => ({ schoolId: school.id, kind, name })) });
-        await tx.auditRecord.create({ data: auditData(school.id, { identityId, type: 'PLATFORM_OPERATOR_GRANT', reference: grant.id }, 'SCHOOL_PROVISIONED', { platformOperatorGrantId: grant.id, operationId }) });
-       return { schoolId: school.id, status: school.status, studentCodePrefix: school.studentCodePrefix };
+        await tx.auditRecord.create({ data: auditData(school.id, { identityId, type: 'PLATFORM_OPERATOR_GRANT', reference: grant.id }, 'SCHOOL_PROVISIONED', { platformOperatorGrantId: grant.id, operationId, kind }) });
+       return { schoolId: school.id, status: school.status, kind: school.kind, studentCodePrefix: school.studentCodePrefix };
     });
   }
 

@@ -36,4 +36,11 @@ describe('AuthorizationService audience projection', () => {
     const context = await new AuthorizationService(prisma).resolve('identity', 'school', 'app');
     expect(context.navigation.map((item) => item.id)).not.toEqual(expect.arrayContaining(['finance', 'receivables', 'promotions', 'collection-runs', 'receipt-queue', 'finance-reports']));
   });
+  it('returns the School kind and its server-owned features with the context', async () => {
+    const membership = (kind: string) => ({ id: 'membership', schoolId: 'school', school: { name: 'Trường A', slug: 'truong-a', kind }, boundStaffProfile: { id: 'staff', primaryPosition: { name: 'Hiệu trưởng', grants: [{ capability: 'SCHOOL_CONTEXT_READ' }] } } });
+    const prisma = { schoolMembership: { findFirst: async () => membership('LANGUAGE_CENTER') } } as any;
+    await expect(new AuthorizationService(prisma).resolve('identity', 'school', 'app')).resolves.toMatchObject({ schoolKind: 'LANGUAGE_CENTER', features: { usesSchoolYears: false, collectionRunScope: 'CLASS', dailyJournal: false, handover: false } });
+    prisma.schoolMembership.findFirst = async () => membership('PRESCHOOL');
+    await expect(new AuthorizationService(prisma).resolve('identity', 'school', 'app')).resolves.toMatchObject({ schoolKind: 'PRESCHOOL', features: { usesSchoolYears: true, collectionRunScope: 'SCHOOL', dailyJournal: true, handover: true } });
+  });
 });

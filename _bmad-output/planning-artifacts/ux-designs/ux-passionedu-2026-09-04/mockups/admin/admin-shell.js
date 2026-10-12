@@ -22,6 +22,12 @@
     ['', 'payroll', 'Bảng lương', root + 'payroll-run-review.html'],
     ['', 'workforce', 'Hợp đồng & chính sách', root + 'payroll-overview.html']
   ];
+  // Language-center School: capability map hides the school-year selector and relabels extracurricular as services.
+  var center = host.getAttribute('data-school-kind') === 'LANGUAGE_CENTER';
+  if (center) links.forEach(function (link) {
+    if (link[1] === 'extracurricular') link[2] = 'Dịch vụ';
+    if (link[1] === 'runs') link[3] = root + 'center-collection-runs.html';
+  });
   var navigation = '';
   var isWorkspace = route === 'overview';
 
@@ -38,6 +44,8 @@
   host.insertAdjacentHTML('beforebegin', '<a class="skip" href="#main">Bỏ qua điều hướng</a>');
   host.className = 'shell';
   host.innerHTML = '<aside class="sidebar" id="admin-navigation" aria-label="Điều hướng"><div class="sidebar-head"><p class="brand"><b>P</b> PassionEdu</p><button class="nav-close" type="button" aria-label="Đóng điều hướng">×</button></div><nav aria-label="Điều hướng quản trị và nhân sự">' + navigation + '</nav></aside><button class="nav-backdrop" type="button" aria-label="Đóng điều hướng"></button><main id="main" class="workspace"><header class="topbar"><div><button class="nav-toggle" type="button" aria-controls="admin-navigation" aria-expanded="false">☰ Menu</button> <a class="context" href="admin-staff.html#home" data-school-context="read-only">Ánh Hoa · Năm học 2026-2027 · Về trang chủ</a></div><div class="avatar"><span class="muted">Hoa Nguyễn</span><i>HN</i></div></header>' + content + '</main>';
+
+  if (center) document.querySelector('.context').textContent = 'Anh ngữ Sao Mai · Về trang chủ';
 
   var sidebar = document.querySelector('.sidebar');
   var toggle = document.querySelector('.nav-toggle');
@@ -67,6 +75,7 @@
       var isOverviewContext = targetHash === 'overview' && isWorkspace && ['overview', 'leave'].indexOf(activeRoute) !== -1;
       var isCurrent = isOverviewContext || (rawHref.charAt(0) === '#' ? targetHash === activeRoute : (targetPage === currentPage && (!targetHash || targetHash === activeRoute)));
       if (!currentPage && activeRoute === route && link.getAttribute('aria-current') === 'page') isCurrent = true;
+      if (center && route === 'runs' && targetPage === 'center-collection-runs.html') isCurrent = true;
       link.classList.toggle('active', isCurrent);
       if (isCurrent) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');

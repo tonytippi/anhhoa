@@ -1340,4 +1340,14 @@ describe("AttendanceService leave matrix", () => {
       skipDuplicates: true,
     });
   });
+  it("refuses daily journal and handover for a School kind that switches the feature off", async () => {
+    const member = (kind: string) => ({ id: "membership", school: { kind }, boundStaffProfile: { id: "staff" } });
+    const center = service({ schoolMembership: { findFirst: vi.fn().mockResolvedValue(member("LANGUAGE_CENTER")) } });
+    const disabled = { status: 409, response: { code: "SCHOOL_FEATURE_DISABLED" } };
+    await expect(center.attendance.handoverRoster("teacher", school, "2026-10-12")).rejects.toMatchObject(disabled);
+    await expect((center.attendance as any).teacher("teacher", school, undefined, undefined, center.prisma, "DAILY_JOURNAL_WRITE")).rejects.toMatchObject(disabled);
+    await expect((center.attendance as any).teacher("teacher", school)).resolves.toMatchObject({ id: "membership" });
+    const preschool = service({ schoolMembership: { findFirst: vi.fn().mockResolvedValue(member("PRESCHOOL")) } });
+    await expect((preschool.attendance as any).teacher("teacher", school, undefined, undefined, preschool.prisma, "DAILY_JOURNAL_WRITE")).resolves.toMatchObject({ id: "membership" });
+  });
 });

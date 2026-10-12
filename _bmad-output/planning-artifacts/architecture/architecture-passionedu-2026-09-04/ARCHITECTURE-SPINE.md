@@ -7,7 +7,7 @@ paradigm: vertical-slice modular monolith with isolated portal clients
 scope: "Superseding architecture for the PassionEdu multi-school platform"
 status: final
 created: 2026-09-04
-updated: 2026-10-02
+updated: 2026-10-12
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17]
 sources:
   - ../../prds/prd-passionedu-2026-09-04/prd.md
@@ -16,6 +16,7 @@ sources:
   - ../../sprint-change-proposal-2026-09-16.md
   - ../../sprint-change-proposal-2026-09-19-school-positions-and-handover.md
   - ../../sprint-change-proposal-2026-10-02-receivable-kinds-and-extracurricular-classes.md
+  - ../../sprint-change-proposal-2026-10-12-language-center-school-kind.md
   - ../../payroll-module-roadmap-2026-09-08.md
 companions: []
 ---
@@ -143,6 +144,8 @@ flowchart TD
 - **Rule:** Pure transitions/calculations use API unit tests; PostgreSQL integration tests prove tenant isolation, scoped uniqueness, revoke, transactions, ledger concurrency and idempotency. Authorization fixtures prove cross-School Position/capability rejection, deny on inactive Position/Staff/binding, no authorization from legacy preset roles after migration, class restriction for attendance/journal/leave, and same-School cross-class handover with `HANDOVER_WRITE`. Finance integration fixtures cover one-time close of lower/exact/higher actual Receipts, one immutable source-linked SettlementDifference per non-exact close, bounded same-Student/School/SchoolYear next-run carry, no negative target total, and no unallocated/cross-tenant/year carry. They also prove replacement/cancellation lineage, confirmed-Receipt settlement-transfer provenance and no duplicate close/materialization under retry or concurrency. Portal E2E proves audience/session isolation, chooser/switcher, Parent cross-school behavior and that Parent sees only the effective Invoice without internal correction or ledger provenance. E1 tenant-isolation proof gates all subsequent releases.
 
 - **Correction (2026-10-02, receivable kinds and extracurricular classes):** Before Stories 5.33-5.36 are releasable, PostgreSQL integration proves cross-School rejection for group, Receivable, ExtracurricularClass, membership and scope targets; exactly three typed groups per School and rejected group/kind mutations; membership overlap rejection; Class scope resolution on the first day of the month; one extracurricular line per Receivable per Student per month across class changes; fingerprint staleness on membership/Receivable change; idempotency/concurrency; and immutable provenance snapshots. Admin E2E covers extracurricular class creation, bulk membership, run with seeded fixed lines, mid-month class change, Class-scoped flexible line, preview, generate, `Nguồn` column/flags and a single-Student adjustment, with no client-calculated VND, Parent/Teacher dependency or `Class`/staff authorization change.
+
+- **Correction (2026-10-12, school kind and scoped CollectionRun):** Supersedes every `MONTHLY`-only clause above only as stated here. `School.kind` (`PRESCHOOL | LANGUAGE_CENTER`) is immutable and resolves a server-owned feature map (`usesSchoolYears`, `collectionRunScope`, `dailyJournal`, `handover`), distinct from SchoolPosition capabilities; modules read features and never branch on the kind name. `roster` owns the single open-ended `SchoolYear` (`endsOn` null) of a School that does not use school years and refuses year creation, year transfer and close-year there; re-admission of a `WITHDRAWN`/`ON_LEAVE` enrollment is an audited lifecycle transition. `finance` owns `CollectionRun.scope` (`SCHOOL | CLASS`), `classId`, `name`, `periodStartsOn`, `periodEndsOn`; `billingMonth` is derived from `periodStartsOn` for filters, reports and month-based coverage and is neither identity nor ordering. A `SCHOOL` run is exactly one calendar month and unique per `(schoolId, schoolYearId, billingMonth)`; `CLASS` runs of one Class never overlap. Ordering, previous-run lock (same scope target), prior debt and carry (same Student) use `periodStartsOn`; leave deduction and settlement read the run's preceding period. One code path serves both scopes; `PREPAID_COVERAGE` stays month-based and `SCHOOL`-only.
 
 ### AD-12 - Tenant graph integrity [ADOPTED]
 

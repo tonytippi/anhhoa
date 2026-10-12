@@ -6,9 +6,13 @@ export type SessionDto = { audience: Audience; userIdentityId: string; email: st
 export type SessionResponse = ApiResponse<SessionDto>;
 export type AuthErrorCode = 'AUTHENTICATION_REQUIRED' | 'INVALID_AUDIENCE' | 'OAUTH_DENIED' | 'OAUTH_STATE_INVALID';
 export type SchoolLifecycleStatus = 'ACTIVE' | 'SUSPENDED';
-export type OpsSchoolDto = { id: string; name: string; slug: string; status: SchoolLifecycleStatus; ownerEmail: string; ownerBound: boolean; updatedAt: string };
+export const schoolKinds = ['PRESCHOOL', 'LANGUAGE_CENTER'] as const;
+export type SchoolKind = typeof schoolKinds[number];
+export type CollectionRunScope = 'SCHOOL' | 'CLASS';
+export type SchoolFeatures = { usesSchoolYears: boolean; collectionRunScope: CollectionRunScope; dailyJournal: boolean; handover: boolean };
+export type OpsSchoolDto = { id: string; name: string; slug: string; kind: SchoolKind; status: SchoolLifecycleStatus; ownerEmail: string; ownerBound: boolean; updatedAt: string };
 export type OperationDto = { id: string; status: 'PENDING' | 'COMPLETED' | 'FAILED'; outcome: unknown };
-export type ProvisionSchoolInput = { name: string; slug: string; ownerEmail: string };
+export type ProvisionSchoolInput = { name: string; slug: string; ownerEmail: string; kind: SchoolKind };
 export type SchoolCapability =
   | 'SCHOOL_CONTEXT_READ'
   | 'ACCESS_MANAGE'
@@ -31,7 +35,7 @@ export type SchoolCapability =
   | 'PAYROLL_PAYOUT_CONFIRM'
   | 'PAYROLL_REPORT_READ';
 export type SchoolChooserItem = { schoolId: string; schoolSlug: string; schoolName: string };
-export type SchoolContextDto = { schoolId: string; schoolSlug: string; schoolName: string; membershipId: string; capabilities: SchoolCapability[]; navigation: Array<{ id: string; label: string }> };
+export type SchoolContextDto = { schoolId: string; schoolSlug: string; schoolName: string; schoolKind: SchoolKind; features: SchoolFeatures; membershipId: string; capabilities: SchoolCapability[]; navigation: Array<{ id: string; label: string }> };
 export type SchoolMembershipDto = { id: string; email: string; status: 'ACTIVE' | 'REVOKED'; roles: Array<'SCHOOL_ADMIN' | 'FINANCE_MANAGER' | 'CLASS_TEACHER'> };
 export type RosterListQuery = {
   page?: number;

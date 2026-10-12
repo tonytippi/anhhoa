@@ -11,6 +11,8 @@ model School {
   name                              String
   slug                              String                                 @unique
   status                            SchoolStatus                           @default(ACTIVE)
+  // Chosen at provisioning and immutable; resolves schoolFeatures() in packages/contracts.
+  kind                              SchoolKind                             @default(PRESCHOOL)
   createdAt                         DateTime                               @default(now()) @db.Timestamptz(3)
   updatedAt                         DateTime                               @updatedAt @db.Timestamptz(3)
   initialOwnerIdentityId            String?                                @db.Uuid
@@ -526,6 +528,11 @@ model StudentEnrollmentLifecycleTransition {
 
   @@index([schoolId, enrollmentId, createdAt])
   @@index([schoolId, operationId])
+}
+
+enum SchoolKind {
+  PRESCHOOL
+  LANGUAGE_CENTER
 }
 
 enum SchoolStatus {

@@ -14,7 +14,7 @@ supersedes:
   - epics.md
   - epics-parent-pwa.md
 status: final
-updated: 2026-10-02
+updated: 2026-10-12
 ---
 
 # PassionEdu - Epic Breakdown
@@ -785,6 +785,109 @@ Source: sprint-change-proposal-2026-10-08-run-lock-prior-debt-and-revision-disca
 **Given** a revision DRAFT
 **When** Finance discards it with a reason
 **Then** the draft and its lines are deleted, the source is unchanged, an `INVOICE_REVISION_DISCARDED` audit is written and a new revision can be prepared; every other Invoice remains undeletable.
+
+### Story 1.8: Loại trường và feature theo loại
+
+As a Platform Operator,
+I want to choose the School kind when provisioning,
+So that a preschool and a language center run on the same platform with the right features.
+
+Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
+
+**Acceptance Criteria:**
+
+**Given** Ops provisions a School
+**When** the request carries `kind` `PRESCHOOL` or `LANGUAGE_CENTER`
+**Then** the kind is stored, audited and immutable; a missing or unknown kind is refused, and existing Schools are `PRESCHOOL`.
+
+**And** the School context returns `schoolKind` and server-owned `features` (`usesSchoolYears`, `collectionRunScope`, `dailyJournal`, `handover`); portals hide navigation of disabled features and use kind labels; a disabled feature returns `409 SCHOOL_FEATURE_DISABLED`.
+
+### Story 2.7: School không dùng năm học
+
+As a School Admin of a language center,
+I want classes and students without school years,
+So that a class runs across New Year and a student who left can come back.
+
+Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
+
+**Acceptance Criteria:**
+
+**Given** a School with `usesSchoolYears = false`
+**When** it is provisioned
+**Then** it has exactly one SchoolYear with no end date, always active; creating a year, year transfer and close-year return `409 SCHOOL_YEAR_NOT_USED`, and effective dates after `startsOn` are never bounded.
+
+**And** a `WITHDRAWN` or `ON_LEAVE` enrollment can be re-admitted with an effective date and reason as a new lifecycle transition that keeps history; a School that uses school years still refuses it.
+
+### Story 5.50: Đợt thu theo phạm vi và kỳ dịch vụ
+
+As a Finance user,
+I want a collection run to be a scope plus a service period,
+So that a preschool bills the whole school by month and a center bills each class by unit with one model.
+
+Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
+
+**Acceptance Criteria:**
+
+**Given** the migration
+**When** existing runs are read
+**Then** each is `SCHOOL` scope with its calendar-month period and name `Tháng MM/YYYY`, and monthly behaviour is unchanged.
+
+**Given** a School whose `collectionRunScope` is `CLASS`
+**When** Finance opens a run for an ACTIVE Class with a name and an inclusive period
+**Then** the run is created with `billingMonth` derived from `periodStartsOn`; an overlapping period of the same Class, a foreign Class or the other scope (`409 COLLECTION_RUN_SCOPE_NOT_ALLOWED`) is refused.
+
+**And** a `CLASS` run selects only Students of that Class on `periodStartsOn`, seeds no `FIXED` line, starts empty for the first run of a Class and copies the template of the preceding run of the same Class afterwards; line scope is `ALL` or named Students.
+
+### Story 5.51: Quy tắc theo kỳ cho nợ cũ, carry, khấu trừ và dịch vụ
+
+As a Finance user,
+I want ordering, old debt and deductions to follow the run period,
+So that class runs that start on different dates settle correctly.
+
+Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
+
+**Acceptance Criteria:**
+
+**Given** two runs of the same scope target
+**When** an invoice of the later one is issued while the earlier is not CLOSED
+**Then** `409 PREVIOUS_RUN_NOT_CLOSED` names the run to close; a run of another Class does not block.
+
+**And** prior-debt transfer and settlement carry follow the Student across runs by `periodStartsOn`, including a previous Class.
+
+**And** in a `CLASS` run extracurricular/service lines use memberships effective at least one day in the period, a Student who belongs to the Class at least one day in the period can be added after GENERATED, leave deduction and settlement read the preceding period of the same Class, and prepaid coverage is refused.
+
+**And** a line whose Receivable the Student already has on a non-cancelled invoice of another run with an overlapping period carries the `Trùng kỳ` flag and is not blocked.
+
+### Story 5.52: Giao diện Đợt thu theo lớp và Parent period label
+
+As a Finance user of a language center,
+I want to open and review runs per class and unit,
+So that I bill a class as soon as it starts.
+
+Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
+
+**Acceptance Criteria:**
+
+**Given** a language-center School and the reviewed mockups
+**When** Finance opens `Đợt thu`
+**Then** the list shows Lớp, Tên đợt, Kỳ and status, `Mở đợt thu` asks for class, name and dates, the detail shows the class period, the `Dịch vụ` block and `Thêm học sinh`, and no school-year selector appears.
+
+**And** the Parent obligation shows the run `periodLabel` instead of a month, with no other new field.
+
+### Story 5.53: Release gate trung tâm ngoại ngữ
+
+As the product owner,
+I want proof that both school kinds work,
+So that the center can start without regressing the preschool.
+
+Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
+
+**Acceptance Criteria:**
+
+**Given** PostgreSQL tests
+**Then** they cover the scope-partial unique, same-Class period overlap, tenant graph of `classId`, period ordering, prior debt after a class change, carry, preceding period, the overlap flag, re-admission, idempotency and concurrency.
+
+**And** an Admin E2E for a center runs provision, two classes, staggered unit runs, a transport service, generate, a mid-unit Student, issue, receipt, close and the next unit with old debt; the whole existing Finance suite stays green for a preschool.
 
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 

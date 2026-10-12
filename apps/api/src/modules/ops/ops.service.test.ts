@@ -5,16 +5,16 @@ import { requestFingerprint } from '../common/mutation-protection.js';
 const key = '11111111-1111-4111-8111-111111111111';
 const operationId = '22222222-2222-4222-8222-222222222222';
 function database(existing: any = null) {
-  const tx = { $queryRaw: vi.fn(), platformOperatorGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-id' }) }, operation: { create: vi.fn().mockResolvedValueOnce({ id: operationId }).mockResolvedValueOnce({ id: 'default-groups-operation-id' }), update: vi.fn().mockResolvedValue({ id: operationId, status: 'COMPLETED', outcome: { schoolId: 'school-id', status: 'ACTIVE' } }) }, userIdentity: { upsert: vi.fn().mockResolvedValue({ id: 'owner-id' }) }, school: { create: vi.fn().mockResolvedValue({ id: 'school-id', status: 'ACTIVE', studentCodePrefix: 'S' }), findUnique: vi.fn().mockResolvedValue({ id: 'school-id', status: 'SUSPENDED' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, schoolMembership: { create: vi.fn().mockResolvedValue({ id: 'membership-id' }) }, schoolPosition: { create: vi.fn().mockResolvedValue({ id: 'position-id' }) }, positionCapabilityGrant: { createMany: vi.fn(), create: vi.fn() }, staffProfile: { create: vi.fn() }, receivableGroup: { createMany: vi.fn().mockResolvedValue({ count: 3 }) }, auditRecord: { create: vi.fn() } };
+  const tx = { $queryRaw: vi.fn(), platformOperatorGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-id' }) }, operation: { create: vi.fn().mockResolvedValueOnce({ id: operationId }).mockResolvedValueOnce({ id: 'default-groups-operation-id' }), update: vi.fn().mockResolvedValue({ id: operationId, status: 'COMPLETED', outcome: { schoolId: 'school-id', status: 'ACTIVE' } }) }, userIdentity: { upsert: vi.fn().mockResolvedValue({ id: 'owner-id' }) }, school: { create: vi.fn().mockResolvedValue({ id: 'school-id', status: 'ACTIVE', studentCodePrefix: 'S', kind: 'PRESCHOOL' }), findUnique: vi.fn().mockResolvedValue({ id: 'school-id', status: 'SUSPENDED' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, schoolMembership: { create: vi.fn().mockResolvedValue({ id: 'membership-id' }) }, schoolPosition: { create: vi.fn().mockResolvedValue({ id: 'position-id' }) }, positionCapabilityGrant: { createMany: vi.fn(), create: vi.fn() }, staffProfile: { create: vi.fn() }, receivableGroup: { createMany: vi.fn().mockResolvedValue({ count: 3 }) }, auditRecord: { create: vi.fn() } };
   return { platformOperatorGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-id', userIdentityId: 'actor-id' }) }, operation: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn().mockResolvedValue(existing) }, school: { findMany: vi.fn() }, $transaction: vi.fn(async (work) => work(tx)), tx };
 }
 
 describe('OpsService', () => {
   it('provisions the owner graph and completed platform-scoped operation in one transaction', async () => {
     const prisma = database(); const service = new OpsService(prisma as never);
-    await expect(service.provision('actor-id', key, operationId, { name: ' Trường Mới ', slug: 'Truong-Moi', ownerEmail: ' Owner@Example.com ', studentCodePrefix: ' s ' })).resolves.toMatchObject({ id: operationId, status: 'COMPLETED' });
+    await expect(service.provision('actor-id', key, operationId, { name: ' Trường Mới ', slug: 'Truong-Moi', ownerEmail: ' Owner@Example.com ', studentCodePrefix: ' s ', kind: 'LANGUAGE_CENTER' })).resolves.toMatchObject({ id: operationId, status: 'COMPLETED' });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1); expect(prisma.tx.operation.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ id: operationId, platformOperatorGrantId: 'grant-id', actorType: 'PLATFORM_OPERATOR_GRANT' }) })); expect(prisma.tx.operation.create.mock.calls[0]![0].data.schoolId).toBeUndefined();
-    expect(prisma.tx.school.create).toHaveBeenCalledWith({ data: { name: 'Trường Mới', slug: 'truong-moi', studentCodePrefix: 'S', initialOwnerIdentityId: 'owner-id' } });
+    expect(prisma.tx.school.create).toHaveBeenCalledWith({ data: { name: 'Trường Mới', slug: 'truong-moi', kind: 'LANGUAGE_CENTER', studentCodePrefix: 'S', initialOwnerIdentityId: 'owner-id' } });
     expect(prisma.tx.userIdentity.upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { emailNormalized: 'owner@example.com' } })); expect(prisma.tx.schoolMembership.create).toHaveBeenCalled(); expect(prisma.tx.schoolPosition.create).toHaveBeenCalledTimes(7); expect(prisma.tx.positionCapabilityGrant.createMany).toHaveBeenCalled(); expect(prisma.tx.staffProfile.create).toHaveBeenCalled(); expect(prisma.tx.operation.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ schoolId: 'school-id', actorType: 'PLATFORM_OPERATOR_GRANT', actorReference: 'grant-id' }) })); expect(prisma.tx.receivableGroup.createMany).toHaveBeenCalledWith({ data: [{ schoolId: 'school-id', kind: 'FIXED', name: 'Khoản thu cố định' }, { schoolId: 'school-id', kind: 'FLEXIBLE', name: 'Khoản thu linh hoạt' }, { schoolId: 'school-id', kind: 'EXTRACURRICULAR', name: 'Ngoại khóa' }] }); expect(prisma.tx.auditRecord.create).toHaveBeenCalled();
     expect(prisma.tx.$queryRaw).toHaveBeenCalledTimes(1); expect(prisma.tx.platformOperatorGrant.findFirst).toHaveBeenCalledWith({ where: { id: 'grant-id', userIdentityId: 'actor-id', revokedAt: null }, select: { id: true } });
   });
@@ -23,15 +23,15 @@ describe('OpsService', () => {
     await expect(service.provision('actor-id', key, operationId, null as never)).rejects.toMatchObject({ status: 400 });
     expect(invalid.$transaction).not.toHaveBeenCalled();
     const selfOwner = database(); selfOwner.tx.userIdentity.upsert.mockResolvedValue({ id: 'actor-id' });
-    await expect(new OpsService(selfOwner as never).provision('actor-id', key, operationId, { name: 'A', slug: 'a', ownerEmail: 'operator@example.com', studentCodePrefix: 'S' })).rejects.toMatchObject({ status: 403 });
+    await expect(new OpsService(selfOwner as never).provision('actor-id', key, operationId, { name: 'A', slug: 'a', ownerEmail: 'operator@example.com', studentCodePrefix: 'S', kind: 'PRESCHOOL' })).rejects.toMatchObject({ status: 403 });
     expect(selfOwner.tx.school.create).not.toHaveBeenCalled();
   });
   it('replays same key and rejects a changed fingerprint without another transaction', async () => {
     const replay = { id: operationId, fingerprint: 'different', status: 'COMPLETED', outcome: {} }; const prisma = database(replay); const service = new OpsService(prisma as never);
-    await expect(service.provision('actor-id', key, operationId, { name: 'A', slug: 'a', ownerEmail: 'a@example.com', studentCodePrefix: 'S' })).rejects.toMatchObject({ status: 409 });
+    await expect(service.provision('actor-id', key, operationId, { name: 'A', slug: 'a', ownerEmail: 'a@example.com', studentCodePrefix: 'S', kind: 'PRESCHOOL' })).rejects.toMatchObject({ status: 409 });
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    const matching = { ...replay, fingerprint: requestFingerprint({ name: 'A', slug: 'a', ownerEmail: 'a@example.com', studentCodePrefix: 'S' }) }; prisma.operation.findFirst.mockResolvedValue(matching);
-    await expect(service.provision('actor-id', key, operationId, { name: 'A', slug: 'a', ownerEmail: 'a@example.com', studentCodePrefix: 'S' })).resolves.toMatchObject({ id: operationId });
+    const matching = { ...replay, fingerprint: requestFingerprint({ name: 'A', slug: 'a', ownerEmail: 'a@example.com', studentCodePrefix: 'S', kind: 'PRESCHOOL' }) }; prisma.operation.findFirst.mockResolvedValue(matching);
+    await expect(service.provision('actor-id', key, operationId, { name: 'A', slug: 'a', ownerEmail: 'a@example.com', studentCodePrefix: 'S', kind: 'PRESCHOOL' })).resolves.toMatchObject({ id: operationId });
   });
   it('makes same-state lifecycle a completed no-op and scopes operation reads to its grant', async () => {
     const prisma = database(); const service = new OpsService(prisma as never);
@@ -51,5 +51,12 @@ describe('OpsService', () => {
     const prisma = database(); const now = new Date('2026-09-16T00:00:00.000Z'); prisma.school.findMany.mockResolvedValue([{ id: 'school-id', name: 'Trường A', slug: 'truong-a', studentCodePrefix: 'PE', status: 'ACTIVE', initialOwnerIdentity: { emailNormalized: 'owner@example.com', googleSubject: null }, updatedAt: now }]);
     await expect(new OpsService(prisma as never).list('actor-id')).resolves.toEqual([{ id: 'school-id', name: 'Trường A', slug: 'truong-a', studentCodePrefix: 'PE', status: 'ACTIVE', ownerEmail: 'owner@example.com', ownerBound: false, updatedAt: now.toISOString() }]);
     expect(prisma.school.findMany).toHaveBeenCalledWith({ orderBy: { createdAt: 'desc' }, include: { initialOwnerIdentity: true } });
+  });
+  it('requires a known School kind and stores it on the School, outcome and audit', async () => {
+    const prisma = database(); const service = new OpsService(prisma as never);
+    for (const kind of [undefined, 'PRIMARY', '']) await expect(service.provision('actor-id', key, operationId, { name: 'A', slug: 'a', ownerEmail: 'a@example.com', studentCodePrefix: 'S', kind })).rejects.toMatchObject({ status: 409, response: { code: 'VALIDATION_ERROR' } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    await service.provision('actor-id', key, operationId, { name: 'A', slug: 'a', ownerEmail: 'a@example.com', studentCodePrefix: 'S', kind: 'LANGUAGE_CENTER' });
+    expect(prisma.tx.school.create).toHaveBeenCalledWith({ data: expect.objectContaining({ kind: 'LANGUAGE_CENTER' }) });
   });
 });

@@ -2,7 +2,7 @@
 title: "PRD Initiative - PassionEdu: Nen tang van hanh da truong"
 status: final
 created: 2026-09-04
-updated: 2026-10-02
+updated: 2026-10-12
 supersedes:
   - prds/prd-anhhoa-2026-08-18/prd.md
   - prds/prd-anhhoa-parent-pwa-2026-08-22/prd.md
@@ -16,7 +16,7 @@ PRD nay la nguon yeu cau thay the cho hai PRD single-school da `final`; cac arti
 
 ## 1. Tam nhin
 
-PassionEdu giup moi truong mam non van hanh tren mot nen tang chung, trong khi du lieu, chinh sach va quyen cua tung truong luon doc lap. Anh Hoa la `School` tenant dau tien, khong phai ranh gioi cua san pham.
+PassionEdu giup moi truong mam non va trung tam ngoai ngu van hanh tren mot nen tang chung, trong khi du lieu, chinh sach va quyen cua tung truong luon doc lap. Anh Hoa la `School` tenant dau tien, khong phai ranh gioi cua san pham. Tu 2026-10-12 moi School co mot loai (`PRESCHOOL` hoac `LANGUAGE_CENTER`); hai loai dung chung mot mo hinh du lieu va mot luong Finance, khac nhau o capability theo loai (sprint-change-proposal-2026-10-12-language-center-school-kind).
 
 Nen tang thay the dashboard thu hoc phi single-school bang mot he thong foundation-first: nhan dang va phan quyen theo truong; danh bo va nam hoc; nghia vu thu, thu tien va cong no co so cai; sau do la diem danh, nghi phep, dich vu va ban giao tre. Parent la surface read-first, tu xem nghia vu va huong dan thanh toan trong dung school context; khong tu xac nhan da thu tien.
 
@@ -53,7 +53,8 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **UserIdentity** - Identity Google canonical toan platform, khong chua role hay `schoolId`.
 - **SchoolMembership** - Quyen truy cap active cua UserIdentity tai mot School.
 - **SchoolPosition** - Chuc danh School-scoped co code/name, trang thai active/inactive va tap capability duoc chon tu catalog Platform gioi han; la nguon capability cua Staff, khong phai ten Chuc danh hay browser state.
-- **SchoolYear** - Ranh gioi du lieu nam hoc cua mot School; toi da mot SchoolYear active.
+- **School kind** - Loai cua School: `PRESCHOOL` (truong mam non) hoac `LANGUAGE_CENTER` (trung tam ngoai ngu); chon khi provision, bat bien, quyet dinh feature server-owned (`usesSchoolYears`, `collectionRunScope`, `dailyJournal`, `handover`) va nhan giao dien.
+- **SchoolYear** - Ranh gioi du lieu nam hoc cua mot School; toi da mot SchoolYear active. School khong dung nam hoc co dung mot SchoolYear khong ngay ket thuc, an khoi giao dien.
 - **StudentEnrollment** - Trang thai va lop cua Student trong mot SchoolYear.
 - **ParentProfile** - Persona Parent toan platform; school context suy ra tu lien ket Parent-Hoc sinh.
 - **StudentParent** - Lien ket active/revoked giua ParentProfile va Student; la nguon duy nhat cap Parent school context va quyen portal.
@@ -62,7 +63,7 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 - **ExtracurricularClass / ExtracurricularMembership** - Lop ngoai khoa School/SchoolYear-scoped do `finance` so huu, tach khoi `Class` chinh thuc; gan dung mot Receivable `EXTRACURRICULAR` (mot Receivable co the dung chung cho nhieu lop song song) va co membership effective-dated cua StudentEnrollment. Chi la nguon applicability cho Dot thu; khong tao eligibility (tru enrollment `EXTRACURRICULAR_ONLY`), quyen Staff, lich hoc hay diem danh. Co `separateAttendance` (**Diem danh rieng**) chi luu/hien thi (decision 2026-10-08 extracurricular-only-students).
 - **Invoice line** - Dong thu trong Invoice DRAFT, tham chieu Receivable active same-School, quantity nguyen duong va unit price do server xac nhan; bo dong nghia la khoan thu khong ap dung. Dong generate tu Dot thu ghi provenance `TEMPLATE_FIXED`, `TEMPLATE_FLEXIBLE` (kem pham vi), `EXTRACURRICULAR` (kem lop ngoai khoa) hoac `MANUAL`. ChargeRule automation day du la enhancement sau Finance Admin MVP.
 - **PromotionPolicy / PromotionPolicyVersion** - Chinh sach uu dai School-scoped va phien ban effective-dated, co target Receivable, don vi/so luong ap dung, dieu kien typed, giam VND/phan tram, fulfillment, stacking va snapshot.
-- **CollectionRun** - Dot thu thang cua SchoolYear, gan voi mot `billingMonth`, Student selection va template khoan thu chung de preview va tao nghia vu cho hoc sinh.
+- **CollectionRun** - Dot thu cua SchoolYear, xac dinh boi pham vi (`SCHOOL` ca truong hoac `CLASS` mot lop) va ky dich vu (`periodStartsOn`-`periodEndsOn`); run `SCHOOL` la tron mot thang, run `CLASS` la ky do ke toan nhap (vi du mot unit). `billingMonth` la thang cua ngay dau ky, chi dung de loc va bao cao. Gom Student selection va template khoan thu chung de preview va tao nghia vu cho hoc sinh.
 - **CollectionRunTemplateLine** - Khoan thu mau cua mot CollectionRun `DRAFT`, tham chieu Receivable active cung School loai `FIXED` hoac `FLEXIBLE`, quantity nguyen duong, pham vi ap dung va default-price amount do server tinh; thu tu hien thi la amount giam dan voi tie-breaker server on dinh, khong co y nghia nghiep vu. Dong `FIXED` luon pham vi Toan bo; dong `FLEXIBLE` co pham vi Toan bo, lop chinh thuc hoac Student cu the. Receivable `EXTRACURRICULAR` khong vao template.
 - **Invoice** - Nghia vu thu theo mot Student va mot CollectionRun; noi dung khoa sau khi issue.
 - **Receipt** - Khoan thu da ghi nhan; phan bo vao Invoice qua so cai append-only.
@@ -84,11 +85,12 @@ Clean-break la chu dich: du lieu hien tai chi la seed/dev/test. Product khong du
 
 #### FR-1: Provision va vong doi School
 
-Platform Operator co the tao, suspend, reactivate School va bootstrap School Admin dau tien theo email.
+Platform Operator co the tao, suspend, reactivate School va bootstrap School Admin dau tien theo email. Khi tao phai chon School kind.
 
 **He qua kiem thu:**
 - Suspend chan business request ke tiep cua School ma khong can xoa global identity session.
 - School khong hard-delete.
+- `kind` bat buoc khi provision, duoc audit va khong sua duoc sau do; thieu hoac sai gia tri bi tu choi. Portal doc `schoolKind` va `features` tu School context; feature tat bi tu choi voi `409 SCHOOL_FEATURE_DISABLED`. Provision School khong dung nam hoc tao dung mot SchoolYear khong ngay ket thuc trong cung transaction.
 - Platform capability khong tu dong cap quyen doc/ghi du lieu School.
 - `SUPERADMIN_EMAIL` chi bootstrap `PlatformOperatorGrant` qua environment; Ops authorize bang audience `ops` va grant nay, khong tao OpsUser hay password mac dinh.
 - Provisioning tao/tai su dung UserIdentity pending theo normalized email cua owner va atomically tao SchoolMembership pending, StaffProfile va Chuc danh chinh active co capability School Admin tu catalog Platform. Google subject chi bind khi owner dang nhap Google, sau do owner vao dung School shell; failure khong duoc de lai identity, membership, StaffProfile hay Chuc danh partial.
@@ -135,6 +137,7 @@ School Admin quan ly mot SchoolYear active, Class thuoc SchoolYear, Student va S
 
 **He qua kiem thu:**
 - Mot Student co toi da mot StudentEnrollment moi SchoolYear; Class khong tai su dung giua nam hoc.
+- School khong dung nam hoc (`usesSchoolYears = false`): SchoolYear duy nhat co `endsOn` null, luon active va khong chan ngay hieu luc phia sau; tao SchoolYear thu hai, chuyen nam va close-year tra `409 SCHOOL_YEAR_NOT_USED`. Lop hoc xong duoc luu tru, hoc vien sang lop moi bang chuyen lop effective-dated. Enrollment `WITHDRAWN` hoac `ON_LEAVE` duoc cho hoc lai voi ngay hieu luc, ly do va lifecycle transition moi, giu nguyen lich su; School dung nam hoc khong co thao tac nay: hoc sinh da nghi quay lai duoc tao nhu Student moi voi ma moi.
 - Chi `ENROLLED` mac dinh du dieu kien vao CollectionRun va attendance. `EXTRACURRICULAR_ONLY` chi du dieu kien CollectionRun cho dong ngoai khoa va dong chon dich danh; duoc them vao lop ngoai khoa, Parent portal (thong tin, hoa don, hop thu, don nghi) va danh sach don tra; khong vao attendance/nhat ky/si so lop, chuyen nam, close-year hay goi nop truoc.
 - Chuyen nam/chuyen lop tao lich su enrollment va audit; Invoice da tao giu snapshot enrollment/lop.
 - `studentCode` do server sinh theo prefix va sequence unique, khong phan biet hoa thuong trong School; bat bien/khong tai su dung sau khi da duoc tham chieu. Manual/import code khong thuoc release dau.
@@ -176,18 +179,22 @@ Finance Manager hoac School Admin co `FINANCE_MANAGE` quan ly Receivable trong b
 
 #### FR-8: CollectionRun preview va generate
 
-Finance Manager tao hoac mo dot thu `MONTHLY` cua tung thang trong SchoolYear, cau hinh template khoan thu theo loai (co dinh tu them, linh hoat co pham vi), ra soat lop ngoai khoa trong dot, chon Student du dieu kien, xem preview authoritative va generate Invoice `DRAFT` co san dong template va dong ngoai khoa idempotent.
+Finance Manager tao hoac mo dot thu theo `collectionRunScope` cua School - run `SCHOOL` cua tung thang, hoac run `CLASS` cua mot lop voi ten va ky dich vu - cau hinh template khoan thu theo loai (co dinh tu them, linh hoat co pham vi), ra soat lop ngoai khoa trong dot, chon Student du dieu kien, xem preview authoritative va generate Invoice `DRAFT` co san dong template va dong ngoai khoa idempotent.
 
 **He qua kiem thu:**
 - Preview va generate dung cung service server-side; preview hien thi Student du dieu kien/skip va du lieu nguon can thiet de ra soat. Client khong tu suy ra eligibility hay total.
-- Moi CollectionRun cua release dau la `MONTHLY`, bat buoc co `billingMonth` chuan `YYYY-MM`. Moi SchoolYear co dung mot dot thu chuan cho mot `billingMonth`; khi ke toan chon mot thang da co dot, UI mo dot hien co thay vi tao dot moi.
+- CollectionRun co `scope` `SCHOOL` hoac `CLASS`, `name`, `periodStartsOn`, `periodEndsOn` (tinh ca hai dau) va `billingMonth` chuan `YYYY-MM` do API suy ra tu `periodStartsOn`. School chi mo run dung `collectionRunScope` cua minh; scope khac tra `409 COLLECTION_RUN_SCOPE_NOT_ALLOWED`.
+- Run `SCHOOL`: ky la tron mot thang duong lich; moi SchoolYear co dung mot run `SCHOOL` cho mot `billingMonth`; khi ke toan chon mot thang da co dot, UI mo dot hien co thay vi tao dot moi.
+- Run `CLASS`: Finance chon mot Class `ACTIVE` cung School/SchoolYear, nhap ten va ky; hai run cua cung mot lop khong chong ky; nhieu lop co run mo song song. Selection chi gom Student cua lop tai `periodStartsOn`; sau GENERATED duoc them Student thuoc lop it nhat mot ngay trong ky. Template khong tu them Receivable `FIXED`: run dau cua lop rong, run sau sao chep template cua run lien truoc cung lop; pham vi dong la `ALL` hoac Student cu the. `PREPAID_COVERAGE` khong ap dung cho run `CLASS`.
+- Moi quy tac truoc day dung "thang thu" nay dung ky cua run: lop hieu luc tai `periodStartsOn`, membership ngoai khoa/dich vu hieu luc it nhat mot ngay trong ky, va **ky lien truoc** (thang truoc voi `SCHOOL`; ky cua run lien truoc cung lop voi `CLASS`) cho tu tru ngay nghi va quyet toan. Phat hanh Invoice bi chan khi run cung pham vi co ky som hon chua `CLOSED`.
+- Khi generate hoac them Student, dong co cung Receivable voi Invoice chua huy cua Student o run khac chong ky duoc danh dau **Trung ky** de ke toan ra soat; khong chan.
 - Trong dot thang `DRAFT`, Finance chon mot hoac nhieu Student du dieu kien va them/bo Receivable template co quantity nguyen duong; moi Receivable chi xuat hien mot lan. Preview/generate dung cung template, pham vi, membership ngoai khoa va per-Receivable PromotionPolicy evaluator server-authoritative; fingerprint bao gom selection, roster, template/catalog, pham vi, danh sach lop ngoai khoa khong bi loai, membership facts, policy version/target va assignment facts. Khong suy dien coverage; browser khong tinh discount, total, so Student trong pham vi hay eligibility.
 - Pham vi theo lop chinh thuc dung lop hieu luc tai ngay dau thang thu, cung rule eligibility hien tai. Dong `FIXED` va dong pham vi Toan bo / lop chinh thuc khong ap dung cho enrollment `EXTRACURRICULAR_ONLY`; enrollment nay chi nhan dong ngoai khoa va dong `FLEXIBLE` pham vi Student cu the chon dich danh. Invoice chi chua dong `FLEXIBLE` khi Student thuoc pham vi cua dong.
 - Detail run `DRAFT` hien cac lop ngoai khoa ACTIVE voi so thanh vien hieu luc trong thang; Finance duoc loai/khoi phuc ca mot lop cho dot nay khi run con `DRAFT`. Membership duoc tinh neu co hieu luc it nhat mot ngay trong thang thu. Student eligible theo enrollment/lop chinh thuc, hoac enrollment `EXTRACURRICULAR_ONLY` tai ngay dau thang thu, va nam trong selection moi nhan dong ngoai khoa; lop ngoai khoa khong mo eligibility cho lifecycle khac (decision 2026-10-08 extracurricular-only-students). Moi Student nhan mot dong cho moi Receivable ngoai khoa, quantity `1`, gia default cua Receivable, khong tu prorate; neu trong thang Student co membership o nhieu lop cung Receivable (vi du chuyen tu A1 sang A2), Invoice chi co mot dong, provenance liet ke cac lop va khong thu trung. Dong cua Student vao/nghi trong thang gan co **Vao/nghi giua thang**; dong gop nhieu lop gan co **Chuyen lop trong thang**; Finance dieu chinh tren Invoice `DRAFT` theo workflow audit hien co.
 - Preview tra moi dong template loai, pham vi, so Student va tam tinh server-derived. Doi membership, lop ngoai khoa hoac Receivable sau READY lam preview stale va chan READY/generate den khi co preview moi; sau GENERATED khong rewrite Invoice da tao.
 - Moi InvoiceLine generate snapshot provenance `TEMPLATE_FIXED`, `TEMPLATE_FLEXIBLE` (kem pham vi), `EXTRACURRICULAR` (kem lop ngoai khoa) hoac `MANUAL` cho dong Finance them sau generate; man ra soat Invoice hien cot **Nguon**.
-- Moi Student co toi da mot Invoice trong mot CollectionRun; moi `billingMonth` cua SchoolYear chi co mot CollectionRun.
-- `billingMonth` la khoa van hanh de quan ly dot thu theo thang; khong co `ANNUAL`, `ONE_OFF`, `periodKey` tu do hay run bo sung trong release dau.
+- Moi Student co toi da mot Invoice trong mot CollectionRun.
+- `billingMonth` khong la dinh danh hay thu tu cua run; moi so sanh truoc/sau dung `periodStartsOn`. Khong co `ANNUAL`, `ONE_OFF` hay hai scope run trong cung mot School.
 - Generate revalidate va snapshot template trong transaction, tra created/skipped; timeout phai doi soat operation truoc retry. Receivable inactive/khac School hoac fingerprint stale bi tu choi truoc khi ghi Invoice/line. Tu 2026-10-02, template rong khong tu no chan generate: Student eligible + selected khong co dong nao sau khi ap dung template, pham vi va ngoai khoa bi skip voi ly do `NO_APPLICABLE_LINES`; generate bi tu choi khi khong Student nao co dong.
 - Lifecycle la `DRAFT -> READY -> GENERATED -> CLOSED`: READY chi generate sau preview hop le, GENERATED khoa danh sach Student duoc generate va CLOSED khong tao/sua Invoice. Generate phan loai toi thieu Invoice da ton tai, enrollment khong du dieu kien va khong co lop active. Invoice cua enrollment `EXTRACURRICULAR_ONLY` khong co snapshot lop (hien `Chi ngoai khoa`); phan tai khoan ca nhan khong co tai khoan mac dinh theo lop nen Finance chon tai khoan khi phat hanh.
 - Sau GENERATED, actor co capability finance phu hop tu Chuc danh active chi co the them Student du dieu kien chua co Invoice, tao dung mot `DRAFT` populated tu immutable run-template snapshot, khong doc template/catalog live. Tu 2026-10-02, DRAFT nay ap dung du ba loai: moi dong co dinh, dong linh hoat khi Student thuoc pham vi da snapshot, va dong ngoai khoa tu membership hieu luc it nhat mot ngay trong thang cua cac lop ngoai khoa khong bi loai khoi run (doc tai thoi diem them va snapshot vao Invoice). Invoice da issue khong nhan khoan thu moi; dung correction/refund co source khi capability do duoc phat hanh.
@@ -219,7 +226,7 @@ Finance Manager ghi so VND thuc nhan de dong mot Invoice `ISSUED` cua mot Studen
 - `DIRECT` cho actor co capability reversal tu Chuc danh active post reversal co ly do; `SCHOOL_ADMIN_APPROVAL` buoc actor co capability finance tao request va actor khac identity co capability approval tu Chuc danh active phe duyet. Invoice `ISSUED` chi co the dong mot lan qua Receipt xac nhan hoac duoc `CANCELLED` bang revision workflow; khong co void/sua tai cho sau issue.
 - Refund la ledger workflow append-only cho nghia vu da co source (vi du coverage da thanh toan, huy service hoac Finance adjustment/policy hop le): School Admin/Finance Manager tao refund request co amount, source, ly do va idempotency; post/refusal tuan theo reversal mode cua School, audit actor va Operation reconciliation. Refund khong sua Receipt hay Allocation goc.
 - Moi Receipt dong dung mot Invoice cua cung School, SchoolYear va Student, ghi actual amount da nhan va tao settlement outcome `EXACT`, `SHORTFALL` hoac `OVERPAYMENT` trong mot posting append-only. Khong co Receipt unallocated, mixed-Student hay client-side allocation. `SHORTFALL` tao `SettlementDifference` duong, `OVERPAYMENT` tao `SettlementDifference` am, deu immutable va source-linked toi Invoice/Receipt.
-- Server chi materialize SettlementDifference thanh adjustment `SHORTFALL_CARRY` duong hoac `OVERPAYMENT_CARRY` am tren Invoice `DRAFT` cua CollectionRun `MONTHLY` ke tiep du dieu kien, cung Student/School/SchoolYear. Adjustment am khong duoc lam tong Invoice am; phan con lai chua materialize giu o source difference va tiep tuc duoc carry voi cung provenance. Khong tao `StudentPrepayment`, generic credit/balance, cross-Student/cross-School/cross-SchoolYear application hay client-side carry.
+- Server chi materialize SettlementDifference thanh adjustment `SHORTFALL_CARRY` duong hoac `OVERPAYMENT_CARRY` am tren Invoice `DRAFT` cua CollectionRun ke tiep theo `periodStartsOn` du dieu kien, cung Student/School/SchoolYear. Adjustment am khong duoc lam tong Invoice am; phan con lai chua materialize giu o source difference va tiep tuc duoc carry voi cung provenance. Khong tao `StudentPrepayment`, generic credit/balance, cross-Student/cross-School/cross-SchoolYear application hay client-side carry.
 - Revision cua Invoice da co Receipt xac nhan phai tao settlement-transfer projection append-only lien ket source Receipt/Invoice va replacement Invoice truoc khi replacement dong; khong sua Receipt, difference hay audit nguon. Bat ky chenh lech cuoi cung nao van theo SettlementDifference va carry adjustment.
 - Khi Student nghi/chuyen truong trong `StudentPromotionalCoverage` da thanh toan, server preview refund theo tung coverage fact tu service interval, paid snapshot amount va School calendar version/timezone da snapshot; loai tru withdrawal effective date va floor VND. `eligibleOperatingDays` phai duong, `remainingOperatingDays` khong vuot eligible days, va tong `calculatedAmount`/`approvedAmount` cua fact khong vuot paid snapshot amount tru di refund/reversal da post. `approvedAmount` phai khong am va override khac calculated amount bat buoc ly do. Refund append-only luu calculated/approved amount, coverage fact, Invoice/Receipt provenance va approval-mode outcome.
 
@@ -325,7 +332,7 @@ Parent xem Invoice/obligation `ISSUED` con outstanding hoac Invoice `CLOSED` moi
 **He qua kiem thu:**
 - Parent khong post Receipt, khong xac nhan payment va khong sua finance/school data.
 - Payment instruction chi doc snapshot va khong doi settlement hay Invoice state; Parent co the thay actual received, outcome exact/thieu/thua va replacement dang co hieu luc, nhung khong thay ly do correction, SettlementDifference hay ledger transfer noi bo.
-- Parent DTO toi thieu, khong lo audit noi bo, tai khoan nguon hien hanh hay du lieu tre khac.
+- Parent DTO toi thieu, khong lo audit noi bo, tai khoan nguon hien hanh hay du lieu tre khac. Ky cua nghia vu hien bang `periodLabel` cua run (ten run, kem ten lop voi run `CLASS`).
 - MVP E7 bat buoc hien thi Payment instruction text tu snapshot cho nghia vu outstanding. Khong co payment action khi khong con outstanding. VietQR/copy fields/deep link khong la dieu kien phat hanh E7 va khong lam thay doi settlement.
 - Parent khong co package catalog/request, promotional coverage, refund hay payment-confirmation action.
 

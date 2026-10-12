@@ -54,6 +54,20 @@ Các trang Admin/Nhân viên hiện hành nằm trong `admin/` và chia sẻ `ad
 - Khoản thu có giá hoàn trả. Dòng hóa đơn nháp có `Thu` và `Bớt` cùng dòng; `Bớt` do hệ thống đề xuất từ ngày nghỉ có phép tháng trước và kế toán sửa được kèm lý do. Học sinh nghỉ học tháng trước có hóa đơn quyết toán (`admin/invoice-settlement-review.html`) gồm bớt tiền ăn chưa dùng và hoàn học phí nộp trước theo giá gốc x tháng đã học; tổng âm phát hành không VietQR (`admin/invoice-refund-image.html`) và đóng bằng `Ghi nhận đã chi` trong Thu tiền. Nhãn ưu đãi là `Ưu đãi`.
 - “Kế toán” trên bốn trang Payroll là persona của `FINANCE_MANAGER`, không phải role mới. Mọi trang/action cần Payroll entitlement và capability riêng; Finance Manager prepare/reconcile/submit và xác nhận payout, School Admin khác identity approve/refuse và có thể reopen approved-unpaid. Same-identity approval bị server từ chối kể cả khi actor có nhiều grant.
 
+## Trung tâm ngoại ngữ (chờ business owner review)
+
+Theo `sprint-change-proposal-2026-10-12-language-center-school-kind.md` (Story 1.8, 5.50-5.52). Các bản mẫu mầm non không đổi hành vi và giao diện.
+
+| Khu vực | Tệp | Phạm vi |
+| --- | --- | --- |
+| Vận hành nền tảng | `ops/ops.html` (sửa) | Biểu mẫu khởi tạo thêm `Loại trường` bắt buộc (`Trường mầm non` / `Trung tâm ngoại ngữ`) kèm ghi chú không đổi được sau khi khởi tạo; bước xác nhận nêu loại trường; bảng trường thêm cột `Loại trường`. |
+| Đợt thu theo lớp | `admin/center-collection-runs.html` (mới) | Danh sách table-first với cột Lớp, Tên đợt, Kỳ, Trạng thái; nhiều lớp có đợt mở song song với kỳ lệch nhau. `Mở đợt thu` mở modal Lớp `ACTIVE` + Tên đợt + Từ ngày + Đến ngày, có trạng thái lỗi khi kỳ trùng đợt khác cùng lớp và ghi chú sao chép khoản thu từ đợt liền trước cùng lớp. |
+| Chi tiết đợt thu theo lớp | `admin/center-collection-run-detail.html` (mới) | Hai trạng thái loại trừ nhau `#run-draft` và `#run-generated`, cùng cấu trúc với `admin/invoice-generation.html`. Tiêu đề nêu Lớp + Tên đợt + Kỳ; khoản thu mẫu chỉ có dòng linh hoạt phạm vi `Cả lớp` hoặc `Học sinh cụ thể`, không có dòng cố định tự thêm; khối `Dịch vụ trong đợt` (Đưa đón, chỉ đếm học sinh của lớp); `Thêm học sinh` cho học sinh vào giữa unit; cờ `Trùng kỳ` trên dòng hóa đơn; thông báo phải đóng đợt trước của cùng lớp mới phát hành. |
+| Shell Admin của trung tâm | `admin/admin-shell.js` (sửa) | Host có `data-school-kind="LANGUAGE_CENTER"`: ngữ cảnh không có năm học, mục `Lớp ngoại khóa` mang nhãn `Dịch vụ`, `Đợt thu` trỏ tới danh sách theo lớp. Không có thuộc tính này thì shell giữ nguyên. |
+
+- Teacher: không có bản mẫu mới. Với trung tâm, cổng Teacher ẩn mục Nhật ký và Đón trả; bố cục các màn hình còn lại không đổi.
+- Parent: không có bản mẫu mới. Nghĩa vụ hiển thị nhãn kỳ của đợt thu (ví dụ `Starters A · Unit 3`) tại vị trí đang hiển thị tháng; bố cục không đổi.
+
 ## Bản mẫu mốc hiện có
 
 Các bản mẫu mốc không thuộc workspace Admin hiện hành vẫn được giữ để truy vết:

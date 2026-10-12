@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PassionEdu · Đợt thu theo lớp</title>
+  <link rel="stylesheet" href="../prototype.css">
+  <link rel="stylesheet" href="finance-style.css">
+  <script defer src="admin-shell.js"></script>
+  <style>.finance-page td.money{white-space:nowrap}.finance-page .guide{margin-top:20px;color:var(--muted)}.finance-page .guide summary{cursor:pointer;font-weight:700;color:var(--ink)}</style>
+</head>
+<body>
+  <div data-admin-shell data-admin-route="runs" data-school-kind="LANGUAGE_CENTER"><div class="finance-page">
+    <section id="run-list">
+      <div class="route">
+        <div>
+          <p class="eyebrow">TÀI CHÍNH · TRUNG TÂM ANH NGỮ SAO MAI</p>
+          <h1>Đợt thu</h1>
+          <p>Mở đợt theo từng lớp và kỳ học; hệ thống xác định danh sách học sinh của lớp, bản xem trước và kết quả tạo hóa đơn.</p>
+        </div>
+        <button class="btn btn-primary" type="button" id="open-create">Mở đợt thu</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <caption>Danh sách đợt thu của Trung tâm Anh ngữ Sao Mai</caption>
+          <thead><tr><th>Lớp</th><th>Tên đợt</th><th>Kỳ</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
+          <tbody>
+            <tr><td><b>Movers B</b></td><td>Unit 6</td><td>09/11/2026 – 02/01/2027</td><td><span class="badge neutral">Nháp</span></td><td><a class="btn btn-secondary" href="center-collection-run-detail.html#run-draft">Mở chi tiết</a></td></tr>
+            <tr><td><b>Flyers C</b></td><td>Unit 1</td><td>19/10/2026 – 12/12/2026</td><td><span class="badge info">Sẵn sàng tạo hóa đơn</span></td><td><button class="btn btn-secondary" type="button">Mở chi tiết</button></td></tr>
+            <tr><td><b>Starters A</b></td><td>Unit 3</td><td>28/09/2026 – 21/11/2026</td><td><span class="badge success">Đã tạo hóa đơn</span></td><td><a class="btn btn-secondary" href="center-collection-run-detail.html#run-generated">Mở chi tiết</a></td></tr>
+            <tr><td><b>Starters B</b></td><td>Unit 3</td><td>21/09/2026 – 14/11/2026</td><td><span class="badge success">Đã tạo hóa đơn</span></td><td><button class="btn btn-secondary" type="button">Mở chi tiết</button></td></tr>
+            <tr><td><b>Movers B</b></td><td>Unit 5</td><td>14/09/2026 – 07/11/2026</td><td><span class="badge success">Đã tạo hóa đơn</span></td><td><button class="btn btn-secondary" type="button">Mở chi tiết</button></td></tr>
+            <tr><td><b>Starters A</b></td><td>Unit 2</td><td>03/08/2026 – 26/09/2026</td><td><span class="badge success">Đã tạo hóa đơn</span></td><td><button class="btn btn-secondary" type="button">Mở chi tiết</button></td></tr>
+            <tr><td><b>Movers B</b></td><td>Unit 4</td><td>20/07/2026 – 12/09/2026</td><td><span class="badge neutral">Đã đóng</span></td><td><button class="btn btn-secondary" type="button">Mở chi tiết</button></td></tr>
+            <tr><td><b>Starters A</b></td><td>Unit 1</td><td>08/06/2026 – 01/08/2026</td><td><span class="badge neutral">Đã đóng</span></td><td><button class="btn btn-secondary" type="button">Mở chi tiết</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <details class="guide">
+        <summary>Hướng dẫn</summary>
+        <p>Mỗi đợt thu thuộc một lớp đang hoạt động và một kỳ do kế toán nhập ngày bắt đầu, ngày kết thúc. Nhiều lớp có thể có đợt mở cùng lúc; hai đợt của cùng một lớp không được trùng ngày.</p>
+        <p>Đợt đầu tiên của lớp chưa có khoản thu. Từ đợt thứ hai, hệ thống sao chép khoản thu của đợt liền trước cùng lớp; sửa được khi đợt còn Nháp.</p>
+        <p>Hóa đơn của một đợt chỉ phát hành được sau khi đợt trước của cùng lớp đã đóng. Đợt của lớp khác không ảnh hưởng.</p>
+      </details>
+    </section>
+
+    <dialog id="create-dialog"><form method="dialog" class="dialog-body" id="create-form"><h2>Mở đợt thu</h2><p class="muted">Mỗi đợt thu thuộc một lớp và một kỳ. Máy chủ kiểm tra lớp và kỳ trước khi tạo.</p>
+      <div class="dialog-grid">
+        <label class="field full">Lớp<select id="run-class" required><option value="">Chọn lớp đang hoạt động</option><option selected>Starters A</option><option>Starters B</option><option>Movers B</option><option>Flyers C</option></select></label>
+        <label class="field full">Tên đợt<input id="run-name" required maxlength="60" value="Unit 4" placeholder="Ví dụ: Unit 3"></label>
+        <label class="field">Từ ngày<input id="run-start" type="date" required value="2026-11-16" aria-describedby="run-period-error"></label>
+        <label class="field">Đến ngày<input id="run-end" type="date" required value="2027-01-09" aria-describedby="run-period-error"></label>
+        <small class="field-error full" id="run-period-error" role="alert" hidden></small>
+        <small class="muted full" id="run-copy-note"></small>
+      </div>
+      <div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" type="button" id="confirm-create">Xác nhận mở đợt thu</button></div></form></dialog>
+  </div></div>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      // Fixture of server-known runs per class; the real overlap check is server-owned.
+      var runs = {
+        'Starters A': [['Unit 1', '2026-06-08', '2026-08-01'], ['Unit 2', '2026-08-03', '2026-09-26'], ['Unit 3', '2026-09-28', '2026-11-21']],
+        'Starters B': [['Unit 3', '2026-09-21', '2026-11-14']],
+        'Movers B': [['Unit 4', '2026-07-20', '2026-09-12'], ['Unit 5', '2026-09-14', '2026-11-07'], ['Unit 6', '2026-11-09', '2027-01-02']],
+        'Flyers C': [['Unit 1', '2026-10-19', '2026-12-12']]
+      };
+      var dialog = document.getElementById('create-dialog'), klass = document.getElementById('run-class'), start = document.getElementById('run-start'), end = document.getElementById('run-end'), error = document.getElementById('run-period-error'), note = document.getElementById('run-copy-note');
+      function vn(date) { var parts = date.split('-'); return parts[2] + '/' + parts[1] + '/' + parts[0]; }
+      function validate() {
+        var list = runs[klass.value] || [], message = '';
+        if (start.value && end.value && start.value > end.value) message = 'Đến ngày phải bằng hoặc sau Từ ngày.';
+        else if (start.value && end.value) list.forEach(function (run) { if (!message && start.value <= run[2] && end.value >= run[1]) message = 'Kỳ này trùng với đợt ' + run[0] + ' (' + vn(run[1]) + ' – ' + vn(run[2]) + ') của lớp ' + klass.value + '. Chọn kỳ không trùng ngày.'; });
+        error.textContent = message;
+        error.hidden = !message;
+        [start, end].forEach(function (input) { if (message) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid'); });
+        var previous = list[list.length - 1];
+        note.textContent = !klass.value ? '' : previous ? 'Khoản thu của đợt mới được sao chép từ đợt ' + previous[0] + ' của lớp ' + klass.value + '; sửa được khi đợt còn Nháp.' : 'Đợt đầu tiên của lớp chưa có khoản thu; thêm khoản thu sau khi mở.';
+        return !message;
+      }
+      [klass, start, end].forEach(function (input) { input.addEventListener('change', validate); });
+      document.getElementById('open-create').addEventListener('click', function () { dialog.showModal(); validate(); });
+      document.getElementById('confirm-create').addEventListener('click', function () { if (!document.getElementById('create-form').reportValidity() || !validate()) return; dialog.close(); });
+    });
+  </script>
+</body>
+</html>

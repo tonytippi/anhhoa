@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PassionEdu · Đợt thu theo lớp</title>
+  <link rel="stylesheet" href="../prototype.css">
+  <link rel="stylesheet" href="finance-style.css">
+  <script defer src="admin-shell.js"></script>
+  <style>.finance-page td.money{white-space:nowrap}.finance-page td.money small{display:inline-block;min-width:140px;white-space:normal}.finance-page .guide{margin-top:20px;color:var(--muted)}.finance-page .guide summary{cursor:pointer;font-weight:700;color:var(--ink)}</style>
+</head>
+<body>
+  <div data-admin-shell data-admin-route="runs" data-school-kind="LANGUAGE_CENTER"><div class="finance-page">
+    <section id="run-draft" data-run-view aria-labelledby="run-draft-title">
+      <div class="route"><div><p class="eyebrow">ĐỢT THU · LỚP MOVERS B · KỲ 09/11/2026 – 02/01/2027</p><h1 id="run-draft-title" tabindex="-1">Movers B · Unit 6 · Nháp</h1><p>Máy chủ xác định học sinh đang theo học thuộc lớp Movers B tại ngày đầu kỳ 09/11/2026.</p></div><a class="btn btn-secondary" href="center-collection-runs.html">Quay lại danh sách đợt thu</a></div>
+      <ol class="steps" aria-label="Tiến trình đợt thu"><li class="current" aria-current="step">Nháp</li><li>Sẵn sàng tạo hóa đơn</li><li>Đã tạo hóa đơn</li><li>Đã đóng</li></ol>
+      <div class="summary" aria-label="Tổng quan do máy chủ tính">
+        <div class="metric"><span>Học sinh đủ điều kiện</span><b>10</b></div>
+        <div class="metric"><span>Học sinh bị bỏ qua</span><b>0</b></div>
+        <div class="metric"><span>Cần thu dự kiến</span><b>42.000.000 đ</b></div>
+      </div>
+      <div class="card">
+        <div class="line"><h2>Khoản thu trong đợt</h2><button class="btn btn-primary" type="button" id="open-template-line">Thêm khoản thu</button></div>
+        <div class="table-wrap">
+          <table>
+            <caption>Khoản thu mẫu của đợt</caption>
+            <thead><tr><th>Khoản thu</th><th>Loại</th><th>Áp dụng cho</th><th>Số lượng</th><th class="money">Đơn giá</th><th class="money">Số HS</th><th class="money">Tạm tính</th><th>Tùy chọn</th></tr></thead>
+            <tbody>
+              <tr><td>Học phí unit</td><td><span class="badge neutral">Linh hoạt</span></td><td>Cả lớp</td><td>1 unit</td><td class="money">3.600.000 đ</td><td class="money">10</td><td class="money">36.000.000 đ</td><td><div class="line"><button class="btn btn-secondary" type="button" data-edit-template data-name="Học phí unit" data-quantity="1" data-scope="all">Sửa</button><button class="btn btn-secondary" type="button" data-confirm-title="Bỏ Học phí unit khỏi đợt thu" data-confirm-text="Khoản thu sẽ không có trong hóa đơn nháp của đợt này. Cần xem trước lại sau khi bỏ." data-confirm-label="Bỏ khoản thu">Bỏ</button></div></td></tr>
+              <tr><td>Giáo trình</td><td><span class="badge neutral">Linh hoạt</span></td><td>Cả lớp</td><td>1 bộ</td><td class="money">280.000 đ</td><td class="money">10</td><td class="money">2.800.000 đ</td><td><div class="line"><button class="btn btn-secondary" type="button" data-edit-template data-name="Giáo trình" data-quantity="1" data-scope="all">Sửa</button><button class="btn btn-secondary" type="button" data-confirm-title="Bỏ Giáo trình khỏi đợt thu" data-confirm-text="Khoản thu sẽ không có trong hóa đơn nháp của đợt này. Cần xem trước lại sau khi bỏ." data-confirm-label="Bỏ khoản thu">Bỏ</button></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" id="template-feedback" aria-live="polite"></p>
+      </div>
+      <div class="card">
+        <h2>Dịch vụ trong đợt</h2>
+        <div class="table-wrap">
+          <table>
+            <caption>Dịch vụ tính vào đợt thu Movers B · Unit 6</caption>
+            <thead><tr><th>Dịch vụ</th><th>Khoản thu</th><th class="money">Số HS trong kỳ</th><th class="money">Tạm tính</th><th>Trạng thái trong đợt</th><th>Tùy chọn</th></tr></thead>
+            <tbody>
+              <tr><td>Đưa đón</td><td>Đưa đón<br><small class="muted">800.000 đ/unit</small></td><td class="money">4<br><small class="muted">Chỉ tính học sinh của lớp Movers B</small></td><td class="money">3.200.000 đ</td><td><span class="badge success">Tính trong đợt</span></td><td><button class="btn btn-secondary" type="button" data-confirm-title="Loại Đưa đón khỏi đợt này" data-confirm-text="Thành viên của dịch vụ sẽ không có dòng khoản thu dịch vụ trong đợt này. Dịch vụ và thành viên không thay đổi; cần xem trước lại." data-confirm-label="Loại khỏi đợt này" data-confirm-reason>Loại khỏi đợt này</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" id="extracurricular-feedback" aria-live="polite"></p>
+      </div>
+      <div class="card">
+        <h2>Kết quả xem trước từ máy chủ</h2>
+        <p class="muted">Bản xem trước do máy chủ xác định từ danh sách học sinh của lớp tại ngày đầu kỳ.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Tạm tính theo dòng khoản thu</caption>
+            <thead><tr><th>Khoản thu</th><th>Loại</th><th>Áp dụng cho</th><th class="money">Số HS</th><th class="money">Tạm tính</th></tr></thead>
+            <tbody>
+              <tr><td>Học phí unit</td><td>Linh hoạt</td><td>Cả lớp</td><td class="money">10</td><td class="money">36.000.000 đ</td></tr>
+              <tr><td>Giáo trình</td><td>Linh hoạt</td><td>Cả lớp</td><td class="money">10</td><td class="money">2.800.000 đ</td></tr>
+              <tr><td>Đưa đón</td><td>Dịch vụ</td><td>Đưa đón</td><td class="money">4</td><td class="money">3.200.000 đ</td></tr>
+              <tr><td><b>Tổng trước ưu đãi, bớt và thuế</b></td><td></td><td></td><td></td><td class="money"><b>42.000.000 đ</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>Học sinh đủ điều kiện</caption>
+            <thead><tr><th>Học sinh</th><th>Lớp</th><th class="money">Tổng trước giảm</th><th class="money">Ưu đãi</th><th class="money">Bớt</th><th class="money">Thuế GTGT</th><th class="money">Tổng phải thu</th><th>Lý do ưu đãi</th></tr></thead>
+            <tbody>
+              <tr><td>SM-031 / Nguyễn Gia Huy</td><td>Movers B</td><td class="money">4.680.000 đ</td><td class="money">0 đ</td><td class="money">0 đ</td><td class="money">0 đ</td><td class="money">4.680.000 đ</td><td>Không áp dụng</td></tr>
+              <tr><td>SM-034 / Trần Bảo Châu</td><td>Movers B</td><td class="money">3.880.000 đ</td><td class="money">0 đ</td><td class="money">0 đ</td><td class="money">0 đ</td><td class="money">3.880.000 đ</td><td>Không áp dụng</td></tr>
+              <tr><td>SM-039 / Lê Hoàng Nam</td><td>Movers B</td><td class="money">3.880.000 đ</td><td class="money">0 đ</td><td class="money">0 đ</td><td class="money">0 đ</td><td class="money">3.880.000 đ</td><td>Không áp dụng</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="line"><button class="btn btn-secondary" type="button">Xem trước từ máy chủ</button><button class="btn btn-primary" type="button">Xác nhận xem trước và chuyển sẵn sàng</button></div>
+      </div>
+      <details class="guide">
+        <summary>Hướng dẫn</summary>
+        <p>Khoản thu của đợt này được sao chép từ đợt Unit 5 của lớp Movers B. Đợt thu theo lớp không tự thêm khoản thu cố định; sửa số lượng, thêm hoặc bỏ dòng khi đợt còn Nháp. Phạm vi của mỗi dòng là cả lớp hoặc học sinh cụ thể.</p>
+        <p>Máy chủ lấy thành viên dịch vụ có hiệu lực ít nhất một ngày trong kỳ và chỉ tính học sinh của lớp này. Số lượng mặc định là 1 cho cả unit; kế toán sửa trên hóa đơn nháp. Loại hoặc khôi phục dịch vụ chỉ áp dụng cho đợt này.</p>
+        <p>Đơn giá, số học sinh và tạm tính do máy chủ xác nhận. Mọi thay đổi khoản thu hoặc dịch vụ sau khi xem trước cần xem trước lại.</p>
+      </details>
+    </section>
+
+    <section id="run-generated" data-run-view hidden aria-labelledby="run-generated-title">
+      <div class="route"><div><p class="eyebrow">ĐỢT THU · LỚP STARTERS A · KỲ 28/09/2026 – 21/11/2026</p><h1 id="run-generated-title" tabindex="-1">Starters A · Unit 3 · Đã tạo hóa đơn</h1><p>Máy chủ xác định học sinh đang theo học thuộc lớp Starters A tại ngày đầu kỳ 28/09/2026.</p></div><a class="btn btn-secondary" href="center-collection-runs.html">Quay lại danh sách đợt thu</a></div>
+      <ol class="steps" aria-label="Tiến trình đợt thu"><li>Nháp</li><li>Sẵn sàng tạo hóa đơn</li><li class="current" aria-current="step">Đã tạo hóa đơn</li><li>Đã đóng</li></ol>
+      <div class="summary" aria-label="Tổng quan do máy chủ tính">
+        <div class="metric"><span>Phiếu thu</span><b>13</b></div>
+        <div class="metric"><span>Đã phát hành</span><b>0</b></div>
+        <div class="metric"><span>Tổng phải thu</span><b>50.800.000 đ</b></div>
+      </div>
+      <div class="notice" role="status">Chưa thể phát hành hóa đơn của đợt này: cần đóng đợt <b>Unit 2</b> (03/08/2026 – 26/09/2026) của lớp Starters A trước. <details><summary>Xem lý do</summary>Hóa đơn của một đợt chỉ phát hành được sau khi đợt trước của cùng lớp đã đóng. Đợt của lớp khác không ảnh hưởng.</details></div>
+      <div class="notice" role="status">Đã tạo 12 hóa đơn nháp; không bỏ qua học sinh nào. Đã thêm 1 học sinh sau khi tạo.</div>
+      <div class="card">
+        <div class="line"><div><h2>Hóa đơn trong đợt</h2><p class="muted">0/13 phiếu thu đã phát hành hoặc hoàn tất. Mỗi dòng là một phiếu thu gồm phần tài khoản trường và phần tài khoản cá nhân.</p></div><button class="btn btn-secondary" type="button" id="open-add-student">Thêm học sinh</button></div>
+        <div class="table-wrap">
+          <table>
+            <caption>Hóa đơn hiện có trong đợt thu</caption>
+            <thead><tr><th>Học sinh</th><th>Lớp</th><th class="money">Tài khoản trường</th><th class="money">Tài khoản cá nhân</th><th class="money">Tổng</th><th>Trạng thái</th><th>Tùy chọn</th></tr></thead>
+            <tbody>
+              <tr><td>SM-012 / Phạm Ngọc Hân</td><td>Starters A</td><td class="money">3.600.000 đ</td><td class="money">800.000 đ</td><td class="money"><b>4.400.000 đ</b></td><td><span class="badge neutral">Nháp</span></td><td><button class="btn btn-secondary" type="button">Rà soát hóa đơn</button></td></tr>
+              <tr><td>SM-015 / Đỗ Minh Quân</td><td>Starters A</td><td class="money">3.600.000 đ</td><td class="money">—</td><td class="money"><b>3.600.000 đ</b></td><td><span class="badge neutral">Nháp</span></td><td><button class="btn btn-secondary" type="button">Rà soát hóa đơn</button></td></tr>
+              <tr><td>SM-021 / Lê Thảo My</td><td>Starters A</td><td class="money">3.600.000 đ</td><td class="money">800.000 đ</td><td class="money"><b>4.400.000 đ</b></td><td><span class="badge neutral">Nháp</span></td><td><button class="btn btn-secondary" type="button">Rà soát hóa đơn</button></td></tr>
+              <tr><td>SM-047 / Vũ Khánh An <span class="badge warning">Trùng kỳ</span><br><small class="muted">Học phí unit đã có ở đợt Starters B · Unit 3 (21/09/2026 – 14/11/2026). Vào lớp Starters A từ 05/10/2026.</small></td><td>Starters A</td><td class="money">3.600.000 đ</td><td class="money">—</td><td class="money"><b>3.600.000 đ</b></td><td><span class="badge neutral">Nháp</span></td><td><button class="btn btn-secondary" type="button">Rà soát hóa đơn</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="line"><span class="muted">Chưa thể đóng: còn 13 phiếu thu nháp cần phát hành.</span><button class="btn btn-secondary" type="button" disabled>Đóng đợt thu</button></div>
+      </div>
+      <details class="guide">
+        <summary>Hướng dẫn</summary>
+        <p>Học sinh vào lớp giữa unit được thêm bằng <b>Thêm học sinh</b>. Hệ thống dùng bản chốt khoản thu của đợt và không chia theo ngày; kế toán điều chỉnh số lượng hoặc phần bớt trên hóa đơn nháp.</p>
+        <p>Cờ <b>Trùng kỳ</b> do hệ thống đánh dấu khi học sinh đã có cùng khoản thu ở một đợt khác trùng ngày, thường do chuyển lớp giữa unit. Hệ thống không chặn; kế toán rà soát và điều chỉnh trước khi phát hành.</p>
+      </details>
+    </section>
+
+    <dialog id="template-line-dialog" class="dialog-wide"><form method="dialog" class="dialog-body" id="template-line-form"><h2 id="template-line-title">Thêm khoản thu</h2>
+      <div class="dialog-grid">
+        <label class="field">Khoản thu<select id="template-receivable" required aria-describedby="template-receivable-hint"><option value="">Chọn khoản thu linh hoạt</option><option>Học phí unit · 3.600.000 đ/unit</option><option>Giáo trình · 280.000 đ/bộ</option><option>Lệ phí thi thử · 150.000 đ</option></select><small class="muted" id="template-receivable-hint">Chỉ khoản thu linh hoạt đang áp dụng. Khoản Dịch vụ thu theo nhóm dịch vụ.</small></label>
+        <label class="field">Số lượng<input id="template-quantity" type="number" min="1" step="1" required inputmode="numeric" value="1"></label>
+        <fieldset class="chip-group full" id="template-scope"><legend>Phạm vi</legend><label><input type="radio" name="scope" value="all" checked> Cả lớp</label><label><input type="radio" name="scope" value="student"> Học sinh cụ thể</label></fieldset>
+        <div class="dialog-grid full" data-scope-panel="student" hidden><label class="field full">Tìm học sinh<input id="template-student-search" type="search" placeholder="Mã hoặc tên học sinh" autocomplete="off"></label><div class="table-wrap full" style="max-height:280px;overflow-y:auto"><table><caption>Học sinh · Movers B</caption><thead><tr><th><input type="checkbox" aria-label="Chọn tất cả học sinh đang hiện"></th><th>Mã HS</th><th>Họ tên</th><th>Lớp</th></tr></thead><tbody><tr><td><input type="checkbox" checked aria-label="Chọn Nguyễn Gia Huy"></td><td>SM-031</td><td><b>Nguyễn Gia Huy</b></td><td>Movers B</td></tr><tr><td><input type="checkbox" aria-label="Chọn Trần Bảo Châu"></td><td>SM-034</td><td><b>Trần Bảo Châu</b></td><td>Movers B</td></tr><tr><td><input type="checkbox" aria-label="Chọn Lê Hoàng Nam"></td><td>SM-039</td><td><b>Lê Hoàng Nam</b></td><td>Movers B</td></tr></tbody></table></div><p class="muted full" aria-live="polite">Đã chọn 1 học sinh.</p></div>
+      </div>
+      <div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" type="button" id="save-template-line">Lưu khoản thu mẫu</button></div></form></dialog>
+    <dialog id="confirm-dialog"><form method="dialog" class="dialog-body" id="confirm-form"><h2 id="confirm-title">Xác nhận thao tác</h2><p class="muted" id="confirm-text"></p><label class="field" id="confirm-reason-field" hidden>Lý do (không bắt buộc)<input id="confirm-reason" placeholder="Ví dụ: Lớp không dùng xe trong unit này"></label><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Hủy</button><button class="btn btn-primary" id="confirm-action" value="default">Xác nhận</button></div></form></dialog>
+    <dialog id="add-student-dialog"><form method="dialog" class="dialog-body"><h2>Thêm học sinh vào đợt đã tạo</h2><p class="muted">Máy chủ tự xác nhận điều kiện và dùng bản chốt khoản thu của đợt.</p><div class="table-wrap"><table><caption>Học sinh có thể yêu cầu thêm</caption><thead><tr><th>Học sinh</th><th>Tùy chọn</th></tr></thead><tbody><tr><td>SM-058 / Hoàng Tuệ Lâm<br><small class="muted">Vào lớp Starters A từ 12/10/2026</small></td><td><button class="btn btn-secondary" value="default">Yêu cầu thêm</button></td></tr></tbody></table></div><div class="dialog-actions"><button class="btn btn-secondary" value="cancel">Đóng</button></div></form></dialog>
+  </div></div>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      var views = [].slice.call(document.querySelectorAll('[data-run-view]'));
+      function showRunView() {
+        var target = document.getElementById(window.location.hash.slice(1));
+        if (!target || !target.hasAttribute('data-run-view')) target = document.getElementById('run-draft');
+        views.forEach(function (view) { view.hidden = view !== target; });
+        var heading = target.querySelector('h1');
+        if (heading) heading.focus();
+      }
+      window.addEventListener('hashchange', showRunView);
+      showRunView();
+      document.getElementById('open-add-student').addEventListener('click', function () { document.getElementById('add-student-dialog').showModal(); });
+      var lineDialog = document.getElementById('template-line-dialog'), receivable = document.getElementById('template-receivable'), quantity = document.getElementById('template-quantity'), options = receivable.innerHTML;
+      function showScope(value) { document.querySelectorAll('input[name="scope"]').forEach(function (radio) { radio.checked = radio.value === value; }); document.querySelectorAll('[data-scope-panel]').forEach(function (panel) { panel.hidden = panel.dataset.scopePanel !== value; }); }
+      document.querySelectorAll('input[name="scope"]').forEach(function (radio) { radio.addEventListener('change', function () { showScope(radio.value); }); });
+      function openLine(button) {
+        document.getElementById('template-line-title').textContent = button ? 'Sửa · ' + button.dataset.name : 'Thêm khoản thu';
+        receivable.innerHTML = button ? '<option selected>' + button.dataset.name + '</option>' : options;
+        receivable.disabled = !!button;
+        quantity.value = button ? button.dataset.quantity : '1';
+        showScope(button ? button.dataset.scope : 'all');
+        lineDialog.showModal();
+      }
+      document.getElementById('open-template-line').addEventListener('click', function () { openLine(null); });
+      document.querySelectorAll('[data-edit-template]').forEach(function (button) { button.addEventListener('click', function () { openLine(button); }); });
+      document.getElementById('save-template-line').addEventListener('click', function () { if (!document.getElementById('template-line-form').reportValidity()) return; lineDialog.close(); document.getElementById('template-feedback').textContent = 'Đang gửi khoản thu mẫu để máy chủ tính lại số học sinh và tạm tính. Xem trước lại sau khi có kết quả; đối soát thao tác trước khi thử lại.'; });
+      var confirmDialog = document.getElementById('confirm-dialog'), pending;
+      document.querySelectorAll('[data-confirm-title]').forEach(function (button) { button.addEventListener('click', function () { pending = button; document.getElementById('confirm-title').textContent = button.dataset.confirmTitle; document.getElementById('confirm-text').textContent = button.dataset.confirmText; document.getElementById('confirm-action').textContent = button.dataset.confirmLabel; document.getElementById('confirm-reason-field').hidden = !button.hasAttribute('data-confirm-reason'); document.getElementById('confirm-reason').value = ''; confirmDialog.showModal(); }); });
+      document.getElementById('confirm-action').addEventListener('click', function (event) { event.preventDefault(); confirmDialog.close(); pending.disabled = true; var target = pending.hasAttribute('data-confirm-reason') ? 'extracurricular-feedback' : 'template-feedback'; document.getElementById(target).textContent = 'Đang gửi lựa chọn để máy chủ cập nhật đợt thu. Xem trước lại sau khi có kết quả; đối soát thao tác trước khi thử lại.'; });
+    });
+  </script>
+</body>
+</html>

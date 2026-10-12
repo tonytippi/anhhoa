@@ -9,6 +9,7 @@ import {
 import { auditData } from "../common/audit.js";
 import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
+import { schoolFeatures, type SchoolKind } from "../common/school-features.js";
 import { PrismaService } from "../identity/prisma.service.js";
 
 const uuid =
@@ -2989,6 +2990,12 @@ export class AttendanceService {
         skipDuplicates: true,
       });
   }
+  // Sprint change 2026-10-12: a School kind may switch a whole feature off; the feature is then refused for every actor.
+  private requireFeature(school: { kind: SchoolKind } | undefined, name: "dailyJournal" | "handover") {
+    if (school && !schoolFeatures(school.kind)[name])
+      throw new ConflictException({ code: "SCHOOL_FEATURE_DISABLED", message: "Trường này không dùng tính năng này." });
+  }
+
   private async teacher(
     identityId: string,
     schoolId: string,
@@ -3013,13 +3020,14 @@ export class AttendanceService {
           },
         },
       },
-      select: { id: true, boundStaffProfile: { select: { id: true } } },
+      select: { id: true, school: { select: { kind: true } }, boundStaffProfile: { select: { id: true } } },
     });
     if (!actor?.boundStaffProfile)
       throw new ForbiddenException({
         code: "CAPABILITY_DENIED",
         message: "Bạn không có quyền thực hiện thao tác này.",
       });
+    if (capability === "DAILY_JOURNAL_WRITE") this.requireFeature(actor.school, "dailyJournal");
     if (classId && attendanceOn) {
       const assignment = await tx.staffClassAssignment.findFirst({
         where: {
@@ -3302,13 +3310,14 @@ export class AttendanceService {
           },
         },
       },
-      select: { id: true, boundStaffProfile: { select: { id: true } } },
+      select: { id: true, school: { select: { kind: true } }, boundStaffProfile: { select: { id: true } } },
     });
     if (!actor?.boundStaffProfile)
       throw new ForbiddenException({
         code: "CAPABILITY_DENIED",
         message: "Bạn không có quyền thực hiện thao tác này.",
       });
+    this.requireFeature(actor.school, "handover");
     return { id: actor.id, staffProfileId: actor.boundStaffProfile.id };
   }
   private journalMime(contentType: string | undefined, media: Buffer) {

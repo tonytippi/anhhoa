@@ -50,6 +50,7 @@
             <tr>
               <th>Trường</th>
               <th>Mã trường</th>
+              <th>Loại trường</th>
               <th>Chủ sở hữu ban đầu</th>
               <th>Trạng thái</th>
               <th>Cập nhật</th>
@@ -64,6 +65,7 @@
                 >
               </td>
               <td>sch_anhhoa</td>
+              <td>Trường mầm non</td>
               <td><span class="badge success">Chủ sở hữu đã liên kết</span></td>
               <td><span class="badge success">Đang hoạt động</span></td>
               <td>05/09/2026 08:40</td>
@@ -83,6 +85,7 @@
                 >
               </td>
               <td>sch_hoasen</td>
+              <td>Trường mầm non</td>
               <td>
                 <span class="badge warning">Đang chờ chủ sở hữu liên kết</span>
               </td>
@@ -99,11 +102,32 @@
             </tr>
             <tr>
               <td>
+                <b>Trung tâm Anh ngữ Sao Mai</b><br /><span class="muted"
+                  >saomai@passionedu.org</span
+                >
+              </td>
+              <td>sch_saomai</td>
+              <td>Trung tâm ngoại ngữ</td>
+              <td><span class="badge success">Chủ sở hữu đã liên kết</span></td>
+              <td><span class="badge success">Đang hoạt động</span></td>
+              <td>04/09/2026 09:15</td>
+              <td>
+                <button
+                  class="button secondary"
+                  data-confirm="Tạm ngừng Trung tâm Anh ngữ Sao Mai|Yêu cầu nghiệp vụ tiếp theo sẽ bị chặn. Danh tính chung và các trường khác không bị ảnh hưởng."
+                >
+                  Tạm ngừng
+                </button>
+              </td>
+            </tr>
+            <tr>
+              <td>
                 <b>Trường MN Tuổi Thơ</b><br /><span class="muted"
                   >tuoitho@passionedu.org</span
                 >
               </td>
               <td>sch_tuoitho</td>
+              <td>Trường mầm non</td>
               <td><span class="badge success">Chủ sở hữu đã liên kết</span></td>
               <td><span class="badge danger-badge">Đã tạm ngừng</span></td>
               <td>03/09/2026 14:22</td>
@@ -138,12 +162,22 @@
                 >Được kiểm tra ở máy chủ trước khi khởi tạo.</small
               >
             </div>
+            <div class="field full">
+              <label for="school-kind">Loại trường</label
+              ><select id="school-kind" required aria-describedby="school-kind-help">
+                <option value="">Chọn loại trường</option>
+                <option value="PRESCHOOL" selected>Trường mầm non</option>
+                <option value="LANGUAGE_CENTER">Trung tâm ngoại ngữ</option></select
+              ><small id="school-kind-help" class="muted"
+                >Không đổi được sau khi khởi tạo.</small
+              >
+            </div>
           </div>
           <p class="muted">
             Khi thất bại, không để lại trường, danh tính người dùng, liên kết
             thành viên hoặc quyền cấp chưa hoàn chỉnh.
           </p>
-          <button class="button" data-confirm="Xác nhận khởi tạo trường|Trường MN Bình Minh (binh-minh) sẽ được tạo cùng chủ sở hữu đầu tiên owner@binhminh.edu.vn. Hệ thống thực hiện một thao tác có thể đối soát; yêu cầu giống nhau sẽ trả lại cùng kết quả.|Gửi yêu cầu khởi tạo">Xem lại và gửi yêu cầu khởi tạo</button>
+          <button class="button" data-confirm="Xác nhận khởi tạo trường|Trường MN Bình Minh (binh-minh), loại Trường mầm non, sẽ được tạo cùng chủ sở hữu đầu tiên owner@binhminh.edu.vn. Hệ thống thực hiện một thao tác có thể đối soát; yêu cầu giống nhau sẽ trả lại cùng kết quả. Loại trường không đổi được sau khi khởi tạo.|Gửi yêu cầu khởi tạo">Xem lại và gửi yêu cầu khởi tạo</button>
         </article>
         <article class="card">
           <h2>Trạng thái hết thời gian chờ</h2>
