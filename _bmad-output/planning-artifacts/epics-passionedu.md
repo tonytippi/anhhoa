@@ -806,7 +806,7 @@ Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
 
 As a School Admin of a language center,
 I want classes and students without school years,
-So that a class runs across New Year and a student who left can come back.
+So that a class runs across New Year without any year rollover.
 
 Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
 
@@ -816,7 +816,7 @@ Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
 **When** it is provisioned
 **Then** it has exactly one SchoolYear with no end date, always active; creating a year, year transfer and close-year return `409 SCHOOL_YEAR_NOT_USED`, and effective dates after `startsOn` are never bounded.
 
-**And** a `WITHDRAWN` or `ON_LEAVE` enrollment can be re-admitted with an effective date and reason as a new lifecycle transition that keeps history; a School that uses school years still refuses it.
+**And** the single SchoolYear is hidden from the portals; a returning student is created as a new Student in both School kinds and `WITHDRAWN` stays terminal.
 
 ### Story 5.50: Đợt thu theo phạm vi và kỳ dịch vụ
 
@@ -885,7 +885,7 @@ Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
 **Acceptance Criteria:**
 
 **Given** PostgreSQL tests
-**Then** they cover the scope-partial unique, same-Class period overlap, tenant graph of `classId`, period ordering, prior debt after a class change, carry, preceding period, the overlap flag, re-admission, idempotency and concurrency.
+**Then** they cover the scope-partial unique, same-Class period overlap, tenant graph of `classId`, period ordering, prior debt after a class change, carry, preceding period, the overlap flag, idempotency and concurrency.
 
 **And** an Admin E2E for a center runs provision, two classes, staggered unit runs, a transport service, generate, a mid-unit Student, issue, receipt, close and the next unit with old debt; the whole existing Finance suite stays green for a preschool.
 

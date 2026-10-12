@@ -53,8 +53,7 @@ Business owner đã chốt (2026-10-11 và 2026-10-12):
 - `SchoolYear.endsOn` được phép null (không giới hạn). Các snapshot `schoolYearEndsOn` theo đó nullable. Null nghĩa là luôn active và không chặn ngày hiệu lực phía sau.
 - Provision School có `usesSchoolYears = false` tạo đúng một SchoolYear không ngày kết thúc trong cùng transaction. API từ chối tạo SchoolYear thứ hai, chuyển năm và close year với `409 SCHOOL_YEAR_NOT_USED`. Portal ẩn bộ chọn năm học.
 - Lớp học xong được lưu trữ (`ARCHIVED`); học viên sang lớp mới bằng chuyển lớp effective-dated hiện có. Danh sách lớp mặc định chỉ hiện lớp `ACTIVE`.
-- **Học lại:** vì chỉ có một StudentEnrollment cho mỗi Student, School không dùng năm học được chuyển enrollment `WITHDRAWN` hoặc `ON_LEAVE` trở lại `ENROLLED`/`WAITING_FOR_CLASS` với ngày hiệu lực mới, lý do và lifecycle transition; lịch sử cũ giữ nguyên.
-- **Mầm non (bổ sung 2026-10-12):** học sinh đã nghỉ quay lại là trường hợp hiếm và được coi như học sinh mới: School Admin tạo Student mới với mã mới; enrollment `WITHDRAWN` cũ vẫn là trạng thái kết thúc, không có thao tác học lại.
+- **Học sinh quay lại (chốt 2026-10-12, cả hai loại trường):** học sinh đã nghỉ quay lại được coi như học sinh mới: School Admin tạo Student mới với mã mới và liên kết Parent bằng cùng email, nên Parent vẫn dùng một tài khoản. Enrollment `WITHDRAWN` vẫn là trạng thái kết thúc; không có thao tác học lại. Hồ sơ và Invoice cũ giữ nguyên; nợ cũ của hồ sơ cũ không tự chuyển sang hồ sơ mới, kế toán thu trên Invoice cũ.
 - Không có khóa sổ năm cho School này; Đợt thu `CLOSED` vẫn chỉ đọc. Khóa sổ theo ngày là proposal riêng.
 
 ### 2.3 Đợt thu = phạm vi + kỳ dịch vụ
@@ -120,6 +119,7 @@ Một khái niệm dùng chung: **kỳ liền trước** của run. Với `SCHOO
 | `schoolYearId` nullable cho trung tâm | Rejected | 58 cột khóa và mọi unique/composite FK chứa SchoolYear; null làm mất ràng buộc. |
 | Năm học của trung tâm = năm tài chính | Rejected | Mỗi 31/12 phải tạo lại lớp đang học dở, cắt chuỗi run của lớp và chuyển nợ sang năm; báo cáo năm chỉ cần lọc khoảng tháng. |
 | Bỏ hẳn `billingMonth` | Rejected | Vẫn cần một chiều tháng cho lọc, báo cáo và coverage theo tháng; giữ làm field suy ra, bỏ vai trò định danh và thứ tự. |
+| Cho enrollment `WITHDRAWN` học lại trên hồ sơ cũ | Rejected | Business owner chọn một quy tắc cho cả hai loại trường: quay lại là học sinh mới; liên kết Parent theo email không bị ảnh hưởng. |
 | Lịch học theo lớp, thực thể Unit, prorate theo buổi | Deferred | Không cần khi nghỉ không hoàn tiền và kế toán tự điều chỉnh. |
 | Hai scope run trong cùng một School | Deferred | Cần quy tắc nợ cũ và thu trùng chéo scope. |
 
@@ -135,7 +135,6 @@ Một khái niệm dùng chung: **kỳ liền trước** của run. Với `SCHOO
 
 - Given provision `LANGUAGE_CENTER`, then có đúng một SchoolYear không ngày kết thúc; tạo năm, chuyển năm, close year trả `409 SCHOOL_YEAR_NOT_USED`.
 - Given SchoolYear không ngày kết thúc, when tạo Class, enrollment, chuyển lớp, phân công staff với ngày bất kỳ từ `startsOn`, then hợp lệ và SchoolYear luôn active.
-- Given enrollment `WITHDRAWN` hoặc `ON_LEAVE` ở School không dùng năm học, when School Admin cho học lại với ngày hiệu lực và lý do, then lifecycle trở lại hoạt động, transition được ghi và lịch sử cũ không đổi; School dùng năm học vẫn từ chối.
 
 ### Story 5.50: Đợt thu theo phạm vi và kỳ dịch vụ
 
@@ -157,7 +156,7 @@ Một khái niệm dùng chung: **kỳ liền trước** của run. Với `SCHOO
 
 ### Story 5.53: Release gate
 
-- PostgreSQL tests: partial unique theo scope, chồng kỳ cùng lớp, tenant graph của `classId`, thứ tự theo kỳ, nợ cũ khi đổi lớp, carry, kỳ liền trước, cờ trùng kỳ, re-enrollment, idempotency/concurrency.
+- PostgreSQL tests: partial unique theo scope, chồng kỳ cùng lớp, tenant graph của `classId`, thứ tự theo kỳ, nợ cũ khi đổi lớp, carry, kỳ liền trước, cờ trùng kỳ, idempotency/concurrency.
 - Admin E2E trung tâm: provision -> tạo hai lớp -> mở run unit lệch nhau -> thêm đưa đón -> generate -> thêm học viên giữa unit -> phát hành -> thu tiền -> đóng -> mở unit kế tiếp có nợ cũ.
 - Regression mầm non: toàn bộ suite Finance hiện có xanh, không đổi hành vi.
 

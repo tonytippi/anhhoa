@@ -11,6 +11,7 @@ import { auditData } from "../common/audit.js";
 import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
 import { PrismaService } from "../identity/prisma.service.js";
+import { yearEnd } from "../common/school-year.js";
 import { renderPaymentImage } from "./payment-image.js";
 import { isTaxCategory, taxChannel, taxedLine, vatAmount, vatRate, type PaymentChannel, type TaxCategory } from "./tax.js";
 import { transferContent, vietQrBankCode, vietQrPayload } from "./vietqr.js";
@@ -402,7 +403,7 @@ export class FinanceService {
     return {
       groups: groups.map((item) => this.groupDto(item)),
       receivables: receivables.map((item) => this.receivableDto({ ...item, kindLocked: locked.has(item.id), extracurricularClassNames: classNames.get(item.id) ?? [] })),
-      schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString(), endsOn: year.endsOn.toISOString(), closedAt: year.closedAt?.toISOString() ?? null })),
+      schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString(), endsOn: year.endsOn?.toISOString() ?? null, closedAt: year.closedAt?.toISOString() ?? null })),
     };
   }
   async operation(identityId: string, schoolId: string, operationId: string) {
@@ -1801,7 +1802,7 @@ export class FinanceService {
     });
     const schoolYears = await this.prisma.schoolYear.findMany({ where: { schoolId }, orderBy: { startsOn: "desc" } });
     return {
-      schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString().slice(0, 10), endsOn: year.endsOn.toISOString().slice(0, 10), closedAt: year.closedAt?.toISOString() ?? null })),
+      schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString().slice(0, 10), endsOn: year.endsOn?.toISOString().slice(0, 10) ?? null, closedAt: year.closedAt?.toISOString() ?? null })),
       classes,
       receivables: receivables.map((item) => ({ id: item.id, displayName: item.displayName, unitLabel: item.unitLabel, defaultUnitPrice: item.defaultUnitPrice.toString(), status: item.lifecycleTransitions[0]?.status ?? null, sharedWith: all.filter((other) => other.receivableId === item.id && (!schoolYearId || other.schoolYearId === schoolYearId)).map((other) => other.name) })),
     };
@@ -2000,7 +2001,7 @@ export class FinanceService {
       await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const found = await this.extracurricularClassFor(tx, schoolId, classId);
       if (this.classStatus(found) !== "ACTIVE") throw new ConflictException({ code: "EXTRACURRICULAR_CLASS_INACTIVE", message: "Lớp ngoại khóa đã ngừng hoạt động." });
-      if (effectiveFrom < found.schoolYear.startsOn || effectiveFrom >= found.schoolYear.endsOn || (effectiveTo && effectiveTo > found.schoolYear.endsOn)) throw validation("effectiveFrom", "Thời gian tham gia phải nằm trong năm học của lớp.");
+      if (effectiveFrom < found.schoolYear.startsOn || effectiveFrom >= yearEnd(found.schoolYear.endsOn) || (effectiveTo && effectiveTo > yearEnd(found.schoolYear.endsOn))) throw validation("effectiveFrom", "Thời gian tham gia phải nằm trong năm học của lớp.");
       const enrollments = await tx.studentEnrollment.findMany({ where: { id: { in: enrollmentIds }, schoolId }, include: { student: { select: { studentCode: true, fullName: true } } } });
       if (enrollments.length !== enrollmentIds.length) throw new NotFoundException({ code: "ENROLLMENT_NOT_FOUND", message: "Không tìm thấy học sinh trong năm học của lớp." });
       const invalid = enrollments.filter((item: any) => item.schoolYearId !== found.schoolYearId || !membershipLifecycles.includes(item.lifecycle));
@@ -2114,7 +2115,7 @@ export class FinanceService {
     const from = this.date(query?.effectiveFrom || null, "effectiveFrom", false) ?? (version.effectiveFrom > today ? version.effectiveFrom : today);
     const to = this.inclusiveEnd(query?.effectiveTo || null, "effectiveTo");
     const year =
-      (await this.prisma.schoolYear.findFirst({ where: { schoolId, startsOn: { lte: from }, endsOn: { gte: from } }, orderBy: { startsOn: "desc" } })) ??
+      (await this.prisma.schoolYear.findFirst({ where: { schoolId, startsOn: { lte: from }, OR: [{ endsOn: null }, { endsOn: { gte: from } }] }, orderBy: { startsOn: "desc" } })) ??
       (await this.prisma.schoolYear.findFirst({ where: { schoolId, startsOn: { lte: from } }, orderBy: { startsOn: "desc" } })) ??
       (await this.prisma.schoolYear.findFirst({ where: { schoolId }, orderBy: { startsOn: "asc" } }));
     if (!year) return { schoolYear: null, officialClasses: [], students: [] };
@@ -2619,7 +2620,7 @@ export class FinanceService {
           message: "Năm học đã đóng chỉ có thể xem.",
         });
       const asOf = this.asOf(input.billingMonth);
-      if (asOf < year.startsOn || asOf >= year.endsOn)
+      if (asOf < year.startsOn || asOf >= yearEnd(year.endsOn))
         throw validation(
           "billingMonth",
           "Tháng thu phải thuộc năm học đã chọn.",
@@ -2918,7 +2919,7 @@ export class FinanceService {
       schoolYear: {
         id: run.schoolYear.id,
         startsOn: run.schoolYear.startsOn.toISOString(),
-        endsOn: run.schoolYear.endsOn.toISOString(),
+        endsOn: run.schoolYear.endsOn?.toISOString() ?? null,
         closedAt: run.schoolYear.closedAt?.toISOString() ?? null,
       },
       rosterStudentIds,
@@ -3081,7 +3082,7 @@ export class FinanceService {
       }
 
       // Months of a later SchoolYear have no enrollment yet; the current enrollment must cover the rest.
-      const enrollment = period.serviceStart >= year.endsOn ? true : await tx.studentEnrollment.findFirst({
+      const enrollment = period.serviceStart >= yearEnd(year.endsOn) ? true : await tx.studentEnrollment.findFirst({
         where: {
           schoolId,
           studentId: invoice.studentId,

@@ -12,6 +12,7 @@ import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
 import { AuthorizationService } from "../authorization/authorization.service.js";
 import { PrismaService } from "../identity/prisma.service.js";
+import { yearEnd } from "../common/school-year.js";
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -134,6 +135,14 @@ export class RosterService {
       "ROSTER_MANAGE",
     );
   }
+  // Sprint change 2026-10-12: such a School keeps the single open-ended SchoolYear created at provisioning.
+  private requireSchoolYears(actor: { features: { usesSchoolYears: boolean } }) {
+    if (!actor.features.usesSchoolYears)
+      throw new ConflictException({
+        code: "SCHOOL_YEAR_NOT_USED",
+        message: "Trường này không dùng năm học.",
+      });
+  }
   private name(value: unknown, field = "name") {
     const name = typeof value === "string" ? value.trim() : "";
     if (!name || name.length > 100)
@@ -175,10 +184,10 @@ export class RosterService {
       id: value.id,
       name: value.name,
       startsOn: value.startsOn.toISOString().slice(0, 10),
-      endsOn: value.endsOn.toISOString().slice(0, 10),
+      endsOn: value.endsOn?.toISOString().slice(0, 10) ?? null,
       isActive:
         value.startsOn.toISOString().slice(0, 10) <= today &&
-        today < value.endsOn.toISOString().slice(0, 10),
+        today < yearEnd(value.endsOn).toISOString().slice(0, 10),
       closedAt: value.closedAt?.toISOString() ?? null,
     };
   }
@@ -212,7 +221,7 @@ export class RosterService {
       schoolYear: {
         name: value.schoolYearName,
         startsOn: value.schoolYearStartsOn.toISOString().slice(0, 10),
-        endsOn: value.schoolYearEndsOn.toISOString().slice(0, 10),
+        endsOn: value.schoolYearEndsOn?.toISOString().slice(0, 10) ?? null,
       },
       classroom:
         current?.classroom?.name ?? value.className
@@ -295,7 +304,7 @@ export class RosterService {
         id: value.schoolYearId,
         name: value.schoolYearName,
         startsOn: value.schoolYearStartsOn.toISOString().slice(0, 10),
-        endsOn: value.schoolYearEndsOn.toISOString().slice(0, 10),
+        endsOn: value.schoolYearEndsOn?.toISOString().slice(0, 10) ?? null,
       },
       classroom: { id: value.classId, name: value.className },
       access: { status: "NOT_PROVIDED" },
@@ -1500,6 +1509,7 @@ export class RosterService {
     body: any,
   ) {
     const actor = await this.actor(identityId, schoolId);
+    this.requireSchoolYears(actor);
     const name = this.name(body?.name);
     const startsOn = this.date(body?.startsOn, "startsOn");
     const endsOn = this.date(body?.endsOn, "endsOn");
@@ -1945,7 +1955,7 @@ export class RosterService {
             !prior ||
             !prior.effectiveTo ||
             prior.effectiveTo >=
-              (await this.year(schoolId, enrollment.schoolYearId, tx)).endsOn
+              yearEnd((await this.year(schoolId, enrollment.schoolYearId, tx)).endsOn)
           )
             throw new ConflictException({
               code: "PLACEMENT_REACTIVATION_INVALID",
@@ -2023,7 +2033,7 @@ export class RosterService {
     );
   }
   async previewCloseYear(identityId: string, schoolId: string, body: any) {
-    await this.actor(identityId, schoolId);
+    this.requireSchoolYears(await this.actor(identityId, schoolId));
     return this.closeYearPreview(this.prisma, schoolId, body);
   }
   async transitionEnrollments(
@@ -2159,6 +2169,7 @@ export class RosterService {
     body: any,
   ) {
     const actor = await this.actor(identityId, schoolId);
+    this.requireSchoolYears(actor);
     const schoolYearId =
       typeof body?.schoolYearId === "string" ? body.schoolYearId : "";
     const effectiveTo = this.date(body?.effectiveTo, "effectiveTo");
@@ -2321,8 +2332,8 @@ export class RosterService {
     if (
       input.kind === "YEAR_TRANSITION" &&
       (input.sourceSchoolYearId === input.destinationSchoolYearId ||
-        destinationYear.startsOn < sourceYear.endsOn ||
-        effective < sourceYear.endsOn)
+        destinationYear.startsOn < yearEnd(sourceYear.endsOn) ||
+        effective < yearEnd(sourceYear.endsOn))
     )
       throw new BadRequestException({
         code: "VALIDATION_ERROR",
@@ -2463,7 +2474,7 @@ export class RosterService {
         message: "Năm học đã được đóng.",
       });
     const end = this.dateValue(effectiveTo, "effectiveTo");
-    if (end < year.startsOn || end > year.endsOn)
+    if (end < year.startsOn || end > yearEnd(year.endsOn))
       throw new BadRequestException({
         code: "VALIDATION_ERROR",
         message: "Dữ liệu không hợp lệ.",
@@ -2669,9 +2680,9 @@ export class RosterService {
       });
     if (
       effectiveFrom < year.startsOn ||
-      effectiveFrom >= year.endsOn ||
+      effectiveFrom >= yearEnd(year.endsOn) ||
       (effectiveTo &&
-        (effectiveTo <= year.startsOn || effectiveTo > year.endsOn))
+        (effectiveTo <= year.startsOn || effectiveTo > yearEnd(year.endsOn)))
     )
       throw new BadRequestException({
         code: "VALIDATION_ERROR",
@@ -2898,8 +2909,8 @@ export class RosterService {
   private yearInterval(year: any, effectiveFrom: Date, endedOn: Date | null) {
     if (
       effectiveFrom < year.startsOn ||
-      effectiveFrom >= year.endsOn ||
-      (endedOn && (endedOn < year.startsOn || endedOn >= year.endsOn))
+      effectiveFrom >= yearEnd(year.endsOn) ||
+      (endedOn && (endedOn < year.startsOn || endedOn >= yearEnd(year.endsOn)))
     )
       throw new BadRequestException({
         code: "VALIDATION_ERROR",
@@ -2918,7 +2929,7 @@ export class RosterService {
     if (
       !(
         year.startsOn.toISOString().slice(0, 10) <= today &&
-        today < year.endsOn.toISOString().slice(0, 10)
+        today < yearEnd(year.endsOn).toISOString().slice(0, 10)
       )
     )
       throw new ConflictException({

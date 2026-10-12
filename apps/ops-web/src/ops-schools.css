@@ -4,7 +4,7 @@
 .table-wrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; min-width: 720px; }
 th, td { border-bottom: 1px solid #cbd8d1; padding: .8rem; text-align: left; }
-button, input { font: inherit; padding: .65rem .8rem; min-height: 44px; }
+button, input, select { font: inherit; padding: .65rem .8rem; min-height: 44px; }
 button { background: #176b46; color: white; border: 0; border-radius: .25rem; cursor: pointer; }
 button + button { margin-left: .5rem; background: #456057; }
 label { display: grid; gap: .3rem; margin: .8rem 0; }

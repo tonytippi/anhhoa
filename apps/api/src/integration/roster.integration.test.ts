@@ -685,4 +685,18 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('roster PostgreSQL
     const operation = await prisma.operation.create({ data: { schoolId: b.current.id, membershipId: (await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: b.current.id } })).id, actorIdentityId: b.admin.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: (await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: b.current.id } })).id, route: 'test', fingerprint: 'test', idempotencyKey: uuid() } });
     await expect(prisma.schoolYear.update({ where: { id: a.year.id }, data: { closeOperationId: operation.id } })).rejects.toMatchObject({ code: 'P2003' });
   });
+  it('runs classes and enrollments of a School without school years in its single open-ended year', async () => {
+    const center = await prisma.school.create({ data: { name: 'Trung tâm', slug: `center-${uuid()}`, studentCodePrefix: 'C', kind: 'LANGUAGE_CENTER' } }); schools.push(center.id);
+    const year = await prisma.schoolYear.create({ data: { schoolId: center.id, name: 'Toàn thời gian', startsOn: new Date('2000-01-01T00:00:00.000Z'), endsOn: null } });
+    const admin = await actor(center.id);
+    const notUsed = { status: 409, response: { code: 'SCHOOL_YEAR_NOT_USED' } };
+    await expect(roster.createSchoolYear(admin.id, center.id, uuid(), uuid(), { name: 'Năm 2027', startsOn: '2027-01-01', endsOn: '2028-01-01' })).rejects.toMatchObject(notUsed);
+    await expect(roster.previewCloseYear(admin.id, center.id, { schoolYearId: year.id, effectiveTo: '2026-12-31', reason: 'Kết năm' })).rejects.toMatchObject(notUsed);
+    await expect(roster.closeYear(admin.id, center.id, uuid(), uuid(), { schoolYearId: year.id, effectiveTo: '2026-12-31', reason: 'Kết năm', previewFingerprint: 'x', confirmation: 'ĐÓNG NĂM HỌC' })).rejects.toMatchObject(notUsed);
+    await expect(roster.schoolYears(admin.id, center.id)).resolves.toMatchObject([{ id: year.id, endsOn: null, isActive: true }]);
+    const classroom = await roster.createClass(admin.id, center.id, year.id, uuid(), uuid(), { name: 'Starters A' });
+    const student = await roster.createStudent(admin.id, center.id, uuid(), uuid(), { fullName: 'Bé Na', dateOfBirth: '2018-01-01', schoolYearId: year.id, classId: (classroom.outcome as { id: string }).id, effectiveFrom: '2031-03-15', endedOn: null, intakeStatus: 'PLACED' });
+    expect(student.status).toBe('COMPLETED');
+    await expect(prisma.studentEnrollment.findFirstOrThrow({ where: { schoolId: center.id } })).resolves.toMatchObject({ schoolYearEndsOn: null, effectiveFrom: new Date('2031-03-15T00:00:00.000Z') });
+  });
 });

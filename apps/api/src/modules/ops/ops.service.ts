@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../identity/prisma.service.js';
-import { isSchoolKind } from '../common/school-features.js';
+import { isSchoolKind, schoolFeatures } from '../common/school-features.js';
 import { auditData } from '../common/audit.js';
 import { requestFingerprint } from '../common/mutation-protection.js';
 import { isOperationIdempotencyCollision } from '../common/operation-idempotency.js';
@@ -37,6 +37,8 @@ export class OpsService {
       const owner = await tx.userIdentity.upsert({ where: { emailNormalized: ownerEmail }, create: { emailNormalized: ownerEmail }, update: {} });
       if (owner.id === identityId) throw new ForbiddenException({ code: 'OPS_OWNER_BOOTSTRAP_DENIED', message: 'Platform Operator không thể là chủ sở hữu đầu tiên của trường.' });
       const school = await tx.school.create({ data: { name, slug, kind, studentCodePrefix, initialOwnerIdentityId: owner.id } });
+      // A School that does not use school years gets its only SchoolYear here; roster refuses to create another.
+      if (!schoolFeatures(kind).usesSchoolYears) await tx.schoolYear.create({ data: { schoolId: school.id, name: 'Toàn thời gian', startsOn: new Date('2000-01-01T00:00:00.000Z'), endsOn: null } });
        const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: owner.id } });
        const positions = await Promise.all([
          ['HIEU_TRUONG', 'Hiệu trưởng'], ['QUAN_LY_TRUONG', 'Quản lý trường'], ['KE_TOAN', 'Kế toán'], ['GIAO_VIEN', 'Giáo viên'], ['TUYEN_SINH', 'Nhân viên tuyển sinh'], ['BEP', 'Bếp'], ['Y_TE', 'Y tế'],

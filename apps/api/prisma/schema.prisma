@@ -104,7 +104,8 @@ model SchoolYear {
   schoolId                      String                         @db.Uuid
   name                          String
   startsOn                      DateTime                       @db.Date
-  endsOn                        DateTime                       @db.Date
+  // Null = open-ended: the single SchoolYear of a School that does not use school years.
+  endsOn                        DateTime?                      @db.Date
   createdAt                     DateTime                       @default(now()) @db.Timestamptz(3)
   updatedAt                     DateTime                       @updatedAt @db.Timestamptz(3)
   school                        School                         @relation(fields: [schoolId], references: [id], onDelete: Restrict)
@@ -281,7 +282,7 @@ model StaffClassAssignment {
   endReason          String?
   schoolYearName     String
   schoolYearStartsOn DateTime     @db.Date
-  schoolYearEndsOn   DateTime     @db.Date
+  schoolYearEndsOn   DateTime?    @db.Date
   className          String
   createdAt          DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime     @updatedAt @db.Timestamptz(3)
@@ -449,7 +450,7 @@ model StudentEnrollment {
   endedOn                     DateTime?                              @db.Date
   schoolYearName              String
   schoolYearStartsOn          DateTime                               @db.Date
-  schoolYearEndsOn            DateTime                               @db.Date
+  schoolYearEndsOn            DateTime?                              @db.Date
   className                   String?
   createdAt                   DateTime                               @default(now()) @db.Timestamptz(3)
   updatedAt                   DateTime                               @updatedAt @db.Timestamptz(3)
