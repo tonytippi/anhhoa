@@ -2786,11 +2786,13 @@ export class FinanceService {
     const end = new Date(run.periodEndsOn.getTime() + 86_400_000);
     return { start: run.periodStartsOn, end, startIso: iso(run.periodStartsOn), endIso: iso(end) };
   }
-  private async memberFacts(client: any, schoolId: string, classIds: string[], run: { periodStartsOn: Date; periodEndsOn: Date }) {
+  private async memberFacts(client: any, schoolId: string, classIds: string[], run: { periodStartsOn: Date; periodEndsOn: Date; scope?: string; classId?: string | null }) {
     if (!classIds.length) return [];
     const { start, end } = this.periodBounds(run);
+    // A CLASS run counts and bills only members who belong to its Class at least one day of the period (same rule as the run's selection).
+    const ofRunClass = run.scope === "CLASS" ? { enrollment: { classAssignments: { some: { classId: run.classId, effectiveFrom: { lt: end }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: start } }] } } } } : {};
     const rows = await client.extracurricularMembership.findMany({
-      where: { schoolId, extracurricularClassId: { in: classIds }, effectiveFrom: { lt: end }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: start } }] },
+      where: { schoolId, extracurricularClassId: { in: classIds }, effectiveFrom: { lt: end }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: start } }], ...ofRunClass },
       select: { extracurricularClassId: true, enrollmentId: true, effectiveFrom: true, effectiveTo: true, enrollment: { select: { studentId: true } } },
       orderBy: [{ extracurricularClassId: "asc" }, { enrollmentId: "asc" }, { effectiveFrom: "asc" }],
     });

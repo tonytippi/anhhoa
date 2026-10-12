@@ -8,6 +8,8 @@ const emails = [
   "release-gate-parent@example.com",
 ];
 const slugs = ["release-gate-a", "release-gate-b"];
+// Story 5.53: one language center beside the two preschools; only the Admin identity is a member.
+const centerSlug = "release-gate-center";
 
 try {
   await prisma.$transaction(
@@ -21,7 +23,7 @@ try {
         "SET LOCAL session_replication_role = replica",
       );
       const fixtureSchools = await tx.school.findMany({
-        where: { slug: { in: slugs } },
+        where: { slug: { in: [...slugs, centerSlug] } },
         select: { id: true },
       });
       const schoolIds = fixtureSchools.map((school) => school.id);
@@ -100,6 +102,10 @@ try {
       await tx.issuedPromotionApplication.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });
+      await tx.debtTransfer.deleteMany({ where: { schoolId: { in: schoolIds } } });
+      await tx.settlementCarry.deleteMany({ where: { schoolId: { in: schoolIds } } });
+      await tx.settlementDifference.deleteMany({ where: { schoolId: { in: schoolIds } } });
+      await tx.receipt.deleteMany({ where: { schoolId: { in: schoolIds } } });
       await tx.invoiceLine.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });
@@ -749,6 +755,146 @@ try {
           await tx.collectionRun.update({ where: { id: run.id }, data: { status: "CLOSED" } });
           await tx.$executeRaw`SET LOCAL session_replication_role = origin`;
         }
+      }
+
+      // Story 5.53 (sprint change 2026-10-12): a LANGUAGE_CENTER with its single open-ended SchoolYear, two Classes,
+      // a unit tuition and a transport service. Collection runs are opened by the E2E through the Admin portal.
+      {
+        const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
+        // The roster UI adds one more Student in the E2E, so the code sequence continues after the four seeded ones.
+        const school = await tx.school.create({
+          data: { name: "Trung tâm Release Gate", slug: centerSlug, kind: "LANGUAGE_CENTER", studentCodePrefix: "TT", studentCodeSequence: 4 },
+        });
+        const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: admin.id } });
+        const position = await tx.schoolPosition.create({ data: { schoolId: school.id, code: "ADMIN", name: "Quản lý trung tâm" } });
+        await tx.positionCapabilityGrant.createMany({
+          data: ["SCHOOL_CONTEXT_READ", "ROSTER_MANAGE", "FINANCE_MANAGE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })),
+        });
+        await tx.staffProfile.create({
+          data: {
+            schoolId: school.id,
+            fullName: admin.emailNormalized,
+            email: admin.emailNormalized,
+            phone: "0900000000",
+            dateOfBirth: day("1990-01-01"),
+            gender: "Khác",
+            address: "Release fixture",
+            primaryPositionId: position.id,
+            schoolMembershipId: membership.id,
+            boundAt: new Date(),
+            boundByMembershipId: membership.id,
+          },
+        });
+        const year = await tx.schoolYear.create({ data: { schoolId: school.id, name: school.name, startsOn: day("2000-01-01"), endsOn: null } });
+        const starters = await tx.class.create({ data: { schoolId: school.id, schoolYearId: year.id, name: "Starters A" } });
+        const movers = await tx.class.create({ data: { schoolId: school.id, schoolYearId: year.id, name: "Movers B" } });
+        const enrollments: Record<string, string> = {};
+        for (const [index, [fullName, classroom]] of ([
+          ["Học viên An", starters],
+          ["Học viên Bình", starters],
+          ["Học viên Chi", movers],
+          ["Học viên Dũng", movers],
+        ] as const).entries()) {
+          const student = await tx.student.create({
+            data: { schoolId: school.id, studentCode: `TT${index + 1}`, fullName, dateOfBirth: day("2017-01-01") },
+          });
+          const enrollment = await tx.studentEnrollment.create({
+            data: {
+              schoolId: school.id,
+              studentId: student.id,
+              schoolYearId: year.id,
+              classId: classroom.id,
+              lifecycle: "ENROLLED",
+              effectiveFrom: day("2026-08-01"),
+              schoolYearName: year.name,
+              schoolYearStartsOn: year.startsOn,
+              schoolYearEndsOn: year.endsOn,
+              className: classroom.name,
+            },
+          });
+          await tx.enrollmentClassAssignment.create({
+            data: { schoolId: school.id, enrollmentId: enrollment.id, schoolYearId: year.id, classId: classroom.id, effectiveFrom: day("2026-08-01"), reason: "Release center fixture" },
+          });
+          enrollments[fullName] = enrollment.id;
+        }
+        await tx.schoolCalendarVersion.create({
+          data: { schoolId: school.id, effectiveFrom: day("2026-01-01"), actorIdentityId: admin.id, membershipId: membership.id },
+        });
+        const operation = await tx.operation.create({
+          data: {
+            schoolId: school.id,
+            membershipId: membership.id,
+            actorIdentityId: admin.id,
+            actorType: "SCHOOL_MEMBERSHIP",
+            actorReference: membership.id,
+            route: "release-gate-fixture",
+            fingerprint: "release-gate-fixture-center",
+            idempotencyKey: crypto.randomUUID(),
+            status: "COMPLETED",
+          },
+        });
+        await tx.financePolicy.create({
+          data: {
+            schoolId: school.id,
+            effectiveFrom: day("2026-01-01"),
+            dueDaysAfterIssue: 7,
+            taxTreatment: "NOT_APPLICABLE",
+            debtScope: "CURRENT_SCHOOL_YEAR_ONLY",
+            reversalMode: "DIRECT",
+            reason: "Release center fixture",
+            actorIdentityId: admin.id,
+            membershipId: membership.id,
+          },
+        });
+        const bankAccount = await tx.bankAccount.create({
+          data: {
+            schoolId: school.id,
+            receivingBank: "Ngân hàng Release Trung tâm",
+            bankBin: "970436",
+            accountNumber: "100000003",
+            accountHolderName: "Trung tâm Release Gate",
+            transferTemplate: "{{studentName}} {{className}}",
+            kind: "PERSONAL",
+            actorIdentityId: admin.id,
+            membershipId: membership.id,
+          },
+        });
+        await tx.bankAccountLifecycleTransition.create({
+          data: { schoolId: school.id, bankAccountId: bankAccount.id, status: "ACTIVE", actorIdentityId: admin.id, membershipId: membership.id, operationId: operation.id, sequence: 1 },
+        });
+        const receivable = async (kind: "FIXED" | "FLEXIBLE" | "EXTRACURRICULAR", groupName: string, item?: { code: string; displayName: string; defaultUnitPrice: bigint }) => {
+          const group = await tx.receivableGroup.create({ data: { schoolId: school.id, kind, name: groupName } });
+          if (!item) return undefined;
+          const created = await tx.receivable.create({ data: { schoolId: school.id, groupId: group.id, unitLabel: "unit", ...item } });
+          await tx.receivableLifecycleTransition.create({
+            data: { schoolId: school.id, receivableId: created.id, status: "ACTIVE", actorIdentityId: admin.id, membershipId: membership.id, operationId: operation.id, sequence: 1 },
+          });
+          return created;
+        };
+        await receivable("FIXED", "Khoản thu cố định");
+        await receivable("FLEXIBLE", "Khoản thu linh hoạt", { code: "TT-TUITION", displayName: "Học phí unit", defaultUnitPrice: 3_600_000n });
+        const transport = await receivable("EXTRACURRICULAR", "Ngoại khóa", { code: "TT-TRANSPORT", displayName: "Đưa đón", defaultUnitPrice: 800_000n });
+        // The service group: one Starters A Student and one Movers B Student, so a Starters A run must count only its own.
+        const service = await tx.extracurricularClass.create({
+          data: { schoolId: school.id, schoolYearId: year.id, name: "Đưa đón", receivableId: transport!.id },
+        });
+        await tx.extracurricularClassLifecycleTransition.create({
+          data: { schoolId: school.id, extracurricularClassId: service.id, status: "ACTIVE", actorIdentityId: admin.id, membershipId: membership.id, operationId: operation.id, sequence: 1 },
+        });
+        for (const fullName of ["Học viên An", "Học viên Chi"])
+          await tx.extracurricularMembership.create({
+            data: {
+              schoolId: school.id,
+              schoolYearId: year.id,
+              extracurricularClassId: service.id,
+              enrollmentId: enrollments[fullName]!,
+              effectiveFrom: day("2026-08-01"),
+              reason: "Đăng ký đưa đón",
+              actorIdentityId: admin.id,
+              createdByMembershipId: membership.id,
+              createOperationId: operation.id,
+            },
+          });
       }
     },
     { timeout: 30000 },

@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 
 const api = `http://localhost:${process.env.E2E_API_PORT ?? '3000'}`;
 const app = `http://localhost:${process.env.E2E_APP_PORT ?? '5173'}`;
+// The other portals follow the E2E ports of .env.test as well, so a run never lands on a developer's own dev servers.
+const parentApp = `http://localhost:${process.env.E2E_PARENT_APP_PORT ?? '5174'}`;
+const teacherApp = `http://localhost:${process.env.E2E_TEACHER_APP_PORT ?? '5175'}`;
+const opsApp = `http://localhost:${process.env.E2E_OPS_APP_PORT ?? '5176'}`;
 const users = {
   app: { email: 'release-gate-admin@example.com', subject: 'release-gate-admin' },
   teacher: { email: 'release-gate-teacher@example.com', subject: 'release-gate-teacher' },
@@ -24,9 +28,9 @@ async function login(context: import('@playwright/test').BrowserContext, audienc
 test('four portal origins expose safe signed-out state and no Parent protected content', async ({ browser }) => {
   for (const [origin, heading] of [
     [app, 'Quản trị trường'],
-    ['http://localhost:5175', 'Giáo viên'],
-    ['http://localhost:5174', 'Phụ huynh'],
-    ['http://localhost:5176', 'Vận hành nền tảng'],
+    [teacherApp, 'Giáo viên'],
+    [parentApp, 'Phụ huynh'],
+    [opsApp, 'Vận hành nền tảng'],
   ]) {
     const context = await browser.newContext(); const page = await context.newPage();
     await page.goto(origin); await expect(page.getByRole('heading', { name: heading })).toBeVisible();
@@ -43,7 +47,7 @@ test('deterministic Parent callback redirects to the safe portal state', async (
   const clientId = new URL(location, api).searchParams.get('client_id')!;
   const token = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', sub: `release-browser-${crypto.randomUUID()}`, email, email_verified: true, aud: clientId, nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString('base64url');
   const parent = await context.request.get(`${api}/api/parent/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(token)}`, { maxRedirects: 0 });
-  expect(parent.status()).toBe(302); expect(parent.headers().location).toBe('http://localhost:5174');
+  expect(parent.status()).toBe(302); expect(parent.headers().location).toBe(parentApp);
   expect((await context.cookies(api)).some((cookie) => cookie.name === 'parent_session')).toBe(false);
   await context.close();
 });
@@ -57,7 +61,7 @@ test("Parent callback issues a session only for the seeded active links and rend
   expect(session.status()).toBe(200);
   expect((await session.json()).data.schools).toHaveLength(2);
   const page = await context.newPage();
-  await page.goto("http://localhost:5174");
+  await page.goto(parentApp);
   await expect(
     page.getByRole("heading", { name: "Chọn trường để xem" }),
   ).toBeVisible();
@@ -90,7 +94,7 @@ test("Parent foreground denial clears the selected School before the signed-out 
   const context = await browser.newContext();
   await login(context, "parent");
   const page = await context.newPage();
-  await page.goto("http://localhost:5174");
+  await page.goto(parentApp);
   await page.getByRole("button", { name: /Release Gate A/ }).click();
   await expect(page.getByText("Bé An")).toBeVisible();
   await page.route("**/api/parent/auth/session", async (route) =>
@@ -109,7 +113,7 @@ test("Parent renders only the issued obligation snapshot and clears it after rev
   const context = await browser.newContext();
   await login(context, "parent");
   const page = await context.newPage();
-  await page.goto("http://localhost:5174");
+  await page.goto(parentApp);
   await page.getByRole("button", { name: /Release Gate A/ }).click();
   await page.getByRole("button", { name: "Khoản cần thanh toán" }).click();
   await expect(page.getByText("OBL-202609-000001")).toBeVisible();
@@ -130,7 +134,7 @@ test("Parent loads and refreshes the authorized obligation list from its direct 
   const context = await browser.newContext();
   await login(context, "parent");
   const page = await context.newPage();
-  await page.goto("http://localhost:5174/obligations");
+  await page.goto(`${parentApp}/obligations`);
   await expect(page.getByRole("heading", { name: "Khoản cần thanh toán" })).toBeVisible();
   await expect(page.getByText("OBL-202609-000001")).toBeVisible();
   await page.reload();
@@ -145,7 +149,7 @@ test("Parent child endpoint denial clears child detail and returns focus to the 
   const context = await browser.newContext();
   await login(context, "parent");
   const page = await context.newPage();
-  await page.goto("http://localhost:5174");
+  await page.goto(parentApp);
   await page.getByRole("button", { name: /Release Gate A/ }).click();
   await page.getByRole("button", { name: /Bé An/ }).click();
   await expect(page.getByRole("heading", { name: "Bé An" })).toBeFocused();
@@ -167,7 +171,7 @@ test("Parent creates, receives a server validation error, cancels a pending leav
   const context = await browser.newContext();
   await login(context, "parent");
   const page = await context.newPage();
-  await page.goto("http://localhost:5174");
+  await page.goto(parentApp);
   await page.getByRole("button", { name: /Release Gate A/ }).click();
   await page.getByRole("button", { name: /Bé An/ }).click();
   await page.getByRole("button", { name: "Tạo đơn" }).click();
@@ -215,7 +219,7 @@ test("Parent reconciles a leave timeout before enabling a new mutation", async (
   const context = await browser.newContext();
   await login(context, "parent");
   const page = await context.newPage();
-  await page.goto("http://localhost:5174");
+  await page.goto(parentApp);
   await page.getByRole("button", { name: /Release Gate A/ }).click();
   await page.getByRole("button", { name: /Bé An/ }).click();
   await page.getByRole("button", { name: "Tạo đơn" }).click();
@@ -247,7 +251,7 @@ test("Parent validates, saves, and reconciles a phone update timeout", async ({ 
   const context = await browser.newContext();
   await login(context, "parent");
   const page = await context.newPage();
-  await page.goto("http://localhost:5174");
+  await page.goto(parentApp);
   await page.getByRole("button", { name: /Release Gate A/ }).click();
   await page.getByRole("button", { name: "Liên hệ", exact: true }).click();
   const phone = page.locator('input[type="tel"]');
@@ -288,7 +292,7 @@ test("Parent inbox displays an unread event, resolves it before child navigation
   const context = await browser.newContext();
   await login(context, "parent");
   const page = await context.newPage();
-  await page.goto("http://localhost:5174");
+  await page.goto(parentApp);
   await page.getByRole("button", { name: /Release Gate A/ }).click();
   await page.getByRole("button", { name: /Thông báo/ }).click();
   await expect(page.getByRole("heading", { name: "Thông báo" })).toBeVisible();
@@ -369,7 +373,7 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
   await expect(page.getByRole('button', { name: 'Về trang chủ PassionEdu' })).toBeVisible();
 
   const ops = await page.context().newPage();
-  await login(page.context(), 'ops'); await ops.goto('http://localhost:5176');
+  await login(page.context(), 'ops'); await ops.goto(opsApp);
   await expect(ops.getByRole('button', { name: 'Tạm ngừng' }).filter({ has: undefined }).first()).toBeVisible();
   const rows = ops.locator('tbody tr'); const target = rows.filter({ hasText: 'Release Gate A' });
   await target.getByRole('button', { name: 'Tạm ngừng' }).click();
@@ -390,7 +394,7 @@ test('Admin uses an authenticated two-School context for clean, dirty, timeout, 
 test('Teacher session is audience-isolated and uses the current two-School context', async ({ page }) => {
   await login(page.context(), 'teacher');
   expect((await page.context().request.get(`${api}/api/app/auth/session`)).status()).toBe(401);
-  await page.goto('http://localhost:5175'); await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
+  await page.goto(teacherApp); await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate B' })).toBeFocused();
   await page.getByRole('button', { name: 'Về trang chủ' }).click(); await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeVisible();
@@ -398,7 +402,7 @@ test('Teacher session is audience-isolated and uses the current two-School conte
 
 test('Teacher queue is read-only, URL-scoped, re-authorized, and clears stale School data', async ({ page }) => {
   await login(page.context(), 'teacher');
-  await page.goto('http://localhost:5175');
+  await page.goto(teacherApp);
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await expect(page.getByRole('heading', { name: 'Hàng đợi lớp' })).toBeVisible();
   const schoolId = (await (await page.context().request.get(`${api}/api/teacher/schools`)).json()).data.find((school: { schoolName: string }) => school.schoolName === 'Release Gate A').schoolId;
@@ -425,7 +429,7 @@ test('Teacher queue is read-only, URL-scoped, re-authorized, and clears stale Sc
   await expect(page.getByText('Bé An')).toHaveCount(0);
   await page.unroute('**/api/teacher/schools/*/operational-queue/items?*');
 
-  await expect(page).toHaveURL('http://localhost:5175/');
+  await expect(page).toHaveURL(`${teacherApp}/`);
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate B' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate B' })).toBeVisible();
   await expect(page.getByText('Bé An')).toHaveCount(0);
@@ -433,7 +437,7 @@ test('Teacher queue is read-only, URL-scoped, re-authorized, and clears stale Sc
 
 test('Teacher attendance and handover use server capability, confirmed errors, and a guarded School switch', async ({ page }) => {
   await login(page.context(), 'teacher');
-  await page.goto('http://localhost:5175');
+  await page.goto(teacherApp);
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeFocused();
   await expect(page.getByRole('navigation', { name: 'Điều hướng trường' })).toContainText('Điểm danh');
@@ -531,7 +535,7 @@ test('Teacher attendance and handover use server capability, confirmed errors, a
 
 test('Teacher DailyJournal focuses validation errors, reconciles a timeout, and clears stale data after a guarded School switch', async ({ page }) => {
   await login(page.context(), 'teacher');
-  await page.goto('http://localhost:5175');
+  await page.goto(teacherApp);
   await page.getByLabel('Chọn trường').selectOption({ label: 'Release Gate A' });
   await expect(page.getByRole('heading', { name: 'PassionEdu - Giáo viên - Release Gate A' })).toBeFocused();
   await expect(page.getByRole('navigation', { name: 'Điều hướng trường' })).toContainText('Nhận xét trong ngày');

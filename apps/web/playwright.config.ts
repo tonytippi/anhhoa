@@ -30,6 +30,11 @@ const e2eEnvironment = [
   `PARENT_WEB_ORIGIN=http://localhost:${parentAppPort}`,
   `TEACHER_WEB_ORIGIN=http://localhost:${teacherAppPort}`,
   `OPS_WEB_ORIGIN=http://localhost:${opsAppPort}`,
+  // apps/api/.env (developer settings) is loaded without override, so pin every post-login redirect to the E2E portals too.
+  ...([['APP', appPort], ['PARENT', parentAppPort], ['TEACHER', teacherAppPort], ['OPS', opsAppPort]] as const).flatMap(([prefix, portalPort]) => [
+    `${prefix}_OAUTH_REDIRECT_URLS=http://localhost:${portalPort}`,
+    `${prefix}_OAUTH_DENIED_REDIRECT_URL=http://localhost:${portalPort}`,
+  ]),
   'SESSION_SECRET=test-session-secret-must-be-at-least-32-characters',
   'GOOGLE_CLIENT_ID=passionedu-e2e-client',
   'GOOGLE_CLIENT_SECRET=passionedu-e2e-secret',
