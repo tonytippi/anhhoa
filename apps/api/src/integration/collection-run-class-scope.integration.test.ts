@@ -2,10 +2,13 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { AuthorizationService } from "../modules/authorization/authorization.service.js";
 import { PrismaService } from "../modules/identity/prisma.service.js";
 import { FinanceService } from "../modules/finance/finance.service.js";
+import { SettingsService } from "../modules/settings/settings.service.js";
 
 // Story 5.50 (sprint change 2026-10-12): a language center bills each Class by a period Finance enters (a unit).
 const prisma = new PrismaService();
-const finance = new FinanceService(prisma, new AuthorizationService(prisma));
+const authorization = new AuthorizationService(prisma);
+const finance = new FinanceService(prisma, authorization);
+const settings = new SettingsService(prisma, authorization);
 const schools: string[] = [];
 const uuid = () => crypto.randomUUID();
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -18,7 +21,7 @@ async function setup(kind: "LANGUAGE_CENTER" | "PRESCHOOL" = "LANGUAGE_CENTER") 
   const identity = await prisma.userIdentity.create({ data: { emailNormalized: `${uuid()}@example.com` } });
   const membership = await prisma.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: identity.id } });
   const position = await prisma.schoolPosition.create({ data: { schoolId: school.id, code: `FIN_${uuid().slice(0, 8)}`, name: `Finance ${uuid()}` } });
-  await prisma.positionCapabilityGrant.createMany({ data: ["SCHOOL_CONTEXT_READ", "FINANCE_MANAGE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })) });
+  await prisma.positionCapabilityGrant.createMany({ data: ["SCHOOL_CONTEXT_READ", "FINANCE_MANAGE", "SETTINGS_MANAGE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })) });
   await prisma.staffProfile.create({ data: { schoolId: school.id, fullName: "Finance", email: identity.emailNormalized, phone: "0900000000", dateOfBirth: date("1990-01-01"), gender: "Khác", address: "Test", primaryPositionId: position.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
   const year = await prisma.schoolYear.create({ data: { schoolId: school.id, name: "Toàn thời gian", startsOn: date("2000-01-01"), endsOn: kind === "LANGUAGE_CENTER" ? null : date("2100-01-01") } });
   const starters = await prisma.class.create({ data: { schoolId: school.id, schoolYearId: year.id, name: "Starters A" } });
@@ -54,7 +57,7 @@ afterEach(async () => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "invoiceLine", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "extracurricularMembership", "extracurricularClassLifecycleTransition", "extracurricularClass", "receivableLifecycleTransition", "receivable", "receivableGroup", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
+    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "debtTransfer", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "extracurricularMembership", "extracurricularClassLifecycleTransition", "extracurricularClass", "receivableLifecycleTransition", "receivable", "receivableGroup", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
       await (tx as any)[model].deleteMany({ where: { schoolId: { in: ids } } });
     await tx.school.deleteMany({ where: { id: { in: ids } } });
   });
@@ -156,5 +159,45 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     const detail: any = await finance.invoice(s.identity.id, s.school.id, invoices.find((invoice) => invoice.studentId === mover.studentId)!.id);
     expect(JSON.stringify(detail)).toContain("Trùng kỳ");
     expect(stays.studentId).not.toBe(mover.studentId);
+  });
+
+  it("replays an identical open request, and old debt and a receipt shortfall follow the Student into another Class", async () => {
+    const s = await setup();
+    const membership = await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: s.school.id } });
+    await prisma.financePolicy.create({ data: { schoolId: s.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", actorIdentityId: s.identity.id, membershipId: membership.id } });
+    const personal = id(await settings.createBankAccount(s.identity.id, s.school.id, uuid(), uuid(), { bankBin: "970436", accountNumber: "215000002088", accountHolderName: "Trung tâm", transferTemplate: "{{studentName}} {{className}}", kind: "PERSONAL" }));
+    const debtor = await s.enroll(s.starters, "2026-08-01");
+    const shortPayer = await s.enroll(s.starters, "2026-08-01");
+    const key = uuid(); const operationId = uuid(); const body = { classId: s.starters.id, name: "Unit 1", periodStartsOn: "2026-08-03", periodEndsOn: "2026-09-26" };
+    const opened = await finance.openRun(s.identity.id, s.school.id, key, operationId, body);
+    await expect(finance.openRun(s.identity.id, s.school.id, key, operationId, body)).resolves.toMatchObject({ id: opened.id, outcome: { id: id(opened) } });
+    await expect(finance.openRun(s.identity.id, s.school.id, key, operationId, { ...body, name: "Unit khác" })).rejects.toMatchObject({ status: 409 });
+    expect(await prisma.collectionRun.count({ where: { schoolId: s.school.id } })).toBe(1);
+    const first = id(opened);
+    await finance.saveTemplateLine(s.identity.id, s.school.id, first, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
+    const firstInvoices = await generate(s, first);
+    for (const invoice of firstInvoices) await finance.issueInvoice(s.identity.id, s.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
+    // One Student pays 100.000đ short; the other pays nothing.
+    await finance.closeInvoice(s.identity.id, s.school.id, firstInvoices.find((invoice) => invoice.studentId === shortPayer.studentId)!.id, uuid(), uuid(), { actualAmount: "3500000" });
+    await finance.closeRun(s.identity.id, s.school.id, first, uuid(), uuid(), { reason: "Hết unit" });
+    // Both Students move to Movers B, whose next unit starts later.
+    for (const student of [debtor, shortPayer]) {
+      await prisma.enrollmentClassAssignment.updateMany({ where: { schoolId: s.school.id, enrollmentId: student.enrollmentId }, data: { effectiveTo: date("2026-09-28") } });
+      await prisma.enrollmentClassAssignment.create({ data: { schoolId: s.school.id, enrollmentId: student.enrollmentId, schoolYearId: s.year.id, classId: s.movers.id, effectiveFrom: date("2026-09-28"), reason: "Lên lớp" } });
+    }
+    const second = id(await open(s, s.movers.id, "Unit 6", "2026-10-05", "2026-11-28"));
+    await finance.saveTemplateLine(s.identity.id, s.school.id, second, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
+    const secondInvoices = await generate(s, second);
+    const invoiceOf = (studentId: string) => secondInvoices.find((invoice) => invoice.studentId === studentId)!;
+    // The shortfall is carried into the next DRAFT of the Student, in a run of another Class.
+    expect(invoiceOf(shortPayer.studentId).total).toBe(3_700_000n);
+    expect(await prisma.settlementCarry.count({ where: { schoolId: s.school.id, invoiceId: invoiceOf(shortPayer.studentId).id, type: "SHORTFALL_CARRY", amount: 100_000n } })).toBe(1);
+    // The unpaid Unit 1 invoice is listed as prior debt of the Movers B run and transfers into its DRAFT.
+    const debts: any = await finance.priorDebts(s.identity.id, s.school.id, second);
+    expect(debts).toMatchObject({ total: "3600000", debts: [{ student: { id: debtor.studentId }, outstanding: "3600000" }] });
+    await finance.transferPriorDebts(s.identity.id, s.school.id, second, uuid(), uuid(), { sourceInvoiceIds: [debts.debts[0].sourceInvoiceId] });
+    const target = await prisma.invoice.findFirstOrThrow({ where: { id: invoiceOf(debtor.studentId).id }, include: { lines: true } });
+    expect(target.total).toBe(7_200_000n);
+    expect(target.lines.find((line) => line.kind === "PRIOR_DEBT")).toMatchObject({ amount: 3_600_000n, sourceReason: expect.stringContaining("Unit 1") });
   });
 });
