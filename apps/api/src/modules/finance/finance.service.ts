@@ -27,6 +27,8 @@ const classLabel = (name: string | null | undefined) => name ?? extracurricularO
 // A SCHOOL run is named "Tháng MM/YYYY" by the API; mid-sentence it reads "tháng MM/YYYY". A CLASS run keeps the name Finance entered.
 const flagLabels: Record<string, string> = { CLASS_CHANGE: "Chuyển lớp trong tháng", MID_MONTH: "Vào/nghỉ giữa tháng", PERIOD_OVERLAP: "Trùng kỳ" };
 const overlapText = (detail: any) => detail?.overlap?.runName ? `đã có trên hóa đơn của đợt thu ${detail.overlap.runName}` : "";
+// What a Parent reads as the period of an obligation: the run name, with the Class for a CLASS run ("Starters A · Unit 3").
+const runPeriodLabel = (run: { name: string; classroom?: { name: string } | null } | null | undefined, billingMonth: string) => run ? [run.classroom?.name, run.name].filter(Boolean).join(" · ") : `Tháng ${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
 const runLabel = (name: string) => name.replace(/^Tháng /, "tháng ");
 const officialClassFilter = (value: unknown) => (value === EXTRACURRICULAR_ONLY ? EXTRACURRICULAR_ONLY : null);
 const receivableGroupKinds = ["FIXED", "FLEXIBLE", "EXTRACURRICULAR"] as const;
@@ -638,7 +640,7 @@ export class FinanceService {
     return `${prefix}${String(count + 1).padStart(6, "0")}`;
   }
   private parentObligationDto(invoice: any, outstanding: bigint, effectiveAt: Date) {
-    return { id: invoice.id, studentId: invoice.studentId, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, period: invoice.billingMonth, issuedTotal: BigInt(invoice.obligationTotalSnapshot).toString(), vatTotal: (invoice.lines ?? []).reduce((total: bigint, line: any) => total + BigInt(line.vatAmount ?? 0), 0n).toString(), deductionTotal: (invoice.lines ?? []).reduce((total: bigint, line: any) => total + BigInt(line.deductionAmount ?? 0), 0n).toString(), carriedCredit: invoice.kind !== "SETTLEMENT" && BigInt(invoice.obligationTotalSnapshot) < 0n ? (-BigInt(invoice.obligationTotalSnapshot)).toString() : "0", actualReceipt: invoice.receipt ? BigInt(invoice.receipt.actualAmount).toString() : invoice.settlementTransferTo ? BigInt(invoice.settlementTransferTo.amount).toString() : "0", outcome: invoice.receipt?.outcome ?? (invoice.settlementTransferTo ? "EXACT" : null), outstanding: outstanding.toString(), state: invoice.status, effectiveAt: effectiveAt.toISOString(), paymentInstruction: { receivingBank: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot, transferContent: invoice.transferContentSnapshot } };
+    return { id: invoice.id, studentId: invoice.studentId, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, period: invoice.billingMonth, periodLabel: runPeriodLabel(invoice.collectionRun, invoice.billingMonth), issuedTotal: BigInt(invoice.obligationTotalSnapshot).toString(), vatTotal: (invoice.lines ?? []).reduce((total: bigint, line: any) => total + BigInt(line.vatAmount ?? 0), 0n).toString(), deductionTotal: (invoice.lines ?? []).reduce((total: bigint, line: any) => total + BigInt(line.deductionAmount ?? 0), 0n).toString(), carriedCredit: invoice.kind !== "SETTLEMENT" && BigInt(invoice.obligationTotalSnapshot) < 0n ? (-BigInt(invoice.obligationTotalSnapshot)).toString() : "0", actualReceipt: invoice.receipt ? BigInt(invoice.receipt.actualAmount).toString() : invoice.settlementTransferTo ? BigInt(invoice.settlementTransferTo.amount).toString() : "0", outcome: invoice.receipt?.outcome ?? (invoice.settlementTransferTo ? "EXACT" : null), outstanding: outstanding.toString(), state: invoice.status, effectiveAt: effectiveAt.toISOString(), paymentInstruction: { receivingBank: invoice.receivingBankSnapshot, accountNumber: invoice.accountNumberSnapshot, accountHolderName: invoice.accountHolderNameSnapshot, transferContent: invoice.transferContentSnapshot } };
   }
   async parentObligations(schoolId: string, studentIds: string[], invoiceId?: string) {
     schoolId = this.school(schoolId);
@@ -646,6 +648,7 @@ export class FinanceService {
     const invoices = await this.prisma.invoice.findMany({
       where: { schoolId, studentId: { in: studentIds }, status: { in: ["ISSUED", "CLOSED", "CANCELLED"] } },
       include: {
+        collectionRun: { select: { name: true, classroom: { select: { name: true } } } },
         receipt: true,
         settlementTransferTo: true,
         debtTransfersFrom: { select: { amount: true, createdAt: true } },
