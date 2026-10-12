@@ -49,4 +49,20 @@ describe('guide articles', () => {
       { kind: 'list', ordered: true, start: 3, items: [{ text: 'Ba', children: [] }] },
     ]);
   });
+  it('lists the class-run article only for a School that bills by Class and suggests it on Đợt thu', () => {
+    const pages = ['overview', 'collection-runs', 'guides'];
+    const center = visibleGuides(pages, 'CLASS');
+    expect(center.map((article) => article.id)).toContain('dot-thu-theo-lop-trung-tam');
+    expect(guidesForPage(center, 'collection-runs').map((article) => article.title)).toContain('Đợt thu theo lớp cho trung tâm');
+    expect(guidesForPage(center, 'receipt-queue').map((article) => article.id)).not.toContain('dot-thu-theo-lop-trung-tam');
+    expect(visibleGuides(['overview', 'guides'], 'CLASS').map((article) => article.id)).not.toContain('dot-thu-theo-lop-trung-tam');
+    // A preschool sees exactly the articles it saw before.
+    const preschool = visibleGuides(pages);
+    expect(preschool.map((article) => article.id)).not.toContain('dot-thu-theo-lop-trung-tam');
+    expect(visibleGuides(pages, 'SCHOOL')).toEqual(preschool);
+    expect(center.filter((article) => article.id !== 'dot-thu-theo-lop-trung-tam')).toEqual(preschool);
+    expect(guideArticles.filter((article) => article.runScope).map((article) => article.id)).toEqual(['dot-thu-theo-lop-trung-tam']);
+    const body = guideArticles.find((article) => article.id === 'dot-thu-theo-lop-trung-tam')!.body;
+    for (const text of ['Trùng kỳ', 'tháng có ngày bắt đầu', 'Nghỉ học không tự hoàn tiền', 'hồ sơ cũ', 'cùng một email']) expect(body).toContain(text);
+  });
 });

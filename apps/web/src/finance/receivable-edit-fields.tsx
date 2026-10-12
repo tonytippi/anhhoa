@@ -17,6 +17,36 @@ export const receivableKinds: Array<{ kind: ReceivableKind; label: string; hint:
     hint: "Thu theo lớp ngoại khóa; gắn khoản thu vào lớp ở trang Lớp ngoại khóa.",
   },
 ];
+// Sprint change 2026-10-12: a language center calls the extracurricular group "Dịch vụ". One wording per School kind;
+// the kind itself and every rule stay the same.
+const extracurricularWording = {
+  class: {
+    label: "Ngoại khóa",
+    usedBy: (count: number) => `Đang dùng cho ${count} lớp ngoại khóa`,
+    attached: (count: number) => `gắn ${count} lớp ngoại khóa`,
+    open: "Xem lớp ngoại khóa",
+    locked: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa.",
+    guide: "thu theo thành viên của lớp ngoại khóa.",
+    lockedGuide: "Khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa không đổi được nhóm.",
+  },
+  service: {
+    label: "Dịch vụ",
+    hint: "Thu theo dịch vụ; gắn khoản thu vào dịch vụ ở trang Dịch vụ.",
+    usedBy: (count: number) => `Đang dùng cho ${count} dịch vụ`,
+    attached: (count: number) => `gắn ${count} dịch vụ`,
+    open: "Xem dịch vụ",
+    locked: "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc gắn dịch vụ.",
+    guide: "thu theo thành viên của dịch vụ.",
+    lockedGuide: "Khoản thu đã dùng trên hóa đơn hoặc gắn dịch vụ không đổi được nhóm.",
+  },
+};
+const serviceKinds = receivableKinds.map((item) =>
+  item.kind === "EXTRACURRICULAR" ? { ...item, label: extracurricularWording.service.label, hint: extracurricularWording.service.hint } : item,
+);
+export const receivableWording = (service = false) => ({
+  ...extracurricularWording[service ? "service" : "class"],
+  kinds: service ? serviceKinds : receivableKinds,
+});
 export type TaxCategory = "NOT_DECLARED" | "EXEMPT" | "VAT_0" | "VAT_5" | "VAT_8" | "VAT_10";
 // Labels follow the reviewed receivable mockup; the API alone derives rate, VAT and channel.
 export const taxCategoryOptions: Array<[TaxCategory, string]> = [
@@ -121,20 +151,23 @@ export function ReceivableEditFields({
   onChange,
   onReason,
   field,
+  service = false,
 }: {
   values: ReceivableEditValues;
   locked: boolean;
   reason: string;
   classNames: string[];
+  service?: boolean;
   onChange: (values: Partial<ReceivableEditValues>) => void;
   onReason: (reason: string) => void;
   field: (name: string) => object;
 }) {
+  const t = receivableWording(service);
   return (
     <div className="dialog-grid">
       {classNames.length > 0 && (
         <p className="full">
-          Đang dùng cho {classNames.length} lớp ngoại khóa: {classNames.join(", ")}.
+          {t.usedBy(classNames.length)}: {classNames.join(", ")}.
         </p>
       )}
       <label>
@@ -153,7 +186,7 @@ export function ReceivableEditFields({
       </label>
       <fieldset className="chip-group full" disabled={locked} aria-describedby="receivable-edit-kind-hint">
         <legend>Nhóm khoản thu</legend>
-        {receivableKinds.map((item) => (
+        {t.kinds.map((item) => (
           <label key={item.kind}>
             <input
               type="radio"
@@ -168,8 +201,8 @@ export function ReceivableEditFields({
       </fieldset>
       <small className="muted full" id="receivable-edit-kind-hint">
         {locked
-          ? "Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa."
-          : receivableKinds.find((item) => item.kind === values.kind)?.hint}
+          ? t.locked
+          : t.kinds.find((item) => item.kind === values.kind)?.hint}
       </small>
       <label>
         Giá / đơn vị (chưa VAT)

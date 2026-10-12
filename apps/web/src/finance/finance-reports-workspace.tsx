@@ -10,7 +10,7 @@ type Charts = {
   topDebtors: Array<{ studentId: string; studentCode: string; studentName: string; className: string; outstanding: string; invoices: number; maxOverdueDays: number }>;
   cashByWeek: Array<{ weekStart: string; cashIn: string; cashOut: string }>;
 };
-type Report = { workspace: string; asOf: string; generatedAt: string; timezone: string; reportDefinitionVersion: string; filters: Record<string, string | null>; summary: Record<string, string | { exact: string; shortfall: string; overpayment: string }>; charts?: Charts; rows: Array<{ id: string; postedAt?: string; type?: string; billingMonth: string | null; periodLabel?: string | null; amount?: string; vatAmount?: string; vat?: string; netBilled?: string; actualReceipt?: string; carryAdjustment?: string; outstanding?: string; provenance?: { groupAllocation?: string } }> };
+type Report = { workspace: string; asOf: string; generatedAt: string; timezone: string; reportDefinitionVersion: string; filters: Record<string, string | null>; summary: Record<string, string | { exact: string; shortfall: string; overpayment: string }>; charts?: Charts; rows: Array<{ id: string; postedAt?: string; type?: string; billingMonth: string | null; periodLabel?: string | null; periodStartsOn?: string | null; amount?: string; vatAmount?: string; vat?: string; netBilled?: string; actualReceipt?: string; carryAdjustment?: string; outstanding?: string; provenance?: { groupAllocation?: string } }> };
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const csrfName = typeof __CSRF_COOKIE_NAME__ === "undefined" ? "app_csrf" : __CSRF_COOKIE_NAME__;
 const csrf = () => document.cookie.split("; ").find((item) => item.startsWith(`${csrfName}=`))?.slice(csrfName.length + 1);
@@ -62,7 +62,10 @@ export function FinanceReportsWorkspace({ schoolId, schoolName, denied, classRun
       <div className="table-scroll"><table><caption>Chi tiết theo lớp</caption><thead><tr><th>Lớp</th><th className="finance-money">Phải thu ròng</th><th className="finance-money">Đã thu</th><th className="finance-money">Còn phải thu</th><th className="finance-money">Tỷ lệ thu</th></tr></thead><tbody>{charts?.byClass.length ? charts.byClass.map((item) => <tr key={item.className}><td>{item.className}</td><td className="finance-money">{vnd(item.netBilled)} đ</td><td className="finance-money">{vnd(item.actualReceipt)} đ</td><td className="finance-money">{vnd(item.outstanding)} đ</td><td className="finance-money">{percent(item.actualReceipt, item.netBilled)}%</td></tr>) : <tr><td colSpan={5}>Không có hoạt động sổ cái phù hợp tại thời điểm chốt.</td></tr>}</tbody></table></div>
     </>;
     if (report.workspace === "collection-runs") {
-      const status = charts?.runStatus ?? []; const latest = [...status].sort((a, b) => String(a.billingMonth).localeCompare(String(b.billingMonth))).at(-1);
+      const status = charts?.runStatus ?? [];
+      // Runs of a School that bills by Class share a month, so its latest run is the one whose period starts last (ties by id).
+      const startsOn = (runId: string) => report.rows.find((row) => row.id === runId)?.periodStartsOn ?? "";
+      const latest = [...status].sort(classRuns ? (a, b) => startsOn(a.collectionRunId).localeCompare(startsOn(b.collectionRunId)) || a.collectionRunId.localeCompare(b.collectionRunId) : (a, b) => String(a.billingMonth).localeCompare(String(b.billingMonth))).at(-1);
       const issuedCount = status.reduce((sum, item) => sum + item.issued, 0), exactCount = status.reduce((sum, item) => sum + item.exact, 0);
       return <>
         <div className="finance-report-kpis">

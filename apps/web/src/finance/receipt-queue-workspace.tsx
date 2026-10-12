@@ -114,6 +114,10 @@ export function ReceiptQueueWorkspace({
   onStatusChange?: (status: FinanceStatus) => void;
 }) {
   const [queue, setQueue] = useState<Queue>();
+  // The result names the invoice's own period by the run label for a School that bills by Class; any other covered month stays a month.
+  const opened = useRef<Row | undefined>(undefined);
+  const periodName = (month: string) =>
+    classRuns && opened.current?.periodLabel && opened.current.billingMonth === month ? opened.current.periodLabel : monthLabel(month);
   const [filters, setFilters] = useState({
     schoolYearId: "",
     billingMonth: "",
@@ -289,6 +293,7 @@ export function ReceiptQueueWorkspace({
   };
   const open = async (row: Row) => {
     clearProtected();
+    opened.current = row;
     const expected = generation.current;
     const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/receipt-queue/${row.id}`, {
       credentials: "include",
@@ -658,8 +663,8 @@ export function ReceiptQueueWorkspace({
               ? (result.coverageFacts ?? [])
                   .map((fact) =>
                     fact.issuedAt
-                      ? `Ưu đãi nộp trước kỳ ${monthLabel(fact.billingMonth)} đã phát hành.`
-                      : `Ưu đãi nộp trước kỳ ${monthLabel(fact.billingMonth)} chưa phát hành.`,
+                      ? `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} đã phát hành.`
+                      : `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} chưa phát hành.`,
                   )
                   .join(" ")
               : "Ưu đãi nộp trước: Không có ưu đãi áp dụng."}

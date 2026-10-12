@@ -2548,4 +2548,48 @@ describe("FinanceWorkspace", () => {
       expect(fetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT")).toHaveLength(1);
     });
   });
+  it("calls the extracurricular group Dịch vụ on the Khoản thu page of a language center and keeps Ngoại khóa for a preschool", async () => {
+    const receivables = [
+      { id: "bus", groupId: "g3", kind: "EXTRACURRICULAR", kindLocked: true, extracurricularClassCount: 2, extracurricularClassNames: ["Đưa đón tuyến 1", "Đưa đón tuyến 2"], code: "DV-DD", displayName: "Phí đưa đón", unitLabel: "unit", defaultUnitPrice: "600000", status: "ACTIVE", available: true },
+    ];
+    const openMenu = async (name: string) => {
+      await waitFor(() => {
+        if (!screen.queryByRole("menu")) fireEvent.keyDown(screen.getByRole("button", { name }), { key: "ArrowDown" });
+        expect(screen.getByRole("menu")).toBeTruthy();
+      });
+      return screen.getByRole("menu");
+    };
+    const kinds = () => Array.from((screen.getByLabelText("Nhóm") as HTMLSelectElement).options).map((option) => option.textContent);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response({ groups: [], receivables }))));
+    const center = render(<FinanceWorkspaceBase schoolId="school-c" schoolName="Anh ngữ Sao Mai" page="receivables" service denied={vi.fn()} onOpenExtracurricularClasses={vi.fn()} />);
+    expect((await screen.findByText("Phí đưa đón")).closest("td")!.textContent).toBe("Phí đưa đónDịch vụ · đơn vị unit · gắn 2 dịch vụ");
+    expect(kinds()).toEqual(["Tất cả nhóm", "Khoản thu cố định", "Khoản thu linh hoạt", "Dịch vụ"]);
+    const guide = screen.getByText("Mỗi Trường có đúng ba nhóm khoản thu, không thêm, đổi tên hoặc ngừng nhóm.").closest("details")!;
+    expect(guide.textContent).toContain("Dịch vụ: thu theo thành viên của dịch vụ.");
+    expect(guide.textContent).toContain("Khoản thu đã dùng trên hóa đơn hoặc gắn dịch vụ không đổi được nhóm.");
+    fireEvent.click(screen.getByRole("button", { name: "Thêm khoản thu" }));
+    const create = await screen.findByRole("dialog", { name: "Thêm khoản thu" });
+    fireEvent.click(within(create).getByRole("radio", { name: "Dịch vụ" }));
+    expect(within(create).getByText("Thu theo dịch vụ; gắn khoản thu vào dịch vụ ở trang Dịch vụ.")).toBeTruthy();
+    fireEvent.click(within(create).getByRole("button", { name: "Hủy" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const menu = await openMenu("Tùy chọn cho Phí đưa đón");
+    expect(within(menu).getByRole("menuitem", { name: "Xem dịch vụ" })).toBeTruthy();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Chỉnh sửa" }));
+    const edit = await screen.findByRole("dialog", { name: "Chỉnh sửa · Phí đưa đón" });
+    expect(within(edit).getByText("Đang dùng cho 2 dịch vụ: Đưa đón tuyến 1, Đưa đón tuyến 2.")).toBeTruthy();
+    expect(within(edit).getByRole("radio", { name: "Dịch vụ" })).toBeTruthy();
+    expect(within(edit).getByText("Không đổi được nhóm: khoản thu đã dùng trên hóa đơn hoặc gắn dịch vụ.")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/[Nn]goại khóa/);
+    center.unmount();
+    document.querySelectorAll("[data-base-ui-portal]").forEach((portal) => portal.remove());
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} onOpenExtracurricularClasses={vi.fn()} />);
+    expect((await screen.findByText("Phí đưa đón")).closest("td")!.textContent).toBe("Phí đưa đónNgoại khóa · đơn vị unit · gắn 2 lớp ngoại khóa");
+    expect(kinds()).toEqual(["Tất cả nhóm", "Khoản thu cố định", "Khoản thu linh hoạt", "Ngoại khóa"]);
+    const preschoolGuide = screen.getByText("Mỗi Trường có đúng ba nhóm khoản thu, không thêm, đổi tên hoặc ngừng nhóm.").closest("details")!;
+    expect(preschoolGuide.textContent).toContain("Ngoại khóa: thu theo thành viên của lớp ngoại khóa.");
+    expect(preschoolGuide.textContent).toContain("Khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa không đổi được nhóm.");
+    expect(within(await openMenu("Tùy chọn cho Phí đưa đón")).getByRole("menuitem", { name: "Xem lớp ngoại khóa" })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/[Dd]ịch vụ/);
+  });
 });

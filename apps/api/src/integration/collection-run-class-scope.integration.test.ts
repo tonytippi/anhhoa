@@ -208,7 +208,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     const target = await prisma.invoice.findFirstOrThrow({ where: { id: invoiceOf(debtor.studentId).id }, include: { lines: true } });
     expect(target.total).toBe(7_200_000n);
     const report: any = await finance.report(s.identity.id, s.school.id, "collection-runs", {});
-    expect(report.rows.map((row: any) => row.periodLabel)).toEqual(["Starters A · Unit 1"]);
+    expect(report.rows.map((row: any) => [row.periodLabel, row.periodStartsOn])).toEqual([["Starters A · Unit 1", "2026-08-03"]]);
     expect(target.lines.find((line) => line.kind === "PRIOR_DEBT")).toMatchObject({ amount: 3_600_000n, sourceReason: expect.stringContaining("Unit 1") });
   });
 });

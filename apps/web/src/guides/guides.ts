@@ -1,8 +1,9 @@
 // Hướng dẫn sử dụng: mỗi bài là một tệp Markdown trong ./articles, ảnh nằm ở public/guides.
 // Frontmatter gồm title, summary, order, requires (trang cần có quyền để thấy bài; để trống = mọi người)
 // và pages (trang mà nút "Hướng dẫn" ở đầu trang gợi ý bài này; để trống = dùng requires).
+// runScope (SCHOOL hoặc CLASS; để trống = mọi trường): bài chỉ dành cho trường thu theo cách đó, ví dụ trung tâm thu theo lớp.
 
-export type GuideArticle = { id: string; title: string; summary: string; order: number; requires: string[]; pages: string[]; body: string };
+export type GuideArticle = { id: string; title: string; summary: string; order: number; requires: string[]; pages: string[]; runScope?: string; body: string };
 export type GuideSearchResult = { article: GuideArticle; excerpt?: string };
 
 const sources = import.meta.glob("./articles/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
@@ -24,13 +25,14 @@ export function parseArticle(path: string, source: string): GuideArticle {
     order: Number(meta.order ?? 999),
     requires,
     pages: meta.pages ? list(meta.pages) : requires,
+    ...(meta.runScope ? { runScope: meta.runScope } : {}),
     body: match ? source.slice(match[0].length) : source,
   };
 }
 
 export const guideArticles: GuideArticle[] = Object.entries(sources).map(([path, source]) => parseArticle(path, source)).sort((left, right) => left.order - right.order);
 
-export const visibleGuides = (allowedPages: string[]) => guideArticles.filter((article) => article.requires.every((page) => allowedPages.includes(page)));
+export const visibleGuides = (allowedPages: string[], runScope = "SCHOOL") => guideArticles.filter((article) => (!article.runScope || article.runScope === runScope) && article.requires.every((page) => allowedPages.includes(page)));
 
 export const guidesForPage = (articles: GuideArticle[], page: string) => articles.filter((article) => article.pages.includes(page));
 

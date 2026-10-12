@@ -153,4 +153,32 @@ describe("ReceiptQueueWorkspace", () => {
     expect(within(monthly).getAllByRole("columnheader")[2]!.textContent).toBe("Tháng");
     expect(within((await within(monthly).findByText(/HS001/)).closest("tr")!).getAllByRole("cell")[2]!.textContent).toBe("09/2026");
   });
+  it("names the invoice's own period by the run label in the receipt result for a class-scoped School and keeps the month otherwise", async () => {
+    const labelled = { ...queue, invoices: [{ ...row, periodLabel: "Starters A · Unit 3" }] };
+    const fetch = () => vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") return Promise.resolve(response({ status: "COMPLETED", outcome: { ...detail, status: "CLOSED", receipt: { actualAmount: "120000", outcome: "EXACT", difference: null }, carries: [], coverageFacts: [{ billingMonth: "2026-09", issuedAt: "2026-09-20T00:00:00.000Z" }, { billingMonth: "2026-10", issuedAt: null }] } }));
+      if (url.includes("/classes")) return Promise.resolve(response({ classes: [{ id: "class-a", name: "Lá 1" }] }));
+      if (url.includes("/receipt-queue/invoice-a")) return Promise.resolve(response(detail));
+      return Promise.resolve(response(labelled));
+    });
+    const settle = async () => {
+      await screen.findByText("HS001 / Bé An");
+      await openReceiptMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
+      const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
+      await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
+    };
+    vi.stubGlobal("fetch", fetch());
+    const center = render(<ReceiptQueueWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" classRuns denied={vi.fn()} />);
+    await settle();
+    // Only the invoice's own period takes the run label; another covered month stays a month.
+    expect(screen.getByText("Ưu đãi nộp trước kỳ Starters A · Unit 3 đã phát hành. Ưu đãi nộp trước kỳ 10/2026 chưa phát hành.")).toBeTruthy();
+    center.unmount();
+    document.querySelectorAll("[data-base-ui-portal]").forEach((portal) => portal.remove());
+    vi.stubGlobal("fetch", fetch());
+    render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await settle();
+    expect(screen.getByText("Ưu đãi nộp trước kỳ 09/2026 đã phát hành. Ưu đãi nộp trước kỳ 10/2026 chưa phát hành.")).toBeTruthy();
+  });
 });

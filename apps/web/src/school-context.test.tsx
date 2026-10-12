@@ -117,6 +117,8 @@ describe('SchoolContext Home-only chooser', () => {
     const roster = document.getElementById('roster-submenu')!;
     expect(within(roster).getByRole('button', { name: 'Dịch vụ' })).toBeTruthy(); expect(within(roster).queryByRole('button', { name: 'Lớp ngoại khóa' })).toBeNull();
     expect(document.querySelector('.school-context-header')!.textContent).not.toMatch(/[Nn]ăm học/);
+    fireEvent.click(screen.getByRole('button', { name: 'Hướng dẫn' }));
+    expect(within(document.getElementById('guides-submenu')!).getByRole('button', { name: 'Đợt thu theo lớp cho trung tâm' })).toBeTruthy();
     window.history.pushState({}, '', '/schools/peakland/years'); fireEvent.popState(window);
     await waitFor(() => expect(window.location.pathname).toBe('/schools/peakland/overview'));
     center.unmount(); window.history.replaceState({}, '', '/schools/peakland/overview');
@@ -126,5 +128,8 @@ describe('SchoolContext Home-only chooser', () => {
     expect(within(document.getElementById('settings-submenu')!).getByRole('button', { name: 'Năm học' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Danh bộ' }));
     expect(within(document.getElementById('roster-submenu')!).getByRole('button', { name: 'Lớp ngoại khóa' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Hướng dẫn' }));
+    expect(within(document.getElementById('guides-submenu')!).getByRole('button', { name: 'Tạo đợt thu và hóa đơn nháp' })).toBeTruthy();
+    expect(within(document.getElementById('guides-submenu')!).queryByRole('button', { name: 'Đợt thu theo lớp cho trung tâm' })).toBeNull();
   });
 });

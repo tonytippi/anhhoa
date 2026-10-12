@@ -6,7 +6,7 @@ import {
   ReceivableEditFields,
   receivableEditChanges,
   receivableEditValues,
-  receivableKinds,
+  receivableWording,
   taxCategoryOptions,
   taxChannelHint,
   type ReceivableEditValues,
@@ -20,8 +20,6 @@ import { DateInput } from "../components/date-input";
 type Group = { id: string; name: string; kind: ReceivableKind };
 const kindShortLabel = (kind: ReceivableKind | null | undefined) =>
   (({ FIXED: "Cố định", FLEXIBLE: "Linh hoạt", EXTRACURRICULAR: "Ngoại khóa" }) as const)[kind ?? "FLEXIBLE"] ?? "";
-const kindLabel = (kind: ReceivableKind | null | undefined) =>
-  receivableKinds.find((item) => item.kind === kind)?.label ?? "";
 type Receivable = {
   id: string;
   groupId: string;
@@ -1180,10 +1178,13 @@ export function FinanceWorkspace({
   onListSearchChange,
   onOpenExtracurricularClasses,
   features = preschoolFeatures,
+  service = false,
 }: {
   schoolId: string;
   schoolName: string;
   features?: FinanceSchoolFeatures;
+  // Wording only: a language center calls the extracurricular group "Dịch vụ". Behaviour reads `features`.
+  service?: boolean;
   page: FinancePage;
   runId?: string;
   invoiceId?: string;
@@ -1199,6 +1200,7 @@ export function FinanceWorkspace({
   onOpenExtracurricularClasses?: () => void;
 }) {
   const classRuns = features.collectionRunScope === "CLASS";
+  const receivableText = receivableWording(service);
   const [catalog, setCatalog] = useState<Catalog>();
   const [promotionData, setPromotionData] = useState({ schoolId, policies: [] as PromotionPolicy[] });
   const [assignmentFilter, setAssignmentFilter] = useState({ q: "", officialClassId: "" });
@@ -3151,7 +3153,7 @@ export function FinanceWorkspace({
                 onChange={(event) => setCatalogFilter({ ...catalogFilter, kind: event.target.value })}
               >
                 <option value="">Tất cả nhóm</option>
-                {receivableKinds.map((item) => (
+                {receivableText.kinds.map((item) => (
                   <option key={item.kind} value={item.kind}>
                     {item.label}
                   </option>
@@ -3194,10 +3196,10 @@ export function FinanceWorkspace({
                         <br />
                         <small className="muted">
                           {[
-                            kindLabel(item.kind),
+                            receivableText.kinds.find((kind) => kind.kind === item.kind)?.label ?? "",
                             item.unitLabel !== "tháng" ? `đơn vị ${item.unitLabel}` : "",
                             item.kind === "EXTRACURRICULAR" && (item.extracurricularClassCount ?? 0) > 0
-                              ? `gắn ${item.extracurricularClassCount} lớp ngoại khóa`
+                              ? receivableText.attached(item.extracurricularClassCount ?? 0)
                               : "",
                           ]
                             .filter(Boolean)
@@ -3258,7 +3260,7 @@ export function FinanceWorkspace({
                           </AnchoredActionMenuItem>
                           {item.kind === "EXTRACURRICULAR" && onOpenExtracurricularClasses && (
                             <AnchoredActionMenuItem onClick={onOpenExtracurricularClasses}>
-                              Xem lớp ngoại khóa
+                              {receivableText.open}
                             </AnchoredActionMenuItem>
                           )}
                           <AnchoredActionMenuItem
@@ -3304,10 +3306,10 @@ export function FinanceWorkspace({
                 <b>Khoản thu linh hoạt</b>: thêm vào đợt thu khi cần, chọn phạm vi áp dụng.
               </li>
               <li>
-                <b>Ngoại khóa</b>: thu theo thành viên của lớp ngoại khóa.
+                <b>{receivableText.label}</b>: {receivableText.guide}
               </li>
             </ul>
-            <p>Khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa không đổi được nhóm.</p>
+            <p>{receivableText.lockedGuide}</p>
           </details>
         </section>
       )}
@@ -5559,7 +5561,7 @@ export function FinanceWorkspace({
                 </label>
                 <fieldset className="chip-group full" aria-describedby="receivable-kind-hint">
                   <legend>Nhóm khoản thu</legend>
-                  {receivableKinds.map((item) => (
+                  {receivableText.kinds.map((item) => (
                     <label key={item.kind}>
                       <input
                         type="radio"
@@ -5573,7 +5575,7 @@ export function FinanceWorkspace({
                   ))}
                 </fieldset>
                 <small className="muted full" id="receivable-kind-hint">
-                  {receivableKinds.find((item) => item.kind === receivable.kind)?.hint ??
+                  {receivableText.kinds.find((item) => item.kind === receivable.kind)?.hint ??
                     "Chọn một trong ba nhóm cố định của Trường."}
                 </small>
                 <label>
@@ -5703,6 +5705,7 @@ export function FinanceWorkspace({
                 onChange={editReceivable}
                 onReason={(reason) => setReceivableEdit({ ...receivableEdit, reason })}
                 field={(name) => field("receivable", name)}
+                service={service}
               />
               {scope === "receivable" &&
                 Object.entries(errors).map(([name, error]) => <small key={name}>{error}</small>)}

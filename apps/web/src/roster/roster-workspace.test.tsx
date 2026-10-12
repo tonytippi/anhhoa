@@ -633,4 +633,43 @@ describe("RosterWorkspace for a School without school years", () => {
     expect(within(table).getByRole("rowheader", { name: "Lớp Mầm" })).toBeTruthy();
     expect(screen.queryByRole("form", { name: "Lọc lớp học" })).toBeNull();
   });
+  it("does not offer Chỉ ngoại khóa to a School that bills by Class, and keeps it for a preschool", async () => {
+    vi.stubGlobal("fetch", fetcher());
+    const center = render(<RosterWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" denied={vi.fn()} section="students" usesSchoolYears={false} classRuns />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm học sinh" }));
+    const form = within(screen.getByRole("heading", { name: "Tạo học sinh và ghi danh" }).closest("form")!);
+    expect(form.getByLabelText("Xếp lớp")).toBeTruthy();
+    expect(form.getByLabelText("Chờ xếp lớp")).toBeTruthy();
+    expect(form.queryByLabelText("Chỉ ngoại khóa")).toBeNull();
+    expect(Array.from((screen.getByLabelText("Trạng thái") as HTMLSelectElement).options).map((option) => option.value)).not.toContain("EXTRACURRICULAR_ONLY");
+    fireEvent.click(await screen.findByRole("button", { name: "Tùy chọn cho Bé An" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Xem hồ sơ" }));
+    const profile = await screen.findByRole("dialog", { name: "Hồ sơ Bé An" });
+    const lifecycle = within(profile).getByLabelText("Đổi trạng thái") as HTMLSelectElement;
+    expect(Array.from(lifecycle.options).map((option) => option.textContent)).toEqual(["Học thử", "Chờ xếp lớp", "Đã hẹn nhập học", "Đang nhập học", "Tạm nghỉ", "Đã thôi học", "Đã tốt nghiệp"]);
+    center.unmount();
+    vi.stubGlobal("fetch", fetcher());
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="students" />);
+    await screen.findByText("Bé An");
+    expect(Array.from((screen.getByLabelText("Trạng thái") as HTMLSelectElement).options).map((option) => option.textContent)).toEqual(["Tất cả trạng thái", "Học thử", "Chờ xếp lớp", "Đã hẹn nhập học", "Đang nhập học", "Chỉ ngoại khóa", "Tạm nghỉ", "Đã thôi học", "Đã tốt nghiệp"]);
+    fireEvent.click(screen.getByRole("button", { name: "Thêm học sinh" }));
+    expect(within(screen.getByRole("heading", { name: "Tạo học sinh và ghi danh" }).closest("form")!).getByLabelText("Chỉ ngoại khóa")).toBeTruthy();
+  });
+
+  it("keeps an existing Chỉ ngoại khóa enrollment readable and movable to a class in a School that bills by Class", async () => {
+    const extracurricular = { ...row, enrollment: { ...row.enrollment, lifecycle: "EXTRACURRICULAR_ONLY", classroom: null } };
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (url.includes("/school-years/year-a/students?")) return Promise.resolve(pagedResponse(list([extracurricular])));
+      if (url.endsWith("/students/student-a")) return Promise.resolve(response({ ...extracurricular, enrollments: [{ ...extracurricular.enrollment, endedOn: null }] }));
+      return fetcher()(url, options);
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<RosterWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" denied={vi.fn()} section="students" usesSchoolYears={false} classRuns />);
+    expect((await screen.findByText("Bé An")).closest("tr")!.textContent).toContain("Chỉ ngoại khóa");
+    fireEvent.click(screen.getByRole("button", { name: "Tùy chọn cho Bé An" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Xem hồ sơ" }));
+    const profile = await screen.findByRole("dialog", { name: "Hồ sơ Bé An" });
+    expect((within(profile).getByLabelText("Đổi trạng thái") as HTMLSelectElement).value).toBe("EXTRACURRICULAR_ONLY");
+    expect(within(profile).getByRole("button", { name: "Xếp lớp chính khóa" })).toBeTruthy();
+  });
 });

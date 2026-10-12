@@ -42,8 +42,35 @@ const memberBadge = (member: Member): [string, string] => {
 
 // One wording per School kind for the same extracurricular group.
 const wording = {
-  class: { title: "Lớp ngoại khóa", noun: "lớp ngoại khóa", kind: "Ngoại khóa", name: "Tên lớp", subject: "Lớp", ofIt: "của lớp" },
-  service: { title: "Dịch vụ", noun: "dịch vụ", kind: "Dịch vụ", name: "Tên dịch vụ", subject: "Dịch vụ", ofIt: "của dịch vụ" },
+  class: {
+    title: "Lớp ngoại khóa", noun: "lớp ngoại khóa", kind: "Ngoại khóa", name: "Tên lớp", subject: "Lớp", ofIt: "của lớp",
+    official: "Lớp chính thức",
+    alreadyMember: "Đã thuộc lớp này",
+    namePlaceholder: "Ví dụ: Tiếng Anh A2 (T3-T5)",
+    addReason: "Ví dụ: Đăng ký học kỳ 1",
+    lifecycleReason: "Ví dụ: Lớp chuyển sang chương trình nâng cao",
+    endNote: "Học sinh vẫn được tính tháng có ngày tham gia cuối.",
+    attendanceHint: "Đánh dấu lớp cần điểm danh riêng (ví dụ lớp buổi tối). Chức năng điểm danh sẽ có sau.",
+    memberGuide: "Học sinh có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp với giá mặc định. Vào/nghỉ giữa tháng hoặc chuyển giữa hai lớp cùng khoản thu được đánh dấu trên hóa đơn nháp; học sinh chuyển lớp chỉ có một dòng, kế toán điều chỉnh số lượng hoặc đơn giá kèm lý do.",
+    shareGuide: "Nhiều lớp có thể dùng chung một khoản thu và có cùng giá; muốn giá khác, tạo khoản thu khác.",
+    billingGuide: "Thành viên có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp trong đợt thu tháng đó. Vào/nghỉ giữa tháng và chuyển lớp trong tháng được đánh dấu trên hóa đơn nháp để kế toán điều chỉnh; hệ thống không tự chia theo ngày.",
+    scopeGuide: "không thay đổi lớp chính thức, điểm danh hay quyền của giáo viên.",
+  },
+  // A language center bills a service to its members inside the run of their class, by period instead of by month.
+  service: {
+    title: "Dịch vụ", noun: "dịch vụ", kind: "Dịch vụ", name: "Tên dịch vụ", subject: "Dịch vụ", ofIt: "của dịch vụ",
+    official: "Lớp",
+    alreadyMember: "Đã dùng dịch vụ này",
+    namePlaceholder: "Ví dụ: Đưa đón tuyến 1",
+    addReason: "Ví dụ: Đăng ký đưa đón từ kỳ này",
+    lifecycleReason: "Ví dụ: Tạm dừng tuyến đưa đón",
+    endNote: "Học sinh vẫn được tính kỳ có ngày tham gia cuối.",
+    attendanceHint: "Đánh dấu dịch vụ cần điểm danh riêng (ví dụ đưa đón buổi tối). Chức năng điểm danh sẽ có sau.",
+    memberGuide: "Học sinh có hiệu lực ít nhất một ngày trong kỳ được tính khoản thu của dịch vụ với giá mặc định, trong đợt thu của lớp em đang học. Vào/nghỉ giữa kỳ hoặc chuyển giữa hai dịch vụ cùng khoản thu được đánh dấu trên hóa đơn nháp; học sinh chuyển dịch vụ chỉ có một dòng, kế toán điều chỉnh số lượng hoặc đơn giá kèm lý do.",
+    shareGuide: "Nhiều dịch vụ có thể dùng chung một khoản thu và có cùng giá; muốn giá khác, tạo khoản thu khác.",
+    billingGuide: "Thành viên có hiệu lực ít nhất một ngày trong kỳ được tính khoản thu của dịch vụ trong đợt thu của lớp em đang học ở kỳ đó. Vào/nghỉ giữa kỳ và chuyển dịch vụ trong kỳ được đánh dấu trên hóa đơn nháp để kế toán điều chỉnh; hệ thống không tự chia theo ngày.",
+    scopeGuide: "không thay đổi lớp, điểm danh hay quyền của giáo viên.",
+  },
 };
 
 export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, onSearchChange, denied, onStatusChange, usesSchoolYears = true, service = false }: {
@@ -318,7 +345,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
       <p className="xc-month"><b>Tháng {monthLabel(detail.month.month)}</b><span>Đang tham gia: <b>{detail.month.current}</b></span><span>Tính trong tháng: <b>{detail.month.counted}</b></span><span>Vào/nghỉ trong tháng: <b>{detail.month.midMonth}</b></span></p>
       <form className="finance-list-toolbar" aria-label="Lọc thành viên" onSubmit={(event) => { event.preventDefault(); setMemberApplied(memberFilters); }}>
         <label>Tìm học sinh<input type="search" placeholder="Mã hoặc tên học sinh" autoComplete="off" value={memberFilters.q} onChange={(event) => setMemberFilters({ ...memberFilters, q: event.target.value })} /></label>
-        <label>Lớp chính thức<select value={memberFilters.officialClassId} onChange={(event) => setMemberFilters({ ...memberFilters, officialClassId: event.target.value })}><option value="">Tất cả lớp</option>{detail.officialClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label>{t.official}<select value={memberFilters.officialClassId} onChange={(event) => setMemberFilters({ ...memberFilters, officialClassId: event.target.value })}><option value="">Tất cả lớp</option>{detail.officialClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Trạng thái<select value={memberFilters.status} onChange={(event) => setMemberFilters({ ...memberFilters, status: event.target.value })}><option value="COUNTED">Đang tham gia và trong tháng</option><option value="CURRENT">Đang tham gia</option><option value="ENDED">Đã kết thúc</option><option value="ALL">Tất cả</option></select></label>
         <button type="submit">Áp dụng</button>
       </form>
@@ -329,7 +356,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
       <div className="table-scroll">
         <table>
           <caption>Thành viên · hiển thị {detail.members.length} trong {detail.total} học sinh</caption>
-          <thead><tr><th><input type="checkbox" aria-label="Chọn tất cả thành viên đang tham gia" checked={detail.members.some((member) => member.open) && detail.members.filter((member) => member.open).every((member) => selected.includes(member.id))} onChange={(event) => setSelected(event.target.checked ? detail.members.filter((member) => member.open).map((member) => member.id) : [])} disabled={inactive} /></th><th>Mã HS</th><th>Họ tên</th><th>Lớp chính thức</th><th>Từ ngày</th><th>Đến ngày</th><th>Trạng thái</th></tr></thead>
+          <thead><tr><th><input type="checkbox" aria-label="Chọn tất cả thành viên đang tham gia" checked={detail.members.some((member) => member.open) && detail.members.filter((member) => member.open).every((member) => selected.includes(member.id))} onChange={(event) => setSelected(event.target.checked ? detail.members.filter((member) => member.open).map((member) => member.id) : [])} disabled={inactive} /></th><th>Mã HS</th><th>Họ tên</th><th>{t.official}</th><th>Từ ngày</th><th>Đến ngày</th><th>Trạng thái</th></tr></thead>
           <tbody>
             {detail.members.length ? detail.members.map((member) => {
               const [tone, label] = memberBadge(member);
@@ -346,23 +373,23 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
           </tbody>
         </table>
       </div>
-      <details className="finance-guide"><summary>Hướng dẫn</summary><p>Học sinh có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp với giá mặc định. Vào/nghỉ giữa tháng hoặc chuyển giữa hai lớp cùng khoản thu được đánh dấu trên hóa đơn nháp; học sinh chuyển lớp chỉ có một dòng, kế toán điều chỉnh số lượng hoặc đơn giá kèm lý do.</p><p>Mỗi lần thêm hoặc kết thúc tham gia được ghi lịch sử theo từng học sinh, kèm lý do và người thực hiện.</p></details>
+      <details className="finance-guide"><summary>Hướng dẫn</summary><p>{t.memberGuide}</p><p>Mỗi lần thêm hoặc kết thúc tham gia được ghi lịch sử theo từng học sinh, kèm lý do và người thực hiện.</p></details>
 
       {dialog === "add" && <div className="dialog-backdrop"><div ref={dialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="xc-add-title" onKeyDown={keyDown}>
         <form onSubmit={addMembers}>
           <h3 id="xc-add-title">Thêm học sinh · {cls.name}</h3>
           <div className="dialog-grid">
-            <label>Lớp chính thức<select value={candidateFilter.officialClassId} onChange={(event) => setCandidateFilter({ ...candidateFilter, officialClassId: event.target.value })}><option value="">Tất cả lớp</option>{candidates?.officialClasses.map((item) => <option key={item.id} value={item.id ?? ""}>{item.name}</option>)}</select></label>
+            <label>{t.official}<select value={candidateFilter.officialClassId} onChange={(event) => setCandidateFilter({ ...candidateFilter, officialClassId: event.target.value })}><option value="">Tất cả lớp</option>{candidates?.officialClasses.map((item) => <option key={item.id} value={item.id ?? ""}>{item.name}</option>)}</select></label>
             <label>Tìm học sinh<input type="search" placeholder="Mã hoặc tên học sinh" autoComplete="off" value={candidateFilter.q} onChange={(event) => setCandidateFilter({ ...candidateFilter, q: event.target.value })} /></label>
             <div className="full table-scroll"><table>
               <caption>Học sinh có thể thêm</caption>
-              <thead><tr><th><input type="checkbox" aria-label="Chọn tất cả học sinh có thể thêm" checked={Boolean(candidates?.candidates.some((item) => !item.member)) && candidates!.candidates.filter((item) => !item.member).every((item) => picked.includes(item.enrollmentId))} onChange={(event) => setPicked(event.target.checked ? (candidates?.candidates ?? []).filter((item) => !item.member).map((item) => item.enrollmentId) : [])} /></th><th>Mã HS</th><th>Họ tên</th><th>Lớp chính thức</th></tr></thead>
-              <tbody>{candidates ? (candidates.candidates.length ? candidates.candidates.map((item) => <tr key={item.enrollmentId}><td><input type="checkbox" aria-label={`Chọn ${item.fullName}`} disabled={item.member} checked={picked.includes(item.enrollmentId)} onChange={(event) => setPicked(event.target.checked ? [...picked, item.enrollmentId] : picked.filter((id) => id !== item.enrollmentId))} /></td><td>{item.studentCode}</td><td><b>{item.fullName}</b>{item.member && <><br /><small className="muted">Đã thuộc lớp này</small></>}</td><td>{item.officialClassName ?? "—"}</td></tr>) : <tr><td colSpan={4}>Không có học sinh phù hợp.</td></tr>) : <tr><td colSpan={4}>Đang tải học sinh.</td></tr>}</tbody>
+              <thead><tr><th><input type="checkbox" aria-label="Chọn tất cả học sinh có thể thêm" checked={Boolean(candidates?.candidates.some((item) => !item.member)) && candidates!.candidates.filter((item) => !item.member).every((item) => picked.includes(item.enrollmentId))} onChange={(event) => setPicked(event.target.checked ? (candidates?.candidates ?? []).filter((item) => !item.member).map((item) => item.enrollmentId) : [])} /></th><th>Mã HS</th><th>Họ tên</th><th>{t.official}</th></tr></thead>
+              <tbody>{candidates ? (candidates.candidates.length ? candidates.candidates.map((item) => <tr key={item.enrollmentId}><td><input type="checkbox" aria-label={`Chọn ${item.fullName}`} disabled={item.member} checked={picked.includes(item.enrollmentId)} onChange={(event) => setPicked(event.target.checked ? [...picked, item.enrollmentId] : picked.filter((id) => id !== item.enrollmentId))} /></td><td>{item.studentCode}</td><td><b>{item.fullName}</b>{item.member && <><br /><small className="muted">{t.alreadyMember}</small></>}</td><td>{item.officialClassName ?? "—"}</td></tr>) : <tr><td colSpan={4}>Không có học sinh phù hợp.</td></tr>) : <tr><td colSpan={4}>Đang tải học sinh.</td></tr>}</tbody>
             </table></div>
             <p className="muted full" aria-live="polite">{picked.length ? `Đã chọn ${picked.length} học sinh.` : "Chưa chọn học sinh nào."}</p>
             {fieldError("enrollmentIds")}
             <div><label>Hiệu lực từ<DateInput value={form.effectiveFrom} onChange={(event) => setForm({ ...form, effectiveFrom: event.target.value })} {...field("effectiveFrom")} /></label>{fieldError("effectiveFrom")}</div>
-            <div><label>Lý do<input placeholder="Ví dụ: Đăng ký học kỳ 1" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
+            <div><label>Lý do<input placeholder={t.addReason} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
           </div>
           <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Thêm học sinh đã chọn</button></div>
         </form>
@@ -375,7 +402,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
             <p className="full">Kết thúc tham gia cho {selected.length} học sinh đã chọn với cùng ngày kết thúc và lý do.</p>
             <div><label>Ngày kết thúc<DateInput value={form.effectiveTo} onChange={(event) => setForm({ ...form, effectiveTo: event.target.value })} {...field("effectiveTo")} /></label>{fieldError("effectiveTo")}</div>
             <div><label>Lý do<input placeholder="Ví dụ: Phụ huynh xin nghỉ" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
-            <p className="muted full">Học sinh vẫn được tính tháng có ngày tham gia cuối.</p>
+            <p className="muted full">{t.endNote}</p>
           </div>
           <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Kết thúc tham gia</button></div>
         </form>
@@ -393,7 +420,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
               {usesSchoolYears && <label>Năm học<input value={cls.schoolYearName} disabled /></label>}
               <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-edit-receivable-help" : "xc-edit-receivable-help"}>{options.length ? options.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>) : <option value={cls.receivableId}>{cls.receivableName} · {price(cls)}</option>}</select></label><p id="xc-edit-receivable-help" className="muted">{shared.length ? `Dùng chung với: ${shared.join(", ")}.` : `Chỉ khoản thu ${t.kind} đang áp dụng.`}</p>{fieldError("receivableId")}</div>
               <div className="full"><label><input type="checkbox" checked={form.separateAttendance} onChange={(event) => setForm({ ...form, separateAttendance: event.target.checked })} /> Điểm danh riêng</label></div>
-              <div className="full"><label>Lý do<input placeholder="Ví dụ: Lớp chuyển sang chương trình nâng cao" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
+              <div className="full"><label>Lý do<input placeholder={t.lifecycleReason} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} {...field("reason")} /></label>{fieldError("reason")}</div>
               <p className="muted full">Đổi khoản thu chỉ áp dụng cho dòng hóa đơn tạo sau đó; hóa đơn đã tạo giữ nguyên, đợt thu còn nháp cần xem trước lại.</p>
             </div>
             <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked || unchanged}>Lưu thay đổi</button></div>
@@ -404,7 +431,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
       {dialog === "price" && <div className="dialog-backdrop"><div ref={dialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="xc-price-title" onKeyDown={keyDown}>
         <form onSubmit={savePrice}>
           <h3 id="xc-price-title">Chỉnh sửa · {priceEdit?.title ?? cls.receivableName}</h3>
-          {priceEdit ? <ReceivableEditFields values={priceEdit.values} locked={priceEdit.locked} reason={priceEdit.reason} classNames={priceEdit.classNames} onChange={(values) => setPriceEdit({ ...priceEdit, values: { ...priceEdit.values, ...values } })} onReason={(reason) => setPriceEdit({ ...priceEdit, reason })} field={field} /> : <p className="muted">Đang tải khoản thu…</p>}
+          {priceEdit ? <ReceivableEditFields values={priceEdit.values} locked={priceEdit.locked} reason={priceEdit.reason} classNames={priceEdit.classNames} onChange={(values) => setPriceEdit({ ...priceEdit, values: { ...priceEdit.values, ...values } })} onReason={(reason) => setPriceEdit({ ...priceEdit, reason })} field={field} service={service} /> : <p className="muted">Đang tải khoản thu…</p>}
           {Object.entries(errors).map(([name, error]) => <small key={name} id={`xc-${name}-error`} role="alert">{error}</small>)}
           <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked || !priceEdit || !Object.keys(receivableEditChanges(priceEdit)).length}>Lưu thay đổi</button></div>
         </form>
@@ -455,19 +482,19 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
     </div>
     <details className="finance-guide">
       <summary>Hướng dẫn</summary>
-      <p>Mỗi {t.noun} gắn một khoản thu {t.kind} ở trang Khoản thu. Nhiều lớp có thể dùng chung một khoản thu và có cùng giá; muốn giá khác, tạo khoản thu khác.</p>
-      <p>Thành viên có hiệu lực ít nhất một ngày trong tháng được tính khoản thu của lớp trong đợt thu tháng đó. Vào/nghỉ giữa tháng và chuyển lớp trong tháng được đánh dấu trên hóa đơn nháp để kế toán điều chỉnh; hệ thống không tự chia theo ngày.</p>
-      <p>{t.title} không thay đổi lớp chính thức, điểm danh hay quyền của giáo viên.</p>
+      <p>Mỗi {t.noun} gắn một khoản thu {t.kind} ở trang Khoản thu. {t.shareGuide}</p>
+      <p>{t.billingGuide}</p>
+      <p>{t.title} {t.scopeGuide}</p>
     </details>
     {dialog === "create" && <div className="dialog-backdrop"><div ref={dialogRef} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="xc-create-title" onKeyDown={keyDown}>
       <form onSubmit={createClass}>
         <h3 id="xc-create-title">Thêm {t.noun}</h3>
         <div className="dialog-grid">
-          <div><label>{t.name}<input placeholder="Ví dụ: Tiếng Anh A2 (T3-T5)" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
+          <div><label>{t.name}<input placeholder={t.namePlaceholder} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
           {usesSchoolYears && <div><label>Năm học<select value={form.schoolYearId} onChange={(event) => setForm({ ...form, schoolYearId: event.target.value })} {...field("schoolYearId")}>{years.filter((year) => !year.closedAt).map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}</select></label>{fieldError("schoolYearId")}</div>}
           <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-receivable-help" : "xc-receivable-help"}><option value="">Chọn khoản thu {t.kind}</option>{list?.receivables.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>)}</select></label>
             <p id="xc-receivable-help" className="muted">{chosenReceivable?.sharedWith.length ? `Dùng chung với: ${chosenReceivable.sharedWith.join(", ")}.` : `Chỉ khoản thu ${t.kind} đang áp dụng.`}</p>{fieldError("receivableId")}</div>
-          <div className="full"><label><input type="checkbox" checked={form.separateAttendance} onChange={(event) => setForm({ ...form, separateAttendance: event.target.checked })} /> Điểm danh riêng</label><p className="muted">Đánh dấu lớp cần điểm danh riêng (ví dụ lớp buổi tối). Chức năng điểm danh sẽ có sau.</p></div>
+          <div className="full"><label><input type="checkbox" checked={form.separateAttendance} onChange={(event) => setForm({ ...form, separateAttendance: event.target.checked })} /> Điểm danh riêng</label><p className="muted">{t.attendanceHint}</p></div>
         </div>
         <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Lưu {t.noun}</button></div>
       </form>

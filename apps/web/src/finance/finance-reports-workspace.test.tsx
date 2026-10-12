@@ -233,4 +233,18 @@ describe("FinanceReportsWorkspace", () => {
     expect(within(monthly).getAllByRole("row").slice(1).map((item) => within(item).getAllByRole("cell")[0]!.textContent)).toEqual(["Thu tháng 09/2026", "Thu tháng 06/2026"]);
     expect(screen.getByRole("region", { name: "Trạng thái hóa đơn · Đợt thu tháng 09/2026" })).toBeTruthy();
   });
+  it("picks the latest run by its period start for a class-scoped School and by month otherwise", async () => {
+    const status = (collectionRunId: string, billingMonth: string, exact: number) => ({ collectionRunId, billingMonth, issued: 3, exact, shortfall: 0, overpayment: 0, refunded: 0, awaitingReceipt: 3 - exact, awaitingPayout: 0 });
+    const run = (id: string, billingMonth: string, periodLabel: string, periodStartsOn: string | null) => ({ id, billingMonth, periodLabel, periodStartsOn, netBilled: "300", actualReceipt: "200", carryAdjustment: "0" });
+    // Three runs share the latest month; two of them start on the same day, and one older run sorts last by month text only.
+    const runs = report({ workspace: "collection-runs", summary: { openDifference: "0", carryAdjustment: "0", revisionCancellation: "0" }, charts: { byMonth: [], byClass: [], runStatus: [status("run-b", "2026-09", 1), status("run-c", "2026-09", 2), status("run-a", "2026-09", 3), status("run-z", "2026-10", 0)], aging: [], topDebtors: [], cashByWeek: [] }, rows: [run("run-b", "2026-09", "Movers B · Unit 6", "2026-09-22"), run("run-c", "2026-09", "Flyers C · Unit 2", "2026-09-22"), run("run-a", "2026-09", "Starters A · Unit 3", "2026-09-01"), run("run-z", "2026-10", "Lớp cũ · Unit 1", null)] });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(runs))));
+    const center = render(<FinanceReportsWorkspace {...props({ classRuns: true })} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Đối soát đợt thu" }));
+    expect(await screen.findByRole("region", { name: "Trạng thái hóa đơn · Đợt thu Flyers C · Unit 2" })).toBeTruthy();
+    center.unmount();
+    render(<FinanceReportsWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Đối soát đợt thu" }));
+    expect(await screen.findByRole("region", { name: "Trạng thái hóa đơn · Đợt thu tháng 10/2026" })).toBeTruthy();
+  });
 });
