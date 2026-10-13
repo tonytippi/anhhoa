@@ -457,9 +457,120 @@ export async function seed(): Promise<void> {
         }
       }
     });
+    await prisma.$transaction((tx) => seedCenter(tx, roster, staff), { timeout: 30000 });
   } finally {
     await prisma.$disconnect();
   }
+}
+
+// A LANGUAGE_CENTER beside PeakLand, built the way Ops provisioning builds one (single open-ended SchoolYear, no
+// school-wide runs) so the class-scoped collection flow can be tried by hand. The two PeakLand managers are managers
+// here too, and its Students are PeakLand children whose parents have an email: staff see both Schools after login
+// and those parents see both in one Parent app. Collection runs are left for Finance to open. Rows are created once
+// and left untouched on later seeds.
+const center = {
+  name: 'Peakland Grapeseed Center',
+  slug: 'pgc',
+  studentCodePrefix: 'PGC',
+  managerEmails: ['ngocphuong.pham@gmail.com', 'daogiang1997@gmail.com'],
+  classNames: ['Starters A', 'Starters B', 'Movers A'],
+  studentsPerClass: 4,
+} as const;
+const centerSeedKey = 'b3f0c1d6-7a52-4e8b-9c14-5d2e8a6f1b70';
+const centerSeedRoute = 'development-seed/center-fixtures';
+const centerSeedReceivables = [
+  { code: 'PGC-TUITION', displayName: 'Học phí GrapeSEED', unitLabel: 'unit', defaultUnitPrice: 3500000n, group: 'Khoản thu linh hoạt' },
+  { code: 'PGC-BOOK', displayName: 'Sách Giáo Khoa Grapeseed', unitLabel: 'bộ', defaultUnitPrice: 295000n, group: 'Khoản thu linh hoạt' },
+  { code: 'PGC-TRANSPORT', displayName: 'Đưa đón', unitLabel: 'unit', defaultUnitPrice: 1200000n, group: 'Ngoại khóa' },
+] as const;
+
+async function seedCenter(tx: any, roster: PeakLandRosterRecord[], staff: PeakLandStaffRecord[]) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(9162026)`;
+  const owner = await tx.userIdentity.findUniqueOrThrow({ where: { emailNormalized: peakLand.ownerEmail } });
+  const existingSchool = await tx.school.findUnique({ where: { slug: center.slug } });
+  if (existingSchool && existingSchool.kind !== 'LANGUAGE_CENTER') throw new Error(`School ${center.slug} không phải trung tâm ngoại ngữ; hãy reset development database trước khi seed lại.`);
+  const school = existingSchool ?? await tx.school.create({ data: { name: center.name, slug: center.slug, kind: 'LANGUAGE_CENTER', studentCodePrefix: center.studentCodePrefix, initialOwnerIdentityId: owner.id } });
+  const schoolId = school.id;
+  const schoolYear = await tx.schoolYear.findFirst({ where: { schoolId } })
+    ?? await tx.schoolYear.create({ data: { schoolId, name: 'Toàn thời gian', startsOn: new Date('2000-01-01T00:00:00.000Z'), endsOn: null } });
+  const membership = await tx.schoolMembership.upsert({
+    where: { schoolId_userIdentityId: { schoolId, userIdentityId: owner.id } },
+    create: { schoolId, userIdentityId: owner.id },
+    update: { status: 'ACTIVE' },
+  });
+  const positionByCode = new Map<string, { id: string }>();
+  for (const [code, name] of positions) {
+    positionByCode.set(code, await tx.schoolPosition.upsert({ where: { schoolId_code: { schoolId, code } }, create: { schoolId, code, name, status: 'ACTIVE' }, update: {} }));
+  }
+  for (const [code, capabilities] of [['HIEU_TRUONG', ownerCapabilities], ['QUAN_LY_TRUONG', ownerCapabilities], ['KE_TOAN', ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE']]] as const) {
+    await tx.positionCapabilityGrant.createMany({ data: capabilities.map((capability) => ({ schoolId, positionId: positionByCode.get(code)!.id, capability })), skipDuplicates: true });
+  }
+  if (!await tx.staffProfile.findFirst({ where: { schoolId, schoolMembershipId: membership.id } })) {
+    await tx.staffProfile.create({ data: { schoolId, fullName: peakLand.ownerEmail, email: peakLand.ownerEmail, phone: 'Chưa cập nhật', dateOfBirth: new Date('1900-01-01T00:00:00.000Z'), gender: 'Chưa cập nhật', address: 'Chưa cập nhật', primaryPositionId: positionByCode.get('HIEU_TRUONG')!.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
+  }
+  for (const email of center.managerEmails) {
+    const record = staff.find((item) => item.email === email);
+    if (!record) throw new Error(`CSV nhân viên PeakLand thiếu ${email}.`);
+    const identity = await tx.userIdentity.upsert({ where: { emailNormalized: email }, create: { emailNormalized: email }, update: {} });
+    const managerMembership = await tx.schoolMembership.upsert({
+      where: { schoolId_userIdentityId: { schoolId, userIdentityId: identity.id } },
+      create: { schoolId, userIdentityId: identity.id },
+      update: { status: 'ACTIVE' },
+    });
+    if (await tx.staffProfile.findFirst({ where: { schoolId, OR: [{ schoolMembershipId: managerMembership.id }, { staffCode: record.staffCode }] } })) continue;
+    const profile = await tx.staffProfile.create({ data: { schoolId, fullName: record.fullName, email, phone: record.phone, dateOfBirth: record.dateOfBirth, staffCode: record.staffCode, primaryPositionId: positionByCode.get('QUAN_LY_TRUONG')!.id, schoolMembershipId: managerMembership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
+    await tx.staffCodeRegistry.create({ data: { schoolId, staffId: profile.id, staffCode: record.staffCode } });
+  }
+  const actor = { actorIdentityId: owner.id, membershipId: membership.id };
+  const operation = await tx.operation.findFirst({ where: { schoolId, route: centerSeedRoute, idempotencyKey: centerSeedKey } })
+    ?? await tx.operation.create({ data: { schoolId, ...actor, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membership.id, route: centerSeedRoute, fingerprint: 'center-fixtures-v1', idempotencyKey: centerSeedKey, status: 'COMPLETED', outcome: { schoolId } } });
+  if (!await tx.receivableGroup.findFirst({ where: { schoolId } })) {
+    await tx.receivableGroup.createMany({ data: defaultReceivableGroups.map(({ kind, name }) => ({ schoolId, kind, name })) });
+  }
+  if (!await tx.financePolicy.findFirst({ where: { schoolId } })) {
+    await tx.financePolicy.create({ data: { schoolId, effectiveFrom: new Date('2026-08-01T00:00:00.000Z'), dueDaysAfterIssue: 10, taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: 'Center development seed', ...actor } });
+  }
+  // The center collects into the same accounts as PeakLand: the first personal and the first business one.
+  const accounts = { PERSONAL: '', SCHOOL: '' };
+  for (const kind of ['PERSONAL', 'SCHOOL'] as const) {
+    const account = financeSeedAccounts.find((item) => item.kind === kind)!;
+    const existing = await tx.bankAccount.findFirst({ where: { schoolId, bankBin: account.bankBin, accountNumber: account.accountNumber } });
+    const row = existing ?? await tx.bankAccount.create({ data: { schoolId, ...account, transferTemplate: '{{studentName}} {{className}}', ...actor } });
+    if (!existing) await tx.bankAccountLifecycleTransition.create({ data: { schoolId, bankAccountId: row.id, status: 'ACTIVE', ...actor, operationId: operation.id, sequence: 1 } });
+    accounts[kind] = row.id;
+  }
+  const groups = new Map<string, string>((await tx.receivableGroup.findMany({ where: { schoolId } })).map((group: { name: string; id: string }) => [group.name, group.id]));
+  for (const { group, ...receivable } of centerSeedReceivables) {
+    if (await tx.receivable.findFirst({ where: { schoolId, code: receivable.code } })) continue;
+    const row = await tx.receivable.create({ data: { schoolId, groupId: groups.get(group)!, ...receivable } });
+    await tx.receivableLifecycleTransition.create({ data: { schoolId, receivableId: row.id, status: 'ACTIVE', ...actor, operationId: operation.id, sequence: 1 } });
+  }
+  // Transport is a service group billed per unit; it starts empty so Finance registers the Students who use it.
+  if (!await tx.extracurricularClass.findFirst({ where: { schoolId, name: 'Đưa đón' } })) {
+    const transport = await tx.receivable.findFirstOrThrow({ where: { schoolId, code: 'PGC-TRANSPORT' } });
+    const service = await tx.extracurricularClass.create({ data: { schoolId, schoolYearId: schoolYear.id, name: 'Đưa đón', receivableId: transport.id } });
+    await tx.extracurricularClassLifecycleTransition.create({ data: { schoolId, extracurricularClassId: service.id, status: 'ACTIVE', ...actor, operationId: operation.id, sequence: 1 } });
+  }
+  const classrooms = [];
+  for (const name of center.classNames) {
+    classrooms.push(await tx.class.findFirst({ where: { schoolId, schoolYearId: schoolYear.id, name } })
+      ?? await tx.class.create({ data: { schoolId, schoolYearId: schoolYear.id, name, status: 'ACTIVE', defaultBankAccountId: accounts.PERSONAL, defaultSchoolBankAccountId: accounts.SCHOOL } }));
+  }
+  const children = roster.filter((record) => record.mother?.emailNormalized || record.father?.emailNormalized).slice(0, classrooms.length * center.studentsPerClass);
+  for (const [index, record] of children.entries()) {
+    const studentCode = `${center.studentCodePrefix}${index + 1}`;
+    if (await tx.student.findFirst({ where: { schoolId, studentCode } })) continue;
+    const classroom = classrooms[Math.floor(index / center.studentsPerClass)]!;
+    const student = await tx.student.create({ data: { schoolId, studentCode, fullName: record.fullName, preferredName: record.preferredName, dateOfBirth: record.dateOfBirth, gender: record.gender, address: record.address } });
+    const enrollment = await tx.studentEnrollment.create({ data: { schoolId, studentId: student.id, schoolYearId: schoolYear.id, classId: classroom.id, lifecycle: 'ENROLLED', effectiveFrom: rosterEffectiveFrom, schoolYearName: schoolYear.name, schoolYearStartsOn: schoolYear.startsOn, schoolYearEndsOn: schoolYear.endsOn, className: classroom.name } });
+    await tx.enrollmentClassAssignment.create({ data: { schoolId, enrollmentId: enrollment.id, schoolYearId: schoolYear.id, classId: classroom.id, effectiveFrom: rosterEffectiveFrom, reason: 'Khởi tạo enrollment' } });
+    for (const [relationshipLabel, parent] of [['Mẹ', record.mother], ['Bố', record.father]] as const) {
+      if (!parent?.emailNormalized) continue;
+      const parentProfile = await tx.parentProfile.findUniqueOrThrow({ where: { emailNormalized: parent.emailNormalized } });
+      await tx.studentParent.create({ data: { schoolId, studentId: student.id, parentProfileId: parentProfile.id, relationshipLabel } });
+    }
+  }
+  if (school.studentCodeSequence < children.length) await tx.school.update({ where: { id: schoolId }, data: { studentCodeSequence: children.length } });
 }
 
 // PeakLand finance setup mirrored read-only from Kidsonline (school 2688) on 2026-10-07 so the switch-over keeps

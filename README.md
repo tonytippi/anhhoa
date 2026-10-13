@@ -65,6 +65,8 @@ pnpm --filter api start
 
 `NODE_ENV=development pnpm --filter api prisma:seed` chỉ phục vụ development fixture. Nó tạo tenant đầu tiên **Mầm Non Giáo dục Đỉnh Cao - PeakLand Preschool** (`pl`, tiền tố học sinh `PL`) và owner access graph cho `sonnh273@gmail.com`, để tài khoản này đăng nhập Google có thể truy cập Admin portal. Seed không gán Google subject, không tạo session, Platform Operator, Operation/audit giả hay dữ liệu Finance; subject chỉ được OAuth verified callback bind.
 
+Seed cũng tạo trung tâm ngoại ngữ **Peakland Grapeseed Center** (`pgc`, tiền tố học viên `PGC`) với cùng owner, hai quản lý trường `ngocphuong.pham@gmail.com` và `daogiang1997@gmail.com` (cũng là quản lý PeakLand, nên đăng nhập thấy cả hai trường), ba lớp, 12 học viên là học sinh PeakLand có phụ huynh dùng email, khoản thu học phí theo unit và dịch vụ đưa đón. Seed không mở đợt thu nào.
+
 `NODE_ENV=development pnpm --filter api db:reset:dev` là destructive: xóa toàn bộ dữ liệu tại `DATABASE_URL`, áp dụng lại migration từ đầu và seed PeakLand. Lệnh từ chối mọi runtime khác `development`; luôn kiểm tra `DATABASE_URL` trước khi chạy.
 
 ## Pilot VPS deployment

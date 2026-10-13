@@ -132,7 +132,8 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
       expect(await prisma.staffClassAssignment.count({ where: { schoolId: school.id, schoolYearId: school.schoolYears[0]!.id } })).toBe(28);
        expect(await prisma.receivableGroup.count({ where: { schoolId: school.id } })).toBe(3);
        expect(await prisma.receivableGroupLifecycleTransition.count({ where: { schoolId: school.id } })).toBe(0);
-       const receivables = await prisma.receivable.findMany({ where: { schoolId: school.id }, include: { group: true } });
+       // Other integration suites add their own receivables to this School; the seed's all carry a Kidsonline code.
+       const receivables = await prisma.receivable.findMany({ where: { schoolId: school.id, code: { startsWith: 'KO-' } }, include: { group: true } });
        expect(receivables).toHaveLength(44);
        expect(receivables.filter((item) => item.group.kind === 'FIXED').map((item) => item.displayName).sort()).toEqual(['HỌC PHÍ TIÊU CHUẨN THÁNG', 'Tiền ăn']);
        expect(receivables.find((item) => item.code === 'KO-26112')).toMatchObject({ displayName: 'Tiền ăn', defaultUnitPrice: 50000n, refundUnitPrice: 40000n, autoLeaveDeduction: true, taxCategory: 'NOT_DECLARED' });
@@ -184,6 +185,55 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
         expect.objectContaining({ status: 'ACTIVE', relationshipLabel: 'Mẹ', parentProfile: expect.objectContaining({ fullName: 'Phạm Thị Tú Anh', phone: '0334355172', emailNormalized: null }) }),
         expect.objectContaining({ status: 'ACTIVE', relationshipLabel: 'Bố', parentProfile: expect.objectContaining({ fullName: 'Cao Văn Quân', phone: '0973133121', emailNormalized: null }) }),
       ]);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+  it('seeds the language center with the PeakLand managers and shared parents, and remains idempotent', async () => {
+    const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl!, options: '-c TimeZone=UTC' }) });
+    try {
+      const load = () => prisma.school.findUniqueOrThrow({
+        where: { slug: 'pgc' },
+        include: {
+          schoolYears: true,
+          classes: { orderBy: { name: 'asc' } },
+          memberships: { include: { userIdentity: true, boundStaffProfile: { include: { primaryPosition: true } } } },
+          students: { include: { parentLinks: { include: { parentProfile: true } }, enrollments: true } },
+          receivables: true,
+          collectionRuns: true,
+        },
+      });
+      const school = await load();
+      expect(school).toMatchObject({ name: 'Peakland Grapeseed Center', kind: 'LANGUAGE_CENTER', studentCodePrefix: 'PGC', studentCodeSequence: 12 });
+      expect(school.schoolYears).toEqual([expect.objectContaining({ name: 'Toàn thời gian', endsOn: null })]);
+      expect(school.classes.map((classroom) => classroom.name)).toEqual(['Movers A', 'Starters A', 'Starters B']);
+      expect(school.memberships.map((membership) => [membership.userIdentity.emailNormalized, membership.boundStaffProfile?.primaryPosition.code]).sort()).toEqual([
+        ['daogiang1997@gmail.com', 'QUAN_LY_TRUONG'],
+        ['ngocphuong.pham@gmail.com', 'QUAN_LY_TRUONG'],
+        ['sonnh273@gmail.com', 'HIEU_TRUONG'],
+      ]);
+      // The same identities are members of PeakLand, so one login lists both Schools.
+      expect(await prisma.schoolMembership.count({ where: { school: { slug: 'pl' }, status: 'ACTIVE', userIdentity: { emailNormalized: { in: ['sonnh273@gmail.com', 'ngocphuong.pham@gmail.com', 'daogiang1997@gmail.com'] } } } })).toBe(3);
+      expect(school.students).toHaveLength(12);
+      expect(school.receivables.map((receivable) => receivable.code).sort()).toEqual(['PGC-BOOK', 'PGC-TRANSPORT', 'PGC-TUITION']);
+      expect(school.collectionRuns).toHaveLength(0);
+      for (const student of school.students) {
+        expect(student.enrollments).toEqual([expect.objectContaining({ lifecycle: 'ENROLLED', schoolYearEndsOn: null })]);
+        expect(student.parentLinks.length).toBeGreaterThan(0);
+        for (const link of student.parentLinks) {
+          expect(link.parentProfile.emailNormalized).not.toBeNull();
+          expect(await prisma.studentParent.count({ where: { parentProfileId: link.parentProfileId, school: { slug: 'pl' }, student: { fullName: student.fullName } } })).toBe(1);
+        }
+      }
+      await execFileAsync('pnpm', ['exec', 'tsx', 'prisma/seed.ts'], {
+        cwd: process.cwd(),
+        env: { ...process.env, DATABASE_URL: databaseUrl!, NODE_ENV: 'development', PRISMA_SEED: 'true' },
+      });
+      const again = await load();
+      expect(again.students.map((student) => student.id).sort()).toEqual(school.students.map((student) => student.id).sort());
+      expect(again.memberships).toHaveLength(3);
+      expect(again.classes.map((classroom) => classroom.id)).toEqual(school.classes.map((classroom) => classroom.id));
     } finally {
       await prisma.$disconnect();
     }
