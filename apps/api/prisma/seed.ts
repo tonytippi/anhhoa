@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -7,12 +7,33 @@ import { resolve } from 'node:path';
 import { assertDevelopmentEnvironment as assertDevelopment } from '../scripts/development-environment.js';
 import { defaultReceivableGroupNames, defaultReceivableGroups, developmentSeedDefaultReceivableGroupsFingerprint, developmentSeedDefaultReceivableGroupsKey, developmentSeedDefaultReceivableGroupsRoute } from '../src/modules/finance/default-receivable-groups.js';
 
-const peakLand = {
+type PreschoolSeedProfile = {
+  name: string;
+  slug: string;
+  studentCodePrefix: string;
+  ownerEmail: string;
+  classNames: readonly string[];
+  // PeakLand mirrors the Kidsonline finance setup; other Schools only get a finance policy.
+  financeFixtures: boolean;
+};
+
+const peakLand: PreschoolSeedProfile = {
   name: 'Mầm Non Giáo dục Đỉnh Cao - PeakLand Preschool',
   slug: 'pl',
   studentCodePrefix: 'PL',
   ownerEmail: 'sonnh273@gmail.com',
-} as const;
+  classNames: ['Marie Curie', 'Einstein', 'Newton', 'Archimedes', 'Picasso', 'Mozart', 'Elizabeth'],
+  financeFixtures: true,
+};
+
+const anhNhat: PreschoolSeedProfile = {
+  name: 'Mầm non song ngữ Anh Nhật',
+  slug: 'an',
+  studentCodePrefix: 'AN',
+  ownerEmail: 'sonnh273@gmail.com',
+  classNames: ['KITTEN', 'KOALA', 'MISA', 'PANDA'],
+  financeFixtures: false,
+};
 
 const positions = [
   ['HIEU_TRUONG', 'Hiệu trưởng'],
@@ -25,9 +46,10 @@ const positions = [
 ] as const;
 
 const ownerCapabilities = ['SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAGE', 'SETTINGS_MANAGE', 'FINANCE_MANAGE', 'CLASS_LEAVE_READ', 'LEAVE_REQUEST_DECIDE'];
-const peakLandClassNames = ['Marie Curie', 'Einstein', 'Newton', 'Archimedes', 'Picasso', 'Mozart', 'Elizabeth'] as const;
 const rosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/hocsinh-peakland.csv', import.meta.url)));
 const staffCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/nhanvien-peakland.csv', import.meta.url)));
+const anhNhatRosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/anhnhat/anhnhat-hocsinh.csv', import.meta.url)));
+const anhNhatStaffCsvPath = resolve(fileURLToPath(new URL('../../../docs/anhnhat/anhnhat-nhanvien.csv', import.meta.url)));
 const rosterEffectiveFrom = new Date('2026-08-01T00:00:00.000Z');
 const staffAssignmentReason = 'PeakLand development seed';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -36,7 +58,7 @@ type PeakLandRosterRecord = {
   studentCode: string;
   fullName: string;
   preferredName: string | null;
-  className: (typeof peakLandClassNames)[number] | null;
+  className: string | null;
   lifecycle: 'ENROLLED' | 'WAITING_FOR_CLASS';
   dateOfBirth: Date;
   gender: 'NAM' | 'NU';
@@ -61,7 +83,7 @@ type PeakLandStaffRecord = {
   dateOfBirth: Date;
   email: string | null;
   phone: string | null;
-  classNames: (typeof peakLandClassNames)[number][];
+  classNames: string[];
   primaryPositionCode: (typeof positions)[number][0];
 };
 
@@ -153,7 +175,25 @@ function parseDate(value: string, line: number): Date {
   return date;
 }
 
+type RosterCsvOptions = {
+  classNames: readonly string[];
+  studentCodePrefix: string;
+  // Exact number of CSV data rows; null skips the check.
+  rows: number | null;
+  waitingForClass: number;
+  // Statuses whose rows are left out of the seed (e.g. students who already left).
+  ignoredStatuses: readonly string[];
+};
+
 export function parsePeakLandRosterCsv(csv: string): PeakLandRosterRecord[] {
+  return parseRosterCsv(csv, { classNames: peakLand.classNames, studentCodePrefix: peakLand.studentCodePrefix, rows: 127, waitingForClass: 1, ignoredStatuses: [] });
+}
+
+export function parseAnhNhatRosterCsv(csv: string): PeakLandRosterRecord[] {
+  return parseRosterCsv(csv, { classNames: anhNhat.classNames, studentCodePrefix: anhNhat.studentCodePrefix, rows: 52, waitingForClass: 0, ignoredStatuses: ['Nghỉ học'] });
+}
+
+function parseRosterCsv(csv: string, options: RosterCsvOptions): PeakLandRosterRecord[] {
   const rows = parseCsv(csv);
   const header = rows.shift();
   if (!header) throw new Error('CSV thiếu hàng tiêu đề.');
@@ -163,30 +203,32 @@ export function parsePeakLandRosterCsv(csv: string): PeakLandRosterRecord[] {
   }
   const indexes = new Map(normalizedHeaders.map((value, index) => [value, index]));
   for (const name of rosterHeaders) if (!indexes.has(name)) throw new Error(`CSV thiếu cột bắt buộc ${name}.`);
-  const records = rows.map(({ line, values }, index) => {
+  const rowCount = rows.length;
+  const records = rows.flatMap<PeakLandRosterRecord>(({ line, values }, index) => {
     if (values.length !== header.values.length) throw new Error(`CSV dòng ${line}, cấu trúc cột không hợp lệ.`);
     const field = (name: (typeof rosterHeaders)[number]) => values[indexes.get(name)!]!.trim();
     const stt = field('STT');
-    if (stt !== String(index + 1)) throw new Error(`CSV dòng ${line}, trường STT phải tuần tự từ 1 đến 127.`);
+    if (stt !== String(index + 1)) throw new Error(`CSV dòng ${line}, trường STT phải tuần tự từ 1.`);
     const fullName = field('Học sinh');
     if (!fullName) throw new Error(`CSV dòng ${line}, trường Học sinh là bắt buộc.`);
     const gender: PeakLandRosterRecord['gender'] | null = field('Giới tính') === 'Nam' ? 'NAM' : field('Giới tính') === 'Nữ' ? 'NU' : null;
     if (!gender) throw new Error(`CSV dòng ${line}, trường Giới tính không được hỗ trợ.`);
     const status = field('Trạng thái');
     const className = field('Lớp');
+    if (options.ignoredStatuses.includes(status)) return [];
     if (status === 'Trong lớp') {
-      if (!peakLandClassNames.includes(className as (typeof peakLandClassNames)[number])) throw new Error(`CSV dòng ${line}, trường Lớp không được hỗ trợ.`);
-      return { studentCode: `PL${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: className as (typeof peakLandClassNames)[number], lifecycle: 'ENROLLED' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null, mother: contact({ name: field('Họ và tên mẹ'), phone: field('SĐT mẹ'), email: field('Email mẹ'), address: field('Địa chỉ mẹ') }), father: contact({ name: field('Họ và tên bố'), phone: field('SĐT bố'), email: field('Email bố'), address: field('Địa chỉ bố') }) };
+      if (!options.classNames.includes(className)) throw new Error(`CSV dòng ${line}, trường Lớp không được hỗ trợ.`);
+      return [{ studentCode: `${options.studentCodePrefix}${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className, lifecycle: 'ENROLLED' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null, mother: contact({ name: field('Họ và tên mẹ'), phone: field('SĐT mẹ'), email: field('Email mẹ'), address: field('Địa chỉ mẹ') }), father: contact({ name: field('Họ và tên bố'), phone: field('SĐT bố'), email: field('Email bố'), address: field('Địa chỉ bố') }) }];
     }
     if (status === 'Chờ phân lớp') {
       if (className) throw new Error(`CSV dòng ${line}, trường Lớp phải để trống khi Chờ phân lớp.`);
-      return { studentCode: `PL${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: null, lifecycle: 'WAITING_FOR_CLASS' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null, mother: contact({ name: field('Họ và tên mẹ'), phone: field('SĐT mẹ'), email: field('Email mẹ'), address: field('Địa chỉ mẹ') }), father: contact({ name: field('Họ và tên bố'), phone: field('SĐT bố'), email: field('Email bố'), address: field('Địa chỉ bố') }) };
+      return [{ studentCode: `${options.studentCodePrefix}${stt}`, fullName, preferredName: field('Tên thường gọi') || null, className: null, lifecycle: 'WAITING_FOR_CLASS' as const, dateOfBirth: parseDate(field('Ngày sinh'), line), gender, address: field('Địa chỉ') || null, mother: contact({ name: field('Họ và tên mẹ'), phone: field('SĐT mẹ'), email: field('Email mẹ'), address: field('Địa chỉ mẹ') }), father: contact({ name: field('Họ và tên bố'), phone: field('SĐT bố'), email: field('Email bố'), address: field('Địa chỉ bố') }) }];
     }
     throw new Error(`CSV dòng ${line}, trường Trạng thái không được hỗ trợ.`);
   });
-  if (records.length !== 127) throw new Error(`CSV phải có đúng 127 học sinh, nhận được ${records.length}.`);
-  for (const className of peakLandClassNames) if (!records.some((record) => record.className === className)) throw new Error(`CSV thiếu lớp ${className}.`);
-  if (records.filter((record) => record.lifecycle === 'WAITING_FOR_CLASS').length !== 1) throw new Error('CSV phải có đúng một học sinh Chờ phân lớp.');
+  if (options.rows !== null && rowCount !== options.rows) throw new Error(`CSV phải có đúng ${options.rows} học sinh, nhận được ${rowCount}.`);
+  for (const className of options.classNames) if (!records.some((record) => record.className === className)) throw new Error(`CSV thiếu lớp ${className}.`);
+  if (records.filter((record) => record.lifecycle === 'WAITING_FOR_CLASS').length !== options.waitingForClass) throw new Error(`CSV phải có đúng ${options.waitingForClass} học sinh Chờ phân lớp.`);
   const contacts = records.flatMap((record) => [record.mother, record.father]).filter((item): item is PeakLandParentContact => item !== null);
   const contactsByEmail = new Map<string, PeakLandParentContact>();
   const contactsByPhone = new Map<string, PeakLandParentContact>();
@@ -215,7 +257,17 @@ function primaryPositionCode(role: string, line: number): PeakLandStaffRecord['p
   return 'QUAN_LY_TRUONG';
 }
 
+type StaffCsvOptions = { classNames: readonly string[]; rows: number };
+
 export function parsePeakLandStaffCsv(csv: string): PeakLandStaffRecord[] {
+  return parseStaffCsv(csv, { classNames: peakLand.classNames, rows: 31 });
+}
+
+export function parseAnhNhatStaffCsv(csv: string): PeakLandStaffRecord[] {
+  return parseStaffCsv(csv, { classNames: anhNhat.classNames, rows: 17 });
+}
+
+function parseStaffCsv(csv: string, options: StaffCsvOptions): PeakLandStaffRecord[] {
   const rows = parseCsv(csv);
   const header = rows.shift();
   if (!header) throw new Error('CSV thiếu hàng tiêu đề.');
@@ -227,7 +279,7 @@ export function parsePeakLandStaffCsv(csv: string): PeakLandStaffRecord[] {
     if (values.length !== header.values.length) throw new Error(`CSV dòng ${line}, cấu trúc cột không hợp lệ.`);
     const field = (name: (typeof staffHeaders)[number]) => values[indexes.get(name)!]!.trim();
     const stt = field('STT');
-    if (stt !== String(index + 1)) throw new Error(`CSV dòng ${line}, trường STT phải tuần tự từ 1 đến 31.`);
+    if (stt !== String(index + 1)) throw new Error(`CSV dòng ${line}, trường STT phải tuần tự từ 1.`);
     const staffCode = field('Mã nhân viên');
     const fullName = field('Họ tên');
     if (!staffCode) throw new Error(`CSV dòng ${line}, trường Mã nhân viên là bắt buộc.`);
@@ -237,12 +289,12 @@ export function parsePeakLandStaffCsv(csv: string): PeakLandStaffRecord[] {
     const classNames = field('Lớp').split('\n').map((name) => name.trim()).filter(Boolean);
     if (new Set(classNames).size !== classNames.length) throw new Error(`CSV dòng ${line}, trường Lớp có lớp trùng lặp.`);
     for (const className of classNames) {
-      if (!peakLandClassNames.includes(className as (typeof peakLandClassNames)[number])) throw new Error(`CSV dòng ${line}, trường Lớp không được hỗ trợ.`);
+      if (!options.classNames.includes(className)) throw new Error(`CSV dòng ${line}, trường Lớp không được hỗ trợ.`);
     }
     const primaryPosition = primaryPositionCode(field('Chức vụ'), line);
-    return { staffCode, fullName, dateOfBirth: parseDate(field('Ngày sinh'), line), email, phone: field('Số điện thoại') || null, classNames: classNames as PeakLandStaffRecord['classNames'], primaryPositionCode: primaryPosition };
+    return { staffCode, fullName, dateOfBirth: parseDate(field('Ngày sinh'), line), email, phone: field('Số điện thoại') || null, classNames, primaryPositionCode: primaryPosition };
   });
-  if (records.length !== 31) throw new Error(`CSV phải có đúng 31 nhân viên, nhận được ${records.length}.`);
+  if (records.length !== options.rows) throw new Error(`CSV phải có đúng ${options.rows} nhân viên, nhận được ${records.length}.`);
   if (new Set(records.map((record) => record.staffCode)).size !== records.length) throw new Error('CSV có Mã nhân viên trùng lặp.');
   return records;
 }
@@ -255,211 +307,220 @@ export async function seed(): Promise<void> {
   assertDevelopmentEnvironment();
   const roster = parsePeakLandRosterCsv(await readFile(rosterCsvPath, 'utf8'));
   const staff = parsePeakLandStaffCsv(await readFile(staffCsvPath, 'utf8'));
+  const anhNhatRoster = parseAnhNhatRosterCsv(await readFile(anhNhatRosterCsvPath, 'utf8'));
+  const anhNhatStaff = parseAnhNhatStaffCsv(await readFile(anhNhatStaffCsvPath, 'utf8'));
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required to seed the database.');
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString, options: '-c TimeZone=UTC' }) });
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(9162026)`;
-      const owner = await tx.userIdentity.upsert({
-        where: { emailNormalized: peakLand.ownerEmail },
-        create: { emailNormalized: peakLand.ownerEmail },
-        update: {},
-      });
-      const school = await tx.school.upsert({
-        where: { slug: peakLand.slug },
-        create: {
-          name: peakLand.name,
-          slug: peakLand.slug,
-          studentCodePrefix: peakLand.studentCodePrefix,
-          initialOwnerIdentityId: owner.id,
-        },
-        update: { name: peakLand.name, studentCodePrefix: peakLand.studentCodePrefix, initialOwnerIdentityId: owner.id },
-      });
-      const schoolYearData = {
-        schoolId: school.id,
-        name: '2026-2027',
-        startsOn: new Date('2026-08-01T00:00:00.000Z'),
-        endsOn: new Date('2027-07-31T00:00:00.000Z'),
-      };
-      let schoolYear = await tx.schoolYear.findFirst({
-        where: { schoolId: school.id, name: schoolYearData.name },
-      });
-      if (schoolYear?.closedAt) throw new Error('SchoolYear 2026-2027 đã đóng; hãy reset development database trước khi seed lại.');
-      if (schoolYear) schoolYear = await tx.schoolYear.update({ where: { id: schoolYear.id }, data: schoolYearData });
-      else schoolYear = await tx.schoolYear.create({ data: schoolYearData });
-      const membership = await tx.schoolMembership.upsert({
-        where: { schoolId_userIdentityId: { schoolId: school.id, userIdentityId: owner.id } },
-        create: { schoolId: school.id, userIdentityId: owner.id },
-        update: { status: 'ACTIVE' },
-      });
-      const seededPositions = await Promise.all(positions.map(async ([code, name]) => [code, await tx.schoolPosition.upsert({
-        where: { schoolId_code: { schoolId: school.id, code } },
-        create: { schoolId: school.id, code, name, status: 'ACTIVE' },
-        update: { name, status: 'ACTIVE' },
-      })] as const));
-      const positionByCode = new Map(seededPositions);
-      const ownerPosition = positionByCode.get('HIEU_TRUONG')!;
-      const financePosition = positionByCode.get('KE_TOAN')!;
-      await tx.positionCapabilityGrant.createMany({
-        data: ownerCapabilities.map((capability) => ({ schoolId: school.id, positionId: ownerPosition.id, capability })),
-        skipDuplicates: true,
-      });
-      await tx.positionCapabilityGrant.createMany({
-        data: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'].map((capability) => ({ schoolId: school.id, positionId: financePosition.id, capability })),
-        skipDuplicates: true,
-      });
-      await tx.positionCapabilityGrant.createMany({
-        data: ownerCapabilities.map((capability) => ({ schoolId: school.id, positionId: positionByCode.get('QUAN_LY_TRUONG')!.id, capability })),
-        skipDuplicates: true,
-      });
-      const staffData = {
-        schoolId: school.id,
-        fullName: peakLand.ownerEmail,
-        email: peakLand.ownerEmail,
-        employmentStatus: 'ACTIVE' as const,
-        primaryPositionId: ownerPosition.id,
-        schoolMembershipId: membership.id,
-        boundAt: new Date(),
-        boundByMembershipId: membership.id,
-      };
-      const existingStaff = await tx.staffProfile.findFirst({ where: { schoolId: school.id, schoolMembershipId: membership.id } });
-      if (existingStaff) await tx.staffProfile.update({ where: { id: existingStaff.id }, data: staffData });
-      else await tx.staffProfile.create({
-        data: {
-          ...staffData,
-          phone: 'Chưa cập nhật',
-          dateOfBirth: new Date('1900-01-01T00:00:00.000Z'),
-          gender: 'Chưa cập nhật',
-          address: 'Chưa cập nhật',
-        },
-      });
-      const defaultGroupOperations = await tx.operation.findMany({ where: { schoolId: school.id, route: developmentSeedDefaultReceivableGroupsRoute, idempotencyKey: developmentSeedDefaultReceivableGroupsKey } });
-      const defaultGroups = await tx.receivableGroup.findMany({ where: { schoolId: school.id } });
-      if (defaultGroupOperations.length === 0 && defaultGroups.length === 0) {
-        await tx.operation.create({ data: { schoolId: school.id, membershipId: membership.id, actorIdentityId: owner.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membership.id, route: developmentSeedDefaultReceivableGroupsRoute, fingerprint: developmentSeedDefaultReceivableGroupsFingerprint, idempotencyKey: developmentSeedDefaultReceivableGroupsKey, status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
-        await tx.receivableGroup.createMany({ data: defaultReceivableGroups.map(({ kind, name }) => ({ schoolId: school.id, kind, name })) });
-      } else {
-        const [defaultGroupOperation] = defaultGroupOperations;
-        const validOperation = defaultGroupOperations.length === 1 && defaultGroupOperation?.actorType === 'SCHOOL_MEMBERSHIP' && defaultGroupOperation.actorReference === membership.id && defaultGroupOperation.membershipId === membership.id && defaultGroupOperation.actorIdentityId === owner.id && defaultGroupOperation.fingerprint === developmentSeedDefaultReceivableGroupsFingerprint;
-        const validGroups = defaultGroups.length === defaultReceivableGroups.length && defaultReceivableGroups.every(({ kind, name }) => defaultGroups.some((group) => group.kind === kind && group.name === name));
-        if (!validOperation || !validGroups || !defaultGroupOperation) throw new Error('Nhóm khoản thu mặc định PeakLand không đúng provenance; hãy reset development database trước khi seed lại.');
-        if (defaultGroupOperation.status === 'PENDING') {
-          await tx.operation.update({ where: { id: defaultGroupOperation.id }, data: { status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
-        } else if (defaultGroupOperation.status !== 'COMPLETED') {
-          throw new Error('Nhóm khoản thu mặc định PeakLand có Operation không thể hoàn tất an toàn; hãy reset development database trước khi seed lại.');
-        }
-      }
-      if (school.studentCodeSequence < roster.length) {
-        await tx.school.update({ where: { id: school.id }, data: { studentCodeSequence: roster.length } });
-      }
-      const classrooms = new Map(await Promise.all(peakLandClassNames.map(async (name) => {
-        const existingClasses = await tx.class.findMany({ where: { schoolId: school.id, schoolYearId: schoolYear.id, name } });
-        if (existingClasses.length > 1) throw new Error(`Lớp ${name} có nhiều bản ghi trong SchoolYear 2026-2027.`);
-        const existing = existingClasses[0];
-        const classroom = existing
-          ? await tx.class.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } })
-          : await tx.class.create({ data: { schoolId: school.id, schoolYearId: schoolYear.id, name, status: 'ACTIVE' } });
-        return [name, classroom] as const;
-      })));
-      await seedFinanceFixtures(tx, { schoolId: school.id, schoolYearId: schoolYear.id, membershipId: membership.id, ownerId: owner.id, classrooms: [...classrooms.values()] });
-      for (const record of staff) {
-        const primaryPosition = positionByCode.get(record.primaryPositionCode)!;
-        const registries = await tx.staffCodeRegistry.findMany({ where: { schoolId: school.id, staffCode: record.staffCode } });
-        if (registries.length > 1) throw new Error(`Mã nhân viên ${record.staffCode} có nhiều registry trong School pl.`);
-        const profiles = await tx.staffProfile.findMany({
-          where: { schoolId: school.id, OR: [{ staffCode: record.staffCode }, ...(registries[0] ? [{ id: registries[0].staffId }] : [])] },
-          include: { issuedCodes: true, assignments: true },
-        });
-        if (profiles.length > 1) throw new Error(`Fixture ${record.staffCode} có nhiều StaffProfile trong School pl.`);
-        // Staff with an email get a login: identity + membership, bound to their profile by the owner.
-        let staffMembership = null;
-        if (record.email && record.email !== peakLand.ownerEmail) {
-          const identity = await tx.userIdentity.upsert({ where: { emailNormalized: record.email }, create: { emailNormalized: record.email }, update: {} });
-          staffMembership = await tx.schoolMembership.upsert({
-            where: { schoolId_userIdentityId: { schoolId: school.id, userIdentityId: identity.id } },
-            create: { schoolId: school.id, userIdentityId: identity.id },
-            update: { status: 'ACTIVE' },
-          });
-        }
-        const profileData = { fullName: record.fullName, email: record.email, phone: record.phone, dateOfBirth: record.dateOfBirth, gender: null, address: null, staffCode: record.staffCode, employmentStatus: 'ACTIVE' as const, primaryPositionId: primaryPosition.id };
-        const bindData = staffMembership ? { schoolMembershipId: staffMembership.id, boundByMembershipId: membership.id } : { schoolMembershipId: null, boundByMembershipId: null };
-        const existingProfile = profiles[0];
-        if (existingProfile && (existingProfile.fullName !== profileData.fullName || existingProfile.phone !== profileData.phone || existingProfile.dateOfBirth.getTime() !== profileData.dateOfBirth.getTime() || existingProfile.gender !== null || existingProfile.address !== null || existingProfile.staffCode !== record.staffCode || existingProfile.employmentStatus !== profileData.employmentStatus || existingProfile.primaryPositionId !== profileData.primaryPositionId || (existingProfile.schoolMembershipId !== null && existingProfile.schoolMembershipId !== bindData.schoolMembershipId) || (existingProfile.boundByMembershipId !== null && existingProfile.boundByMembershipId !== bindData.boundByMembershipId) || existingProfile.issuedCodes.length !== 1 || existingProfile.issuedCodes[0]?.staffCode !== record.staffCode)) {
-          throw new Error(`Fixture ${record.staffCode} đã có StaffProfile khác snapshot; hãy reset development database trước khi seed lại.`);
-        }
-        const bound = staffMembership ? { ...bindData, boundAt: existingProfile?.boundAt ?? new Date() } : {};
-        // Email is the one staff field a re-seed may change (it is how a person logs in); binding follows it.
-        const profile = existingProfile
-          ? (existingProfile.email !== record.email || (staffMembership && existingProfile.schoolMembershipId === null) ? await tx.staffProfile.update({ where: { id: existingProfile.id }, data: { email: record.email, ...bound } }) : existingProfile)
-          : await tx.staffProfile.create({ data: { schoolId: school.id, ...profileData, ...bound } });
-        if (registries[0]?.staffId && registries[0].staffId !== profile.id) throw new Error(`Mã nhân viên ${record.staffCode} đã thuộc StaffProfile khác.`);
-        if (!registries[0]) await tx.staffCodeRegistry.create({ data: { schoolId: school.id, staffId: profile.id, staffCode: record.staffCode } });
-        const expectedClassIds = record.primaryPositionCode === 'GIAO_VIEN' ? record.classNames.map((name) => classrooms.get(name)!.id) : [];
-        const existingAssignments = await tx.staffClassAssignment.findMany({ where: { schoolId: school.id, staffProfileId: profile.id, schoolYearId: schoolYear.id } });
-        const assignmentsMatch = existingAssignments.length === expectedClassIds.length && existingAssignments.every((assignment) => expectedClassIds.includes(assignment.classId) && assignment.effectiveFrom.getTime() === rosterEffectiveFrom.getTime() && assignment.effectiveTo === null && assignment.reason === staffAssignmentReason && assignment.schoolYearName === schoolYear.name && assignment.schoolYearStartsOn.getTime() === schoolYear.startsOn.getTime() && assignment.schoolYearEndsOn?.getTime() === schoolYear.endsOn?.getTime() && assignment.className === Array.from(classrooms.values()).find((classroom) => classroom.id === assignment.classId)?.name);
-        if (existingAssignments.length && !assignmentsMatch) throw new Error(`Fixture ${record.staffCode} đã có lịch sử phân lớp khác snapshot; hãy reset development database trước khi seed lại.`);
-        for (const classId of expectedClassIds) {
-          if (!existingAssignments.some((assignment) => assignment.classId === classId)) {
-            const classroom = Array.from(classrooms.values()).find((item) => item.id === classId)!;
-            await tx.staffClassAssignment.create({ data: { schoolId: school.id, staffProfileId: profile.id, schoolYearId: schoolYear.id, classId, effectiveFrom: rosterEffectiveFrom, reason: staffAssignmentReason, schoolYearName: schoolYear.name, schoolYearStartsOn: schoolYear.startsOn, schoolYearEndsOn: schoolYear.endsOn, className: classroom.name } });
-          }
-        }
-      }
-      for (const record of roster) {
-        const studentData = { fullName: record.fullName, preferredName: record.preferredName, dateOfBirth: record.dateOfBirth, gender: record.gender, address: record.address };
-        const students = await tx.student.findMany({ where: { schoolId: school.id, studentCode: record.studentCode } });
-        if (students.length > 1) throw new Error(`Fixture ${record.studentCode} có nhiều Student trong School pl.`);
-        const student = students[0]
-          ? await tx.student.update({ where: { id: students[0].id }, data: studentData })
-          : await tx.student.create({ data: { schoolId: school.id, studentCode: record.studentCode, ...studentData } });
-        const classroom = record.className ? classrooms.get(record.className)! : null;
-        const enrollmentData = { schoolId: school.id, studentId: student.id, schoolYearId: schoolYear.id, classId: classroom?.id ?? null, lifecycle: record.lifecycle, effectiveFrom: rosterEffectiveFrom, endedOn: null, schoolYearName: schoolYear.name, schoolYearStartsOn: schoolYear.startsOn, schoolYearEndsOn: schoolYear.endsOn, className: classroom?.name ?? null };
-        const existingEnrollment = await tx.studentEnrollment.findUnique({
-          where: { schoolId_studentId_schoolYearId: { schoolId: school.id, studentId: student.id, schoolYearId: schoolYear.id } },
-          include: { classAssignments: true },
-        });
-        if (existingEnrollment) {
-          const expectedAssignment = classroom ? { classId: classroom.id, effectiveFrom: rosterEffectiveFrom, effectiveTo: null, reason: 'Khởi tạo enrollment' } : null;
-          const enrollmentMatches = existingEnrollment.classId === enrollmentData.classId && existingEnrollment.lifecycle === enrollmentData.lifecycle && existingEnrollment.effectiveFrom.getTime() === rosterEffectiveFrom.getTime() && existingEnrollment.endedOn === null && existingEnrollment.className === enrollmentData.className;
-          const assignmentMatches = expectedAssignment
-            ? existingEnrollment.classAssignments.length === 1 && existingEnrollment.classAssignments[0]?.classId === expectedAssignment.classId && existingEnrollment.classAssignments[0]?.effectiveFrom.getTime() === expectedAssignment.effectiveFrom.getTime() && existingEnrollment.classAssignments[0]?.effectiveTo === expectedAssignment.effectiveTo && existingEnrollment.classAssignments[0]?.reason === expectedAssignment.reason
-            : existingEnrollment.classAssignments.length === 0;
-          if (!enrollmentMatches || !assignmentMatches) throw new Error(`Fixture ${record.studentCode} đã có enrollment hoặc lịch sử phân lớp khác snapshot; hãy reset development database trước khi seed lại.`);
-        } else {
-          const enrollment = await tx.studentEnrollment.create({ data: enrollmentData });
-          if (classroom) await tx.enrollmentClassAssignment.create({ data: { schoolId: school.id, enrollmentId: enrollment.id, schoolYearId: schoolYear.id, classId: classroom.id, effectiveFrom: rosterEffectiveFrom, reason: 'Khởi tạo enrollment' } });
-        }
-        for (const [relationshipLabel, parent] of [['Mẹ', record.mother], ['Bố', record.father]] as const) {
-          if (!parent) continue;
-          const profile = parent.emailNormalized
-            ? await tx.parentProfile.findUnique({ where: { emailNormalized: parent.emailNormalized } })
-            : await tx.parentProfile.findFirst({
-                where: { emailNormalized: null, fullName: parent.fullName, phone: parent.phone },
-              }) ?? await tx.parentProfile.findUnique({ where: { id: stableParentId(parent) } });
-          if (profile && (profile.fullName !== parent.fullName || normalizePhone(profile.phone) !== normalizePhone(parent.phone))) {
-            throw new Error(`Phụ huynh ${parent.emailNormalized ?? `${parent.fullName}/${parent.phone}`} đã tồn tại với họ tên hoặc số điện thoại khác.`);
-          }
-          const parentProfile = profile ?? await tx.parentProfile.create({
-            data: parent.emailNormalized
-              ? { emailNormalized: parent.emailNormalized, fullName: parent.fullName, phone: parent.phone }
-              : { id: stableParentId(parent), fullName: parent.fullName, phone: parent.phone },
-          });
-          const existingLink = await tx.studentParent.findUnique({
-            where: { schoolId_studentId_parentProfileId: { schoolId: school.id, studentId: student.id, parentProfileId: parentProfile.id } },
-          });
-          if (existingLink?.status === 'REVOKED') throw new Error(`Liên kết ${relationshipLabel} của ${record.studentCode} đã bị revoke; seed không thể kích hoạt lại.`);
-          if (existingLink) {
-            if (existingLink.relationshipLabel !== relationshipLabel) await tx.studentParent.update({ where: { id: existingLink.id }, data: { relationshipLabel } });
-          } else {
-            await tx.studentParent.create({ data: { schoolId: school.id, studentId: student.id, parentProfileId: parentProfile.id, relationshipLabel } });
-          }
-        }
-      }
-    });
+    await prisma.$transaction((tx) => seedPreschool(tx, peakLand, roster, staff), { timeout: 30000 });
     await prisma.$transaction((tx) => seedCenter(tx, roster, staff), { timeout: 30000 });
+    await prisma.$transaction((tx) => seedPreschool(tx, anhNhat, anhNhatRoster, anhNhatStaff), { timeout: 30000 });
   } finally {
     await prisma.$disconnect();
+  }
+}
+
+async function seedPreschool(tx: Prisma.TransactionClient, tenant: PreschoolSeedProfile, roster: PeakLandRosterRecord[], staff: PeakLandStaffRecord[]) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(9162026)`;
+  const owner = await tx.userIdentity.upsert({
+    where: { emailNormalized: tenant.ownerEmail },
+    create: { emailNormalized: tenant.ownerEmail },
+    update: {},
+  });
+  const school = await tx.school.upsert({
+    where: { slug: tenant.slug },
+    create: {
+      name: tenant.name,
+      slug: tenant.slug,
+      studentCodePrefix: tenant.studentCodePrefix,
+      initialOwnerIdentityId: owner.id,
+    },
+    update: { name: tenant.name, studentCodePrefix: tenant.studentCodePrefix, initialOwnerIdentityId: owner.id },
+  });
+  const schoolYearData = {
+    schoolId: school.id,
+    name: '2026-2027',
+    startsOn: new Date('2026-08-01T00:00:00.000Z'),
+    endsOn: new Date('2027-07-31T00:00:00.000Z'),
+  };
+  let schoolYear = await tx.schoolYear.findFirst({
+    where: { schoolId: school.id, name: schoolYearData.name },
+  });
+  if (schoolYear?.closedAt) throw new Error('SchoolYear 2026-2027 đã đóng; hãy reset development database trước khi seed lại.');
+  if (schoolYear) schoolYear = await tx.schoolYear.update({ where: { id: schoolYear.id }, data: schoolYearData });
+  else schoolYear = await tx.schoolYear.create({ data: schoolYearData });
+  const membership = await tx.schoolMembership.upsert({
+    where: { schoolId_userIdentityId: { schoolId: school.id, userIdentityId: owner.id } },
+    create: { schoolId: school.id, userIdentityId: owner.id },
+    update: { status: 'ACTIVE' },
+  });
+  const seededPositions = await Promise.all(positions.map(async ([code, name]) => [code, await tx.schoolPosition.upsert({
+    where: { schoolId_code: { schoolId: school.id, code } },
+    create: { schoolId: school.id, code, name, status: 'ACTIVE' },
+    update: { name, status: 'ACTIVE' },
+  })] as const));
+  const positionByCode = new Map(seededPositions);
+  const ownerPosition = positionByCode.get('HIEU_TRUONG')!;
+  const financePosition = positionByCode.get('KE_TOAN')!;
+  await tx.positionCapabilityGrant.createMany({
+    data: ownerCapabilities.map((capability) => ({ schoolId: school.id, positionId: ownerPosition.id, capability })),
+    skipDuplicates: true,
+  });
+  await tx.positionCapabilityGrant.createMany({
+    data: ['SCHOOL_CONTEXT_READ', 'FINANCE_MANAGE'].map((capability) => ({ schoolId: school.id, positionId: financePosition.id, capability })),
+    skipDuplicates: true,
+  });
+  await tx.positionCapabilityGrant.createMany({
+    data: ownerCapabilities.map((capability) => ({ schoolId: school.id, positionId: positionByCode.get('QUAN_LY_TRUONG')!.id, capability })),
+    skipDuplicates: true,
+  });
+  const staffData = {
+    schoolId: school.id,
+    fullName: tenant.ownerEmail,
+    email: tenant.ownerEmail,
+    employmentStatus: 'ACTIVE' as const,
+    primaryPositionId: ownerPosition.id,
+    schoolMembershipId: membership.id,
+    boundAt: new Date(),
+    boundByMembershipId: membership.id,
+  };
+  const existingStaff = await tx.staffProfile.findFirst({ where: { schoolId: school.id, schoolMembershipId: membership.id } });
+  if (existingStaff) await tx.staffProfile.update({ where: { id: existingStaff.id }, data: staffData });
+  else await tx.staffProfile.create({
+    data: {
+      ...staffData,
+      phone: 'Chưa cập nhật',
+      dateOfBirth: new Date('1900-01-01T00:00:00.000Z'),
+      gender: 'Chưa cập nhật',
+      address: 'Chưa cập nhật',
+    },
+  });
+  const defaultGroupOperations = await tx.operation.findMany({ where: { schoolId: school.id, route: developmentSeedDefaultReceivableGroupsRoute, idempotencyKey: developmentSeedDefaultReceivableGroupsKey } });
+  const defaultGroups = await tx.receivableGroup.findMany({ where: { schoolId: school.id } });
+  if (defaultGroupOperations.length === 0 && defaultGroups.length === 0) {
+    await tx.operation.create({ data: { schoolId: school.id, membershipId: membership.id, actorIdentityId: owner.id, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membership.id, route: developmentSeedDefaultReceivableGroupsRoute, fingerprint: developmentSeedDefaultReceivableGroupsFingerprint, idempotencyKey: developmentSeedDefaultReceivableGroupsKey, status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
+    await tx.receivableGroup.createMany({ data: defaultReceivableGroups.map(({ kind, name }) => ({ schoolId: school.id, kind, name })) });
+  } else {
+    const [defaultGroupOperation] = defaultGroupOperations;
+    const validOperation = defaultGroupOperations.length === 1 && defaultGroupOperation?.actorType === 'SCHOOL_MEMBERSHIP' && defaultGroupOperation.actorReference === membership.id && defaultGroupOperation.membershipId === membership.id && defaultGroupOperation.actorIdentityId === owner.id && defaultGroupOperation.fingerprint === developmentSeedDefaultReceivableGroupsFingerprint;
+    const validGroups = defaultGroups.length === defaultReceivableGroups.length && defaultReceivableGroups.every(({ kind, name }) => defaultGroups.some((group) => group.kind === kind && group.name === name));
+    if (!validOperation || !validGroups || !defaultGroupOperation) throw new Error(`Nhóm khoản thu mặc định ${tenant.name} không đúng provenance; hãy reset development database trước khi seed lại.`);
+    if (defaultGroupOperation.status === 'PENDING') {
+      await tx.operation.update({ where: { id: defaultGroupOperation.id }, data: { status: 'COMPLETED', outcome: { schoolId: school.id, defaultReceivableGroupNames } } });
+    } else if (defaultGroupOperation.status !== 'COMPLETED') {
+      throw new Error(`Nhóm khoản thu mặc định ${tenant.name} có Operation không thể hoàn tất an toàn; hãy reset development database trước khi seed lại.`);
+    }
+  }
+  const highestStudentNumber = Math.max(0, ...roster.map((record) => Number(record.studentCode.slice(tenant.studentCodePrefix.length))));
+  if (school.studentCodeSequence < highestStudentNumber) {
+    await tx.school.update({ where: { id: school.id }, data: { studentCodeSequence: highestStudentNumber } });
+  }
+  const classrooms = new Map(await Promise.all(tenant.classNames.map(async (name) => {
+    const existingClasses = await tx.class.findMany({ where: { schoolId: school.id, schoolYearId: schoolYear.id, name } });
+    if (existingClasses.length > 1) throw new Error(`Lớp ${name} có nhiều bản ghi trong SchoolYear 2026-2027.`);
+    const existing = existingClasses[0];
+    const classroom = existing
+      ? await tx.class.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } })
+      : await tx.class.create({ data: { schoolId: school.id, schoolYearId: schoolYear.id, name, status: 'ACTIVE' } });
+    return [name, classroom] as const;
+  })));
+  if (tenant.financeFixtures) await seedFinanceFixtures(tx, { schoolId: school.id, schoolYearId: schoolYear.id, membershipId: membership.id, ownerId: owner.id, classrooms: [...classrooms.values()] });
+  else if (!await tx.financePolicy.findFirst({ where: { schoolId: school.id } })) {
+    await tx.financePolicy.create({ data: { schoolId: school.id, effectiveFrom: rosterEffectiveFrom, dueDaysAfterIssue: 10, schoolWeekdays: [1, 2, 3, 4, 5], taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: `${tenant.name} development seed`, actorIdentityId: owner.id, membershipId: membership.id } });
+  }
+  for (const record of staff) {
+    const primaryPosition = positionByCode.get(record.primaryPositionCode)!;
+    const registries = await tx.staffCodeRegistry.findMany({ where: { schoolId: school.id, staffCode: record.staffCode } });
+    if (registries.length > 1) throw new Error(`Mã nhân viên ${record.staffCode} có nhiều registry trong School ${tenant.slug}.`);
+    const profiles = await tx.staffProfile.findMany({
+      where: { schoolId: school.id, OR: [{ staffCode: record.staffCode }, ...(registries[0] ? [{ id: registries[0].staffId }] : [])] },
+      include: { issuedCodes: true, assignments: true },
+    });
+    if (profiles.length > 1) throw new Error(`Fixture ${record.staffCode} có nhiều StaffProfile trong School ${tenant.slug}.`);
+    // Staff with an email get a login: identity + membership, bound to their profile by the owner.
+    let staffMembership = null;
+    if (record.email && record.email !== tenant.ownerEmail) {
+      const identity = await tx.userIdentity.upsert({ where: { emailNormalized: record.email }, create: { emailNormalized: record.email }, update: {} });
+      staffMembership = await tx.schoolMembership.upsert({
+        where: { schoolId_userIdentityId: { schoolId: school.id, userIdentityId: identity.id } },
+        create: { schoolId: school.id, userIdentityId: identity.id },
+        update: { status: 'ACTIVE' },
+      });
+    }
+    const profileData = { fullName: record.fullName, email: record.email, phone: record.phone, dateOfBirth: record.dateOfBirth, gender: null, address: null, staffCode: record.staffCode, employmentStatus: 'ACTIVE' as const, primaryPositionId: primaryPosition.id };
+    const bindData = staffMembership ? { schoolMembershipId: staffMembership.id, boundByMembershipId: membership.id } : { schoolMembershipId: null, boundByMembershipId: null };
+    const existingProfile = profiles[0];
+    if (existingProfile && (existingProfile.fullName !== profileData.fullName || existingProfile.phone !== profileData.phone || existingProfile.dateOfBirth.getTime() !== profileData.dateOfBirth.getTime() || existingProfile.gender !== null || existingProfile.address !== null || existingProfile.staffCode !== record.staffCode || existingProfile.employmentStatus !== profileData.employmentStatus || existingProfile.primaryPositionId !== profileData.primaryPositionId || (existingProfile.schoolMembershipId !== null && existingProfile.schoolMembershipId !== bindData.schoolMembershipId) || (existingProfile.boundByMembershipId !== null && existingProfile.boundByMembershipId !== bindData.boundByMembershipId) || existingProfile.issuedCodes.length !== 1 || existingProfile.issuedCodes[0]?.staffCode !== record.staffCode)) {
+      throw new Error(`Fixture ${record.staffCode} đã có StaffProfile khác snapshot; hãy reset development database trước khi seed lại.`);
+    }
+    const bound = staffMembership ? { ...bindData, boundAt: existingProfile?.boundAt ?? new Date() } : {};
+    // Email is the one staff field a re-seed may change (it is how a person logs in); binding follows it.
+    const profile = existingProfile
+      ? (existingProfile.email !== record.email || (staffMembership && existingProfile.schoolMembershipId === null) ? await tx.staffProfile.update({ where: { id: existingProfile.id }, data: { email: record.email, ...bound } }) : existingProfile)
+      : await tx.staffProfile.create({ data: { schoolId: school.id, ...profileData, ...bound } });
+    if (registries[0]?.staffId && registries[0].staffId !== profile.id) throw new Error(`Mã nhân viên ${record.staffCode} đã thuộc StaffProfile khác.`);
+    if (!registries[0]) await tx.staffCodeRegistry.create({ data: { schoolId: school.id, staffId: profile.id, staffCode: record.staffCode } });
+    const expectedClassIds = record.primaryPositionCode === 'GIAO_VIEN' ? record.classNames.map((name) => classrooms.get(name)!.id) : [];
+    const existingAssignments = await tx.staffClassAssignment.findMany({ where: { schoolId: school.id, staffProfileId: profile.id, schoolYearId: schoolYear.id } });
+    const assignmentsMatch = existingAssignments.length === expectedClassIds.length && existingAssignments.every((assignment) => expectedClassIds.includes(assignment.classId) && assignment.effectiveFrom.getTime() === rosterEffectiveFrom.getTime() && assignment.effectiveTo === null && assignment.reason === staffAssignmentReason && assignment.schoolYearName === schoolYear.name && assignment.schoolYearStartsOn.getTime() === schoolYear.startsOn.getTime() && assignment.schoolYearEndsOn?.getTime() === schoolYear.endsOn?.getTime() && assignment.className === Array.from(classrooms.values()).find((classroom) => classroom.id === assignment.classId)?.name);
+    if (existingAssignments.length && !assignmentsMatch) throw new Error(`Fixture ${record.staffCode} đã có lịch sử phân lớp khác snapshot; hãy reset development database trước khi seed lại.`);
+    for (const classId of expectedClassIds) {
+      if (!existingAssignments.some((assignment) => assignment.classId === classId)) {
+        const classroom = Array.from(classrooms.values()).find((item) => item.id === classId)!;
+        await tx.staffClassAssignment.create({ data: { schoolId: school.id, staffProfileId: profile.id, schoolYearId: schoolYear.id, classId, effectiveFrom: rosterEffectiveFrom, reason: staffAssignmentReason, schoolYearName: schoolYear.name, schoolYearStartsOn: schoolYear.startsOn, schoolYearEndsOn: schoolYear.endsOn, className: classroom.name } });
+      }
+    }
+  }
+  for (const record of roster) {
+    const studentData = { fullName: record.fullName, preferredName: record.preferredName, dateOfBirth: record.dateOfBirth, gender: record.gender, address: record.address };
+    const students = await tx.student.findMany({ where: { schoolId: school.id, studentCode: record.studentCode } });
+    if (students.length > 1) throw new Error(`Fixture ${record.studentCode} có nhiều Student trong School ${tenant.slug}.`);
+    const student = students[0]
+      ? await tx.student.update({ where: { id: students[0].id }, data: studentData })
+      : await tx.student.create({ data: { schoolId: school.id, studentCode: record.studentCode, ...studentData } });
+    const classroom = record.className ? classrooms.get(record.className)! : null;
+    const enrollmentData = { schoolId: school.id, studentId: student.id, schoolYearId: schoolYear.id, classId: classroom?.id ?? null, lifecycle: record.lifecycle, effectiveFrom: rosterEffectiveFrom, endedOn: null, schoolYearName: schoolYear.name, schoolYearStartsOn: schoolYear.startsOn, schoolYearEndsOn: schoolYear.endsOn, className: classroom?.name ?? null };
+    const existingEnrollment = await tx.studentEnrollment.findUnique({
+      where: { schoolId_studentId_schoolYearId: { schoolId: school.id, studentId: student.id, schoolYearId: schoolYear.id } },
+      include: { classAssignments: true },
+    });
+    if (existingEnrollment) {
+      const expectedAssignment = classroom ? { classId: classroom.id, effectiveFrom: rosterEffectiveFrom, effectiveTo: null, reason: 'Khởi tạo enrollment' } : null;
+      const enrollmentMatches = existingEnrollment.classId === enrollmentData.classId && existingEnrollment.lifecycle === enrollmentData.lifecycle && existingEnrollment.effectiveFrom.getTime() === rosterEffectiveFrom.getTime() && existingEnrollment.endedOn === null && existingEnrollment.className === enrollmentData.className;
+      const assignmentMatches = expectedAssignment
+        ? existingEnrollment.classAssignments.length === 1 && existingEnrollment.classAssignments[0]?.classId === expectedAssignment.classId && existingEnrollment.classAssignments[0]?.effectiveFrom.getTime() === expectedAssignment.effectiveFrom.getTime() && existingEnrollment.classAssignments[0]?.effectiveTo === expectedAssignment.effectiveTo && existingEnrollment.classAssignments[0]?.reason === expectedAssignment.reason
+        : existingEnrollment.classAssignments.length === 0;
+      if (!enrollmentMatches || !assignmentMatches) throw new Error(`Fixture ${record.studentCode} đã có enrollment hoặc lịch sử phân lớp khác snapshot; hãy reset development database trước khi seed lại.`);
+    } else {
+      const enrollment = await tx.studentEnrollment.create({ data: enrollmentData });
+      if (classroom) await tx.enrollmentClassAssignment.create({ data: { schoolId: school.id, enrollmentId: enrollment.id, schoolYearId: schoolYear.id, classId: classroom.id, effectiveFrom: rosterEffectiveFrom, reason: 'Khởi tạo enrollment' } });
+    }
+    for (const [relationshipLabel, parent] of [['Mẹ', record.mother], ['Bố', record.father]] as const) {
+      if (!parent) continue;
+      const profile = parent.emailNormalized
+        ? await tx.parentProfile.findUnique({ where: { emailNormalized: parent.emailNormalized } })
+        : await tx.parentProfile.findFirst({
+            where: { emailNormalized: null, fullName: parent.fullName, phone: parent.phone },
+          }) ?? await tx.parentProfile.findUnique({ where: { id: stableParentId(parent) } });
+      if (profile && (profile.fullName !== parent.fullName || normalizePhone(profile.phone) !== normalizePhone(parent.phone))) {
+        throw new Error(`Phụ huynh ${parent.emailNormalized ?? `${parent.fullName}/${parent.phone}`} đã tồn tại với họ tên hoặc số điện thoại khác.`);
+      }
+      const parentProfile = profile ?? await tx.parentProfile.create({
+        data: parent.emailNormalized
+          ? { emailNormalized: parent.emailNormalized, fullName: parent.fullName, phone: parent.phone }
+          : { id: stableParentId(parent), fullName: parent.fullName, phone: parent.phone },
+      });
+      const existingLink = await tx.studentParent.findUnique({
+        where: { schoolId_studentId_parentProfileId: { schoolId: school.id, studentId: student.id, parentProfileId: parentProfile.id } },
+      });
+      if (existingLink?.status === 'REVOKED') throw new Error(`Liên kết ${relationshipLabel} của ${record.studentCode} đã bị revoke; seed không thể kích hoạt lại.`);
+      if (existingLink) {
+        if (existingLink.relationshipLabel !== relationshipLabel) await tx.studentParent.update({ where: { id: existingLink.id }, data: { relationshipLabel } });
+      } else {
+        await tx.studentParent.create({ data: { schoolId: school.id, studentId: student.id, parentProfileId: parentProfile.id, relationshipLabel } });
+      }
+    }
   }
 }
 

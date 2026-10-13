@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { assertDevelopmentEnvironment, parsePeakLandRosterCsv, parsePeakLandStaffCsv, seed } from './seed.js';
+import { assertDevelopmentEnvironment, parseAnhNhatRosterCsv, parseAnhNhatStaffCsv, parsePeakLandRosterCsv, parsePeakLandStaffCsv, seed } from './seed.js';
 
 describe('development fixture seed', () => {
   it('refuses to seed outside development before opening a database connection', async () => {
@@ -66,5 +66,24 @@ describe('development fixture seed', () => {
     expect(() => parsePeakLandStaffCsv(csv.replace('16-06-1983', '31-02-1983'))).toThrow('Ngày sinh');
     expect(() => parsePeakLandStaffCsv(csv.replace('STT,Mã nhân viên', 'STT,Mã'))).toThrow('thiếu cột bắt buộc Mã nhân viên');
     expect(() => parsePeakLandStaffCsv(csv.replace('Giáo viên Điểm danh', ''))).toThrow('Chức vụ là bắt buộc');
+  });
+
+  it('parses the Anh Nhật roster, leaving out students who already left', async () => {
+    const csvPath = resolve(fileURLToPath(new URL('../../../docs/anhnhat/anhnhat-hocsinh.csv', import.meta.url)));
+    const roster = parseAnhNhatRosterCsv(await readFile(csvPath, 'utf8'));
+    expect(roster).toHaveLength(51);
+    expect(roster[0]).toMatchObject({ studentCode: 'AN1', fullName: 'Nguyễn Minh Anh', preferredName: 'Happy', className: 'KITTEN', lifecycle: 'ENROLLED', gender: 'NU' });
+    expect(new Set(roster.map((record) => record.studentCode)).size).toBe(51);
+    expect(new Set(roster.map((record) => record.className))).toEqual(new Set(['KITTEN', 'KOALA', 'MISA', 'PANDA']));
+    expect(roster.some((record) => record.fullName === 'Trần Tuấn Dũng')).toBe(false);
+  });
+
+  it('parses the Anh Nhật staff with their classes', async () => {
+    const csvPath = resolve(fileURLToPath(new URL('../../../docs/anhnhat/anhnhat-nhanvien.csv', import.meta.url)));
+    const staff = parseAnhNhatStaffCsv(await readFile(csvPath, 'utf8'));
+    expect(staff).toHaveLength(17);
+    expect(staff[3]).toMatchObject({ fullName: 'Nguyễn Thị Hoa', primaryPositionCode: 'KE_TOAN', email: null });
+    expect(staff[4]).toMatchObject({ fullName: 'Phí Thanh Thuý', primaryPositionCode: 'GIAO_VIEN', classNames: ['KOALA'] });
+    expect(staff[6]).toMatchObject({ fullName: 'Lê Thị Thỏa', classNames: [] });
   });
 });
