@@ -478,11 +478,14 @@ const center = {
 } as const;
 const centerSeedKey = 'b3f0c1d6-7a52-4e8b-9c14-5d2e8a6f1b70';
 const centerSeedRoute = 'development-seed/center-fixtures';
-// Tuition is one FIXED receivable per price level, assigned to its Classes (sprint change 2026-10-13), so a new run of
-// a Class starts with the right tuition; the book is added by hand and transport bills through its service group.
+// Tuition follows the Grapeseed price list by class size: one FIXED receivable per size band. They are class-scoped but
+// start unassigned, so Finance picks the band for each Class on the Class screen as its head-count settles; the book is
+// added by hand and transport bills through its service group.
 const centerSeedReceivables = [
-  { code: 'PGC-TUITION-STARTERS', displayName: 'Học phí GrapeSEED Starters', unitLabel: 'unit', defaultUnitPrice: 3500000n, group: 'Khoản thu cố định', classNames: ['Starters A', 'Starters B'] },
-  { code: 'PGC-TUITION-MOVERS', displayName: 'Học phí GrapeSEED Movers', unitLabel: 'unit', defaultUnitPrice: 3800000n, group: 'Khoản thu cố định', classNames: ['Movers A'] },
+  { code: 'PGC-TUITION-15', displayName: 'Học phí lớp từ 15 hs', unitLabel: 'unit', defaultUnitPrice: 4400000n, group: 'Khoản thu cố định', classScoped: true },
+  { code: 'PGC-TUITION-10-14', displayName: 'Học phí lớp 10-14 hs', unitLabel: 'unit', defaultUnitPrice: 4600000n, group: 'Khoản thu cố định', classScoped: true },
+  { code: 'PGC-TUITION-8-9', displayName: 'Học phí lớp 8-9 hs', unitLabel: 'unit', defaultUnitPrice: 4800000n, group: 'Khoản thu cố định', classScoped: true },
+  { code: 'PGC-TUITION-7', displayName: 'Học phí lớp 7 hs', unitLabel: 'unit', defaultUnitPrice: 5000000n, group: 'Khoản thu cố định', classScoped: true },
   { code: 'PGC-BOOK', displayName: 'Sách Giáo Khoa Grapeseed', unitLabel: 'bộ', defaultUnitPrice: 295000n, group: 'Khoản thu linh hoạt' },
   { code: 'PGC-TRANSPORT', displayName: 'Đưa đón', unitLabel: 'unit', defaultUnitPrice: 1200000n, group: 'Ngoại khóa' },
 ] as const;
@@ -544,9 +547,9 @@ async function seedCenter(tx: any, roster: PeakLandRosterRecord[], staff: PeakLa
   }
   const groups = new Map<string, string>((await tx.receivableGroup.findMany({ where: { schoolId } })).map((group: { name: string; id: string }) => [group.name, group.id]));
   const seededReceivables: Array<{ id: string; classNames: readonly string[] }> = [];
-  for (const { group, classNames, ...receivable } of centerSeedReceivables.map((item) => ({ classNames: [] as readonly string[], ...item }))) {
+  for (const { group, classNames, classScoped, ...receivable } of centerSeedReceivables.map((item) => ({ classNames: [] as readonly string[], classScoped: false, ...item }))) {
     if (await tx.receivable.findFirst({ where: { schoolId, code: receivable.code } })) continue;
-    const row = await tx.receivable.create({ data: { schoolId, groupId: groups.get(group)!, ...receivable, classScoped: classNames.length > 0 } });
+    const row = await tx.receivable.create({ data: { schoolId, groupId: groups.get(group)!, ...receivable, classScoped } });
     await tx.receivableLifecycleTransition.create({ data: { schoolId, receivableId: row.id, status: 'ACTIVE', ...actor, operationId: operation.id, sequence: 1 } });
     seededReceivables.push({ id: row.id, classNames });
   }
