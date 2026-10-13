@@ -429,6 +429,7 @@ async function seedPreschool(tx: Prisma.TransactionClient, tenant: PreschoolSeed
   else if (!await tx.financePolicy.findFirst({ where: { schoolId: school.id } })) {
     await tx.financePolicy.create({ data: { schoolId: school.id, effectiveFrom: rosterEffectiveFrom, dueDaysAfterIssue: 10, schoolWeekdays: [1, 2, 3, 4, 5], taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: `${tenant.name} development seed`, actorIdentityId: owner.id, membershipId: membership.id } });
   }
+  if (tenant === anhNhat) await seedAnhNhatReceivableCatalog(tx, { schoolId: school.id, schoolYearId: schoolYear.id, membershipId: membership.id, ownerId: owner.id });
   for (const record of staff) {
     const primaryPosition = positionByCode.get(record.primaryPositionCode)!;
     const registries = await tx.staffCodeRegistry.findMany({ where: { schoolId: school.id, staffCode: record.staffCode } });
@@ -795,26 +796,117 @@ async function seedFinanceFixtures(tx: any, input: { schoolId: string; schoolYea
     const school = !classroom.defaultSchoolBankAccountId || rekinded.has(classroom.defaultSchoolBankAccountId);
     if (personal || school) await tx.class.update({ where: { id: classroom.id }, data: { ...(personal ? { defaultBankAccountId: accounts.PERSONAL[0] } : {}), ...(school ? { defaultSchoolBankAccountId: accounts.SCHOOL[0] } : {}) } });
   }
+  await seedReceivableCatalog(tx, { schoolId, schoolYearId: input.schoolYearId, membershipId, ownerId, operationId: operation.id }, { receivables: financeSeedReceivables, extracurricularClasses: financeSeedExtracurricularClasses, promotions: financeSeedPromotions });
+}
+
+type CatalogContext = { schoolId: string; schoolYearId: string; membershipId: string; ownerId: string; operationId: string };
+type CatalogReceivable = { code: string; displayName: string; unitLabel: string; defaultUnitPrice: bigint; refundUnitPrice?: bigint; autoLeaveDeduction?: boolean; taxCategory: string; group: string };
+type CatalogPromotion = { name: string; discountType: string; discountValue: bigint; targets: readonly string[] };
+
+// Rows are created once and left untouched on later seeds.
+async function seedReceivableCatalog(tx: any, context: CatalogContext, catalog: { receivables: readonly CatalogReceivable[]; extracurricularClasses: ReadonlyArray<{ name: string; code: string }>; promotions: readonly CatalogPromotion[] }) {
+  const { schoolId, membershipId, operationId } = context;
+  const ownerId = context.ownerId;
+  const operation = { id: operationId };
   const groups = new Map<string, string>((await tx.receivableGroup.findMany({ where: { schoolId } })).map((group: { name: string; id: string }) => [group.name, group.id]));
-  for (const { group, ...receivable } of financeSeedReceivables) {
+  for (const { group, ...receivable } of catalog.receivables) {
     if (await tx.receivable.findFirst({ where: { schoolId, code: receivable.code } })) continue;
     const row = await tx.receivable.create({ data: { schoolId, groupId: groups.get(group)!, ...receivable } });
     await tx.receivableLifecycleTransition.create({ data: { schoolId, receivableId: row.id, status: 'ACTIVE', actorIdentityId: ownerId, membershipId, operationId: operation.id, sequence: 1 } });
   }
-  for (const { name, code } of financeSeedExtracurricularClasses) {
-    if (await tx.extracurricularClass.findFirst({ where: { schoolId, schoolYearId: input.schoolYearId, name } })) continue;
+  for (const { name, code } of catalog.extracurricularClasses) {
+    if (await tx.extracurricularClass.findFirst({ where: { schoolId, schoolYearId: context.schoolYearId, name } })) continue;
     const receivable = await tx.receivable.findFirstOrThrow({ where: { schoolId, code } });
-    const row = await tx.extracurricularClass.create({ data: { schoolId, schoolYearId: input.schoolYearId, name, receivableId: receivable.id } });
+    const row = await tx.extracurricularClass.create({ data: { schoolId, schoolYearId: context.schoolYearId, name, receivableId: receivable.id } });
     await tx.extracurricularClassLifecycleTransition.create({ data: { schoolId, extracurricularClassId: row.id, status: 'ACTIVE', actorIdentityId: ownerId, membershipId, operationId: operation.id, sequence: 1 } });
   }
-  for (const [index, { name, targets, ...value }] of financeSeedPromotions.entries()) {
+  for (const [index, { name, targets, ...value }] of catalog.promotions.entries()) {
     if (await tx.promotionPolicy.findFirst({ where: { schoolId, name } })) continue;
     const receivables = await tx.receivable.findMany({ where: { schoolId, code: { in: [...targets] } } });
     const policy = await tx.promotionPolicy.create({ data: { schoolId, name } });
-    const version = await tx.promotionPolicyVersion.create({ data: { schoolId, policyId: policy.id, version: 1, status: 'DRAFT', ...value, priority: financeSeedPromotions.length - index, stackingMode: 'STACKABLE', fulfillmentMode: 'DISCOUNT', effectiveFrom: new Date('2026-08-01T00:00:00.000Z') } });
+    const version = await tx.promotionPolicyVersion.create({ data: { schoolId, policyId: policy.id, version: 1, status: 'DRAFT', ...value, priority: catalog.promotions.length - index, stackingMode: 'STACKABLE', fulfillmentMode: 'DISCOUNT', effectiveFrom: new Date('2026-08-01T00:00:00.000Z') } });
     await tx.promotionPolicyTarget.createMany({ data: receivables.map((receivable: { id: string }) => ({ schoolId, versionId: version.id, receivableId: receivable.id })) });
     await tx.promotionPolicyVersion.update({ where: { id: version.id }, data: { status: 'ACTIVE' } });
   }
+}
+
+// Anh Nhật (Kidsonline school 2716) receivable catalog and deductions, mirrored read-only on 2026-10-13 the same way as
+// PeakLand's: code = KO-<Kidsonline receivable id>, names/units/prices as in Kidsonline, every tax category NOT_DECLARED.
+// Only the lines every Student gets (Tiền ăn Thứ 2–6, the 2025-2026 tuition) are FIXED; Kidsonline "Ngoại khóa" (Phí dã
+// ngoại) is EXTRACURRICULAR; the rest are FLEXIBLE. A refund price is kept only when Kidsonline gives a positive one in the
+// same unit as the price. Skipped: the 0 đ balance carriers (Khoản thiếu/thừa tháng trước; a price must be positive) and the
+// two voucher receivables (Voucher Đại sứ Anh Nhật at 1 đ, Voucher giới thiệu), which are discounts, not fees.
+const anhNhatSeedKey = '6b1f0c2e-9a47-4d3b-8e55-c7a2d4f91e08';
+const anhNhatSeedRoute = 'development-seed/anhnhat-receivable-catalog';
+const anhNhatSeedReceivables = [
+  { code: 'KO-41524', displayName: 'Học phí thứ 7 theo ngày đã bao gồm tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 250000n, refundUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-41511', displayName: 'Thu tiền sách đọc tiếng việt', unitLabel: 'Quyển', defaultUnitPrice: 150000n, refundUnitPrice: 150000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25646', displayName: 'Tiền tiểu học', unitLabel: 'tháng', defaultUnitPrice: 200000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37826', displayName: 'Học phí 2024-2025', unitLabel: 'tháng', defaultUnitPrice: 5500000n, refundUnitPrice: 5500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38407', displayName: 'Phí đồng phục( áo khoác mùa đông)', unitLabel: 'tháng', defaultUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37828', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: 3500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39687', displayName: 'Học phí Tiếng Anh Grapseed', unitLabel: 'tháng', defaultUnitPrice: 500000n, refundUnitPrice: 500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38929', displayName: 'Phí cơ sở VC 3tr/1 năm', unitLabel: 'tháng', defaultUnitPrice: 3000000n, refundUnitPrice: 3000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38059', displayName: 'Lớp năng khiếu Bóng rổ', unitLabel: 'ngày', defaultUnitPrice: 100000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38408', displayName: 'Học phí tiếng anh GrapeSEED/LittleSEED()', unitLabel: 'tháng', defaultUnitPrice: 1750000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37885', displayName: 'Học phí tiếng anh GrapeSEED/LittleSEED', unitLabel: 'tháng', defaultUnitPrice: 1050000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25627', displayName: 'Tiền ăn (Thu từ thứ 2 đến thứ 6)', unitLabel: 'ngày', defaultUnitPrice: 60000n, refundUnitPrice: 60000n, autoLeaveDeduction: true, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
+  { code: 'KO-30418', displayName: 'Tiền sách tiếng anh 150.000đ/ Unit', unitLabel: 'Unit', defaultUnitPrice: 150000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25638', displayName: 'Học phẩm tháng (150.000/1 tháng)', unitLabel: 'tháng', defaultUnitPrice: 150000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38928', displayName: 'Phí sự kiện 1.000.000 đ/ 1 năm', unitLabel: 'tháng', defaultUnitPrice: 1000000n, refundUnitPrice: 1000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-40374', displayName: 'Phí dã ngoại', unitLabel: 'buổi', defaultUnitPrice: 120000n, refundUnitPrice: 120000n, taxCategory: 'NOT_DECLARED', group: 'Ngoại khóa' },
+  { code: 'KO-41466', displayName: 'Tiền ăn Thứ 7', unitLabel: 'ngày', defaultUnitPrice: 60000n, refundUnitPrice: 60000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37831', displayName: 'Học phí t7 cả tháng', unitLabel: 'tháng', defaultUnitPrice: 800000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38869', displayName: 'Phí giữ chỗ', unitLabel: 'tháng', defaultUnitPrice: 1000000n, refundUnitPrice: 1000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39980', displayName: 'Phụ phí 10-12m (1.000.000vnđ/ 1 tháng)', unitLabel: 'tháng', defaultUnitPrice: 1000000n, refundUnitPrice: 1000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39695', displayName: 'Phí bản quyền thu hộ Grapseed 700k/ 1 tháng', unitLabel: 'tháng', defaultUnitPrice: 700000n, refundUnitPrice: 700000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39981', displayName: 'Phụ phí 12-18m(500.000 vnđ/ 1 tháng)', unitLabel: 'tháng', defaultUnitPrice: 500000n, refundUnitPrice: 500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37045', displayName: 'Phí sự kiện năm', unitLabel: 'năm', defaultUnitPrice: 1000000n, refundUnitPrice: 1000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39681', displayName: 'Học phí tiếng Anh Grapseed', unitLabel: 'tháng', defaultUnitPrice: 1100000n, refundUnitPrice: 1100000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-40805', displayName: 'Cơ sở vật chất 2026-2027', unitLabel: 'năm', defaultUnitPrice: 3000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39680', displayName: 'Học phí Tiếng Anh Grapseed', unitLabel: 'tháng', defaultUnitPrice: 600000n, refundUnitPrice: 600000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38060', displayName: 'Lớp năng khiếu Mỹ thuật', unitLabel: 'ngày', defaultUnitPrice: 100000n, refundUnitPrice: 100000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25634', displayName: 'Phí đồng phục 500.000đ/set (1 bộ thể thao, 1 bộ lễ phục)', unitLabel: 'Sét', defaultUnitPrice: 500000n, refundUnitPrice: 500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25654', displayName: 'Phí đón muộn 25.000đ/block 30p (trông muộn đến 19h00)', unitLabel: 'block', defaultUnitPrice: 25000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25641', displayName: 'CSVC 1.500.000đ/năm', unitLabel: 'năm', defaultUnitPrice: 1500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25643', displayName: 'Phí bản quyền thu hộ GrapeSEED: 700.000/tháng', unitLabel: 'tháng', defaultUnitPrice: 700000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25630', displayName: 'Phí KidsOnline 380.000đ/năm', unitLabel: 'năm', defaultUnitPrice: 380000n, refundUnitPrice: 380000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39115', displayName: 'Học phí theo ngày', unitLabel: 'ngày', defaultUnitPrice: 300000n, refundUnitPrice: 300000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37827', displayName: 'Học phí 2025-2026', unitLabel: 'tháng', defaultUnitPrice: 5000000n, refundUnitPrice: 5000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
+  { code: 'KO-38097', displayName: 'Tiền ăn tối ( 20k/ 1 bữa tối)', unitLabel: 'ngày', defaultUnitPrice: 20000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37046', displayName: 'Phí cơ sở vật chất', unitLabel: 'năm', defaultUnitPrice: 3000000n, refundUnitPrice: 3000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-25639', displayName: 'Phí sự kiện năm 700.000đ/năm', unitLabel: 'năm', defaultUnitPrice: 700000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37830', displayName: 'Tiền ăn không ăn sáng', unitLabel: 'ngày', defaultUnitPrice: 52000n, refundUnitPrice: 52000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+] as const;
+// Kidsonline "Khoản giảm trừ" as DISCOUNT promotion policies, in Kidsonline's order (first = highest priority). Their
+// receivables are matched by name to the codes above; "Lớp Năng khiếu Nhảy hiện đại" no longer exists in Kidsonline.
+const anhNhatSeedPromotions = [
+  { name: 'Giảm trừ thêm 50%', discountType: 'PERCENTAGE', discountValue: 50n, targets: ['KO-40805'] },
+  { name: 'Giảm trừ 45%', discountType: 'PERCENTAGE', discountValue: 45n, targets: ['KO-40805'] },
+  { name: 'Giảm trừ 30%', discountType: 'PERCENTAGE', discountValue: 30n, targets: ['KO-40805'] },
+  { name: 'Giảm HP thêm 10% ( ng nhà)', discountType: 'PERCENTAGE', discountValue: 10n, targets: ['KO-37826', 'KO-37827'] },
+  { name: 'Giảm trừ HP 30%', discountType: 'PERCENTAGE', discountValue: 30n, targets: ['KO-37827'] },
+  { name: 'Giảm trừ HP 5%', discountType: 'PERCENTAGE', discountValue: 5n, targets: ['KO-37826', 'KO-37827'] },
+  { name: 'Học phí giảm 25%', discountType: 'PERCENTAGE', discountValue: 25n, targets: ['KO-37827'] },
+  { name: 'Giảm học phí thêm 10%', discountType: 'PERCENTAGE', discountValue: 10n, targets: ['KO-37826', 'KO-37827'] },
+  { name: 'Tặng 2 tháng học phí khi đóng theo kỳ 6 tháng', discountType: 'FIXED_VND', discountValue: 4125000n, targets: ['KO-37826'] },
+  { name: 'Giảm trừ HP 3%', discountType: 'PERCENTAGE', discountValue: 3n, targets: ['KO-37826', 'KO-37827'] },
+  { name: 'Giảm trừ học phẩm tháng (150k/ 1 tháng)', discountType: 'FIXED_VND', discountValue: 150000n, targets: ['KO-25638'] },
+  { name: 'Giảm trừ HP 100%( con GV)', discountType: 'PERCENTAGE', discountValue: 100n, targets: ['KO-37827'] },
+  { name: 'Giảm trừ HP 70%', discountType: 'PERCENTAGE', discountValue: 70n, targets: ['KO-37827'] },
+  { name: 'Giảm trừ HP 50%', discountType: 'PERCENTAGE', discountValue: 50n, targets: ['KO-37827', 'KO-38060', 'KO-38059'] },
+  { name: 'Giảm trừ HP 15%', discountType: 'PERCENTAGE', discountValue: 15n, targets: ['KO-37827', 'KO-37826'] },
+  { name: 'Giảm trừ HP 10%', discountType: 'PERCENTAGE', discountValue: 10n, targets: ['KO-37827', 'KO-37826'] },
+  { name: 'Giảm trừ HP 20%', discountType: 'PERCENTAGE', discountValue: 20n, targets: ['KO-37827', 'KO-37826'] },
+] as const;
+// Phí dã ngoại is the only EXTRACURRICULAR receivable; it gets one empty class in SchoolYear 2026-2027.
+const anhNhatSeedExtracurricularClasses = [{ name: 'Dã ngoại', code: 'KO-40374' }] as const;
+
+async function seedAnhNhatReceivableCatalog(tx: any, input: { schoolId: string; schoolYearId: string; membershipId: string; ownerId: string }) {
+  const { schoolId, membershipId, ownerId } = input;
+  const operation = await tx.operation.findFirst({ where: { schoolId, route: anhNhatSeedRoute, idempotencyKey: anhNhatSeedKey } })
+    ?? await tx.operation.create({ data: { schoolId, membershipId, actorIdentityId: ownerId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membershipId, route: anhNhatSeedRoute, fingerprint: 'anhnhat-receivable-catalog-v1', idempotencyKey: anhNhatSeedKey, status: 'COMPLETED', outcome: { schoolId } } });
+  await seedReceivableCatalog(tx, { ...input, operationId: operation.id }, { receivables: anhNhatSeedReceivables, extracurricularClasses: anhNhatSeedExtracurricularClasses, promotions: anhNhatSeedPromotions });
 }
 
 if (process.env.PRISMA_SEED === 'true') {
