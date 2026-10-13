@@ -200,7 +200,7 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
           classes: { orderBy: { name: 'asc' } },
           memberships: { include: { userIdentity: true, boundStaffProfile: { include: { primaryPosition: true } } } },
           students: { include: { parentLinks: { include: { parentProfile: true } }, enrollments: true } },
-          receivables: true,
+          receivables: { include: { classes: { include: { classroom: true } } } },
           collectionRuns: true,
         },
       });
@@ -216,7 +216,12 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
       // The same identities are members of PeakLand, so one login lists both Schools.
       expect(await prisma.schoolMembership.count({ where: { school: { slug: 'pl' }, status: 'ACTIVE', userIdentity: { emailNormalized: { in: ['sonnh273@gmail.com', 'ngocphuong.pham@gmail.com', 'daogiang1997@gmail.com'] } } } })).toBe(3);
       expect(school.students).toHaveLength(12);
-      expect(school.receivables.map((receivable) => receivable.code).sort()).toEqual(['PGC-BOOK', 'PGC-TRANSPORT', 'PGC-TUITION']);
+      expect(school.receivables.map((receivable) => [receivable.code, receivable.classes.map((item) => item.classroom.name).sort()]).sort()).toEqual([
+        ['PGC-BOOK', []],
+        ['PGC-TRANSPORT', []],
+        ['PGC-TUITION-MOVERS', ['Movers A']],
+        ['PGC-TUITION-STARTERS', ['Starters A', 'Starters B']],
+      ]);
       expect(school.collectionRuns).toHaveLength(0);
       for (const student of school.students) {
         expect(student.enrollments).toEqual([expect.objectContaining({ lifecycle: 'ENROLLED', schoolYearEndsOn: null })]);

@@ -25,8 +25,11 @@ import { DateInput } from "../components/date-input";
 
 type Group = { id: string; name: string; kind: ReceivableKind };
 // Up to three class names read in the list; more than that reads as a count and the edit dialog shows them all.
-const fixedAppliesTo = (classNames: string[]) =>
-  !classNames.length ? "Toàn trường" : classNames.length > 3 ? `${classNames.length} lớp` : classNames.join(", ");
+const fixedAppliesTo = (item: { appliesTo?: ReceivableAppliesTo; appliesToClassNames?: string[] }) => {
+  const classNames = item.appliesToClassNames ?? [];
+  if (!classNames.length) return item.appliesTo === "CLASSES" ? "Chưa gán lớp" : "Toàn trường";
+  return classNames.length > 3 ? `${classNames.length} lớp` : classNames.join(", ");
+};
 const kindShortLabel = (kind: ReceivableKind | null | undefined) =>
   (({ FIXED: "Cố định", FLEXIBLE: "Linh hoạt", EXTRACURRICULAR: "Ngoại khóa" }) as const)[kind ?? "FLEXIBLE"] ?? "";
 type Receivable = {
@@ -36,7 +39,8 @@ type Receivable = {
   kindLocked?: boolean;
   extracurricularClassCount?: number;
   extracurricularClassNames?: string[];
-  // Sprint change 2026-10-13: the classes a FIXED receivable applies to; empty means the whole School.
+  // Sprint change 2026-10-13: the classes a FIXED receivable applies to. A class-scoped one may have no class left.
+  appliesTo?: ReceivableAppliesTo;
   appliesToClassIds?: string[];
   appliesToClassNames?: string[];
   code: string | null;
@@ -3232,7 +3236,7 @@ export function FinanceWorkspace({
                             item.kind === "EXTRACURRICULAR" && (item.extracurricularClassCount ?? 0) > 0
                               ? receivableText.attached(item.extracurricularClassCount ?? 0)
                               : "",
-                            item.kind === "FIXED" ? fixedAppliesTo(item.appliesToClassNames ?? []) : "",
+                            item.kind === "FIXED" ? fixedAppliesTo(item) : "",
                           ]
                             .filter(Boolean)
                             .join(" · ")}

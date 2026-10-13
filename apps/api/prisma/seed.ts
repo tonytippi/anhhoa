@@ -478,8 +478,11 @@ const center = {
 } as const;
 const centerSeedKey = 'b3f0c1d6-7a52-4e8b-9c14-5d2e8a6f1b70';
 const centerSeedRoute = 'development-seed/center-fixtures';
+// Tuition is one FIXED receivable per price level, assigned to its Classes (sprint change 2026-10-13), so a new run of
+// a Class starts with the right tuition; the book is added by hand and transport bills through its service group.
 const centerSeedReceivables = [
-  { code: 'PGC-TUITION', displayName: 'Học phí GrapeSEED', unitLabel: 'unit', defaultUnitPrice: 3500000n, group: 'Khoản thu linh hoạt' },
+  { code: 'PGC-TUITION-STARTERS', displayName: 'Học phí GrapeSEED Starters', unitLabel: 'unit', defaultUnitPrice: 3500000n, group: 'Khoản thu cố định', classNames: ['Starters A', 'Starters B'] },
+  { code: 'PGC-TUITION-MOVERS', displayName: 'Học phí GrapeSEED Movers', unitLabel: 'unit', defaultUnitPrice: 3800000n, group: 'Khoản thu cố định', classNames: ['Movers A'] },
   { code: 'PGC-BOOK', displayName: 'Sách Giáo Khoa Grapeseed', unitLabel: 'bộ', defaultUnitPrice: 295000n, group: 'Khoản thu linh hoạt' },
   { code: 'PGC-TRANSPORT', displayName: 'Đưa đón', unitLabel: 'unit', defaultUnitPrice: 1200000n, group: 'Ngoại khóa' },
 ] as const;
@@ -540,10 +543,12 @@ async function seedCenter(tx: any, roster: PeakLandRosterRecord[], staff: PeakLa
     accounts[kind] = row.id;
   }
   const groups = new Map<string, string>((await tx.receivableGroup.findMany({ where: { schoolId } })).map((group: { name: string; id: string }) => [group.name, group.id]));
-  for (const { group, ...receivable } of centerSeedReceivables) {
+  const seededReceivables: Array<{ id: string; classNames: readonly string[] }> = [];
+  for (const { group, classNames, ...receivable } of centerSeedReceivables.map((item) => ({ classNames: [] as readonly string[], ...item }))) {
     if (await tx.receivable.findFirst({ where: { schoolId, code: receivable.code } })) continue;
-    const row = await tx.receivable.create({ data: { schoolId, groupId: groups.get(group)!, ...receivable } });
+    const row = await tx.receivable.create({ data: { schoolId, groupId: groups.get(group)!, ...receivable, classScoped: classNames.length > 0 } });
     await tx.receivableLifecycleTransition.create({ data: { schoolId, receivableId: row.id, status: 'ACTIVE', ...actor, operationId: operation.id, sequence: 1 } });
+    seededReceivables.push({ id: row.id, classNames });
   }
   // Transport is a service group billed per unit; it starts empty so Finance registers the Students who use it.
   if (!await tx.extracurricularClass.findFirst({ where: { schoolId, name: 'Đưa đón' } })) {
@@ -555,6 +560,10 @@ async function seedCenter(tx: any, roster: PeakLandRosterRecord[], staff: PeakLa
   for (const name of center.classNames) {
     classrooms.push(await tx.class.findFirst({ where: { schoolId, schoolYearId: schoolYear.id, name } })
       ?? await tx.class.create({ data: { schoolId, schoolYearId: schoolYear.id, name, status: 'ACTIVE', defaultBankAccountId: accounts.PERSONAL, defaultSchoolBankAccountId: accounts.SCHOOL } }));
+  }
+  for (const receivable of seededReceivables) {
+    const assigned = classrooms.filter((classroom) => receivable.classNames.includes(classroom.name));
+    if (assigned.length) await tx.receivableClass.createMany({ data: assigned.map((classroom) => ({ schoolId, receivableId: receivable.id, classId: classroom.id })) });
   }
   const children = roster.filter((record) => record.mother?.emailNormalized || record.father?.emailNormalized).slice(0, classrooms.length * center.studentsPerClass);
   for (const [index, record] of children.entries()) {

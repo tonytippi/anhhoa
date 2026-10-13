@@ -1518,6 +1518,7 @@ model Receivable {
   taxCategory            ReceivableTaxCategory           @default(NOT_DECLARED)
   refundUnitPrice        BigInt                          @default(0) @db.BigInt
   autoLeaveDeduction     Boolean                         @default(false)
+  classScoped            Boolean                         @default(false)
   createdAt              DateTime                        @default(now()) @db.Timestamptz(3)
   school                 School                          @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   group                  ReceivableGroup                 @relation(fields: [schoolId, groupId], references: [schoolId, id], onDelete: Restrict)
@@ -1535,7 +1536,7 @@ model Receivable {
   @@index([schoolId, createdAt])
 }
 
-// Sprint change 2026-10-13: the Classes a FIXED Receivable applies to; no rows means the whole School.
+// Sprint change 2026-10-13: the Classes a FIXED Receivable with `classScoped` applies to; one without `classScoped` applies to the whole School.
 model ReceivableClass {
   id           String     @id @default(uuid()) @db.Uuid
   schoolId     String     @db.Uuid

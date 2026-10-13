@@ -308,6 +308,21 @@ test('Admin runs a language center: staggered unit runs per class, a service, a 
   expect(fixedResponse.status()).toBe(201);
   expect((await fixedResponse.json()).data.outcome).toMatchObject({ kind: 'FIXED', appliesToClassNames: ['Starters A'] });
   await expect(fixedDialog).toBeHidden();
+  // The Class screen shows the assignment and changes it per class.
+  await navigate(page, 'Danh bộ', 'Lớp học');
+  const classTable = page.getByRole('table', { name: `Lớp học của ${center}` });
+  await expect(classTable.locator('tbody tr').filter({ hasText: 'Starters A' })).toContainText('Giáo trình Starters · 500.000 đ/unit');
+  const moversRow = classTable.locator('tbody tr').filter({ hasText: 'Movers B' });
+  await expect(moversRow).toContainText('Chưa gán');
+  await moversRow.getByRole('button', { name: 'Khoản thu cố định' }).click();
+  const classFixed = page.getByRole('dialog', { name: 'Khoản thu cố định · Movers B' });
+  await expect(classFixed.getByRole('button', { name: 'Lưu khoản thu cố định' })).toBeDisabled();
+  await classFixed.getByRole('checkbox', { name: /Giáo trình Starters/ }).check();
+  const assigned = page.waitForResponse((response) => /\/finance\/classes\/[^/]+\/fixed-receivables$/.test(new URL(response.url()).pathname) && response.request().method() === 'PUT');
+  await classFixed.getByRole('button', { name: 'Lưu khoản thu cố định' }).click();
+  expect((await assigned).ok()).toBe(true);
+  await expect(classFixed).toBeHidden();
+  await expect(moversRow).toContainText('Giáo trình Starters · 500.000 đ/unit');
   await goToRuns(page);
   const unit2Dialog = await fillRunDialog(page, 'Starters A', 'Unit 2', unit2);
   await expect(unit2Dialog.getByText('Khoản thu cố định áp dụng cho lớp được tự thêm; khoản thu linh hoạt được sao chép từ đợt Unit 1 của lớp Starters A. Sửa được khi đợt còn Nháp.')).toBeVisible();

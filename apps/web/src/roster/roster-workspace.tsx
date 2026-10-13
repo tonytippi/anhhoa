@@ -1,5 +1,6 @@
 import {
   FormEvent,
+  Fragment,
   KeyboardEvent,
   useEffect,
   useLayoutEffect,
@@ -27,7 +28,11 @@ type Classroom = {
   defaultBankAccount?: { receivingBank: string; accountNumberLast4: string; accountHolderName: string } | null;
   defaultSchoolBankAccountId?: string | null;
   defaultSchoolBankAccount?: { receivingBank: string; accountNumberLast4: string; accountHolderName: string } | null;
+  // Sprint change 2026-10-13: ACTIVE class-scoped FIXED receivables of the Class; whole-School ones are not listed.
+  fixedReceivables?: Array<{ id: string; displayName: string; defaultUnitPrice: string; unitLabel: string }>;
 };
+type ClassFixedReceivable = { id: string; displayName: string; unitLabel: string; defaultUnitPrice: string; appliesTo: "SCHOOL" | "CLASSES"; applied: boolean; otherClassNames: string[] };
+const receivablePrice = (item: { defaultUnitPrice: string; unitLabel: string }) => `${new Intl.NumberFormat("vi-VN").format(BigInt(item.defaultUnitPrice))} đ/${item.unitLabel}`;
 type ReceivingAccount = { id: string; kind?: "SCHOOL" | "PERSONAL"; receivingBank: string; accountNumber: string; accountHolderName: string };
 type RosterRow = {
   id: string;
@@ -340,6 +345,8 @@ export function RosterWorkspace({
   const staffIntakeTrigger = useRef<HTMLButtonElement>(null);
   const classIntakeDialog = useRef<HTMLDivElement>(null);
   const classAccountDialog = useRef<HTMLDivElement>(null);
+  const [classReceivables, setClassReceivables] = useState<{ classroom: Classroom; receivables?: ClassFixedReceivable[]; loaded: string[]; chosen: string[]; error?: string; saving?: boolean }>();
+  const classReceivablesDialog = useRef<HTMLDivElement>(null);
   const loginAccessDialog = useRef<HTMLDivElement>(null);
   const classIntakeTrigger = useRef<HTMLButtonElement>(null);
   const endTrigger = useRef<HTMLButtonElement>(null);
@@ -985,6 +992,43 @@ export function RosterWorkspace({
       const body = (await response.json()) as { data?: { accounts?: ReceivingAccount[] } };
       setClassAccount((current) => current && { ...current, accounts: body.data?.accounts ?? [] });
     } catch { if (valid(schoolId, requestGeneration)) setClassAccount((current) => current && { ...current, accounts: [], error: "Không thể tải tài khoản nhận tiền." }); }
+  };
+  // Which FIXED receivables apply to a Class is a Finance setting too; the list sent is the whole class-scoped choice.
+  const openClassReceivables = async (classroom: Classroom) => {
+    setClassReceivables({ classroom, loaded: [], chosen: [] });
+    const requestGeneration = generation.current;
+    try {
+      const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/classes/${classroom.id}/fixed-receivables`, { credentials: "include" });
+      if (!valid(schoolId, requestGeneration)) return;
+      if (!response.ok) { setClassReceivables((current) => current && { ...current, receivables: [], error: response.status === 403 ? "Cần quyền Finance để chọn khoản thu cố định." : "Không thể tải khoản thu cố định." }); return; }
+      const body = (await response.json()) as { data?: { receivables?: ClassFixedReceivable[] } };
+      const receivables = body.data?.receivables ?? [];
+      const loaded = receivables.filter((item) => item.appliesTo === "CLASSES" && item.applied).map((item) => item.id);
+      setClassReceivables((current) => current && { ...current, receivables, loaded, chosen: loaded });
+    } catch { if (valid(schoolId, requestGeneration)) setClassReceivables((current) => current && { ...current, receivables: [], error: "Không thể tải khoản thu cố định." }); }
+  };
+  const classReceivablesChanged = Boolean(classReceivables && (classReceivables.chosen.length !== classReceivables.loaded.length || classReceivables.chosen.some((id) => !classReceivables.loaded.includes(id))));
+  const submitClassReceivables = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!classReceivables || classReceivables.saving || !classReceivablesChanged) return;
+    const requestGeneration = generation.current;
+    setClassReceivables({ ...classReceivables, saving: true, error: undefined });
+    try {
+      const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/classes/${classReceivables.classroom.id}/fixed-receivables`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? ""), "idempotency-key": crypto.randomUUID(), "x-operation-id": crypto.randomUUID() },
+        body: JSON.stringify({ receivableIds: classReceivables.chosen }),
+      });
+      if (!valid(schoolId, requestGeneration)) return;
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as ErrorBody;
+        setClassReceivables((current) => current && { ...current, saving: false, error: Object.values(data.error?.fieldErrors ?? {})[0] ?? data.error?.message ?? "Không thể lưu khoản thu cố định." });
+        return;
+      }
+      setClassReceivables(undefined);
+      await refresh(requestGeneration);
+    } catch { if (valid(schoolId, requestGeneration)) setClassReceivables((current) => current && { ...current, saving: false, error: "Chưa xác nhận được kết quả. Hãy tải lại trước khi thử lại." }); }
   };
   const submitLoginAccess = async (event: FormEvent) => {
     event.preventDefault();
@@ -1684,6 +1728,20 @@ export function RosterWorkspace({
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   };
+  const trapClassReceivablesDialog = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      setClassReceivables(undefined);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(classReceivablesDialog.current?.querySelectorAll<HTMLElement>("input:not([disabled]), button:not([disabled])") ?? [])];
+    if (!focusable.length) return;
+    const first = focusable[0]!;
+    const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+  useEffect(() => { if (classReceivables?.receivables) classReceivablesDialog.current?.querySelector<HTMLElement>("input:not([disabled]), button:not([disabled])")?.focus(); }, [Boolean(classReceivables?.receivables)]);
   useEffect(() => { if (staffIntakeOpen) staffIntakeDialog.current?.querySelector<HTMLInputElement>("input")?.focus(); }, [staffIntakeOpen]);
   useEffect(() => {
     if (!studentDetail || detailLoading) return;
@@ -2290,6 +2348,7 @@ export function RosterWorkspace({
                   <tr>
                     <th>Tên lớp</th>
                     <th>Tài khoản thu mặc định</th>
+                    <th>Khoản thu cố định</th>
                     <th>Trạng thái</th>
                     <th>Học sinh đang nhập học</th>
                     <th>Thao tác</th>
@@ -2308,6 +2367,11 @@ export function RosterWorkspace({
                               {item.defaultBankAccount && <>Cá nhân: {item.defaultBankAccount.receivingBank} · •••• {item.defaultBankAccount.accountNumberLast4}<br /><small>{item.defaultBankAccount.accountHolderName}</small></>}
                             </>
                           ) : "Chưa chọn"}
+                        </td>
+                        <td>
+                          {(item.fixedReceivables ?? []).length
+                            ? (item.fixedReceivables ?? []).map((receivable, index) => <Fragment key={receivable.id}>{index > 0 && <br />}{receivable.displayName} · {receivablePrice(receivable)}</Fragment>)
+                            : "Chưa gán"}
                         </td>
                         <td>
                           {item.status === "ACTIVE"
@@ -2331,6 +2395,9 @@ export function RosterWorkspace({
                               <button disabled={disabled} onClick={() => void openClassAccount(item)}>
                                 Tài khoản thu
                               </button>
+                              <button disabled={disabled} onClick={() => void openClassReceivables(item)}>
+                                Khoản thu cố định
+                              </button>
                               <button
                                 disabled={disabled}
                                 onClick={() => {
@@ -2353,7 +2420,7 @@ export function RosterWorkspace({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5}>{usesSchoolYears ? "Năm học này chưa có lớp." : classStatus === "ACTIVE" ? "Chưa có lớp đang hoạt động." : "Chưa có lớp."}</td>
+                      <td colSpan={6}>{usesSchoolYears ? "Năm học này chưa có lớp." : classStatus === "ACTIVE" ? "Chưa có lớp đang hoạt động." : "Chưa có lớp."}</td>
                     </tr>
                   )}
                 </tbody>
@@ -3042,6 +3109,27 @@ export function RosterWorkspace({
             <small id="class-account-help">Dùng sẵn cho phần khoản không kê khai. Chỉ tài khoản đang hiệu lực của Trường; kế toán có thể chọn tài khoản khác khi phát hành.</small>
             {classAccount.error && <p role="alert">{classAccount.error}</p>}
             <div className="student-intake-actions"><button type="button" onClick={() => setClassAccount(undefined)}>Hủy</button><button disabled={disabled || classAccount.saving || !classAccount.accounts}>Lưu tài khoản thu</button></div>
+          </form>
+        </div></div>
+      )}
+      {classReceivables && (
+        <div className="student-intake-backdrop"><div ref={classReceivablesDialog} className="student-intake-dialog" role="dialog" aria-modal="true" aria-labelledby="class-receivables-title" onKeyDown={trapClassReceivablesDialog}>
+          <form className="roster-form student-intake-form" onSubmit={submitClassReceivables}>
+            <h3 id="class-receivables-title">Khoản thu cố định · {classReceivables.classroom.name}</h3>
+            {!classReceivables.receivables ? <p>Đang tải khoản thu cố định.</p> : classReceivables.receivables.length ? classReceivables.receivables.map((item) => (
+              <label key={item.id} className="finance-checkbox">
+                <input
+                  type="checkbox"
+                  checked={item.appliesTo === "SCHOOL" || classReceivables.chosen.includes(item.id)}
+                  disabled={item.appliesTo === "SCHOOL"}
+                  onChange={(event) => setClassReceivables({ ...classReceivables, chosen: event.target.checked ? [...classReceivables.chosen, item.id] : classReceivables.chosen.filter((id) => id !== item.id) })}
+                />
+                <span>{item.displayName} · {receivablePrice(item)}{item.appliesTo === "SCHOOL" ? <> · <small>Toàn trường</small></> : item.otherClassNames.length > 0 && <> · <small>Cũng áp dụng: {item.otherClassNames.join(", ")}</small></>}</span>
+              </label>
+            )) : !classReceivables.error && <p>Chưa có khoản thu cố định đang áp dụng. Tạo ở trang Khoản thu.</p>}
+            {classReceivables.error && <p role="alert">{classReceivables.error}</p>}
+            <small>Áp dụng cho đợt thu mở sau; đợt đã mở không đổi. Giá và tên sửa ở trang Khoản thu.</small>
+            <div className="student-intake-actions"><button type="button" onClick={() => setClassReceivables(undefined)}>Hủy</button><button disabled={disabled || classReceivables.saving || !classReceivablesChanged}>Lưu khoản thu cố định</button></div>
           </form>
         </div></div>
       )}

@@ -202,14 +202,12 @@ export function receivableEditChanges(edit: { values: ReceivableEditValues; orig
       .filter((key) => edit.values[key] !== edit.original[key] && !(key === "kind" && edit.locked))
       .map((key) => [key, edit.values[key]]),
   ) as Partial<Omit<ReceivableEditValues, "appliesTo">>;
-  const next = receivableClassIds(edit.values);
-  const before = receivableClassIds(edit.original);
-  if (
-    edit.values.kind === "FIXED" &&
-    !receivableClassesMissing(edit.values) &&
-    (next.length !== before.length || next.some((id) => !before.includes(id)))
-  )
-    changed.classIds = next;
+  // A class-scoped receivable may have no class left (its last one was removed on the Lớp học screen); choosing "Toàn trường"
+  // for it is a change even though both lists are empty.
+  const scopeKey = (values: ReceivableEditValues) =>
+    values.kind === "FIXED" && values.appliesTo === "CLASSES" ? `CLASSES:${[...values.classIds].sort().join(",")}` : "SCHOOL";
+  if (edit.values.kind === "FIXED" && !receivableClassesMissing(edit.values) && scopeKey(edit.values) !== scopeKey(edit.original))
+    changed.classIds = receivableClassIds(edit.values);
   return changed;
 }
 export const receivableEditValues = (item: {
@@ -220,6 +218,7 @@ export const receivableEditValues = (item: {
   autoLeaveDeduction?: boolean;
   taxCategory?: TaxCategory;
   kind?: ReceivableKind | null;
+  appliesTo?: ReceivableAppliesTo;
   appliesToClassIds?: string[];
 }): ReceivableEditValues => ({
   displayName: item.displayName,
@@ -229,7 +228,7 @@ export const receivableEditValues = (item: {
   autoLeaveDeduction: item.autoLeaveDeduction ?? false,
   taxCategory: item.taxCategory ?? "NOT_DECLARED",
   kind: item.kind ?? "FLEXIBLE",
-  appliesTo: item.appliesToClassIds?.length ? "CLASSES" : "SCHOOL",
+  appliesTo: item.appliesTo ?? (item.appliesToClassIds?.length ? "CLASSES" : "SCHOOL"),
   classIds: item.appliesToClassIds ?? [],
 });
 

@@ -202,6 +202,8 @@ export class RosterService {
       defaultBankAccount: value.defaultBankAccount ? { receivingBank: value.defaultBankAccount.receivingBank, accountNumberLast4: value.defaultBankAccount.accountNumber.slice(-4), accountHolderName: value.defaultBankAccount.accountHolderName } : null,
       defaultSchoolBankAccountId: value.defaultSchoolBankAccountId ?? null,
       defaultSchoolBankAccount: value.defaultSchoolBankAccount ? { receivingBank: value.defaultSchoolBankAccount.receivingBank, accountNumberLast4: value.defaultSchoolBankAccount.accountNumber.slice(-4), accountHolderName: value.defaultSchoolBankAccount.accountHolderName } : null,
+      // Display facts only (sprint change 2026-10-13): the ACTIVE class-scoped FIXED receivables assigned to the Class; Finance owns assigning them.
+      fixedReceivables: (value.receivableClasses ?? []).filter((item: any) => item.receivable.lifecycleTransitions[0]?.status === "ACTIVE").map((item: any) => ({ id: item.receivableId, displayName: item.receivable.displayName, defaultUnitPrice: item.receivable.defaultUnitPrice.toString(), unitLabel: item.receivable.unitLabel })).sort((a: any, b: any) => a.displayName.localeCompare(b.displayName, "vi")),
       activeStudentCount,
       createdAt: value.createdAt.toISOString(),
       updatedAt: value.updatedAt.toISOString(),
@@ -324,7 +326,7 @@ export class RosterService {
     await this.year(schoolId, schoolYearId);
     const classes = await this.prisma.class.findMany({
       where: { schoolId, schoolYearId },
-      include: { defaultBankAccount: { select: { id: true, receivingBank: true, accountNumber: true, accountHolderName: true } }, defaultSchoolBankAccount: { select: { id: true, receivingBank: true, accountNumber: true, accountHolderName: true } } },
+      include: { defaultBankAccount: { select: { id: true, receivingBank: true, accountNumber: true, accountHolderName: true } }, defaultSchoolBankAccount: { select: { id: true, receivingBank: true, accountNumber: true, accountHolderName: true } }, receivableClasses: { include: { receivable: { select: { displayName: true, defaultUnitPrice: true, unitLabel: true, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1, select: { status: true } } } } } } },
       orderBy: { createdAt: "asc" },
     });
     const counts = await this.prisma.enrollmentClassAssignment.groupBy({

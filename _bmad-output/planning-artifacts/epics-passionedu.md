@@ -906,6 +906,8 @@ Source: sprint-change-proposal-2026-10-13-fixed-receivable-classes.
 
 **And** a `CLASS` run seeds the `FIXED` Receivables of the whole School or of its Class and copies only whole-class `FLEXIBLE` lines from the preceding run; a `FIXED` Receivable of another Class cannot be added by hand.
 
+**And** the Class screen lists the class-scoped `FIXED` Receivables of each Class and lets Finance tick them per Class; removing the last Class leaves the Receivable class-scoped with no Class.
+
 **And** editing a `FIXED` line on a run keeps its seeded scope; changing the Classes of a Receivable does not change runs already opened.
 
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử

@@ -611,6 +611,12 @@ function bindMockActions() {
       .map(([value, label]) => `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`).join('');
     dialog(`Tài khoản thu mặc định · ${button.dataset.classBankAccount}`, `<form><label for="default-bank-account">Tài khoản thu mặc định</label><select id="default-bank-account" name="default-bank-account" aria-describedby="default-bank-account-help">${options}</select><p id="default-bank-account-help" class="muted">Chỉ tài khoản cá nhân đang hiệu lực của Trường. Dùng sẵn cho phần khoản không kê khai khi phát hành phiếu thu; kế toán có thể chọn tài khoản khác. Chuyển năm học không tạo hoặc chuyển lớp, nên mỗi lớp của năm học mới tự đặt tài khoản thu mặc định; nếu chưa chọn, kế toán chọn tài khoản cá nhân khi phát hành.</p></form>`, '<button class="button" type="button" data-close>Lưu tài khoản thu</button>', button);
   }));
+  $$('[data-class-fixed-receivables]').forEach(button => button.addEventListener('click', () => {
+    const applied = (button.dataset.applied || '').split('|');
+    const rows = [['Tiền ăn · 35.000 đ/ngày', 'Toàn trường'], ['Học phí Mầm · 3.500.000 đ/tháng', ''], ['Phí bán trú lớp Mầm · 400.000 đ/tháng', 'Cũng áp dụng: Mầm 2'], ['Học phí Chồi · 3.300.000 đ/tháng', '']]
+      .map(([label, note]) => `<label><input type="checkbox"${note === 'Toàn trường' ? ' checked disabled' : applied.includes(label.split(' · ')[0]) ? ' checked' : ''}> ${label}${note ? ` · <small class="muted">${note}</small>` : ''}</label>`).join('');
+    dialog(`Khoản thu cố định · ${button.dataset.classFixedReceivables}`, `<form>${rows}<p class="muted">Áp dụng cho đợt thu mở sau; đợt đã mở không đổi. Giá và tên sửa ở trang Khoản thu.</p></form>`, '<button class="button" type="button" data-close>Lưu khoản thu cố định</button>', button);
+  }));
   $$('[data-open-holiday-form]').forEach(button => button.addEventListener('click', () => {
     const form = $('#holiday-form');
     form.hidden = false;

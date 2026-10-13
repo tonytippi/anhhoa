@@ -204,6 +204,23 @@ describe("FinanceWorkspace", () => {
       expect(bodies(fetch, "PUT")[0]).toEqual({ classIds: ["c2"], reason: "Đổi lớp" });
     });
 
+    it("opens a class-scoped receivable without classes as Các lớp được chọn and saves Toàn trường as a change", async () => {
+      const fetch = stub([fixed({ appliesTo: "CLASSES" })]);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+      expect((await screen.findByRole("row", { name: /Học phí/ })).textContent).toContain("Khoản thu cố định · Chưa gán lớp");
+      const dialog = await openEdit();
+      expect(within(dialog).getByRole("radio", { name: "Các lớp được chọn" })).toHaveProperty("checked", true);
+      expect(within(within(dialog).getByRole("group", { name: "Lớp áp dụng" })).getAllByRole("checkbox").every((item) => !(item as HTMLInputElement).checked)).toBe(true);
+      const save = within(dialog).getByRole("button", { name: "Lưu thay đổi" });
+      expect(save).toHaveProperty("disabled", true);
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Toàn trường" }));
+      expect(save).toHaveProperty("disabled", false);
+      fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Thu toàn trường" } });
+      fireEvent.click(save);
+      await waitFor(() => expect(bodies(fetch, "PUT")).toHaveLength(1));
+      expect(bodies(fetch, "PUT")[0]).toEqual({ classIds: [], reason: "Thu toàn trường" });
+    });
+
     it("sends an empty list for Toàn trường and shows no school-year wording in a center", async () => {
       const fetch = stub([fixed({ appliesToClassIds: ["c1"], appliesToClassNames: ["Mầm 1"] })]);
       render(<FinanceWorkspace schoolId="school-a" schoolName="Trung tâm A" page="receivables" denied={vi.fn()} features={{ usesSchoolYears: false, collectionRunScope: "CLASS" }} />);

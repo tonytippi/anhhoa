@@ -23,7 +23,7 @@ Hai đợt của **cùng một lớp** không được trùng ngày; hệ thốn
 - Khi đợt còn `Nháp`, bạn sửa số lượng, thêm hoặc bỏ dòng tùy ý. Khoản cố định không đổi được phạm vi trên đợt.
 
 > [!WARNING]
-> Lưu ý cho kế toán: giá nằm trên khoản thu, nên mỗi mức học phí là một khoản thu cố định riêng, gắn các lớp của mình. Muốn chuyển lớp sang mức giá khác, sửa danh sách lớp của các khoản thu **trước khi mở đợt kế tiếp**; đợt đã mở không đổi. Khoản cố định `Toàn trường` được thêm vào đợt của mọi lớp.
+> Lưu ý cho kế toán: giá nằm trên khoản thu, nên mỗi mức học phí là một khoản thu cố định riêng, gắn các lớp của mình. Muốn chuyển lớp sang mức giá khác, sửa danh sách lớp của các khoản thu (ở trang `Khoản thu`, hoặc theo từng lớp ở `Danh bộ › Lớp học › Khoản thu cố định`) **trước khi mở đợt kế tiếp**; đợt đã mở không đổi. Khoản cố định `Toàn trường` được thêm vào đợt của mọi lớp.
 
 ## 3. Dịch vụ (đưa đón…)
 

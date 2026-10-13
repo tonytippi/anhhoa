@@ -26,12 +26,13 @@ Business owner chốt 2026-10-13: Receivable `FIXED` chọn được lớp áp d
 3. Run `CLASS` (trung tâm): mở run seed mọi `FIXED` ACTIVE là `Toàn trường` hoặc có gán lớp của run, số lượng 1, cả lớp. Dòng `FLEXIBLE` cả lớp vẫn sao chép từ run liền trước cùng lớp; dòng `FIXED` không sao chép, luôn lấy theo danh sách lớp hiện tại của Receivable.
 4. Phạm vi của dòng `FIXED` không chọn trên run: sửa số lượng giữ nguyên phạm vi đã seed; request mang phạm vi khác bị từ chối. Dòng `FIXED` vẫn gỡ được khi run còn `DRAFT`. `FIXED` không áp dụng cho lớp của run `CLASS` thì không thêm tay được.
 5. Đổi danh sách lớp không đổi run đã mở. Chuyển một lớp sang mức giá khác: sửa danh sách lớp của hai Receivable trước khi mở run kế tiếp.
+7. *(Bổ sung cùng ngày, business owner yêu cầu)* Màn Lớp học ở Danh bộ hiện các Receivable `FIXED` đang gán cho từng lớp và có hộp thoại **Khoản thu cố định** để tick/bỏ tick Receivable theo lớp cho lớp đó; Receivable `Toàn trường` hiện ở dạng chỉ đọc. Để một lớp rời được Receivable khi nó là lớp duy nhất, "áp dụng theo lớp" là một fact riêng trên Receivable (`classScoped`): Receivable theo lớp có thể chưa gán lớp nào và khi đó không vào run nào. Từ trang Khoản thu, chọn `Toàn trường` vẫn là cách duy nhất để áp cho mọi lớp.
 6. Lớp thuộc một SchoolYear, nên sang năm học mới kế toán gán lại lớp cho các Receivable `FIXED` theo lớp. Chưa tự chuyển danh sách lớp khi đóng năm.
 
 ## 3. Impact
 
-- Schema: bảng `ReceivableClass (schoolId, receivableId, classId)` với composite tenant FK, unique theo bộ ba, trigger chỉ nhận Receivable `FIXED`; trigger template line bỏ luật `FIXED` = `ALL`.
-- API: catalog trả `classOptions` và `appliesToClassIds`/`appliesToClassNames` trên Receivable; tạo/sửa Receivable nhận `classIds`; mở run seed theo mục 2-3.
+- Schema: `Receivable.classScoped`; bảng `ReceivableClass (schoolId, receivableId, classId)` với composite tenant FK, unique theo bộ ba, trigger chỉ nhận Receivable `FIXED`; trigger template line bỏ luật `FIXED` = `ALL`.
+- API: `GET/PUT finance/classes/:classId/fixed-receivables` (Finance sở hữu, có Operation và audit `CLASS_FIXED_RECEIVABLES_SET`); roster class DTO thêm `fixedReceivables` chỉ để hiển thị. Catalog trả `classOptions` và `appliesTo`/`appliesToClassIds`/`appliesToClassNames` trên Receivable; tạo/sửa Receivable nhận `classIds`; mở run seed theo mục 2-3.
 - Admin: hộp thoại tạo/sửa Khoản thu có `Áp dụng cho` khi nhóm là cố định; danh sách Khoản thu hiện phạm vi áp dụng; chi tiết Đợt thu hiện lớp của dòng cố định. Mockup `admin/receivable-configuration.html` cập nhật trước.
 - Parent, Teacher, Ops: không đổi.
 
@@ -42,4 +43,6 @@ Business owner chốt 2026-10-13: Receivable `FIXED` chọn được lớp áp d
 - Given `FIXED` chỉ gán lớp của SchoolYear khác, then run không seed Receivable đó.
 - Given trung tâm, when mở run của một lớp, then run có `FIXED` toàn trường và `FIXED` gán lớp đó; `FIXED` gán lớp khác không vào và không thêm tay được.
 - Given lớp được chuyển từ `FIXED` A sang `FIXED` B trước unit kế tiếp, then run kế tiếp có B, không có A, và vẫn sao chép dòng `FLEXIBLE` cả lớp.
+- Given lớp là lớp duy nhất của một `FIXED` theo lớp, when bỏ tick ở màn Lớp học, then Receivable còn là theo lớp, chưa gán lớp nào, và không vào run nào.
+- Given lớp đã lưu trữ hoặc SchoolYear đã đóng, then không gán được từ màn Lớp học.
 - Story: 5.54.

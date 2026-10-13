@@ -576,6 +576,91 @@ describe("RosterWorkspace class default receiving account", () => {
   });
 });
 
+// Sprint change 2026-10-13: class-scoped FIXED receivables are listed per Class and assigned through Finance.
+describe("RosterWorkspace class fixed receivables", () => {
+  const receivables = [
+    { id: "r-meal", displayName: "Tiền ăn", unitLabel: "ngày", defaultUnitPrice: "35000", appliesTo: "SCHOOL", applied: true, otherClassNames: [] },
+    { id: "r-mam", displayName: "Học phí Mầm", unitLabel: "tháng", defaultUnitPrice: "3500000", appliesTo: "CLASSES", applied: true, otherClassNames: ["Lớp Chồi"] },
+    { id: "r-bus", displayName: "Xe đưa đón", unitLabel: "tháng", defaultUnitPrice: "400000", appliesTo: "CLASSES", applied: false, otherClassNames: [] },
+  ];
+  const stub = (put: () => Response = () => response({ id: "operation", status: "COMPLETED" }), list: object[] = receivables) => {
+    const fetch = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "PUT") return Promise.resolve(put());
+      if (url.endsWith("/fixed-receivables")) return Promise.resolve(response({ classId: "class-a", className: "Lớp Mầm", receivables: list }));
+      if (url.endsWith("/classes")) return Promise.resolve(response([{ ...classroom, fixedReceivables: [{ id: "r-mam", displayName: "Học phí Mầm", defaultUnitPrice: "3500000", unitLabel: "tháng" }] }, { ...classroom, id: "class-b", name: "Lớp Lá" }]));
+      return fetcher()(url, options);
+    });
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  };
+  const puts = (fetch: ReturnType<typeof stub>) => fetch.mock.calls.filter(([url, options]) => String(url).endsWith("/finance/classes/class-a/fixed-receivables") && options?.method === "PUT");
+  const open = async () => {
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="classes" />);
+    const row = await screen.findByRole("row", { name: /Lớp Mầm/ });
+    fireEvent.click(within(row).getByRole("button", { name: "Khoản thu cố định" }));
+    const dialog = await screen.findByRole("dialog", { name: "Khoản thu cố định · Lớp Mầm" });
+    await within(dialog).findByRole("checkbox", { name: /Tiền ăn/ });
+    return dialog;
+  };
+
+  it("lists the class-scoped receivables of each Class with their price", async () => {
+    stub();
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="classes" />);
+    const row = await screen.findByRole("row", { name: /Lớp Mầm/ });
+    expect(screen.getByRole("columnheader", { name: "Khoản thu cố định" })).toBeTruthy();
+    expect(within(row).getAllByRole("cell")[1]!.textContent).toBe("Học phí Mầm · 3.500.000 đ/tháng");
+    // A fixture without the field reads as none assigned.
+    expect(within(screen.getByRole("row", { name: /Lớp Lá/ })).getAllByRole("cell")[1]!.textContent).toBe("Chưa gán");
+  });
+
+  it("loads the checklist, keeps whole-school rows fixed and saves the full class-scoped list", async () => {
+    const fetch = stub();
+    const dialog = await open();
+    const meal = within(dialog).getByRole("checkbox", { name: /^Tiền ăn · 35\.000 đ\/ngày\s+· Toàn trường$/ }) as HTMLInputElement;
+    expect([meal.checked, meal.disabled]).toEqual([true, true]);
+    expect(within(dialog).getByRole("checkbox", { name: /^Học phí Mầm · 3\.500\.000 đ\/tháng\s+· Cũng áp dụng: Lớp Chồi$/ })).toHaveProperty("checked", true);
+    const bus = within(dialog).getByRole("checkbox", { name: "Xe đưa đón · 400.000 đ/tháng" });
+    expect(bus).toHaveProperty("checked", false);
+    expect(within(dialog).getByText("Áp dụng cho đợt thu mở sau; đợt đã mở không đổi. Giá và tên sửa ở trang Khoản thu.")).toBeTruthy();
+    const save = within(dialog).getByRole("button", { name: "Lưu khoản thu cố định" });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(bus);
+    expect(save).toHaveProperty("disabled", false);
+    fireEvent.click(bus);
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(bus);
+    const loads = fetch.mock.calls.filter(([url, options]) => String(url).endsWith("/classes") && !options?.method).length;
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Khoản thu cố định · Lớp Mầm" })).toBeNull());
+    expect(puts(fetch)).toHaveLength(1);
+    expect(JSON.parse(String(puts(fetch)[0]![1]!.body))).toEqual({ receivableIds: ["r-mam", "r-bus"] });
+    const headers = puts(fetch)[0]![1]!.headers as Record<string, string>;
+    expect(Object.keys(headers)).toEqual(expect.arrayContaining(["x-csrf-token", "idempotency-key", "x-operation-id"]));
+    // The Class list is read again so the column shows the saved choice.
+    await waitFor(() => expect(fetch.mock.calls.filter(([url, options]) => String(url).endsWith("/classes") && !options?.method).length).toBeGreaterThan(loads));
+  });
+
+  it("can leave the Class without any class-scoped receivable and shows the server refusal", async () => {
+    const fetch = stub(() => new Response(JSON.stringify({ error: { message: "Dữ liệu không hợp lệ.", fieldErrors: { classId: "Lớp đã lưu trữ hoặc năm học đã đóng." } } }), { status: 400 }));
+    const dialog = await open();
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /Học phí Mầm/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu cố định" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe("Lớp đã lưu trữ hoặc năm học đã đóng.");
+    expect(JSON.parse(String(puts(fetch)[0]![1]!.body))).toEqual({ receivableIds: [] });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Khoản thu cố định · Lớp Mầm" })).toBeNull();
+  });
+
+  it("explains an empty catalog", async () => {
+    stub(undefined, []);
+    render(<RosterWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} section="classes" />);
+    fireEvent.click(within(await screen.findByRole("row", { name: /Lớp Mầm/ })).getByRole("button", { name: "Khoản thu cố định" }));
+    const dialog = await screen.findByRole("dialog", { name: "Khoản thu cố định · Lớp Mầm" });
+    expect(await within(dialog).findByText("Chưa có khoản thu cố định đang áp dụng. Tạo ở trang Khoản thu.")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Lưu khoản thu cố định" })).toHaveProperty("disabled", true);
+  });
+});
+
 // Sprint change 2026-10-12: such a School keeps one open-ended SchoolYear that the portal uses silently.
 describe("RosterWorkspace for a School without school years", () => {
   const openYear = { id: "year-a", name: "Sao Mai", startsOn: "2026-01-01", endsOn: null, isActive: true };

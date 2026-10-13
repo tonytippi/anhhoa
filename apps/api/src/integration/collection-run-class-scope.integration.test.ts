@@ -32,6 +32,7 @@ async function setup(kind: "LANGUAGE_CENTER" | "PRESCHOOL" = "LANGUAGE_CENTER") 
   // Sprint change 2026-10-13: a FIXED receivable assigned to another Class never reaches the runs of Starters A or Movers B.
   const flyers = await prisma.class.create({ data: { schoolId: school.id, schoolYearId: year.id, name: "Flyers C", status: "ARCHIVED" } });
   const materials = await receivable("FIXED", "Giáo trình", "250000");
+  await prisma.receivable.update({ where: { id: materials }, data: { classScoped: true } });
   await prisma.receivableClass.create({ data: { schoolId: school.id, receivableId: materials, classId: flyers.id } });
   const books = await receivable("FLEXIBLE", "Sách bổ trợ", "150000");
   const transport = await receivable("EXTRACURRICULAR", "Đưa đón", "800000");
@@ -221,7 +222,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     const a = await s.enroll(s.starters, "2026-08-01");
     const create = (displayName: string, price: string, classIds?: string[]) => finance.createReceivable(s.identity.id, s.school.id, uuid(), uuid(), { kind: "FIXED", displayName, unitLabel: "unit", defaultUnitPrice: price, ...(classIds ? { classIds } : {}) });
     const startersTuition = await create("Học phí cố định Starters", "3000000", [s.starters.id]);
-    expect(startersTuition.outcome).toMatchObject({ kind: "FIXED", appliesToClassIds: [s.starters.id], appliesToClassNames: ["Starters A"] });
+    expect(startersTuition.outcome).toMatchObject({ kind: "FIXED", appliesTo: "CLASSES", appliesToClassIds: [s.starters.id], appliesToClassNames: ["Starters A"] });
     const moversTuition = id(await create("Học phí cố định Movers", "4000000", [s.movers.id]));
     const everyone = id(await create("Phí tài liệu chung", "100000"));
     // Only a FIXED receivable takes Classes, and only ACTIVE Classes of this School.
@@ -230,7 +231,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     await expect(create("Lớp trường khác", "1", [foreign.starters.id])).rejects.toMatchObject({ status: 400, response: { fieldErrors: { classIds: expect.any(String) } } });
     const catalog = (await finance.read(s.identity.id, s.school.id)) as any;
     expect(catalog.classOptions.map((item: any) => item.name)).toEqual(["Movers B", "Starters A"]);
-    expect(catalog.receivables.find((item: any) => item.id === everyone)).toMatchObject({ appliesToClassIds: [], appliesToClassNames: [] });
+    expect(catalog.receivables.find((item: any) => item.id === everyone)).toMatchObject({ appliesTo: "SCHOOL", appliesToClassIds: [], appliesToClassNames: [] });
 
     const names = (run: { outcome: unknown }) => (run.outcome as any).templateLines.map((line: any) => [line.receivableName, line.kind, line.scope.type]).sort();
     const unit1 = await open(s, s.starters.id, "Unit 1", "2026-08-03", "2026-09-26");
@@ -287,5 +288,35 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     const nextYear = await prisma.schoolYear.create({ data: { schoolId: s.school.id, name: "Năm sau", startsOn: date("2100-01-02"), endsOn: date("2100-12-31") } });
     const later = await finance.openRun(s.identity.id, s.school.id, uuid(), uuid(), { schoolYearId: nextYear.id, billingMonth: "2100-02" });
     expect((later.outcome as any).templateLines.map((line: any) => line.receivableName)).toEqual(["Tiền ăn"]);
+  });
+
+  it("reads and sets the FIXED receivables of one Class from the Class screen", async () => {
+    const s = await setup();
+    const create = (displayName: string, classIds?: string[]) => finance.createReceivable(s.identity.id, s.school.id, uuid(), uuid(), { kind: "FIXED", displayName, unitLabel: "unit", defaultUnitPrice: "1000000", ...(classIds ? { classIds } : {}) });
+    const starters = id(await create("Học phí Starters cố định", [s.starters.id]));
+    const movers = id(await create("Học phí Movers cố định", [s.movers.id]));
+    const everyone = id(await create("Phí chung"));
+    const view = async (classId: string) => ((await finance.classFixedReceivables(s.identity.id, s.school.id, classId)) as any).receivables.map((item: any) => [item.displayName, item.appliesTo, item.applied, item.otherClassNames]);
+    // "Giáo trình" of the fixture is assigned to the archived Class only.
+    expect(await view(s.starters.id)).toEqual([["Giáo trình", "CLASSES", false, ["Flyers C"]], ["Học phí Movers cố định", "CLASSES", false, ["Movers B"]], ["Học phí Starters cố định", "CLASSES", true, []], ["Phí chung", "SCHOOL", true, []]]);
+    const set = (classId: string, receivableIds: string[]) => finance.setClassFixedReceivables(s.identity.id, s.school.id, classId, uuid(), uuid(), { receivableIds });
+    await expect(set(s.starters.id, [starters])).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: "Không có thay đổi để lưu." } } });
+    await expect(set(s.starters.id, [s.tuition])).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableIds: expect.any(String) } } });
+    const foreign = await setup();
+    await expect(set(foreign.starters.id, [starters])).rejects.toMatchObject({ status: 404, response: { code: "CLASS_NOT_FOUND" } });
+    await expect(finance.classFixedReceivables(s.identity.id, s.school.id, foreign.starters.id)).rejects.toMatchObject({ status: 404 });
+    // Starters A moves to the Movers price: its own receivable is left with no Class and stays class-scoped, not whole-School.
+    const moved = (await set(s.starters.id, [movers, everyone])).outcome as any;
+    expect(moved.receivables.filter((item: any) => item.applied).map((item: any) => item.displayName)).toEqual(["Học phí Movers cố định", "Phí chung"]);
+    const catalog = (await finance.read(s.identity.id, s.school.id)) as any;
+    expect(catalog.receivables.find((item: any) => item.id === starters)).toMatchObject({ appliesTo: "CLASSES", appliesToClassIds: [] });
+    expect(catalog.receivables.find((item: any) => item.id === movers)).toMatchObject({ appliesToClassNames: ["Movers B", "Starters A"] });
+    const run = await open(s, s.starters.id, "Unit 1", "2026-08-03", "2026-09-26");
+    expect((run.outcome as any).templateLines.map((line: any) => line.receivableName).sort()).toEqual(["Học phí Movers cố định", "Phí chung"]);
+    // The receivable page turns a class-scoped receivable without Classes back into a whole-School one explicitly.
+    await expect(finance.updateReceivable(s.identity.id, s.school.id, starters, uuid(), uuid(), { classIds: [], reason: "Áp dụng toàn trường" })).resolves.toMatchObject({ outcome: { appliesTo: "SCHOOL" } });
+    await expect(set(s.movers.id, [])).resolves.toMatchObject({ outcome: { classId: s.movers.id } });
+    await prisma.class.update({ where: { id: s.movers.id }, data: { status: "ARCHIVED" } });
+    await expect(set(s.movers.id, [movers])).rejects.toMatchObject({ status: 400, response: { fieldErrors: { classId: expect.any(String) } } });
   });
 });
