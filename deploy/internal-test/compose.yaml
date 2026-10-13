@@ -41,7 +41,7 @@ services:
     restart: 'no'
 
   # One-off: docker compose --profile seed run --rm seed
-  # Seed PeakLand dùng source + tsx (stage build) và CSV trong docs/peakland; seed chỉ chạy với NODE_ENV=development.
+  # Seed PeakLand và Anh Nhật dùng source + tsx (stage build) và CSV trong docs/peakland, docs/anhnhat; seed chỉ chạy với NODE_ENV=development.
   seed:
     profiles: [seed]
     build: { <<: *api-build, target: build }
@@ -51,7 +51,7 @@ services:
       NODE_ENV: development
       PRISMA_SEED: 'true'
       DATABASE_URL: *database-url
-    volumes: ['../../docs/peakland:/app/docs/peakland:ro']
+    volumes: ['../../docs/peakland:/app/docs/peakland:ro', '../../docs/anhnhat:/app/docs/anhnhat:ro']
     depends_on:
       migrate: { condition: service_completed_successfully }
     restart: 'no'

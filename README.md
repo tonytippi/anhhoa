@@ -67,7 +67,7 @@ pnpm --filter api start
 
 Seed cũng tạo trung tâm ngoại ngữ **Peakland Grapeseed Center** (`pgc`, tiền tố học viên `PGC`) với cùng owner, hai quản lý trường `ngocphuong.pham@gmail.com` và `daogiang1997@gmail.com` (cũng là quản lý PeakLand, nên đăng nhập thấy cả hai trường), ba lớp, 12 học viên là học sinh PeakLand có phụ huynh dùng email, bốn khoản học phí cố định theo sĩ số lớp (từ 15 hs, 10-14 hs, 8-9 hs, 7 hs; chưa gán lớp nào), sách và dịch vụ đưa đón. Seed không mở đợt thu nào.
 
-Seed cũng tạo trường **Mầm non song ngữ Anh Nhật** (`an`, tiền tố học sinh `AN`) từ `docs/anhnhat/`: cùng owner, 4 lớp (KITTEN, KOALA, MISA, PANDA), 17 nhân viên, 51 học sinh trong lớp và phụ huynh; học sinh trạng thái "Nghỉ học" bị bỏ qua. Trường chỉ có finance policy và nhóm khoản thu mặc định, chưa có tài khoản ngân hàng hay khoản thu.
+Seed cũng tạo trường **Mầm non song ngữ Anh Nhật** (`an`, tiền tố học sinh `AN`) từ `docs/anhnhat/`: cùng owner, 4 lớp (KITTEN, KOALA, MISA, PANDA), 17 nhân viên, 51 học sinh trong lớp và phụ huynh; học sinh trạng thái "Nghỉ học" bị bỏ qua. Trường có finance policy, nhóm khoản thu mặc định, 38 khoản thu và 17 ưu đãi sao chép từ Kidsonline (mã `KO-<id>`; chưa có tài khoản ngân hàng).
 
 `NODE_ENV=development pnpm --filter api db:reset:dev` là destructive: xóa toàn bộ dữ liệu tại `DATABASE_URL`, áp dụng lại migration từ đầu và seed PeakLand. Lệnh từ chối mọi runtime khác `development`; luôn kiểm tra `DATABASE_URL` trước khi chạy.
 
