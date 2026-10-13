@@ -4,20 +4,30 @@ import { expect, test, type BrowserContext, type Locator, type Page } from '@pla
 // The center, its two Classes, Students, receivables and the "Đưa đón" service come from seed-e2e-release-gate.ts.
 const api = `http://localhost:${process.env.E2E_API_PORT ?? '3000'}`;
 const app = `http://localhost:${process.env.E2E_APP_PORT ?? '5173'}`;
+const parentApp = `http://localhost:${process.env.E2E_PARENT_APP_PORT ?? '5174'}`;
+const opsApp = `http://localhost:${process.env.E2E_OPS_APP_PORT ?? '5176'}`;
+const users = {
+  app: { email: 'release-gate-admin@example.com', subject: 'release-gate-admin' },
+  owner: { email: 'release-gate-center-owner@example.com', subject: 'release-gate-center-owner' },
+  ops: { email: 'release-gate-operator@example.com', subject: 'release-gate-operator' },
+  parent: { email: 'release-gate-center-parent@example.com', subject: 'release-gate-center-parent' },
+} as const;
 const center = 'Trung tâm Release Gate';
 const unit1 = { from: '03/08/2026', to: '26/09/2026' };
 const unit2 = { from: '28/09/2026', to: '21/11/2026' };
 const moversUnit = { from: '17/08/2026', to: '10/10/2026' };
 
-async function login(context: BrowserContext) {
-  const start = await context.request.get(`${api}/api/app/auth/google/start`, { maxRedirects: 0 });
+async function login(context: BrowserContext, who: keyof typeof users = 'app') {
+  const user = users[who];
+  const audience = who === 'owner' ? 'app' : who;
+  const start = await context.request.get(`${api}/api/${audience}/auth/google/start`, { maxRedirects: 0 });
   expect(start.status()).toBe(302);
   const authorizationUrl = new URL(start.headers().location!);
   const state = authorizationUrl.searchParams.get('state')!;
   const nonce = authorizationUrl.searchParams.get('nonce')!;
   const clientId = authorizationUrl.searchParams.get('client_id')!;
-  const code = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', sub: 'release-gate-admin', email: 'release-gate-admin@example.com', email_verified: true, aud: clientId, nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString('base64url');
-  const callback = await context.request.get(`${api}/api/app/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { maxRedirects: 0 });
+  const code = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', sub: user.subject, email: user.email, email_verified: true, aud: clientId, nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString('base64url');
+  const callback = await context.request.get(`${api}/api/${audience}/auth/google/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { maxRedirects: 0 });
   expect(callback.status()).toBe(302);
 }
 async function openSchool(page: Page, schoolName: string) {
@@ -307,6 +317,77 @@ test('Admin runs a language center: staggered unit runs per class, a service, a 
   await expect(debts).not.toContainText('Học viên An');
   // A class run has no end-of-enrollment settlement block.
   await expect(page.getByText('Cần quyết toán')).toHaveCount(0);
+});
+
+// Runs after the Admin flow above: "Học viên Bình" has an issued, unpaid Unit 1 invoice and a draft Unit 2 one.
+test('Parent of a center student sees the class and unit of the issued invoice, not a month', async ({ browser }) => {
+  const context = await browser.newContext();
+  await login(context, 'parent');
+  const listed = context.waitForEvent('response', (response) => /\/api\/parent\/schools\/[^/]+\/obligations$/.test(new URL(response.url()).pathname));
+  const page = await context.newPage();
+  await page.goto(`${parentApp}/obligations`);
+  await expect(page.getByRole('heading', { name: 'Khoản cần thanh toán' })).toBeVisible();
+  const response = await listed;
+  expect(response.status()).toBe(200);
+  const obligations = (await response.json()).data as Array<{ periodLabel: string; outstanding: string }>;
+  // Only the issued Unit 1 invoice is an obligation; the Unit 2 draft is not shown to the Parent.
+  expect(obligations.map((item) => [item.periodLabel, item.outstanding])).toEqual([['Starters A · Unit 1', '3600000']]);
+  const card = page.locator('button.child-card');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('Starters A · Unit 1');
+  await expect(card).toContainText('Còn phải thanh toán 3.600.000 đ');
+  await expect(card).not.toContainText(/2026-08|Tháng 0?8/);
+  await context.close();
+});
+
+test('Ops provisions a language center and its first owner gets the center shell', async ({ browser }) => {
+  const name = 'Trung tâm Ops E2E';
+  const opsContext = await browser.newContext();
+  await login(opsContext, 'ops');
+  const ops = await opsContext.newPage();
+  await ops.goto(opsApp);
+  await expect(ops.getByRole('heading', { name: 'Trường học', level: 1 })).toBeVisible();
+  const schools = ops.getByRole('table', { name: 'Danh sách trường của nền tảng' });
+  await expect(schools.locator('tbody tr').filter({ hasText: center })).toContainText('Trung tâm ngoại ngữ');
+  await expect(schools.locator('tbody tr').filter({ hasText: 'Release Gate A' })).toContainText('Trường mầm non');
+  await ops.getByRole('button', { name: 'Khởi tạo trường' }).click();
+  const dialog = ops.getByRole('dialog', { name: 'Xác nhận khởi tạo trường' });
+  await dialog.getByLabel('Tên trường').fill(name);
+  await dialog.getByLabel('Mã trường').fill('release-gate-ops-center');
+  await expect(dialog.getByLabel('Loại trường').locator('option')).toHaveText(['Chọn loại trường', 'Trường mầm non', 'Trung tâm ngoại ngữ']);
+  await expect(dialog.getByText('Không đổi được sau khi khởi tạo.')).toBeVisible();
+  await dialog.getByLabel('Tiền tố mã học sinh').fill('OC');
+  await dialog.getByLabel('Email chủ sở hữu đầu tiên').fill(users.owner.email);
+  // The kind is required: without it the browser keeps the dialog open and nothing is sent.
+  await dialog.getByRole('button', { name: 'Xác nhận' }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Loại trường').selectOption({ label: 'Trung tâm ngoại ngữ' });
+  const provisioned = ops.waitForResponse((response) => new URL(response.url()).pathname === '/api/ops/schools' && response.request().method() === 'POST');
+  await dialog.getByRole('button', { name: 'Xác nhận' }).click();
+  const created = await provisioned;
+  expect(created.status()).toBe(201);
+  expect(JSON.parse(created.request().postData()!)).toMatchObject({ kind: 'LANGUAGE_CENTER', studentCodePrefix: 'OC' });
+  await expect(dialog).toBeHidden();
+  const row = schools.locator('tbody tr').filter({ hasText: name });
+  await expect(row).toContainText('Trung tâm ngoại ngữ');
+  await expect(row).toContainText(`${users.owner.email} (Đang chờ liên kết)`);
+  await opsContext.close();
+
+  // The owner's first login binds the account; the School opens as a center with no school year and class runs.
+  const context = await browser.newContext();
+  await login(context, 'owner');
+  const page = await context.newPage();
+  await page.goto(app);
+  await openSchool(page, name);
+  const nav = page.getByRole('navigation', { name: 'Điều hướng quản trị và nhân sự' });
+  await nav.getByRole('button', { name: 'Danh bộ' }).click();
+  await expect(nav.getByRole('button', { name: 'Dịch vụ', exact: true })).toBeVisible();
+  await expect(nav.getByRole('button', { name: 'Năm học' })).toHaveCount(0);
+  await navigate(page, 'Tài chính', 'Đợt thu');
+  await expect(page.getByRole('heading', { name: 'Đợt thu', level: 1 })).toBeVisible();
+  await expect(runsToolbar(page).getByRole('button', { name: 'Mở đợt thu' })).toBeVisible();
+  await expect(runsToolbar(page).getByRole('button', { name: 'Tạo đợt thu' })).toHaveCount(0);
+  await context.close();
 });
 
 test('A preschool still opens a monthly run with its school year and month picker', async ({ page }) => {

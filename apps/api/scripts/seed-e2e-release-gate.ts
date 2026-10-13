@@ -6,10 +6,15 @@ const emails = [
   "release-gate-admin@example.com",
   "release-gate-teacher@example.com",
   "release-gate-parent@example.com",
+  // Story 5.53: the Parent of one center Student, and the first owner of the center the E2E provisions through Ops.
+  "release-gate-center-parent@example.com",
+  "release-gate-center-owner@example.com",
 ];
 const slugs = ["release-gate-a", "release-gate-b"];
 // Story 5.53: one language center beside the two preschools; only the Admin identity is a member.
 const centerSlug = "release-gate-center";
+// Provisioned by the E2E through the Ops portal; listed here only so the next run removes it.
+const opsCenterSlug = "release-gate-ops-center";
 
 try {
   await prisma.$transaction(
@@ -23,7 +28,7 @@ try {
         "SET LOCAL session_replication_role = replica",
       );
       const fixtureSchools = await tx.school.findMany({
-        where: { slug: { in: [...slugs, centerSlug] } },
+        where: { slug: { in: [...slugs, centerSlug, opsCenterSlug] } },
         select: { id: true },
       });
       const schoolIds = fixtureSchools.map((school) => school.id);
@@ -195,7 +200,7 @@ try {
       });
       await tx.student.deleteMany({ where: { schoolId: { in: schoolIds } } });
       await tx.parentProfile.deleteMany({
-        where: { emailNormalized: emails[3] },
+        where: { emailNormalized: { in: [emails[3]!, emails[4]!] } },
       });
       await tx.staffProfile.deleteMany({
         where: { schoolId: { in: schoolIds } },
@@ -816,6 +821,14 @@ try {
             data: { schoolId: school.id, enrollmentId: enrollment.id, schoolYearId: year.id, classId: classroom.id, effectiveFrom: day("2026-08-01"), reason: "Release center fixture" },
           });
           enrollments[fullName] = enrollment.id;
+          // "Học viên Bình" keeps an unpaid Unit 1 invoice in the E2E; this Parent reads its period label.
+          if (fullName === "Học viên Bình") {
+            const centerParent = await tx.userIdentity.create({ data: { emailNormalized: emails[4]!, googleSubject: "release-gate-center-parent" } });
+            const centerParentProfile = await tx.parentProfile.create({
+              data: { emailNormalized: emails[4]!, fullName: "Phụ huynh Trung tâm", phone: "0900000004", userIdentityId: centerParent.id, boundAt: new Date() },
+            });
+            await tx.studentParent.create({ data: { schoolId: school.id, studentId: student.id, parentProfileId: centerParentProfile.id } });
+          }
         }
         await tx.schoolCalendarVersion.create({
           data: { schoolId: school.id, effectiveFrom: day("2026-01-01"), actorIdentityId: admin.id, membershipId: membership.id },
