@@ -29,7 +29,10 @@ async function setup(kind: "LANGUAGE_CENTER" | "PRESCHOOL" = "LANGUAGE_CENTER") 
   await prisma.receivableGroup.createMany({ data: [{ schoolId: school.id, kind: "FIXED", name: "Khoản thu cố định" }, { schoolId: school.id, kind: "FLEXIBLE", name: "Khoản thu linh hoạt" }, { schoolId: school.id, kind: "EXTRACURRICULAR", name: "Ngoại khóa" }] });
   const receivable = async (kind: "FIXED" | "FLEXIBLE" | "EXTRACURRICULAR", displayName: string, price: string) => id(await finance.createReceivable(identity.id, school.id, uuid(), uuid(), { kind, displayName, unitLabel: "unit", defaultUnitPrice: price }));
   const tuition = await receivable("FLEXIBLE", "Học phí Starters", "3600000");
+  // Sprint change 2026-10-13: a FIXED receivable assigned to another Class never reaches the runs of Starters A or Movers B.
+  const flyers = await prisma.class.create({ data: { schoolId: school.id, schoolYearId: year.id, name: "Flyers C", status: "ARCHIVED" } });
   const materials = await receivable("FIXED", "Giáo trình", "250000");
+  await prisma.receivableClass.create({ data: { schoolId: school.id, receivableId: materials, classId: flyers.id } });
   const books = await receivable("FLEXIBLE", "Sách bổ trợ", "150000");
   const transport = await receivable("EXTRACURRICULAR", "Đưa đón", "800000");
   let index = 0;
@@ -57,7 +60,7 @@ afterEach(async () => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "debtTransfer", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "extracurricularMembership", "extracurricularClassLifecycleTransition", "extracurricularClass", "receivableLifecycleTransition", "receivable", "receivableGroup", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
+    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "debtTransfer", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateScopeClass", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "extracurricularMembership", "extracurricularClassLifecycleTransition", "extracurricularClass", "receivableClass", "receivableLifecycleTransition", "receivable", "receivableGroup", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
       await (tx as any)[model].deleteMany({ where: { schoolId: { in: ids } } });
     await tx.school.deleteMany({ where: { id: { in: ids } } });
   });
@@ -210,5 +213,79 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     const report: any = await finance.report(s.identity.id, s.school.id, "collection-runs", {});
     expect(report.rows.map((row: any) => [row.periodLabel, row.periodStartsOn])).toEqual([["Starters A · Unit 1", "2026-08-03"]]);
     expect(target.lines.find((line) => line.kind === "PRIOR_DEBT")).toMatchObject({ amount: 3_600_000n, sourceReason: expect.stringContaining("Unit 1") });
+  });
+
+  // Sprint change 2026-10-13: a FIXED receivable applies to the whole School or to the Classes chosen on it.
+  it("seeds FIXED receivables of the whole School or of the Class into a class run, never by copy", async () => {
+    const s = await setup();
+    const a = await s.enroll(s.starters, "2026-08-01");
+    const create = (displayName: string, price: string, classIds?: string[]) => finance.createReceivable(s.identity.id, s.school.id, uuid(), uuid(), { kind: "FIXED", displayName, unitLabel: "unit", defaultUnitPrice: price, ...(classIds ? { classIds } : {}) });
+    const startersTuition = await create("Học phí cố định Starters", "3000000", [s.starters.id]);
+    expect(startersTuition.outcome).toMatchObject({ kind: "FIXED", appliesToClassIds: [s.starters.id], appliesToClassNames: ["Starters A"] });
+    const moversTuition = id(await create("Học phí cố định Movers", "4000000", [s.movers.id]));
+    const everyone = id(await create("Phí tài liệu chung", "100000"));
+    // Only a FIXED receivable takes Classes, and only ACTIVE Classes of this School.
+    await expect(finance.createReceivable(s.identity.id, s.school.id, uuid(), uuid(), { kind: "FLEXIBLE", displayName: "Sai nhóm", unitLabel: "unit", defaultUnitPrice: "1", classIds: [s.starters.id] })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { classIds: expect.any(String) } } });
+    const foreign = await setup();
+    await expect(create("Lớp trường khác", "1", [foreign.starters.id])).rejects.toMatchObject({ status: 400, response: { fieldErrors: { classIds: expect.any(String) } } });
+    const catalog = (await finance.read(s.identity.id, s.school.id)) as any;
+    expect(catalog.classOptions.map((item: any) => item.name)).toEqual(["Movers B", "Starters A"]);
+    expect(catalog.receivables.find((item: any) => item.id === everyone)).toMatchObject({ appliesToClassIds: [], appliesToClassNames: [] });
+
+    const names = (run: { outcome: unknown }) => (run.outcome as any).templateLines.map((line: any) => [line.receivableName, line.kind, line.scope.type]).sort();
+    const unit1 = await open(s, s.starters.id, "Unit 1", "2026-08-03", "2026-09-26");
+    expect(names(unit1)).toEqual([["Học phí cố định Starters", "FIXED", "ALL"], ["Phí tài liệu chung", "FIXED", "ALL"]]);
+    expect(names(await open(s, s.movers.id, "Unit 6", "2026-08-03", "2026-09-26"))).toEqual([["Học phí cố định Movers", "FIXED", "ALL"], ["Phí tài liệu chung", "FIXED", "ALL"]]);
+    await finance.saveTemplateLine(s.identity.id, s.school.id, id(unit1), uuid(), uuid(), { receivableId: s.books, quantity: "2", expectedVersion: 1 });
+    const invoices = await generate(s, id(unit1));
+    expect(invoices.filter((invoice) => invoice.studentId === a.studentId).reduce((sum, invoice) => sum + invoice.total, 0n)).toBe(3_400_000n);
+
+    // The next unit moves Starters A to another price: the Class leaves one FIXED receivable and joins the other. The FLEXIBLE line is copied.
+    const spare = await prisma.class.create({ data: { schoolId: s.school.id, schoolYearId: s.year.id, name: "Starters Z" } });
+    await finance.updateReceivable(s.identity.id, s.school.id, id(startersTuition), uuid(), uuid(), { classIds: [spare.id], reason: "Starters A sang mức khác" });
+    // A used receivable keeps its group; an unused one that leaves FIXED drops its Classes.
+    await expect(finance.updateReceivable(s.identity.id, s.school.id, id(startersTuition), uuid(), uuid(), { kind: "FLEXIBLE", reason: "Đổi nhóm" })).rejects.toMatchObject({ status: 409, response: { code: "RECEIVABLE_KIND_LOCKED" } });
+    const unused = id(await create("Chưa dùng", "1000", [spare.id]));
+    await expect(finance.updateReceivable(s.identity.id, s.school.id, unused, uuid(), uuid(), { kind: "FLEXIBLE", classIds: [spare.id], reason: "Sai" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { classIds: expect.any(String) } } });
+    await expect(finance.updateReceivable(s.identity.id, s.school.id, unused, uuid(), uuid(), { kind: "FLEXIBLE", reason: "Đổi nhóm" })).resolves.toMatchObject({ outcome: { kind: "FLEXIBLE", appliesToClassIds: [] } });
+    await expect(finance.updateReceivable(s.identity.id, s.school.id, moversTuition, uuid(), uuid(), { classIds: [s.movers.id], reason: "Không đổi" })).rejects.toMatchObject({ status: 400 });
+    const moved = await finance.updateReceivable(s.identity.id, s.school.id, moversTuition, uuid(), uuid(), { classIds: [s.movers.id, s.starters.id], reason: "Starters lên giá Movers" });
+    expect(moved.outcome).toMatchObject({ appliesToClassNames: ["Movers B", "Starters A"] });
+    await finance.closeRun(s.identity.id, s.school.id, id(unit1), uuid(), uuid(), { reason: "Hết unit" }).catch(() => undefined);
+    const unit2 = await open(s, s.starters.id, "Unit 2", "2026-09-28", "2026-11-21");
+    expect(names(unit2)).toEqual([["Học phí cố định Movers", "FIXED", "ALL"], ["Phí tài liệu chung", "FIXED", "ALL"], ["Sách bổ trợ", "FLEXIBLE", "ALL"]]);
+    // A FIXED receivable of another Class cannot be added to the run by hand.
+    await expect(finance.saveTemplateLine(s.identity.id, s.school.id, id(unit2), uuid(), uuid(), { receivableId: s.materials, quantity: "1", expectedVersion: 1 })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { receivableId: expect.any(String) } } });
+  });
+
+  it("seeds a class-assigned FIXED receivable into a preschool monthly run for its Classes only", async () => {
+    const s = await setup("PRESCHOOL");
+    const a = await s.enroll(s.starters, "2026-08-01");
+    const b = await s.enroll(s.movers, "2026-08-01");
+    const create = (displayName: string, price: string, classIds?: string[]) => finance.createReceivable(s.identity.id, s.school.id, uuid(), uuid(), { kind: "FIXED", displayName, unitLabel: "tháng", defaultUnitPrice: price, ...(classIds ? { classIds } : {}) });
+    const high = id(await create("Học phí lớp lớn", "7000000", [s.starters.id]));
+    await create("Học phí lớp nhỏ", "6000000", [s.movers.id]);
+    await create("Tiền ăn", "1000000");
+    const run = await finance.openRun(s.identity.id, s.school.id, uuid(), uuid(), { schoolYearId: s.year.id, billingMonth: "2026-09" });
+    const lines = (run.outcome as any).templateLines as Array<{ id: string; receivableId: string; receivableName: string; scope: { type: string; classes: Array<{ id: string }> } }>;
+    // "Giáo trình" is assigned to an archived Class of the year and is seeded for it; nobody is enrolled there.
+    expect(lines.map((line) => [line.receivableName, line.scope.type, line.scope.classes.map((item) => item.id)]).sort()).toEqual([
+      ["Giáo trình", "CLASSES", [expect.any(String)]],
+      ["Học phí lớp lớn", "CLASSES", [s.starters.id]],
+      ["Học phí lớp nhỏ", "CLASSES", [s.movers.id]],
+      ["Tiền ăn", "ALL", []],
+    ]);
+    // Editing the quantity keeps the seeded scope; another scope is refused.
+    await expect(finance.saveTemplateLine(s.identity.id, s.school.id, id(run), uuid(), uuid(), { receivableId: high, quantity: "2", scope: { type: "ALL" }, expectedVersion: 1 })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { scope: expect.any(String) } } });
+    const edited = await finance.saveTemplateLine(s.identity.id, s.school.id, id(run), uuid(), uuid(), { receivableId: high, quantity: "2", expectedVersion: 1 });
+    expect((edited.outcome as any).templateLines.find((line: any) => line.receivableId === high)).toMatchObject({ quantity: "2", scope: { type: "CLASSES" } });
+    const invoices = await generate(s, id(run));
+    const total = (studentId: string) => invoices.filter((invoice) => invoice.studentId === studentId).reduce((sum, invoice) => sum + invoice.total, 0n);
+    expect(total(a.studentId)).toBe(15_000_000n);
+    expect(total(b.studentId)).toBe(7_000_000n);
+    // A receivable whose Classes all belong to another SchoolYear is not seeded.
+    const nextYear = await prisma.schoolYear.create({ data: { schoolId: s.school.id, name: "Năm sau", startsOn: date("2100-01-02"), endsOn: date("2100-12-31") } });
+    const later = await finance.openRun(s.identity.id, s.school.id, uuid(), uuid(), { schoolYearId: nextYear.id, billingMonth: "2100-02" });
+    expect((later.outcome as any).templateLines.map((line: any) => line.receivableName)).toEqual(["Tiền ăn"]);
   });
 });

@@ -366,6 +366,37 @@ export class FinanceService {
       createdAt: value.createdAt.toISOString(),
     };
   }
+  private readonly receivableClassesInclude = { include: { classroom: { select: { id: true, name: true } } } } as const;
+  private assignedClasses(value: any): Array<{ id: string; name: string }> {
+    return (value.classes ?? []).map((item: any) => ({ id: item.classId, name: item.classroom?.name ?? "" })).sort((a: any, b: any) => a.name.localeCompare(b.name, "vi") || a.id.localeCompare(b.id));
+  }
+  // `undefined` leaves the assignment untouched; an empty list means the whole School.
+  private classIdsInput(value: unknown) {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.length > 100 || new Set(value).size !== value.length || value.some((item) => typeof item !== "string" || !uuid.test(item))) throw validation("classIds", "Danh sách lớp áp dụng không hợp lệ.");
+    return [...value].sort() as string[];
+  }
+  // Replaces the Classes of a FIXED Receivable. Only ACTIVE Classes of a SchoolYear that is not closed can be chosen; rows that are
+  // already there stay valid, so an old assignment does not block an unrelated edit.
+  private async assignReceivableClasses(tx: any, schoolId: string, receivableId: string, kind: string, classIds: string[], existing: string[]) {
+    if (classIds.length && kind !== "FIXED") throw validation("classIds", "Chỉ khoản thu cố định mới gán theo lớp.");
+    const added = classIds.filter((id) => !existing.includes(id));
+    if (added.length) {
+      const classes = await tx.class.count({ where: { schoolId, id: { in: added }, status: "ACTIVE", schoolYear: { closedAt: null } } });
+      if (classes !== added.length) throw validation("classIds", "Lớp áp dụng phải là lớp đang hoạt động của năm học chưa đóng.");
+    }
+    await tx.receivableClass.deleteMany({ where: { schoolId, receivableId, classId: { notIn: classIds } } });
+    if (added.length) await tx.receivableClass.createMany({ data: added.map((classId) => ({ schoolId, receivableId, classId })) });
+  }
+  // The scope a FIXED Receivable gets on a run (sprint change 2026-10-13): everyone when it has no Classes; otherwise its Classes of the
+  // run's SchoolYear (a CLASS run: the whole class when its Class is one of them). `null` means the Receivable does not apply to the run.
+  private fixedScope(receivable: any, run: { scope: string; classId?: string | null; schoolYearId: string }, yearClassIds: Set<string>) {
+    const assigned: string[] = (receivable.classes ?? []).map((item: any) => item.classId);
+    if (!assigned.length) return { type: "ALL" as const, classIds: [] as string[] };
+    if (run.scope === "CLASS") return assigned.includes(run.classId!) ? { type: "ALL" as const, classIds: [] as string[] } : null;
+    const classIds = assigned.filter((id) => yearClassIds.has(id)).sort();
+    return classIds.length ? { type: "CLASSES" as const, classIds } : null;
+  }
   private receivableDto(value: any) {
     const status = value.lifecycleTransitions?.[0]?.status ?? null;
     return {
@@ -375,6 +406,9 @@ export class FinanceService {
       kindLocked: Boolean(value.kindLocked),
       extracurricularClassCount: value.extracurricularClassNames?.length ?? 0,
       extracurricularClassNames: value.extracurricularClassNames ?? [],
+      // Sprint change 2026-10-13: the Classes a FIXED Receivable applies to; empty means the whole School.
+      appliesToClassIds: this.assignedClasses(value).map((item) => item.id),
+      appliesToClassNames: this.assignedClasses(value).map((item) => item.name),
       code: value.code,
       displayName: value.displayName,
       unitLabel: value.unitLabel,
@@ -391,13 +425,14 @@ export class FinanceService {
   async read(identityId: string, schoolId: string) {
     schoolId = this.school(schoolId);
     await this.actor(identityId, schoolId);
-    const [groups, receivables, schoolYears, invoiceUse, templateUse, classUse] = await Promise.all([
+    const [groups, receivables, schoolYears, invoiceUse, templateUse, classUse, classOptions] = await Promise.all([
       this.prisma.receivableGroup.findMany({ where: { schoolId }, orderBy: { kind: "asc" } }),
       this.prisma.receivable.findMany({
         where: { schoolId },
         include: {
           lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
           group: true,
+          classes: this.receivableClassesInclude,
         },
         orderBy: { displayName: "asc" },
       }),
@@ -405,6 +440,8 @@ export class FinanceService {
       this.prisma.invoiceLine.groupBy({ by: ["receivableId"], where: { schoolId, receivableId: { not: null } } }),
       this.prisma.collectionRunTemplateLine.groupBy({ by: ["receivableId"], where: { schoolId } }),
       this.prisma.extracurricularClass.findMany({ where: { schoolId }, select: { receivableId: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }),
+      // The Classes a FIXED Receivable can be assigned to (sprint change 2026-10-13).
+      this.prisma.class?.findMany({ where: { schoolId, status: "ACTIVE", schoolYear: { closedAt: null } }, select: { id: true, name: true, schoolYearId: true, schoolYear: { select: { name: true } } }, orderBy: [{ name: "asc" }, { id: "asc" }] }) ?? Promise.resolve([]),
     ]);
     // A Receivable used on an Invoice or collection template keeps its kind (decision 2026-10-02 §3.1).
     // Class names let the edit dialog say which extracurricular classes a price change reaches (decision 2026-10-06).
@@ -415,6 +452,7 @@ export class FinanceService {
       groups: groups.map((item) => this.groupDto(item)),
       receivables: receivables.map((item) => this.receivableDto({ ...item, kindLocked: locked.has(item.id), extracurricularClassNames: classNames.get(item.id) ?? [] })),
       schoolYears: schoolYears.map((year) => ({ id: year.id, name: year.name, startsOn: year.startsOn.toISOString(), endsOn: year.endsOn?.toISOString() ?? null, closedAt: year.closedAt?.toISOString() ?? null })),
+      classOptions: classOptions.map((item: any) => ({ id: item.id, name: item.name, schoolYearId: item.schoolYearId, schoolYearName: item.schoolYear.name })),
     };
   }
   async operation(identityId: string, schoolId: string, operationId: string) {
@@ -1539,6 +1577,7 @@ export class FinanceService {
       autoLeaveDeduction: this.flag(body?.autoLeaveDeduction ?? false, "autoLeaveDeduction"),
       taxCategory: this.taxCategory(body?.taxCategory ?? "NOT_DECLARED"),
     };
+    const classIds = this.classIdsInput(body?.classIds) ?? [];
     this.refundWithinPrice(input.refundUnitPrice, input.defaultUnitPrice);
     this.autoLeaveNeedsRefund(input.autoLeaveDeduction, input.refundUnitPrice);
     return this.mutate(
@@ -1548,7 +1587,7 @@ export class FinanceService {
       routes.receivable,
       key,
       operationId,
-      { kind, groupId, ...input, defaultUnitPrice: input.defaultUnitPrice.toString(), refundUnitPrice: input.refundUnitPrice.toString() },
+      { kind, groupId, ...input, defaultUnitPrice: input.defaultUnitPrice.toString(), refundUnitPrice: input.refundUnitPrice.toString(), ...(classIds.length ? { classIds } : {}) },
       async (tx, operation) => {
         const group = await this.resolveGroup(tx, schoolId, { kind, groupId });
         try {
@@ -1566,10 +1605,12 @@ export class FinanceService {
               sequence: 1,
             },
           });
+          await this.assignReceivableClasses(tx, schoolId, item.id, group.kind, classIds, []);
           const outcome = this.receivableDto({
             ...item,
             lifecycleTransitions: [transition],
             group,
+            classes: classIds.length ? await tx.receivableClass.findMany({ where: { schoolId, receivableId: item.id }, ...this.receivableClassesInclude }) : [],
           });
           await this.audit(
             tx,
@@ -1673,11 +1714,13 @@ export class FinanceService {
       taxCategory: given("taxCategory") ? this.taxCategory(body.taxCategory) : undefined,
       refundUnitPrice: given("refundUnitPrice") ? this.refundPrice(body.refundUnitPrice) : undefined,
       autoLeaveDeduction: given("autoLeaveDeduction") ? this.flag(body.autoLeaveDeduction, "autoLeaveDeduction") : undefined,
+      classIds: this.classIdsInput(body?.classIds),
       reason: this.text(body?.reason, "reason", true, 500)!,
     };
     const payload = { receivableId, ...input, defaultUnitPrice: input.defaultUnitPrice?.toString(), refundUnitPrice: input.refundUnitPrice?.toString() };
+    if (input.classIds === undefined) delete (payload as any).classIds;
     return this.mutate(actor, identityId, schoolId, routes.receivableEdit, key, operationId, payload, async (tx, operation) => {
-      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true };
+      const include = { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true, classes: this.receivableClassesInclude };
       await tx.$queryRaw`SELECT 1 FROM "Receivable" WHERE "id" = ${receivableId}::uuid AND "schoolId" = ${schoolId}::uuid FOR UPDATE`;
       const item = await tx.receivable.findFirst({ where: { id: receivableId, schoolId }, include });
       if (!item) throw new NotFoundException({ code: "RECEIVABLE_NOT_FOUND", message: "Không tìm thấy khoản thu." });
@@ -1691,7 +1734,13 @@ export class FinanceService {
       };
       const kindChanged = input.kind !== undefined && input.kind !== item.group.kind;
       const detailsChanged = (Object.keys(next) as Array<keyof typeof next>).some((field) => next[field] !== item[field]);
-      if (!detailsChanged && !kindChanged) throw validation("displayName", "Không có thay đổi để lưu.");
+      // A Receivable that leaves the FIXED group drops its Classes; otherwise the list is replaced only when it is sent.
+      const nextKind = input.kind ?? item.group.kind;
+      const assigned: string[] = item.classes.map((entry: any) => entry.classId).sort();
+      const nextClassIds = nextKind !== "FIXED" && !input.classIds?.length ? [] : input.classIds ?? assigned;
+      if (nextKind !== "FIXED" && nextClassIds.length) throw validation("classIds", "Chỉ khoản thu cố định mới gán theo lớp.");
+      const classesChanged = nextClassIds.join() !== assigned.join();
+      if (!detailsChanged && !kindChanged && !classesChanged) throw validation("displayName", "Không có thay đổi để lưu.");
       // Decision 2026-10-02 §3.1: a Receivable keeps its kind once an InvoiceLine, collection template line or class uses it.
       if (kindChanged) {
         const [invoiceLines, templateLines, classes] = await Promise.all([
@@ -1708,7 +1757,11 @@ export class FinanceService {
       }
       this.autoLeaveNeedsRefund(next.autoLeaveDeduction, next.refundUnitPrice);
       const groupId = kindChanged ? (await this.resolveGroup(tx, schoolId, { kind: input.kind!, groupId: null })).id : item.groupId;
-      const updated = await tx.receivable.update({ where: { id: item.id }, data: { ...next, groupId }, include }).catch((error: unknown) => this.catalogConstraintError(error));
+      // Rows go before the group changes: the table only accepts a FIXED Receivable.
+      if (classesChanged && nextKind !== "FIXED") await this.assignReceivableClasses(tx, schoolId, item.id, nextKind, nextClassIds, assigned);
+      await tx.receivable.update({ where: { id: item.id }, data: { ...next, groupId } }).catch((error: unknown) => this.catalogConstraintError(error));
+      if (classesChanged && nextKind === "FIXED") await this.assignReceivableClasses(tx, schoolId, item.id, nextKind, nextClassIds, assigned);
+      const updated = await tx.receivable.findFirstOrThrow({ where: { id: item.id, schoolId }, include });
       const outcome = this.receivableDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, "RECEIVABLE_EDITED", operation, this.receivableDto(item), outcome, input.reason);
       return outcome;
@@ -2505,12 +2558,21 @@ export class FinanceService {
       if (run.status !== "DRAFT") throw new ConflictException({ code: "COLLECTION_RUN_NOT_DRAFT", message: "Chỉ được sửa khoản thu mẫu khi đợt thu ở trạng thái nháp." });
       if (run.version !== input.expectedVersion) throw new ConflictException({ code: "COLLECTION_RUN_VERSION_CONFLICT", message: "Đợt thu đã thay đổi. Hãy tải lại trước khi sửa khoản thu mẫu." });
       await this.lockReceivablesShared(tx, schoolId, [input.receivableId]);
-      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } });
+      const receivable = await tx.receivable.findFirst({ where: { id: input.receivableId, schoolId }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true, classes: true } });
       if (!receivable || receivable.lifecycleTransitions[0]?.status !== "ACTIVE") throw validation("receivableId", "Khoản thu không còn áp dụng.");
       if (receivable.group.kind === "EXTRACURRICULAR") throw validation("receivableId", "Khoản Ngoại khóa thu theo lớp ngoại khóa, không thêm trực tiếp vào đợt thu.");
       const existing = await tx.collectionRunTemplateLine.findFirst({ where: { schoolId, collectionRunId: run.id, receivableId: receivable.id }, include: { scopeClasses: true, scopeStudents: true } });
-      const scope = input.scope ?? (existing ? { type: existing.scopeType as "ALL" | "CLASSES" | "STUDENTS", classIds: existing.scopeClasses.map((item: any) => item.classId).sort(), studentIds: existing.scopeStudents.map((item: any) => item.studentId).sort() } : { type: "ALL" as const, classIds: [], studentIds: [] });
-      if (receivable.group.kind === "FIXED" && scope.type !== "ALL") throw validation("scope", "Khoản thu cố định luôn áp dụng cho toàn bộ học sinh.");
+      const stored = existing ? { type: existing.scopeType as "ALL" | "CLASSES" | "STUDENTS", classIds: existing.scopeClasses.map((item: any) => item.classId).sort(), studentIds: existing.scopeStudents.map((item: any) => item.studentId).sort() } : null;
+      // Sprint change 2026-10-13: a FIXED line's scope is never chosen on the run (a different one is refused). An existing line keeps the scope it was seeded with; a
+      // line added back takes the Classes assigned on the Receivable.
+      let scope = input.scope ?? stored ?? { type: "ALL" as const, classIds: [], studentIds: [] };
+      if (receivable.group.kind === "FIXED") {
+        const yearClasses = receivable.classes.length && !stored ? await tx.class.findMany({ where: { schoolId, schoolYearId: run.schoolYearId, id: { in: receivable.classes.map((item: any) => item.classId) } }, select: { id: true } }) : [];
+        const derived = stored ?? this.fixedScope(receivable, run, new Set(yearClasses.map((item: any) => item.id)));
+        if (!derived) throw validation("receivableId", "Khoản thu cố định này không áp dụng cho lớp của đợt thu.");
+        if (input.scope && (input.scope.type !== derived.type || input.scope.classIds.join() !== [...derived.classIds].sort().join())) throw validation("scope", "Phạm vi của khoản thu cố định đặt ở trang Khoản thu, không sửa trên đợt thu.");
+        scope = { type: derived.type, classIds: derived.classIds, studentIds: [] };
+      }
       // Foreign, other-year and missing targets are indistinguishable to the caller.
       if (scope.type === "CLASSES" && run.scope === "CLASS") throw validation("scope", "Đợt thu theo lớp chỉ chọn phạm vi cả lớp hoặc học sinh cụ thể.");
       if (scope.type === "CLASSES") {
@@ -2691,12 +2753,20 @@ export class FinanceService {
       // Decision 2026-10-02 §3.2: a new run starts with every ACTIVE FIXED receivable, quantity 1, for everyone.
       // `mutate` already holds the per-School FOR UPDATE, which serializes this seeding with transitionReceivable and every other mutate command, so the
       // lifecycle read below cannot interleave with a deactivation. The FOR SHARE lock on the seeded receivables is the extra line of defense that the line paths use.
-      const fixed = (await tx.receivable.findMany({ where: { schoolId, group: { kind: "FIXED" } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } }, orderBy: { id: "asc" } })).filter((item: any) => item.lifecycleTransitions[0]?.status === "ACTIVE");
+      // Sprint change 2026-10-13: a FIXED receivable assigned to Classes is seeded for its Classes of this SchoolYear only, and skipped when none is.
+      const yearClassIds = new Set<string>((await tx.class.findMany({ where: { schoolId, schoolYearId: run.schoolYearId }, select: { id: true } })).map((item: any) => item.id));
+      const fixed = (await tx.receivable.findMany({ where: { schoolId, group: { kind: "FIXED" } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, classes: true }, orderBy: { id: "asc" } }))
+        .filter((item: any) => item.lifecycleTransitions[0]?.status === "ACTIVE")
+        .map((item: any) => ({ ...item, seedScope: this.fixedScope(item, run, yearClassIds) }))
+        .filter((item: any) => item.seedScope);
       await this.lockReceivablesShared(tx, schoolId, fixed.map((item: any) => item.id));
       // Decision 2026-10-08: a per-day receivable (autoLeaveDeduction) starts at the month's school days instead of 1.
       const [runYear, runMonth] = input.billingMonth.split("-").map(Number);
       const schoolDays = (await this.schoolDays(tx, schoolId, new Date(Date.UTC(runYear!, runMonth! - 1, 1)), new Date(Date.UTC(runYear!, runMonth!, 1)))).length || 1;
-      if (fixed.length) await tx.collectionRunTemplateLine.createMany({ data: fixed.map((item: any) => ({ schoolId, collectionRunId: run.id, receivableId: item.id, quantity: item.autoLeaveDeduction ? schoolDays : 1, scopeType: "ALL" as const })) });
+      for (const item of fixed) {
+        const line = await tx.collectionRunTemplateLine.create({ data: { schoolId, collectionRunId: run.id, receivableId: item.id, quantity: item.autoLeaveDeduction ? schoolDays : 1, scopeType: item.seedScope.type } });
+        if (item.seedScope.type === "CLASSES") await tx.collectionRunTemplateScopeClass.createMany({ data: item.seedScope.classIds.map((classId: string) => ({ schoolId, schoolYearId: run.schoolYearId, templateLineId: line.id, classId })) });
+      }
       const seeded = await tx.collectionRun.findFirstOrThrow({ where: { id: run.id, schoolId }, include: this.runInclude });
       const outcome = this.runDto({ ...seeded, lifecycleTransitions: [transition] });
       await this.audit(
@@ -2764,15 +2834,21 @@ export class FinanceService {
       if (periodStartsOn < classroom.schoolYear.startsOn || periodEndsOn >= yearEnd(classroom.schoolYear.endsOn)) throw validation("periodStartsOn", "Kỳ thu phải thuộc năm học của lớp.");
       const overlapping = await tx.collectionRun.findFirst({ where: { schoolId, scope: "CLASS", classId: input.classId, periodStartsOn: { lte: periodEndsOn }, periodEndsOn: { gte: periodStartsOn } }, orderBy: { periodStartsOn: "asc" }, select: { name: true, periodStartsOn: true, periodEndsOn: true } });
       if (overlapping) { const message = `Kỳ này trùng với đợt ${overlapping.name} (${viDay(overlapping.periodStartsOn)} – ${viDay(overlapping.periodEndsOn)}) của lớp ${classroom.name}.`; throw new ConflictException({ code: "COLLECTION_RUN_PERIOD_OVERLAP", message, fieldErrors: { periodStartsOn: message } }); }
-      const previous = await tx.collectionRun.findFirst({ where: { schoolId, scope: "CLASS", classId: input.classId, periodStartsOn: { lt: periodStartsOn } }, orderBy: [{ periodStartsOn: "desc" }, { id: "desc" }], include: { templateLines: { where: { scopeType: "ALL" }, include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } }, orderBy: { id: "asc" } } } });
-      const copied = (previous?.templateLines ?? []).filter((line: any) => line.receivable.lifecycleTransitions[0]?.status === "ACTIVE");
-      await this.lockReceivablesShared(tx, schoolId, copied.map((line: any) => line.receivableId));
+      const previous = await tx.collectionRun.findFirst({ where: { schoolId, scope: "CLASS", classId: input.classId, periodStartsOn: { lt: periodStartsOn } }, orderBy: [{ periodStartsOn: "desc" }, { id: "desc" }], include: { templateLines: { where: { scopeType: "ALL" }, include: { receivable: { include: { group: true, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } } }, orderBy: { id: "asc" } } } });
+      // Sprint change 2026-10-13: the ACTIVE FIXED receivables of the whole School or of this Class are seeded for the whole class; FLEXIBLE
+      // whole-class lines are still copied from the preceding run. A FIXED line is never copied, so removing the Class from a FIXED
+      // receivable takes it off the next run.
+      const fixed = (await tx.receivable.findMany({ where: { schoolId, group: { kind: "FIXED" } }, include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, classes: true }, orderBy: { id: "asc" } }))
+        .filter((item: any) => item.lifecycleTransitions[0]?.status === "ACTIVE" && this.fixedScope(item, { scope: "CLASS", classId: input.classId, schoolYearId: classroom.schoolYearId }, new Set()));
+      const copied = (previous?.templateLines ?? []).filter((line: any) => line.receivable.lifecycleTransitions[0]?.status === "ACTIVE" && line.receivable.group.kind === "FLEXIBLE");
+      await this.lockReceivablesShared(tx, schoolId, [...fixed.map((item: any) => item.id), ...copied.map((line: any) => line.receivableId)]);
       const run = await tx.collectionRun.create({ data: { schoolId, schoolYearId: classroom.schoolYearId, scope: "CLASS", classId: input.classId, name: input.name, periodStartsOn, periodEndsOn, billingMonth: input.periodStartsOn.slice(0, 7) } });
       const transition = await tx.collectionRunLifecycleTransition.create({ data: { schoolId, collectionRunId: run.id, status: "DRAFT", actorIdentityId: identityId, membershipId: actor.membershipId, operationId: operation, sequence: 1 } });
-      if (copied.length) await tx.collectionRunTemplateLine.createMany({ data: copied.map((line: any) => ({ schoolId, collectionRunId: run.id, receivableId: line.receivableId, quantity: line.quantity, scopeType: "ALL" as const })) });
+      const seededLines = [...fixed.map((item: any) => ({ receivableId: item.id, quantity: 1 })), ...copied.map((line: any) => ({ receivableId: line.receivableId, quantity: line.quantity }))];
+      if (seededLines.length) await tx.collectionRunTemplateLine.createMany({ data: seededLines.map((line) => ({ schoolId, collectionRunId: run.id, ...line, scopeType: "ALL" as const })) });
       const seeded = await tx.collectionRun.findFirstOrThrow({ where: { id: run.id, schoolId }, include: this.runInclude });
       const outcome = this.runDto({ ...seeded, lifecycleTransitions: [transition] });
-      await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_OPENED", operation, null, { ...outcome, copiedFromRunId: previous?.id ?? null });
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_OPENED", operation, null, { ...outcome, copiedFromRunId: previous?.id ?? null, seededFixedReceivableIds: fixed.map((item: any) => item.id) });
       return outcome;
     });
   }

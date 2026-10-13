@@ -100,10 +100,124 @@ describe("FinanceWorkspace", () => {
     const table = await screen.findByRole("table", { name: "Khoản thu theo trường" });
     expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Khoản thu", "Mã", "Đơn giá mặc định (chưa VAT)", "Giá hoàn trả", "Thuế", "Trạng thái", "Tùy chọn"]);
     const rows = within(table).getAllByRole("row");
-    expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Học phíKhoản thu cố định", "HP", "1.500.000 đ / tháng", "—", "5%Tài khoản trường", "Đang áp dụng", "..."]);
-    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Tiền ănKhoản thu cố định · đơn vị ngày", "TA", "35.000 đ / ngày", "28.000 đTự trừ theo ngày nghỉ", "Không kê khaiTài khoản cá nhân", "Đang áp dụng", "..."]);
+    expect(within(rows[1]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Học phíKhoản thu cố định · Toàn trường", "HP", "1.500.000 đ / tháng", "—", "5%Tài khoản trường", "Đang áp dụng", "..."]);
+    expect(within(rows[2]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Tiền ănKhoản thu cố định · đơn vị ngày · Toàn trường", "TA", "35.000 đ / ngày", "28.000 đTự trừ theo ngày nghỉ", "Không kê khaiTài khoản cá nhân", "Đang áp dụng", "..."]);
     expect(within(rows[3]!).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Dã ngoạiKhoản thu linh hoạt · đơn vị lần", "-", "350.000 đ / lần", "—", "Không kê khaiTài khoản cá nhân", "Ngừng áp dụng", "..."]);
     expect(table.parentElement?.classList.contains("table-scroll")).toBe(true);
+  });
+  // Sprint change 2026-10-13: a FIXED receivable applies to the whole School or to chosen classes.
+  describe("FIXED receivable class assignment", () => {
+    const classOptions = [
+      { id: "c1", name: "Mầm 1", schoolYearId: "y1", schoolYearName: "2026-2027" },
+      { id: "c2", name: "Chồi 2", schoolYearId: "y1", schoolYearName: "2026-2027" },
+      { id: "c3", name: "Mầm 1", schoolYearId: "y2", schoolYearName: "2027-2028" },
+    ];
+    const fixed = (patch: object = {}) => ({ id: "fee", groupId: "group", kind: "FIXED", kindLocked: true, code: "HP", displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "1500000", taxCategory: "NOT_DECLARED", channel: "PERSONAL", status: "ACTIVE", available: true, appliesToClassIds: [], appliesToClassNames: [], ...patch });
+    const stub = (receivables: object[], options = classOptions) => {
+      const fetch = vi.fn((_url: string, init?: RequestInit) => Promise.resolve(init?.method ? response({ status: "COMPLETED", outcome: { id: "fee" } }) : response({ groups: [], receivables, schoolYears: [], classOptions: options })));
+      vi.stubGlobal("fetch", fetch);
+      return fetch;
+    };
+    const bodies = (fetch: ReturnType<typeof stub>, method: string) => fetch.mock.calls.filter(([, init]) => init?.method === method).map(([, init]) => JSON.parse(String(init!.body)));
+    const openEdit = async () => {
+      fireEvent.keyDown(await screen.findByRole("button", { name: "Tùy chọn cho Học phí" }), { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Chỉnh sửa" }));
+      return screen.findByRole("dialog", { name: "Chỉnh sửa · Học phí" });
+    };
+
+    it("lists what a FIXED receivable applies to", async () => {
+      stub([fixed(), fixed({ id: "fee-b", displayName: "Học phí B", appliesToClassIds: ["c1", "c2"], appliesToClassNames: ["Chồi 2", "Mầm 1"] }), fixed({ id: "fee-c", displayName: "Học phí C", appliesToClassIds: ["a", "b", "c", "d"], appliesToClassNames: ["A", "B", "C", "D"] })]);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+      const rows = within(await screen.findByRole("table", { name: "Khoản thu theo trường" })).getAllByRole("row");
+      expect(rows.slice(1).map((row) => within(row).getAllByRole("cell")[0]!.textContent)).toEqual(["Học phíKhoản thu cố định · Toàn trường", "Học phí BKhoản thu cố định · Chồi 2, Mầm 1", "Học phí CKhoản thu cố định · 4 lớp"]);
+    });
+
+    it("creates a FIXED receivable for chosen classes and refuses an empty choice", async () => {
+      const fetch = stub([]);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Thêm khoản thu" }));
+      const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
+      expect(within(dialog).queryByRole("group", { name: "Áp dụng cho" })).toBeNull();
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Khoản thu cố định" }));
+      expect(within(dialog).getByText("Tự thêm vào mỗi đợt thu cho toàn trường hoặc các lớp được chọn; sửa số lượng trong đợt khi cần.")).toBeTruthy();
+      expect(within(dialog).getByRole("radio", { name: "Toàn trường" })).toHaveProperty("checked", true);
+      expect(within(dialog).queryByRole("group", { name: "Lớp áp dụng" })).toBeNull();
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Các lớp được chọn" }));
+      // Two school years are offered, so each class reads with its year.
+      expect(within(within(dialog).getByRole("group", { name: "Lớp áp dụng" })).getAllByRole("checkbox").map((item) => item.parentElement!.textContent)).toEqual(["Mầm 1 · 2026-2027", "Chồi 2 · 2026-2027", "Mầm 1 · 2027-2028"]);
+      fireEvent.change(within(dialog).getByLabelText("Tên khoản thu"), { target: { value: "Học phí Mầm" } });
+      fireEvent.change(within(dialog).getByLabelText("Đơn vị tính"), { target: { value: "tháng" } });
+      fireEvent.change(within(dialog).getByLabelText("Giá / đơn vị (chưa VAT)"), { target: { value: "1500000" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu" }));
+      expect(await within(dialog).findByText("Chọn ít nhất một lớp áp dụng.")).toBeTruthy();
+      expect(bodies(fetch, "POST")).toEqual([]);
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "Chồi 2 · 2026-2027" }));
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "Mầm 1 · 2027-2028" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu" }));
+      await waitFor(() => expect(bodies(fetch, "POST")).toHaveLength(1));
+      expect(bodies(fetch, "POST")[0]).toMatchObject({ kind: "FIXED", displayName: "Học phí Mầm", classIds: ["c2", "c3"] });
+      expect(bodies(fetch, "POST")[0]).not.toHaveProperty("appliesTo");
+    });
+
+    it("sends no classIds for a whole-school or non-FIXED receivable", async () => {
+      const fetch = stub([]);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Thêm khoản thu" }));
+      const dialog = screen.getByRole("dialog", { name: "Thêm khoản thu" });
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Khoản thu cố định" }));
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Các lớp được chọn" }));
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "Chồi 2 · 2026-2027" }));
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Khoản thu linh hoạt" }));
+      expect(within(dialog).queryByRole("group", { name: "Áp dụng cho" })).toBeNull();
+      fireEvent.change(within(dialog).getByLabelText("Tên khoản thu"), { target: { value: "Dã ngoại" } });
+      fireEvent.change(within(dialog).getByLabelText("Đơn vị tính"), { target: { value: "lần" } });
+      fireEvent.change(within(dialog).getByLabelText("Giá / đơn vị (chưa VAT)"), { target: { value: "350000" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu" }));
+      await waitFor(() => expect(bodies(fetch, "POST")).toHaveLength(1));
+      expect(bodies(fetch, "POST")[0]).toMatchObject({ kind: "FLEXIBLE" });
+      expect(bodies(fetch, "POST")[0]).not.toHaveProperty("classIds");
+      expect(bodies(fetch, "POST")[0]).not.toHaveProperty("appliesTo");
+    });
+
+    it("edits only the class list, keeps an assigned class that is no longer offered, and never turns an empty choice into Toàn trường", async () => {
+      const fetch = stub([fixed({ appliesToClassIds: ["old", "c1"], appliesToClassNames: ["Lá cũ", "Mầm 1"] })], classOptions.slice(0, 2));
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="receivables" denied={vi.fn()} />);
+      const dialog = await openEdit();
+      expect(within(dialog).getByRole("radio", { name: "Các lớp được chọn" })).toHaveProperty("checked", true);
+      // One school year offered: no year wording.
+      const classes = within(dialog).getByRole("group", { name: "Lớp áp dụng" });
+      expect(within(classes).getAllByRole("checkbox").map((item) => [item.parentElement!.textContent, (item as HTMLInputElement).checked])).toEqual([["Mầm 1", true], ["Chồi 2", false], ["Lá cũ", true]]);
+      const save = within(dialog).getByRole("button", { name: "Lưu thay đổi" });
+      expect(save).toHaveProperty("disabled", true);
+      fireEvent.click(within(classes).getByRole("checkbox", { name: "Mầm 1" }));
+      fireEvent.click(within(classes).getByRole("checkbox", { name: "Lá cũ" }));
+      expect(save).toHaveProperty("disabled", true);
+      fireEvent.change(within(dialog).getByLabelText("Tên khoản thu"), { target: { value: "Học phí mới" } });
+      fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Đổi lớp" } });
+      fireEvent.click(save);
+      expect(await within(dialog).findByText("Chọn ít nhất một lớp áp dụng.")).toBeTruthy();
+      expect(bodies(fetch, "PUT")).toEqual([]);
+      fireEvent.change(within(dialog).getByLabelText("Tên khoản thu"), { target: { value: "Học phí" } });
+      fireEvent.click(within(classes).getByRole("checkbox", { name: "Chồi 2" }));
+      fireEvent.click(save);
+      await waitFor(() => expect(bodies(fetch, "PUT")).toHaveLength(1));
+      expect(bodies(fetch, "PUT")[0]).toEqual({ classIds: ["c2"], reason: "Đổi lớp" });
+    });
+
+    it("sends an empty list for Toàn trường and shows no school-year wording in a center", async () => {
+      const fetch = stub([fixed({ appliesToClassIds: ["c1"], appliesToClassNames: ["Mầm 1"] })]);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trung tâm A" page="receivables" denied={vi.fn()} features={{ usesSchoolYears: false, collectionRunScope: "CLASS" }} />);
+      const dialog = await openEdit();
+      expect(within(within(dialog).getByRole("group", { name: "Lớp áp dụng" })).getAllByRole("checkbox").map((item) => item.parentElement!.textContent)).toEqual(["Mầm 1", "Chồi 2", "Mầm 1"]);
+      expect(within(dialog).getByText("Chọn ít nhất một lớp. Chỉ đợt thu mở sau của các lớp đã chọn tự thêm khoản này.")).toBeTruthy();
+      expect(dialog.textContent).not.toMatch(/năm học/i);
+      fireEvent.click(within(dialog).getByRole("radio", { name: "Toàn trường" }));
+      expect(within(dialog).getByText("Tự thêm vào đợt thu của mọi lớp.")).toBeTruthy();
+      fireEvent.change(within(dialog).getByLabelText("Lý do"), { target: { value: "Áp dụng toàn trường" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu thay đổi" }));
+      await waitFor(() => expect(bodies(fetch, "PUT")).toHaveLength(1));
+      expect(bodies(fetch, "PUT")[0]).toEqual({ classIds: [], reason: "Áp dụng toàn trường" });
+    });
   });
   it("spans all receivable columns for an empty catalog", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response(catalog))));
@@ -2265,11 +2379,30 @@ describe("FinanceWorkspace", () => {
       dialog = screen.getByRole("dialog", { name: "Sửa · Học phí tháng" });
       expect(within(dialog).getByRole("radio", { name: "Toàn bộ" })).toHaveProperty("checked", true);
       for (const name of ["Toàn bộ", "Lớp chính thức", "Học sinh cụ thể"]) expect(within(dialog).getByRole("radio", { name }).matches(":disabled")).toBe(true);
-      expect(within(dialog).getByText("Khoản thu cố định luôn áp dụng cho toàn bộ học sinh.")).toBeTruthy();
+      expect(within(dialog).getByText("Khoản thu cố định giữ phạm vi lúc mở đợt. Đổi lớp áp dụng ở trang Khoản thu cho các đợt mở sau.")).toBeTruthy();
       fireEvent.change(within(dialog).getByLabelText("Số lượng (tháng)"), { target: { value: "22" } });
       fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
       await waitFor(() => expect(puts(fetch)).toHaveLength(2));
-      expect(JSON.parse(String((puts(fetch)[1]![1] as RequestInit).body))).toEqual({ receivableId: "fee", quantity: "22", scope: { type: "ALL" }, expectedVersion: 3 });
+      expect(JSON.parse(String((puts(fetch)[1]![1] as RequestInit).body))).toEqual({ receivableId: "fee", quantity: "22", expectedVersion: 3 });
+    });
+
+    // Sprint change 2026-10-13: a FIXED line seeded for chosen classes shows them; its scope is never sent back.
+    it("shows the classes of a class-assigned FIXED line and saves its quantity without a scope", async () => {
+      const classLine = { ...fixedLine, scope: { type: "CLASSES", label: "Lớp chính thức: Chồi 3B, Lá 5A", classes: [{ id: "c2", name: "Chồi 3B" }, { id: "c1", name: "Lá 5A" }], students: [] } };
+      const fetch = route((url, init) => (init?.method === "PUT" ? response({ status: "COMPLETED", outcome: { ...draftRun, version: 3 } }) : url.includes("collection-runs") && !url.includes("/scope-options") && !url.includes("candidates") ? response({ runs: [{ ...draftRun, templateLines: [classLine] }] }) : undefined));
+      await renderRun(fetch);
+      const row = screen.getByRole("button", { name: "Sửa Học phí tháng" }).closest("tr")!;
+      expect(within(row).getAllByRole("cell")[2]!.textContent).toBe("Lớp chính thức: Chồi 3B, Lá 5A");
+      fireEvent.click(screen.getByRole("button", { name: "Sửa Học phí tháng" }));
+      const dialog = screen.getByRole("dialog", { name: "Sửa · Học phí tháng" });
+      expect(within(dialog).getByRole("radio", { name: "Lớp chính thức" })).toHaveProperty("checked", true);
+      expect(within(dialog).getByRole("radio", { name: "Lớp chính thức" }).matches(":disabled")).toBe(true);
+      expect(within(dialog).queryByRole("group", { name: "Lớp chính thức" })).toBeNull();
+      expect(within(dialog).getByText("Khoản thu cố định giữ phạm vi lúc mở đợt: Chồi 3B, Lá 5A. Đổi lớp áp dụng ở trang Khoản thu cho các đợt mở sau.")).toBeTruthy();
+      fireEvent.change(within(dialog).getByLabelText("Số lượng (tháng)"), { target: { value: "20" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu khoản thu mẫu" }));
+      await waitFor(() => expect(puts(fetch)).toHaveLength(1));
+      expect(JSON.parse(String((puts(fetch)[0]![1] as RequestInit).body))).toEqual({ receivableId: "fee", quantity: "20", expectedVersion: 2 });
     });
 
     it("ignores superseded scope-options responses across searches, dialog instances and closing", async () => {

@@ -4,7 +4,7 @@ export const receivableKinds: Array<{ kind: ReceivableKind; label: string; hint:
   {
     kind: "FIXED",
     label: "Khoản thu cố định",
-    hint: "Tự thêm vào mỗi đợt thu cho toàn bộ học sinh; sửa số lượng trong đợt khi cần.",
+    hint: "Tự thêm vào mỗi đợt thu cho toàn trường hoặc các lớp được chọn; sửa số lượng trong đợt khi cần.",
   },
   {
     kind: "FLEXIBLE",
@@ -106,6 +106,82 @@ export function AutoLeaveDeductionField({
     </div>
   );
 }
+// Sprint change 2026-10-13: a FIXED receivable applies to the whole School or to chosen classes. The API stores the class list;
+// "Các lớp được chọn" with nothing ticked is refused here and never sent as whole School.
+export type ReceivableClassOption = { id: string; name: string; schoolYearId: string; schoolYearName: string };
+export type ReceivableAppliesTo = "SCHOOL" | "CLASSES";
+type ReceivableClassScope = { kind: ReceivableKind | ""; appliesTo: ReceivableAppliesTo; classIds: string[] };
+export const receivableClassesError = "Chọn ít nhất một lớp áp dụng.";
+export const receivableClassesMissing = (values: ReceivableClassScope) =>
+  values.kind === "FIXED" && values.appliesTo === "CLASSES" && !values.classIds.length;
+export const receivableClassIds = (values: ReceivableClassScope) =>
+  values.kind === "FIXED" && values.appliesTo === "CLASSES" ? values.classIds : [];
+export function ReceivableAppliesToField({
+  id,
+  appliesTo,
+  classIds,
+  classOptions,
+  usesSchoolYears = true,
+  onChange,
+}: {
+  id: string;
+  appliesTo: ReceivableAppliesTo;
+  classIds: string[];
+  classOptions: ReceivableClassOption[];
+  usesSchoolYears?: boolean;
+  onChange: (values: { appliesTo?: ReceivableAppliesTo; classIds?: string[] }) => void;
+}) {
+  // A class belongs to one school year; the year is only worth reading when the list mixes years.
+  const showYear = usesSchoolYears && new Set(classOptions.map((item) => item.schoolYearId).filter(Boolean)).size > 1;
+  return (
+    <>
+      <fieldset className="chip-group full" aria-describedby={`${id}-hint`}>
+        <legend>Áp dụng cho</legend>
+        {(
+          [
+            ["SCHOOL", "Toàn trường"],
+            ["CLASSES", "Các lớp được chọn"],
+          ] as const
+        ).map(([value, label]) => (
+          <label key={value}>
+            <input type="radio" name={id} value={value} checked={appliesTo === value} onChange={() => onChange({ appliesTo: value })} />
+            {label}
+          </label>
+        ))}
+      </fieldset>
+      {appliesTo === "CLASSES" && (
+        <fieldset className="chip-group full">
+          <legend>Lớp áp dụng</legend>
+          {classOptions.length ? (
+            classOptions.map((item) => (
+              <label key={item.id}>
+                <input
+                  type="checkbox"
+                  checked={classIds.includes(item.id)}
+                  onChange={(event) =>
+                    onChange({ classIds: event.target.checked ? [...classIds, item.id] : classIds.filter((classId) => classId !== item.id) })
+                  }
+                />
+                {showYear && item.schoolYearName ? `${item.name} · ${item.schoolYearName}` : item.name}
+              </label>
+            ))
+          ) : (
+            <small className="muted">Chưa có lớp đang hoạt động.</small>
+          )}
+        </fieldset>
+      )}
+      <small className="muted full" id={`${id}-hint`}>
+        {appliesTo === "SCHOOL"
+          ? usesSchoolYears
+            ? "Tự thêm vào mỗi đợt thu cho mọi học sinh."
+            : "Tự thêm vào đợt thu của mọi lớp."
+          : usesSchoolYears
+            ? "Chọn ít nhất một lớp. Đợt thu mở sau chỉ tự thêm khoản này cho các lớp đã chọn; sang năm học mới cần chọn lại lớp."
+            : "Chọn ít nhất một lớp. Chỉ đợt thu mở sau của các lớp đã chọn tự thêm khoản này."}
+      </small>
+    </>
+  );
+}
 export type ReceivableEditValues = {
   displayName: string;
   unitLabel: string;
@@ -114,14 +190,27 @@ export type ReceivableEditValues = {
   autoLeaveDeduction: boolean;
   taxCategory: TaxCategory;
   kind: ReceivableKind;
+  appliesTo: ReceivableAppliesTo;
+  classIds: string[];
 };
-// Only changed fields go to the edit command; a locked kind is never sent.
+// Only changed fields go to the edit command; a locked kind is never sent. `classIds` is the whole new list and only goes with a
+// FIXED kind: the API drops the classes itself when the kind changes away.
 export function receivableEditChanges(edit: { values: ReceivableEditValues; original: ReceivableEditValues; locked: boolean }) {
-  return Object.fromEntries(
+  const changed = Object.fromEntries(
     (Object.keys(edit.values) as Array<keyof ReceivableEditValues>)
+      .filter((key) => key !== "appliesTo" && key !== "classIds")
       .filter((key) => edit.values[key] !== edit.original[key] && !(key === "kind" && edit.locked))
       .map((key) => [key, edit.values[key]]),
-  ) as Partial<ReceivableEditValues>;
+  ) as Partial<Omit<ReceivableEditValues, "appliesTo">>;
+  const next = receivableClassIds(edit.values);
+  const before = receivableClassIds(edit.original);
+  if (
+    edit.values.kind === "FIXED" &&
+    !receivableClassesMissing(edit.values) &&
+    (next.length !== before.length || next.some((id) => !before.includes(id)))
+  )
+    changed.classIds = next;
+  return changed;
 }
 export const receivableEditValues = (item: {
   displayName: string;
@@ -131,6 +220,7 @@ export const receivableEditValues = (item: {
   autoLeaveDeduction?: boolean;
   taxCategory?: TaxCategory;
   kind?: ReceivableKind | null;
+  appliesToClassIds?: string[];
 }): ReceivableEditValues => ({
   displayName: item.displayName,
   unitLabel: item.unitLabel,
@@ -139,6 +229,8 @@ export const receivableEditValues = (item: {
   autoLeaveDeduction: item.autoLeaveDeduction ?? false,
   taxCategory: item.taxCategory ?? "NOT_DECLARED",
   kind: item.kind ?? "FLEXIBLE",
+  appliesTo: item.appliesToClassIds?.length ? "CLASSES" : "SCHOOL",
+  classIds: item.appliesToClassIds ?? [],
 });
 
 // The fields of the one `Chỉnh sửa khoản thu` dialog (decision 2026-10-06), shared by the Khoản thu page and the extracurricular class
@@ -152,12 +244,16 @@ export function ReceivableEditFields({
   onReason,
   field,
   service = false,
+  classOptions = [],
+  usesSchoolYears = true,
 }: {
   values: ReceivableEditValues;
   locked: boolean;
   reason: string;
   classNames: string[];
   service?: boolean;
+  classOptions?: ReceivableClassOption[];
+  usesSchoolYears?: boolean;
   onChange: (values: Partial<ReceivableEditValues>) => void;
   onReason: (reason: string) => void;
   field: (name: string) => object;
@@ -204,6 +300,16 @@ export function ReceivableEditFields({
           ? t.locked
           : t.kinds.find((item) => item.kind === values.kind)?.hint}
       </small>
+      {values.kind === "FIXED" && (
+        <ReceivableAppliesToField
+          id="receivable-edit-applies-to"
+          appliesTo={values.appliesTo}
+          classIds={values.classIds}
+          classOptions={classOptions}
+          usesSchoolYears={usesSchoolYears}
+          onChange={onChange}
+        />
+      )}
       <label>
         Giá / đơn vị (chưa VAT)
         <input

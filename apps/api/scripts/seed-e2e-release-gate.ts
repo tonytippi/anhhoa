@@ -150,6 +150,7 @@ try {
       await tx.promotionPolicy.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });
+      await tx.receivableClass.deleteMany({ where: { schoolId: { in: schoolIds } } });
       await tx.receivableLifecycleTransition.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });

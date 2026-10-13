@@ -86,7 +86,7 @@ Thứ tự giữa các run theo `periodStartsOn`. Tự trừ ngày nghỉ và qu
 | Tự trừ ngày nghỉ, quyết toán khi kết thúc enrollment | Tháng trước | Giữ theo tháng, chỉ cho run `SCHOOL`. Run `CLASS` không áp dụng (chốt 2026-10-12: trung tâm không tự trừ ngày nghỉ); kế toán bớt trừ thủ công |
 | Ngoại khóa/dịch vụ | Membership hiệu lực trong tháng | Membership hiệu lực ít nhất một ngày trong kỳ, chỉ cho Student của run |
 
-- **Template run `CLASS`:** không tự thêm Receivable `FIXED` (mỗi lớp có mức học phí riêng). Run đầu của lớp có template rỗng; run sau sao chép các dòng phạm vi `ALL` (cả lớp) còn ACTIVE của run liền trước cùng lớp, kế toán sửa khi `DRAFT`; dòng chọn Student cụ thể là khoản một lần nên không sao chép. Phạm vi dòng: `ALL` (cả lớp) hoặc Student cụ thể; phạm vi theo lớp bị từ chối.
+- **Template run `CLASS`:** không tự thêm Receivable `FIXED` (mỗi lớp có mức học phí riêng). Run đầu của lớp có template rỗng; run sau sao chép các dòng phạm vi `ALL` (cả lớp) còn ACTIVE của run liền trước cùng lớp, kế toán sửa khi `DRAFT`; dòng chọn Student cụ thể là khoản một lần nên không sao chép. Phạm vi dòng: `ALL` (cả lớp) hoặc Student cụ thể; phạm vi theo lớp bị từ chối. *(Sửa 2026-10-13: run `CLASS` seed `FIXED` toàn trường hoặc gán lớp của run, và chỉ sao chép dòng `FLEXIBLE`; xem sprint-change-proposal-2026-10-13-fixed-receivable-classes.)*
 - **Đưa đón:** dùng lớp ngoại khóa hiện có làm nhóm dịch vụ; portal trung tâm hiển thị nhãn **Dịch vụ**. Quantity mặc định 1 cho cả unit; kế toán sửa trên Invoice DRAFT.
 - **Thu trùng:** khi generate hoặc thêm Student, dòng có cùng Receivable với một Invoice chưa hủy của Student ở run khác chồng kỳ được đánh dấu **Trùng kỳ** để kế toán rà soát (trường hợp chuyển lớp giữa unit). Không chặn.
 - **Hoàn tiền:** bớt trừ thủ công, Invoice âm, payout, revision giữ nguyên cho cả hai scope.
@@ -140,7 +140,7 @@ Thứ tự giữa các run theo `periodStartsOn`. Tự trừ ngày nghỉ và qu
 
 - Given migration, then run hiện có là `SCHOOL` với kỳ trọn tháng và tên "Tháng MM/YYYY"; toàn bộ hành vi và test của run tháng không đổi.
 - Given School `collectionRunScope = CLASS`, when Finance mở run cho một lớp `ACTIVE` với tên và kỳ, then run được tạo, `billingMonth` là tháng của `periodStartsOn`; kỳ chồng run khác cùng lớp, lớp khác School/SchoolYear hoặc scope không được phép bị từ chối.
-- Given run `CLASS`, then selection chỉ gồm Student thuộc lớp ít nhất một ngày trong kỳ; template rỗng ở run đầu, sao chép dòng cả lớp từ run liền trước cùng lớp ở run sau; `FIXED` không tự thêm. Tự trừ ngày nghỉ và quyết toán không áp dụng cho run `CLASS`.
+- Given run `CLASS`, then selection chỉ gồm Student thuộc lớp ít nhất một ngày trong kỳ; template rỗng ở run đầu, sao chép dòng cả lớp từ run liền trước cùng lớp ở run sau; `FIXED` không tự thêm. Tự trừ ngày nghỉ và quyết toán không áp dụng cho run `CLASS`. *(Sửa 2026-10-13: run `CLASS` seed `FIXED` toàn trường hoặc gán lớp của run, và chỉ sao chép dòng `FLEXIBLE`; xem sprint-change-proposal-2026-10-13-fixed-receivable-classes.)*
 
 ### Story 5.51: Quy tắc theo kỳ cho nợ cũ, carry, dịch vụ và cờ trùng kỳ
 

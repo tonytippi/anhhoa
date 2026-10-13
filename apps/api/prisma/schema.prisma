@@ -55,6 +55,7 @@ model School {
   receivableGroups                  ReceivableGroup[]
   receivables                       Receivable[]
   collectionRuns                    CollectionRun[]
+  receivableClasses                 ReceivableClass[]
   collectionRunGenerations          CollectionRunGeneration[]
   collectionRunLifecycleTransitions CollectionRunLifecycleTransition[]
   invoices                          Invoice[]
@@ -158,6 +159,7 @@ model Class {
   dailyJournalMedia          DailyJournalMedia[]
   templateScopeClasses       CollectionRunTemplateScopeClass[]
   collectionRuns             CollectionRun[]
+  receivableClasses          ReceivableClass[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, id])
@@ -1526,10 +1528,26 @@ model Receivable {
   coverageFacts          InvoicePromotionCoverageFact[]
   promotionalCoverages   StudentPromotionalCoverage[]
   extracurricularClasses ExtracurricularClass[]
+  classes                ReceivableClass[]
 
   @@unique([schoolId, id])
   @@index([schoolId, groupId])
   @@index([schoolId, createdAt])
+}
+
+// Sprint change 2026-10-13: the Classes a FIXED Receivable applies to; no rows means the whole School.
+model ReceivableClass {
+  id           String     @id @default(uuid()) @db.Uuid
+  schoolId     String     @db.Uuid
+  receivableId String     @db.Uuid
+  classId      String     @db.Uuid
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  school       School     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  receivable   Receivable @relation(fields: [schoolId, receivableId], references: [schoolId, id], onDelete: Restrict)
+  classroom    Class      @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, receivableId, classId])
+  @@index([schoolId, classId])
 }
 
 model ReceivableGroupLifecycleTransition {

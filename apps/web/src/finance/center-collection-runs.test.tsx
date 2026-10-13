@@ -90,11 +90,11 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
     expect(within(dialog).queryByText("Tháng thu")).toBeNull();
     const classSelect = within(dialog).getByLabelText("Lớp") as HTMLSelectElement;
     await waitFor(() => expect([...classSelect.options].map((option) => option.textContent)).toEqual(["Chọn lớp đang hoạt động", "Flyers C", "Movers B", "Starters A"]));
-    expect(within(dialog).queryByText(/sao chép|Đợt đầu tiên/)).toBeNull();
+    expect(within(dialog).queryByText(/sao chép|tự thêm/)).toBeNull();
     fireEvent.change(classSelect, { target: { value: "class-flyers" } });
-    expect(within(dialog).getByText("Đợt đầu tiên của lớp chưa có khoản thu; thêm khoản thu sau khi mở.")).toBeTruthy();
+    expect(within(dialog).getByText("Khoản thu cố định áp dụng cho lớp được tự thêm; khoản thu khác thêm sau khi mở.")).toBeTruthy();
     fireEvent.change(classSelect, { target: { value: "class-starters" } });
-    expect(within(dialog).getByText("Khoản thu của đợt mới được sao chép từ đợt Unit 3 của lớp Starters A; sửa được khi đợt còn Nháp.")).toBeTruthy();
+    expect(within(dialog).getByText("Khoản thu cố định áp dụng cho lớp được tự thêm; khoản thu linh hoạt được sao chép từ đợt Unit 3 của lớp Starters A. Sửa được khi đợt còn Nháp.")).toBeTruthy();
     expect(within(dialog).queryByText(/Đợt đầu tiên/)).toBeNull();
     fireEvent.change(within(dialog).getByLabelText("Tên đợt"), { target: { value: "Unit 4" } });
     typeDate(dialog, "Từ ngày", "16/11/2026");

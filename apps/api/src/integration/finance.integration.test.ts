@@ -908,7 +908,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await linesOf(f.current, runId)).toEqual([]);
     });
 
-    it("validates scope: EXTRACURRICULAR refused, FIXED forced to ALL, empty/foreign/other-year targets refused, in the API and the database", async () => {
+    it("validates scope: EXTRACURRICULAR refused, FIXED scope not chosen on the run, empty/foreign/other-year targets refused, in the API and the database", async () => {
       const f = await scopeFixture();
       const foreign = await roster(await graph());
       await group(foreign);
@@ -950,7 +950,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       // Database backstops.
       await expect(prisma.collectionRunTemplateLine.create({ data: { schoolId: f.current.school.id, collectionRunId: runId, receivableId: f.english, quantity: 1 } })).rejects.toThrow(/EXTRACURRICULAR/);
       const feeLine = await prisma.collectionRunTemplateLine.findFirstOrThrow({ where: { schoolId: f.current.school.id, collectionRunId: runId, receivableId: f.fee } });
-      await expect(prisma.collectionRunTemplateLine.update({ where: { id: feeLine.id }, data: { scopeType: "CLASSES" } })).rejects.toThrow(/FIXED/);
+      await expect(prisma.collectionRunTemplateLine.update({ where: { id: feeLine.id }, data: { scopeType: "CLASSES" } })).rejects.toThrow(/needs matching targets/);
       await expect(prisma.collectionRunTemplateScopeClass.create({ data: { schoolId: f.current.school.id, schoolYearId: f.current.year.id, templateLineId: feeLine.id, classId: f.classA.id } })).rejects.toThrow(/CLASSES template line/);
       const tripLine = await prisma.collectionRunTemplateLine.findFirstOrThrow({ where: { schoolId: f.current.school.id, collectionRunId: runId, receivableId: f.trip } });
       const retype = (target: () => Promise<unknown>) => prisma.$transaction(async (tx) => { await tx.collectionRunTemplateLine.update({ where: { id: tripLine.id }, data: { scopeType: "CLASSES" } }); await target(); });

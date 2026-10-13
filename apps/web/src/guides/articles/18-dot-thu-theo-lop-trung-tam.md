@@ -18,9 +18,12 @@ Hai đợt của **cùng một lớp** không được trùng ngày; hệ thốn
 
 ## 2. Khoản thu của đợt
 
-- **Đợt đầu tiên** của lớp chưa có khoản thu: bấm `Thêm khoản thu`, chọn khoản thu, số lượng và phạm vi `Cả lớp` hoặc `Học sinh cụ thể`.
-- **Từ đợt thứ hai**, hệ thống sao chép các dòng khoản thu phạm vi `Cả lớp` của đợt liền trước cùng lớp. Dòng dành cho học sinh cụ thể không được sao chép; cần thì thêm lại.
-- Khi đợt còn `Nháp`, bạn sửa số lượng, thêm hoặc bỏ dòng tùy ý. Đợt thu theo lớp không tự thêm khoản thu cố định.
+- **Khoản thu cố định** áp dụng cho `Toàn trường` hoặc cho lớp này được tự thêm mỗi khi mở đợt, số lượng 1, tính cả lớp. Gắn lớp cho khoản thu ở `Tài chính › Khoản thu`, mục `Áp dụng cho`; xem [Quản lý khoản thu](guide:khoan-thu).
+- **Khoản thu linh hoạt**: bấm `Thêm khoản thu`, chọn khoản thu, số lượng và phạm vi `Cả lớp` hoặc `Học sinh cụ thể`. **Từ đợt thứ hai**, hệ thống sao chép các dòng linh hoạt phạm vi `Cả lớp` của đợt liền trước cùng lớp. Dòng dành cho học sinh cụ thể không được sao chép; cần thì thêm lại.
+- Khi đợt còn `Nháp`, bạn sửa số lượng, thêm hoặc bỏ dòng tùy ý. Khoản cố định không đổi được phạm vi trên đợt.
+
+> [!WARNING]
+> Lưu ý cho kế toán: giá nằm trên khoản thu, nên mỗi mức học phí là một khoản thu cố định riêng, gắn các lớp của mình. Muốn chuyển lớp sang mức giá khác, sửa danh sách lớp của các khoản thu **trước khi mở đợt kế tiếp**; đợt đã mở không đổi. Khoản cố định `Toàn trường` được thêm vào đợt của mọi lớp.
 
 ## 3. Dịch vụ (đưa đón…)
 

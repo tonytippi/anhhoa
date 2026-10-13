@@ -288,22 +288,42 @@ test('Admin runs a language center: staggered unit runs per class, a service, a 
   await expect(page.getByRole('table', { name: 'Hóa đơn đã khóa theo đợt thu' }).locator('tbody tr')).toHaveCount(3);
 
   // 7. Unit 2 of Starters A: the whole-class line is copied, and the unpaid Unit 1 invoices are offered as prior debt.
-  await page.getByRole('button', { name: 'Quay lại danh sách đợt thu' }).click();
-  await expect(runsToolbar(page)).toBeVisible();
+  // A fixed receivable assigned to Starters A only (sprint change 2026-10-13) is added to its next run by itself.
+  await navigate(page, 'Tài chính', 'Khoản thu');
+  await page.getByRole('button', { name: 'Thêm khoản thu' }).click();
+  const fixedDialog = page.getByRole('dialog', { name: 'Thêm khoản thu' });
+  await fixedDialog.getByRole('radio', { name: 'Khoản thu cố định' }).check();
+  await fixedDialog.getByRole('radio', { name: 'Các lớp được chọn' }).check();
+  await expect(fixedDialog.getByRole('group', { name: 'Lớp áp dụng' }).getByRole('checkbox')).toHaveCount(2);
+  await expect(fixedDialog.getByText(/năm học/i)).toHaveCount(0);
+  await fixedDialog.getByLabel('Tên khoản thu').fill('Giáo trình Starters');
+  await fixedDialog.getByLabel('Đơn vị tính').fill('unit');
+  await fixedDialog.getByLabel('Giá / đơn vị (chưa VAT)').fill('500000');
+  await fixedDialog.getByRole('button', { name: 'Lưu khoản thu' }).click();
+  await expect(fixedDialog.getByText('Chọn ít nhất một lớp áp dụng.')).toBeVisible();
+  await fixedDialog.getByRole('checkbox', { name: 'Starters A' }).check();
+  const fixedCreated = page.waitForResponse((response) => /\/finance\/receivables$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST');
+  await fixedDialog.getByRole('button', { name: 'Lưu khoản thu' }).click();
+  const fixedResponse = await fixedCreated;
+  expect(fixedResponse.status()).toBe(201);
+  expect((await fixedResponse.json()).data.outcome).toMatchObject({ kind: 'FIXED', appliesToClassNames: ['Starters A'] });
+  await expect(fixedDialog).toBeHidden();
+  await goToRuns(page);
   const unit2Dialog = await fillRunDialog(page, 'Starters A', 'Unit 2', unit2);
-  await expect(unit2Dialog.getByText('Khoản thu của đợt mới được sao chép từ đợt Unit 1 của lớp Starters A; sửa được khi đợt còn Nháp.')).toBeVisible();
+  await expect(unit2Dialog.getByText('Khoản thu cố định áp dụng cho lớp được tự thêm; khoản thu linh hoạt được sao chép từ đợt Unit 1 của lớp Starters A. Sửa được khi đợt còn Nháp.')).toBeVisible();
   const unit2Created = page.waitForResponse((response) => /\/finance\/collection-runs$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST');
   await unit2Dialog.getByRole('button', { name: 'Xác nhận mở đợt thu' }).click();
   expect((await unit2Created).status()).toBe(201);
   await expect(page.getByRole('heading', { name: 'Starters A · Unit 2 · Nháp', level: 1 })).toBeVisible();
   const unit2Template = page.getByRole('table', { name: 'Khoản thu mẫu của đợt' });
-  await expect(unit2Template.locator('tbody tr')).toHaveCount(1);
+  await expect(unit2Template.locator('tbody tr')).toHaveCount(2);
+  await expect(unit2Template.getByRole('row').filter({ hasText: 'Giáo trình Starters' })).toContainText('Cố định');
   await expect(unit2Template.getByRole('row').filter({ hasText: 'Học phí unit' })).toContainText('Cả lớp');
   await expect(unit2Template.getByRole('row').filter({ hasText: 'Học phí unit' })).toContainText('3.600.000');
   await previewFromServer(page);
   await readyAndGenerate(page, 3);
   await expect(runInvoices(page).locator('tbody tr')).toHaveCount(3);
-  await expect(invoiceRow(runInvoices(page), 'TT1 / Học viên An')).toContainText('4.400.000');
+  await expect(invoiceRow(runInvoices(page), 'TT1 / Học viên An')).toContainText('4.900.000');
   // Unit 1 is CLOSED, so nothing holds back issuing in Unit 2.
   await expect(page.getByText(/Chưa thể phát hành hóa đơn của đợt này/)).toHaveCount(0);
   const debts = page.getByRole('table', { name: 'Công nợ kỳ trước chưa thu' });

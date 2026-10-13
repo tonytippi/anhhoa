@@ -39,7 +39,7 @@
       <details class="guide">
         <summary>Hướng dẫn</summary>
         <p>Mỗi đợt thu thuộc một lớp đang hoạt động và một kỳ do kế toán nhập ngày bắt đầu, ngày kết thúc. Nhiều lớp có thể có đợt mở cùng lúc; hai đợt của cùng một lớp không được trùng ngày.</p>
-        <p>Đợt đầu tiên của lớp chưa có khoản thu. Từ đợt thứ hai, hệ thống sao chép khoản thu của đợt liền trước cùng lớp; sửa được khi đợt còn Nháp.</p>
+        <p>Khi mở đợt, hệ thống tự thêm khoản thu cố định áp dụng cho toàn trường hoặc cho lớp đó. Từ đợt thứ hai, khoản thu linh hoạt được sao chép từ đợt liền trước cùng lớp; sửa được khi đợt còn Nháp.</p>
         <p>Hóa đơn của một đợt chỉ phát hành được sau khi đợt trước của cùng lớp đã đóng. Đợt của lớp khác không ảnh hưởng.</p>
       </details>
     </section>
@@ -74,7 +74,7 @@
         error.hidden = !message;
         [start, end].forEach(function (input) { if (message) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid'); });
         var previous = list[list.length - 1];
-        note.textContent = !klass.value ? '' : previous ? 'Khoản thu của đợt mới được sao chép từ đợt ' + previous[0] + ' của lớp ' + klass.value + '; sửa được khi đợt còn Nháp.' : 'Đợt đầu tiên của lớp chưa có khoản thu; thêm khoản thu sau khi mở.';
+        note.textContent = !klass.value ? '' : previous ? 'Khoản thu cố định áp dụng cho lớp được tự thêm; khoản thu linh hoạt được sao chép từ đợt ' + previous[0] + ' của lớp ' + klass.value + '. Sửa được khi đợt còn Nháp.' : 'Khoản thu cố định áp dụng cho lớp được tự thêm; khoản thu khác thêm sau khi mở.';
         return !message;
       }
       [klass, start, end].forEach(function (input) { input.addEventListener('change', validate); });

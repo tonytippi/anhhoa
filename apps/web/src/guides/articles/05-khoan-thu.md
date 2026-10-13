@@ -10,7 +10,7 @@ Mở `Tài chính › Khoản thu`. Đây là danh mục mọi khoản trường
 
 ## Ba nhóm khoản thu
 
-- **Khoản thu cố định** — tự thêm vào mọi đợt thu cho toàn bộ học sinh (ví dụ học phí, tiền ăn).
+- **Khoản thu cố định** — tự thêm vào đợt thu, cho toàn trường hoặc chỉ các lớp được chọn (ví dụ học phí, tiền ăn). Xem mục "Khoản thu cố định áp dụng cho lớp nào" bên dưới.
 - **Khoản thu linh hoạt** — chỉ thêm vào đợt thu khi cần, chọn phạm vi toàn bộ, theo lớp hoặc từng học sinh (ví dụ dã ngoại, đồng phục).
 - **Ngoại khóa** — thu theo lớp ngoại khóa; gắn khoản thu vào lớp ở trang [Lớp ngoại khóa](guide:lop-ngoai-khoa).
 
@@ -21,7 +21,7 @@ Mở `Tài chính › Khoản thu`. Đây là danh mục mọi khoản trường
 
 1. Bấm `Thêm khoản thu`.
 2. Điền `Tên khoản thu` và (không bắt buộc) `Mã khoản thu`.
-3. Chọn `Nhóm khoản thu`.
+3. Chọn `Nhóm khoản thu`. Với `Khoản thu cố định`, chọn thêm `Áp dụng cho`: `Toàn trường` hoặc `Các lớp được chọn` (đánh dấu ít nhất một lớp).
 4. Nhập `Giá / đơn vị (chưa VAT)` và `Đơn vị tính` (tháng, ngày, lần, bộ…).
 5. Nếu khoản này được trả lại khi học sinh nghỉ, nhập `Giá hoàn trả / đơn vị (chưa VAT)`. Để 0 nếu không hoàn.
 6. Chọn `Mức thuế suất`. Mức thuế quyết định tiền vào tài khoản nào:
@@ -30,6 +30,22 @@ Mở `Tài chính › Khoản thu`. Đây là danh mục mọi khoản trường
 7. Bấm `Lưu khoản thu`.
 
 ![Thêm khoản Tiền ăn: cố định, tính theo ngày, tự trừ ngày nghỉ, thuế 8%](khoan-thu-them.jpg)
+
+### Khoản thu cố định áp dụng cho lớp nào
+
+Mỗi khoản thu cố định có mục `Áp dụng cho`:
+
+- `Toàn trường` (mặc định) — mọi đợt thu tự thêm khoản này cho tất cả học sinh.
+- `Các lớp được chọn` — đợt thu chỉ tự thêm khoản này cho học sinh của các lớp đã đánh dấu. Ở trung tâm, chỉ đợt thu của các lớp đó có khoản này.
+
+Cột `Khoản thu` của danh sách ghi `Toàn trường` hoặc tên các lớp. Trên đợt thu, phạm vi của khoản cố định không sửa được; chỉ sửa số lượng hoặc bỏ dòng khi đợt còn `Nháp`.
+
+Lưu ý cho kế toán:
+
+- **Giá nằm trên khoản thu.** Mỗi mức giá là một khoản thu riêng (ví dụ "Học phí Mầm" và "Học phí Lá"), mỗi khoản gắn các lớp của mình.
+- **Đổi lớp không sửa đợt thu đã mở.** Muốn chuyển một lớp sang mức giá khác, hãy sửa danh sách lớp của các khoản thu **trước khi mở đợt thu kế tiếp**.
+- **Sang năm học mới phải chọn lại lớp** (trường mầm non): lớp thuộc một năm học, nên khoản thu chưa gắn lớp của năm mới sẽ không được thêm vào đợt thu của năm đó.
+- **Thôi áp dụng cho lớp duy nhất còn lại:** hãy gắn lớp khác hoặc `Ngừng áp dụng` khoản thu. Chọn `Toàn trường` nghĩa là thu của mọi học sinh.
 
 ### Khoản tự trừ theo ngày nghỉ có phép (ví dụ tiền ăn)
 
@@ -53,6 +69,7 @@ Sửa thông tin cần thiết, nhập `Lý do` (bắt buộc) rồi bấm `Lưu
 - Hóa đơn **đã tạo** giữ nguyên tên, đơn vị, giá và mức thuế lúc tạo.
 - Giá mới chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó. Nếu đợt thu tháng này còn ở trạng thái nháp, hãy `Xem trước từ máy chủ` lại.
 - Đơn giá không được thấp hơn giá hoàn trả.
+- Đổi `Áp dụng cho` của khoản thu cố định chỉ có hiệu lực với đợt thu mở sau đó; đợt đã mở giữ nguyên.
 
 ## Ngừng áp dụng
 

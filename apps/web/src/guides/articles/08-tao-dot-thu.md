@@ -14,7 +14,7 @@ Bấm `Tạo đợt thu`, chọn `Năm học` và `Tháng thu`, rồi `Xác nh�
 
 ## 2. Kiểm tra khoản thu trong đợt
 
-Các **khoản cố định** được tự thêm khi mở đợt. Khoản tự trừ theo ngày nghỉ (ví dụ tiền ăn) tự lấy số ngày học của tháng làm số lượng.
+Các **khoản cố định** được tự thêm khi mở đợt: khoản `Toàn trường` cho mọi học sinh, khoản gắn lớp chỉ cho các lớp đó (cột `Áp dụng cho` ghi tên lớp). Khoản gắn lớp mà không có lớp nào thuộc năm học của đợt thì không được thêm; xem [Quản lý khoản thu](guide:khoan-thu). Khoản tự trừ theo ngày nghỉ (ví dụ tiền ăn) tự lấy số ngày học của tháng làm số lượng.
 
 Để thu thêm khoản **linh hoạt** (dã ngoại, đồng phục…), bấm `Thêm khoản thu`:
 
@@ -26,7 +26,7 @@ Các **khoản cố định** được tự thêm khi mở đợt. Khoản tự 
 
 ![Bảng khoản thu của đợt sau khi xem trước](dot-thu-khoan-thu-trong-dot.jpg)
 
-Dùng `Sửa` để đổi số lượng/phạm vi, `Bỏ` để bỏ khoản khỏi đợt này (không ảnh hưởng danh mục khoản thu).
+Dùng `Sửa` để đổi số lượng/phạm vi, `Bỏ` để bỏ khoản khỏi đợt này (không ảnh hưởng danh mục khoản thu). Khoản cố định chỉ sửa được số lượng: phạm vi của nó đặt ở trang `Khoản thu` và chỉ áp dụng cho đợt mở sau khi sửa.
 
 Bảng **Lớp ngoại khóa trong đợt** liệt kê các lớp ngoại khóa đang hoạt động và số học sinh tính trong tháng. Bấm `Loại khỏi đợt này` nếu tháng này không thu lớp đó (ví dụ lớp nghỉ cả tháng); `Khôi phục` để tính lại.
 

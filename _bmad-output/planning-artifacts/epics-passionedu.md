@@ -889,6 +889,25 @@ Source: sprint-change-proposal-2026-10-12-language-center-school-kind.
 
 **And** an Admin E2E for a center runs provision, two classes, staggered unit runs, a transport service, generate, a mid-unit Student, issue, receipt, close and the next unit with old debt; the whole existing Finance suite stays green for a preschool.
 
+### Story 5.54: Khoản thu cố định áp dụng theo lớp
+
+As a Finance Manager,
+I want a fixed receivable to apply to the whole school or to chosen classes,
+So that each class gets its own tuition automatically in every collection run, in a preschool and in a center.
+
+Source: sprint-change-proposal-2026-10-13-fixed-receivable-classes.
+
+**Acceptance Criteria:**
+
+**Given** a `FIXED` Receivable
+**Then** Finance chooses `Toàn trường` or at least one ACTIVE Class of an open SchoolYear; other kinds, foreign, archived or closed-year Classes are refused; leaving `FIXED` drops the Classes.
+
+**And** a `SCHOOL` run seeds a class-assigned Receivable with scope `CLASSES` of the run's SchoolYear, or skips it when none of its Classes belongs to that year.
+
+**And** a `CLASS` run seeds the `FIXED` Receivables of the whole School or of its Class and copies only whole-class `FLEXIBLE` lines from the preceding run; a `FIXED` Receivable of another Class cannot be added by hand.
+
+**And** editing a `FIXED` line on a run keeps its seeded scope; changing the Classes of a Receivable does not change runs already opened.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

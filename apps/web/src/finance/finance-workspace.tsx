@@ -4,11 +4,17 @@ import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchor
 import { PaymentImagePanel } from "./payment-image-panel";
 import {
   ReceivableEditFields,
+  ReceivableAppliesToField,
+  receivableClassIds,
+  receivableClassesError,
+  receivableClassesMissing,
   receivableEditChanges,
   receivableEditValues,
   receivableWording,
   taxCategoryOptions,
   taxChannelHint,
+  type ReceivableAppliesTo,
+  type ReceivableClassOption,
   type ReceivableEditValues,
   type ReceivableKind,
   type TaxCategory,
@@ -18,6 +24,9 @@ import {
 import { DateInput } from "../components/date-input";
 
 type Group = { id: string; name: string; kind: ReceivableKind };
+// Up to three class names read in the list; more than that reads as a count and the edit dialog shows them all.
+const fixedAppliesTo = (classNames: string[]) =>
+  !classNames.length ? "Toàn trường" : classNames.length > 3 ? `${classNames.length} lớp` : classNames.join(", ");
 const kindShortLabel = (kind: ReceivableKind | null | undefined) =>
   (({ FIXED: "Cố định", FLEXIBLE: "Linh hoạt", EXTRACURRICULAR: "Ngoại khóa" }) as const)[kind ?? "FLEXIBLE"] ?? "";
 type Receivable = {
@@ -27,6 +36,9 @@ type Receivable = {
   kindLocked?: boolean;
   extracurricularClassCount?: number;
   extracurricularClassNames?: string[];
+  // Sprint change 2026-10-13: the classes a FIXED receivable applies to; empty means the whole School.
+  appliesToClassIds?: string[];
+  appliesToClassNames?: string[];
   code: string | null;
   displayName: string;
   unitLabel: string;
@@ -74,7 +86,7 @@ const channelAccountLabel = (channel: PaymentChannel | undefined) =>
 // Review moves student by student: the first part of each payment notice stands for the Student.
 const studentQueueIds = (invoices: Array<{ id: string; studentId: string }> | undefined) =>
   [...new Map((invoices ?? []).map((item) => [item.studentId, item.id] as const).reverse()).values()].reverse();
-type Catalog = { groups: Group[]; receivables: Receivable[]; schoolYears?: Year[] };
+type Catalog = { groups: Group[]; receivables: Receivable[]; schoolYears?: Year[]; classOptions?: ReceivableClassOption[] };
 type PromotionPolicy = {
   id: string;
   name: string;
@@ -1285,6 +1297,8 @@ export function FinanceWorkspace({
     refundUnitPrice: "0",
     autoLeaveDeduction: false,
     taxCategory: "NOT_DECLARED" as TaxCategory,
+    appliesTo: "SCHOOL" as ReceivableAppliesTo,
+    classIds: [] as string[],
   });
   const [settlements, setSettlements] = useState<{ runId: string; students: Settlement[] }>();
   const [priorDebts, setPriorDebts] = useState<{ runId: string; total: string; debts: PriorDebt[] }>();
@@ -1298,6 +1312,7 @@ export function FinanceWorkspace({
     original: ReceivableEditValues;
     locked: boolean;
     classNames: string[];
+    classOptions: ReceivableClassOption[];
     reason: string;
   }>();
   const [catalogFilter, setCatalogFilter] = useState({ search: "", kind: "", status: "" });
@@ -1370,6 +1385,8 @@ export function FinanceWorkspace({
       refundUnitPrice: "0",
       autoLeaveDeduction: false,
       taxCategory: "NOT_DECLARED",
+      appliesTo: "SCHOOL",
+      classIds: [],
     });
   const resetPromotion = () => setPromotion(defaultPromotion());
 
@@ -2074,9 +2091,10 @@ export function FinanceWorkspace({
     event.preventDefault();
     if (!run || !templateDialog) return;
     const dialog = templateDialog;
+    // A FIXED line keeps the scope seeded from the Khoản thu page: the request leaves `scope` out and the API refuses any other.
     const scope =
       dialog.kind === "FIXED"
-        ? { type: "ALL" }
+        ? undefined
         : dialog.scopeType === "CLASSES"
           ? { type: "CLASSES", classIds: dialog.classIds }
           : dialog.scopeType === "STUDENTS"
@@ -2085,7 +2103,7 @@ export function FinanceWorkspace({
     const outcome = await command(
       `${templateBase()}/template-lines`,
       "PUT",
-      { receivableId: dialog.receivableId, quantity: dialog.quantity, scope, expectedVersion: run.version },
+      { receivableId: dialog.receivableId, quantity: dialog.quantity, ...(scope ? { scope } : {}), expectedVersion: run.version },
       "run",
     );
     if (outcome) {
@@ -2257,6 +2275,11 @@ export function FinanceWorkspace({
   const saveReceivableEdit = async (event: FormEvent) => {
     event.preventDefault();
     if (!receivableEdit) return;
+    if (receivableClassesMissing(receivableEdit.values)) {
+      setScope("receivable");
+      setErrors({ classIds: receivableClassesError });
+      return;
+    }
     const changed = receivableEditChanges(receivableEdit);
     if (!Object.keys(changed).length) return;
     if (!receivableEdit.reason.trim()) {
@@ -2281,7 +2304,15 @@ export function FinanceWorkspace({
   };
   const saveReceivable = async (event: FormEvent) => {
     event.preventDefault();
-    if (await command(`/api/app/schools/${schoolId}/finance/receivables`, "POST", receivable, "receivable")) {
+    if (receivableClassesMissing(receivable)) {
+      setScope("receivable");
+      setErrors({ classIds: receivableClassesError });
+      return;
+    }
+    // `classIds` only goes with a FIXED receivable assigned to classes; without it the API applies the whole School.
+    const { appliesTo: _appliesTo, classIds: _classIds, ...input } = receivable;
+    const classIds = receivableClassIds(receivable);
+    if (await command(`/api/app/schools/${schoolId}/finance/receivables`, "POST", classIds.length ? { ...input, classIds } : input, "receivable")) {
       resetReceivable();
       closeManagedDialog(() => setCatalogDialog(undefined));
       await load();
@@ -3201,6 +3232,7 @@ export function FinanceWorkspace({
                             item.kind === "EXTRACURRICULAR" && (item.extracurricularClassCount ?? 0) > 0
                               ? receivableText.attached(item.extracurricularClassCount ?? 0)
                               : "",
+                            item.kind === "FIXED" ? fixedAppliesTo(item.appliesToClassNames ?? []) : "",
                           ]
                             .filter(Boolean)
                             .join(" · ")}
@@ -3250,6 +3282,13 @@ export function FinanceWorkspace({
                                   original: values,
                                   locked: Boolean(item.kindLocked),
                                   classNames: item.extracurricularClassNames ?? [],
+                                  // A class already assigned stays tickable after it left the offered list (inactive, or a closed year).
+                                  classOptions: [
+                                    ...(catalog?.classOptions ?? []),
+                                    ...(item.appliesToClassIds ?? [])
+                                      .map((id, index) => ({ id, name: item.appliesToClassNames?.[index] ?? "", schoolYearId: "", schoolYearName: "" }))
+                                      .filter((assigned) => !(catalog?.classOptions ?? []).some((option) => option.id === assigned.id)),
+                                  ],
                                   reason: "",
                                 });
                               }
@@ -3300,7 +3339,7 @@ export function FinanceWorkspace({
             <p>Mỗi Trường có đúng ba nhóm khoản thu, không thêm, đổi tên hoặc ngừng nhóm.</p>
             <ul>
               <li>
-                <b>Khoản thu cố định</b>: tự thêm vào mỗi đợt thu, áp dụng cho toàn bộ học sinh.
+                <b>Khoản thu cố định</b>: tự thêm vào mỗi đợt thu, áp dụng cho toàn trường hoặc các lớp được chọn.
               </li>
               <li>
                 <b>Khoản thu linh hoạt</b>: thêm vào đợt thu khi cần, chọn phạm vi áp dụng.
@@ -3456,8 +3495,8 @@ export function FinanceWorkspace({
                     {chosenRunClass && (
                       <small className="muted full">
                         {chosenRunClass.latestRun
-                          ? `Khoản thu của đợt mới được sao chép từ đợt ${chosenRunClass.latestRun.name} của lớp ${chosenRunClass.name}; sửa được khi đợt còn Nháp.`
-                          : "Đợt đầu tiên của lớp chưa có khoản thu; thêm khoản thu sau khi mở."}
+                          ? `Khoản thu cố định áp dụng cho lớp được tự thêm; khoản thu linh hoạt được sao chép từ đợt ${chosenRunClass.latestRun.name} của lớp ${chosenRunClass.name}. Sửa được khi đợt còn Nháp.`
+                          : "Khoản thu cố định áp dụng cho lớp được tự thêm; khoản thu khác thêm sau khi mở."}
                       </small>
                     )}
                   </div>
@@ -3697,8 +3736,8 @@ export function FinanceWorkspace({
                 lớp có thể có đợt mở cùng lúc; hai đợt của cùng một lớp không được trùng ngày.
               </p>
               <p>
-                Đợt đầu tiên của lớp chưa có khoản thu. Từ đợt thứ hai, hệ thống sao chép khoản thu của đợt liền trước
-                cùng lớp; sửa được khi đợt còn Nháp.
+                Khi mở đợt, hệ thống tự thêm khoản thu cố định áp dụng cho toàn trường hoặc cho lớp đó. Từ đợt thứ hai,
+                khoản thu linh hoạt được sao chép từ đợt liền trước cùng lớp; sửa được khi đợt còn Nháp.
               </p>
               <p>
                 Hóa đơn của một đợt chỉ phát hành được sau khi đợt trước của cùng lớp đã đóng. Đợt của lớp khác không
@@ -4155,9 +4194,9 @@ export function FinanceWorkspace({
             <details className="finance-guide">
               <summary>Hướng dẫn</summary>
               <p>
-                Từ đợt thứ hai của lớp, khoản thu được sao chép từ đợt liền trước cùng lớp. Đợt thu theo lớp không tự
-                thêm khoản thu cố định; sửa số lượng, thêm hoặc bỏ dòng khi đợt còn Nháp. Phạm vi của mỗi dòng là cả lớp
-                hoặc học sinh cụ thể.
+                Khoản thu cố định áp dụng cho toàn trường hoặc cho lớp này được tự thêm khi mở đợt, luôn tính cả lớp. Từ
+                đợt thứ hai của lớp, khoản thu linh hoạt được sao chép từ đợt liền trước cùng lớp; sửa số lượng, thêm
+                hoặc bỏ dòng khi đợt còn Nháp. Phạm vi của dòng linh hoạt là cả lớp hoặc học sinh cụ thể.
               </p>
               <p>
                 Máy chủ lấy thành viên dịch vụ có hiệu lực ít nhất một ngày trong kỳ và chỉ tính học sinh của lớp này. Số
@@ -4174,8 +4213,8 @@ export function FinanceWorkspace({
             <details className="finance-guide">
               <summary>Hướng dẫn</summary>
               <p>
-                Khoản thu cố định được tự thêm khi mở đợt thu và áp dụng cho toàn bộ học sinh; sửa số lượng hoặc bỏ dòng
-                khi đợt còn Nháp. Khoản thu linh hoạt thêm khi cần, kèm phạm vi toàn bộ, lớp chính thức hoặc học sinh cụ
+                Khoản thu cố định được tự thêm khi mở đợt thu, cho toàn trường hoặc các lớp đã chọn ở trang Khoản thu;
+                trong đợt chỉ sửa số lượng hoặc bỏ dòng khi đợt còn Nháp. Khoản thu linh hoạt thêm khi cần, kèm phạm vi toàn bộ, lớp chính thức hoặc học sinh cụ
                 thể. Khoản Ngoại khóa không thêm vào khoản thu mẫu.
               </p>
               <p>
@@ -5578,6 +5617,16 @@ export function FinanceWorkspace({
                   {receivableText.kinds.find((item) => item.kind === receivable.kind)?.hint ??
                     "Chọn một trong ba nhóm cố định của Trường."}
                 </small>
+                {receivable.kind === "FIXED" && (
+                  <ReceivableAppliesToField
+                    id="receivable-applies-to"
+                    appliesTo={receivable.appliesTo}
+                    classIds={receivable.classIds}
+                    classOptions={catalog?.classOptions ?? []}
+                    usesSchoolYears={features.usesSchoolYears}
+                    onChange={(values) => setReceivable({ ...receivable, ...values })}
+                  />
+                )}
                 <label>
                   Giá / đơn vị (chưa VAT)
                   <input
@@ -5702,6 +5751,8 @@ export function FinanceWorkspace({
                 locked={receivableEdit.locked}
                 reason={receivableEdit.reason}
                 classNames={receivableEdit.classNames}
+                classOptions={receivableEdit.classOptions}
+                usesSchoolYears={features.usesSchoolYears}
                 onChange={editReceivable}
                 onReason={(reason) => setReceivableEdit({ ...receivableEdit, reason })}
                 field={(name) => field("receivable", name)}
@@ -5774,7 +5825,7 @@ export function FinanceWorkspace({
                       )}
                     </select>
                   </label>
-                  {!templateDialog.lineId && <small className="muted" id="template-receivable-hint">{isClassRun(run) ? "Chỉ khoản thu linh hoạt đang áp dụng. Khoản Dịch vụ thu theo nhóm dịch vụ." : "Chỉ khoản thu linh hoạt đang áp dụng. Khoản Ngoại khóa thu theo lớp ngoại khóa."}</small>}
+                  {!templateDialog.lineId && <small className="muted" id="template-receivable-hint">{isClassRun(run) ? "Chỉ khoản thu linh hoạt đang áp dụng. Khoản cố định của lớp được tự thêm khi mở đợt; khoản Dịch vụ thu theo nhóm dịch vụ." : "Chỉ khoản thu linh hoạt đang áp dụng. Khoản Ngoại khóa thu theo lớp ngoại khóa."}</small>}
                   {errors.receivableId && <small role="alert">{errors.receivableId}</small>}
                 </div>
                 <div>
@@ -5818,7 +5869,13 @@ export function FinanceWorkspace({
                   ))}
                 </fieldset>
                 {templateDialog.kind === "FIXED" && (
-                  <small className="muted full">Khoản thu cố định luôn áp dụng cho toàn bộ học sinh.</small>
+                  <small className="muted full">
+                    Khoản thu cố định giữ phạm vi lúc mở đợt
+                    {templateDialog.scopeType === "CLASSES"
+                      ? `: ${(run?.templateLines ?? []).find((line) => line.id === templateDialog.lineId)?.scope?.classes.map((item) => item.name).join(", ") ?? ""}`
+                      : ""}
+                    . Đổi lớp áp dụng ở trang Khoản thu cho các đợt mở sau.
+                  </small>
                 )}
                 {templateDialog.scopeType === "CLASSES" && templateDialog.kind !== "FIXED" && (
                   <fieldset className="chip-group full">
