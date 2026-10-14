@@ -44,7 +44,7 @@ Học sinh **đã có cùng khoản thu đó** trên hóa đơn của một đ�
 
 ## Phát hành
 
-Ở khung **Rà soát trước khi phát hành**, kiểm tra tài khoản nhận cho từng phần (chọn sẵn theo tài khoản mặc định của lớp), rồi bấm `Phát hành phiếu thu` (hoặc `Phát hành hóa đơn` nếu chỉ có một phần). Hộp xác nhận nhắc lại tổng tiền đã gồm thuế; bấm phát hành để hoàn tất. Hai phần được phát hành cùng lúc.
+Ở khung **Rà soát trước khi phát hành**, kiểm tra tài khoản nhận cho từng phần (chọn sẵn theo tài khoản mặc định của lớp), rồi bấm `Phát hành phiếu thu` (hoặc `Phát hành hóa đơn` nếu chỉ có một phần). Hộp xác nhận hiện tên học sinh, lớp, các dòng của từng phần và **Tổng cần thu** (đã gồm thuế GTGT), cùng tài khoản nhận của từng phần (vẫn đổi được tại đây). Kiểm tra lần cuối rồi bấm phát hành để hoàn tất. Hai phần được phát hành cùng lúc.
 
 ![Khung rà soát trước khi phát hành](tt-hoa-don-ra-soat-phat-hanh.jpg)
 

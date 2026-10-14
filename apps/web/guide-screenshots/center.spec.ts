@@ -1,80 +1,15 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { expect, test } from '@playwright/test';
+import { dialog, dismiss, generate, go, issue, login, openRun, openSchool, receive, region, runInvoices, seed, shooter } from './helpers';
 
 // Drives the synthetic "Trung tâm Anh ngữ Hoa Mai" through a realistic sequence of units and saves the screenshots
 // that the language-center guides (src/guides/articles/trung-tam) embed. Everything shown is invented demo data.
-const api = `http://localhost:${process.env.E2E_API_PORT ?? '6001'}`;
-const out = resolve(import.meta.dirname, '../public/guides');
 const center = 'Trung tâm Anh ngữ Hoa Mai';
-
-async function shot(target: Locator | Page, name: string) {
-  await (target as Locator).screenshot({ path: `${out}/tt-${name}.jpg`, type: 'jpeg', quality: 85, animations: 'disabled', caret: 'hide' });
-}
-async function login(page: Page) {
-  const start = await page.context().request.get(`${api}/api/app/auth/google/start`, { maxRedirects: 0 });
-  const authorizationUrl = new URL(start.headers().location!);
-  const nonce = authorizationUrl.searchParams.get('nonce')!;
-  const code = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', sub: 'guide-demo-admin', email: 'guide-demo-admin@example.com', email_verified: true, aud: authorizationUrl.searchParams.get('client_id'), nonce, exp: Math.ceil(Date.now() / 1000) + 600 })).toString('base64url');
-  const callback = await page.context().request.get(`${api}/api/app/auth/google/callback?state=${encodeURIComponent(authorizationUrl.searchParams.get('state')!)}&code=${encodeURIComponent(code)}`, { maxRedirects: 0 });
-  expect(callback.status()).toBe(302);
-}
-const nav = (page: Page) => page.getByRole('navigation', { name: 'Điều hướng quản trị và nhân sự' });
-async function go(page: Page, group: 'Danh bộ' | 'Tài chính' | 'Cấu hình trường', item: string) {
-  const toggle = nav(page).getByRole('button', { name: new RegExp(`^${group}`) });
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
-  await nav(page).getByRole('button', { name: item, exact: true }).click();
-}
-const region = (page: Page, name: string | RegExp) => page.getByRole('region', { name });
-const runInvoices = (page: Page) => page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' });
-async function openRun(page: Page, title: string) {
-  await go(page, 'Tài chính', 'Đợt thu');
-  await page.getByRole('button', { name: `Tùy chọn cho đợt thu ${title}` }).click();
-  await page.getByRole('menuitem', { name: 'Mở chi tiết' }).click();
-  await expect(page.getByRole('heading', { name: new RegExp(`^${title} · `), level: 1 })).toBeVisible();
-}
-async function generate(page: Page, students: number) {
-  await page.getByRole('button', { name: 'Xem trước từ máy chủ' }).click();
-  await expect(page.getByRole('heading', { name: 'Kết quả xem trước từ máy chủ' })).toBeVisible();
-  await page.getByRole('button', { name: 'Xác nhận xem trước và chuyển sẵn sàng' }).click();
-  await page.getByRole('button', { name: 'Tạo hóa đơn nháp' }).click();
-  await page.getByRole('button', { name: new RegExp(`Tạo hóa đơn nháp cho ${students} học sinh`) }).click();
-  await expect(page.getByRole('heading', { name: 'Kết quả tạo hóa đơn từ máy chủ' })).toBeVisible({ timeout: 30_000 });
-}
-// Issues the invoice on screen and moves on to the next draft when asked.
-async function issue(page: Page, next: boolean, confirmShot?: string) {
-  const review = page.getByRole('region', { name: /^Rà soát hóa đơn / });
-  await review.getByRole('button', { name: /^Phát hành (phiếu thu|hóa đơn)$/ }).click();
-  const confirm = page.getByRole('dialog', { name: /^Phát hành / });
-  if (confirmShot) await shot(confirm, confirmShot);
-  await confirm.getByRole('button', { name: /^Phát hành / }).click();
-  await expect(confirm).toBeHidden();
-  if (next) await review.getByRole('button', { name: /^Học sinh kế tiếp/ }).click();
-}
-async function receive(page: Page, student: string, channel: 'trường' | 'cá nhân', amount?: string, dialogShot?: string) {
-  const queue = page.getByRole('table', { name: 'Hóa đơn chờ thu' });
-  await queue.getByRole('button', { name: `Tùy chọn cho ${student} · Tài khoản ${channel}` }).first().click();
-  await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
-  const receipt = page.getByRole('dialog', { name: new RegExp(`^Ghi thực nhận · .*${student}$`) });
-  if (amount) await receipt.getByLabel('Số thực nhận (đ)').fill(amount);
-  if (dialogShot) await shot(receipt, dialogShot);
-  await receipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).click();
-  await expect(receipt).toBeHidden();
-}
-const dialog = (page: Page, name: string | RegExp) => page.getByRole('dialog', { name });
-// Dialogs here ignore Escape; leave through their own cancel button.
-async function dismiss(page: Page) {
-  await page.getByRole('dialog').last().getByRole('button', { name: /^(Hủy|Đóng)$/ }).first().click();
-}
+const shot = shooter('tt-');
 
 test('language center guide screenshots', async ({ page }) => {
-  execFileSync('npx', ['tsx', 'scripts/seed-guide-demo-center.ts'], { cwd: resolve(import.meta.dirname, '../../api'), stdio: 'inherit', env: { ...process.env, DATABASE_URL: process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL } });
-  await login(page);
-  // Leaving a form that was only filled for a screenshot asks to discard it; always discard.
-  await page.addLocatorHandler(page.getByRole('dialog', { name: 'Rời không gian làm việc?' }), async (prompt) => { await prompt.getByRole('button', { name: 'Bỏ thay đổi' }).click(); });
-  await page.goto('/');
-  await page.getByRole('table', { name: 'Danh sách trường được cấp quyền' }).getByRole('row', { name: new RegExp(`^${center}`) }).getByRole('button', { name: 'Mở trường' }).click();
-  await expect(page.getByRole('heading', { name: 'Tổng quan vận hành', level: 1 })).toBeVisible();
+  seed('seed-guide-demo-center.ts');
+  await login(page, 'guide-demo-admin', 'guide-demo-admin@example.com');
+  await openSchool(page, center);
 
   await test.step('settings', async () => {
     await go(page, 'Cấu hình trường', 'Cấu hình chung');
@@ -210,7 +145,7 @@ test('language center guide screenshots', async ({ page }) => {
     await expect(page.getByRole('region', { name: /^Rà soát hóa đơn / })).toBeVisible();
     await shot(region(page, 'Chi tiết hóa đơn'), 'hoa-don-chi-tiet');
     await shot(page.getByRole('complementary', { name: 'Rà soát trước khi phát hành' }), 'hoa-don-ra-soat-phat-hanh');
-    for (let index = 0; index < 5; index += 1) await issue(page, true, index === 0 ? 'hoa-don-xac-nhan-phat-hanh' : undefined);
+    for (let index = 0; index < 5; index += 1) await issue(page, true, index === 0 ? (target) => shot(target, 'hoa-don-xac-nhan-phat-hanh') : undefined);
     await issue(page, false);
     await shot(page.getByRole('complementary', { name: 'Thanh toán' }), 'hoa-don-thanh-toan');
     await page.getByRole('button', { name: 'Xem ảnh hóa đơn' }).first().click();
@@ -228,7 +163,7 @@ test('language center guide screenshots', async ({ page }) => {
     await shot(page.getByRole('table', { name: 'Hóa đơn chờ thu' }), 'thu-tien-danh-sach');
     for (const student of ['Nguyễn Minh Anh', 'Trần Gia Bảo', 'Lê Khánh Chi', 'Hoàng Bảo Ngọc', 'Vũ Hải Đăng']) await receive(page, student, 'trường');
     await receive(page, 'Nguyễn Minh Anh', 'cá nhân');
-    await receive(page, 'Trần Gia Bảo', 'cá nhân', '3300000', 'thu-tien-ghi-thieu');
+    await receive(page, 'Trần Gia Bảo', 'cá nhân', '3300000', (target) => shot(target, 'thu-tien-ghi-thieu'));
     await shot(page.locator('section.receipt-result'), 'thu-tien-ghi-thieu-ket-qua');
     await receive(page, 'Lê Khánh Chi', 'cá nhân');
     await receive(page, 'Hoàng Bảo Ngọc', 'cá nhân');

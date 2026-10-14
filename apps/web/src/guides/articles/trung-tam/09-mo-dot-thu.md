@@ -4,7 +4,7 @@ summary: Mở đợt thu cho một lớp theo tên và ngày của kỳ, kiểm 
 order: 9
 requires: collection-runs
 ---
-Mở `Tài chính › Đợt thu`. Danh sách có cột `Lớp`, `Tên đợt`, `Kỳ`, `Trạng thái` và `Đã thu / Phải thu (đ)`; lọc theo trạng thái ở ô `Lọc trạng thái`. Một đợt thu đi qua 4 bước: **Nháp → Sẵn sàng tạo hóa đơn → Đã tạo hóa đơn → Đã đóng**.
+Mở `Tài chính › Đợt thu`. Danh sách có cột `Lớp`, `Tên đợt`, `Kỳ`, `Trạng thái` và `Đã thu / Phải thu (đ)`; lọc theo trạng thái ở ô `Lọc trạng thái`, bấm vào tên đợt để mở. Cột `Đã thanh toán` là số học sinh đã thanh toán đủ / số học sinh có hóa đơn; đầu trang chi tiết đợt thu cũng hiện các số này. Một đợt thu đi qua 4 bước: **Nháp → Sẵn sàng tạo hóa đơn → Đã tạo hóa đơn → Đã đóng**.
 
 ![Danh sách đợt thu của nhiều lớp, mỗi lớp một chuỗi kỳ](tt-dot-thu-danh-sach.jpg)
 

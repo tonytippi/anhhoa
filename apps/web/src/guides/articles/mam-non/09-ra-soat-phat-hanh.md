@@ -26,7 +26,7 @@ Hóa đơn nháp sửa trực tiếp trên bảng như bảng tính:
 2. Khi đổi đơn giá, nhập **Lý do đổi đơn giá**. Khi phần bớt khác số hệ thống đề xuất, nhập **Lý do sửa phần bớt** (hoặc bấm `Dùng số đề xuất` để quay về số gợi ý).
 3. Số in nghiêng là số dự kiến do hệ thống tính lại, chưa lưu. Bấm `Lưu thay đổi` (hoặc `Hoàn tác`).
 
-![Sửa phần bớt tiền ăn 2 ngày nghỉ ốm, kèm lý do](hoa-don-sua-bot.jpg)
+![Bớt tiền ăn 3 ngày: 2 ngày nghỉ có phép và 1 ngày phụ huynh báo sau, kèm lý do](hoa-don-sua-bot.jpg)
 
 Các thao tác khác: `Thêm dòng` để thêm khoản phát sinh riêng cho học sinh này, `Xóa` để bỏ một dòng, `Nguồn` để ghi chú căn cứ (ngày dịch vụ, điểm danh, giờ đón, số phút trông muộn).
 
@@ -38,7 +38,7 @@ Các thao tác khác: `Thêm dòng` để thêm khoản phát sinh riêng cho h�
 
 ![Khung rà soát trước khi phát hành](hoa-don-ra-soat-phat-hanh.jpg)
 
-Hộp xác nhận nhắc lại tổng tiền đã gồm thuế. Bấm phát hành để hoàn tất. Hai phần được phát hành cùng lúc.
+Hộp xác nhận hiện tên học sinh, lớp, các dòng của từng phần và **Tổng cần thu** (đã gồm thuế GTGT), cùng tài khoản nhận của từng phần (vẫn đổi được tại đây). Kiểm tra lần cuối rồi bấm phát hành để hoàn tất. Hai phần được phát hành cùng lúc.
 
 ![Xác nhận phát hành phiếu thu](hoa-don-xac-nhan-phat-hanh.jpg)
 
@@ -63,7 +63,7 @@ Trên hóa đơn nháp, mục `Quản lý ưu đãi nộp trước` cho phép ch
 
 ![Gói 3 tháng đã áp dụng: từng tháng và phần giảm](hoa-don-nop-truoc.jpg)
 
-Dòng khoản thu của gói chuyển thành **đủ số tháng** (ví dụ Học phí 3 tháng = 10.500.000 đ, ưu đãi 525.000 đ). Gói tự gắn vào đúng phần của phiếu thu theo tài khoản nhận của khoản thu (học phí "Không kê khai" → phần tài khoản cá nhân), dù bạn đang mở phần nào.
+Dòng khoản thu của gói chuyển thành **đủ số tháng** (ví dụ Học phí Chồi 3 tháng = 10.200.000 đ, ưu đãi 510.000 đ). Gói tự gắn vào đúng phần của phiếu thu theo tài khoản nhận của khoản thu (học phí "Không kê khai" → phần tài khoản cá nhân), dù bạn đang mở phần nào.
 
 ![Học phí thu đủ 3 tháng của gói trên phần tài khoản cá nhân](hoa-don-nop-truoc-dong.jpg)
 

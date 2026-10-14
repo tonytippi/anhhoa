@@ -18,8 +18,9 @@ Mở `Tài chính › Thu tiền`. Bảng liệt kê **hóa đơn chờ thu** v�
 ## Ghi thực nhận
 
 1. Bấm `...` ở dòng hóa đơn, chọn `Ghi thực nhận`.
-2. `Số thực nhận (đ)` điền sẵn bằng số còn phải thu. Sửa lại nếu phụ huynh chuyển khác số.
-3. Bấm `Xác nhận ghi thực nhận`.
+2. Hộp ghi thực nhận hiện học sinh, mã hóa đơn, khung **Tiền vào tài khoản** (tô đậm ngân hàng và số tài khoản nhận) và các dòng hóa đơn với số **Cần thu**. Đối chiếu tài khoản này với sao kê đang xem trước khi ghi.
+3. `Số thực nhận (đ)` điền sẵn bằng số còn phải thu. Sửa lại nếu phụ huynh chuyển khác số.
+4. Bấm `Xác nhận ghi thực nhận`.
 
 ![Ghi thực nhận khi phụ huynh chuyển thiếu](thu-tien-ghi-thieu.jpg)
 

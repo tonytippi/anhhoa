@@ -9,7 +9,7 @@ Hóa đơn đã phát hành không sửa và không hủy trực tiếp. Cách d
 ## Các bước
 
 1. Mở hóa đơn đã phát hành (`Rà soát hóa đơn` trong đợt thu).
-2. Ở khung **Thanh toán**, bấm `Chuẩn bị bản điều chỉnh`.
+2. Ở cuối khung **Thanh toán**, dòng "Cần sửa hóa đơn đã phát hành?", bấm liên kết `Chuẩn bị bản điều chỉnh`.
 3. Nếu phiếu thu có hai phần, chọn **Phần cần điều chỉnh** — chỉ phần được chọn bị thay thế, phần kia giữ nguyên (kể cả khi đã thu tiền).
 4. Nhập `Lý do điều chỉnh` và bấm `Chuẩn bị bản điều chỉnh`.
 

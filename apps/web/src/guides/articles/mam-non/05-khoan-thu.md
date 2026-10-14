@@ -65,7 +65,7 @@ Bấm `...` ở cột `Tùy chọn` của dòng, chọn `Chỉnh sửa`.
 
 Sửa thông tin cần thiết, nhập `Lý do` (bắt buộc) rồi bấm `Lưu thay đổi`.
 
-![Sửa khoản Tiền ăn sang giá theo ngày](khoan-thu-sua.jpg)
+![Sửa giá Tiền ăn, kèm lý do](khoan-thu-sua.jpg)
 
 - Hóa đơn **đã tạo** giữ nguyên tên, đơn vị, giá và mức thuế lúc tạo.
 - Giá mới chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó. Nếu đợt thu tháng này còn ở trạng thái nháp, hãy `Xem trước từ máy chủ` lại.
