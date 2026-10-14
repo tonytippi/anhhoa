@@ -138,7 +138,6 @@ export function ReceiptQueueWorkspace({
   const [actual, setActual] = useState("");
   const [pending, setPending] = useState<string>();
   const [result, setResult] = useState<Closed>();
-  const [next, setNext] = useState<Row>();
   const [message, setMessage] = useState("");
   const active = useRef(schoolId);
   const generation = useRef(0);
@@ -202,20 +201,15 @@ export function ReceiptQueueWorkspace({
     generation.current += 1;
     setDetail(undefined);
     setResult(undefined);
-    setNext(undefined);
   };
   const finished = async (closed: Closed, expected: number) => {
     if (expected !== generation.current) return;
     setDetail(undefined);
     setResult(closed);
     try {
-      const refreshed = await load(undefined, true, expected);
-      if (expected === generation.current) setNext(refreshed?.invoices.find((row) => row.id !== closed.id));
+      await load(undefined, true, expected);
     } catch {
-      if (expected === generation.current) {
-        setNext(undefined);
-        setMessage("Đã ghi thực nhận; chưa thể tải lại hàng đợi mới nhất.");
-      }
+      if (expected === generation.current) setMessage("Đã ghi thực nhận; chưa thể tải lại hàng đợi mới nhất.");
     }
   };
   const reconcile = async (operationId: string, expected = generation.current) => {
@@ -284,7 +278,7 @@ export function ReceiptQueueWorkspace({
     if (detail) dialogRef.current?.querySelector<HTMLInputElement>("input")?.focus();
     else if (trigger.current?.isConnected) trigger.current.focus();
   }, [detail]);
-  // The outcome renders below a possibly long queue: bring it (and "Hóa đơn tiếp theo") into view.
+  // Receipts are recorded one bank transfer at a time: the outcome sits above the refreshed queue, not a next-Invoice prompt.
   useEffect(() => {
     if (result) resultHeading.current?.focus();
   }, [result]);
@@ -400,6 +394,48 @@ export function ReceiptQueueWorkspace({
         riêng.
       </p>
       {message && <p role="alert">{message}</p>}
+      {result && result.payout && (
+        <section aria-labelledby="receipt-result-title">
+          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
+            Đã ghi nhận chi hoàn
+          </h3>
+          <p>
+            Đã chi {vnd(result.payout.amount)} đ ngày {result.payout.paidOn.split("-").reverse().join("/")} ·{" "}
+            {result.payout.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"} · {result.payout.reference}.
+          </p>
+        </section>
+      )}
+      {result && result.receipt && (
+        <section aria-labelledby="receipt-result-title">
+          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
+            Kết quả ghi thực nhận
+          </h3>
+          <p>Thực nhận: {vnd(result.receipt.actualAmount)} đ.</p>
+          <p>Kết quả máy chủ: {outcome(result.receipt.outcome)}.</p>
+          <p>Chênh lệch: {vnd(result.receipt.difference?.signedAmount ?? "0")} đ.</p>
+          <p>
+            {(result.carries ?? []).length
+              ? (result.carries ?? [])
+                  .map(
+                    (carry) =>
+                      `${carry.type === "SHORTFALL_CARRY" ? "Khoản thu thiếu chuyển kỳ" : "Khoản thu thừa khấu trừ kỳ sau"}: ${vnd(carry.amount)} đ.`,
+                  )
+                  .join(" ")
+              : "Trạng thái chuyển kỳ: Máy chủ chưa tạo khoản chuyển kỳ cho hóa đơn này."}
+          </p>
+          <p>
+            {(result.coverageFacts ?? []).length
+              ? (result.coverageFacts ?? [])
+                  .map((fact) =>
+                    fact.issuedAt
+                      ? `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} đã phát hành.`
+                      : `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} chưa phát hành.`,
+                  )
+                  .join(" ")
+              : "Ưu đãi nộp trước: Không có ưu đãi áp dụng."}
+          </p>
+        </section>
+      )}
       <form
         className="roster-list-filters"
         aria-label="Lọc hóa đơn chờ thu"
@@ -693,58 +729,6 @@ export function ReceiptQueueWorkspace({
             </div>
           </div>
         </>
-      )}
-      {result && result.payout && (
-        <section aria-labelledby="receipt-result-title">
-          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
-            Đã ghi nhận chi hoàn
-          </h3>
-          <p>
-            Đã chi {vnd(result.payout.amount)} đ ngày {result.payout.paidOn.split("-").reverse().join("/")} ·{" "}
-            {result.payout.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"} · {result.payout.reference}.
-          </p>
-          {next && (
-            <button type="button" onClick={() => void open(next)}>
-              Hóa đơn tiếp theo
-            </button>
-          )}
-        </section>
-      )}
-      {result && result.receipt && (
-        <section aria-labelledby="receipt-result-title">
-          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
-            Kết quả ghi thực nhận
-          </h3>
-          <p>Thực nhận: {vnd(result.receipt.actualAmount)} đ.</p>
-          <p>Kết quả máy chủ: {outcome(result.receipt.outcome)}.</p>
-          <p>Chênh lệch: {vnd(result.receipt.difference?.signedAmount ?? "0")} đ.</p>
-          <p>
-            {(result.carries ?? []).length
-              ? (result.carries ?? [])
-                  .map(
-                    (carry) =>
-                      `${carry.type === "SHORTFALL_CARRY" ? "Khoản thu thiếu chuyển kỳ" : "Khoản thu thừa khấu trừ kỳ sau"}: ${vnd(carry.amount)} đ.`,
-                  )
-                  .join(" ")
-              : "Trạng thái chuyển kỳ: Máy chủ chưa tạo khoản chuyển kỳ cho hóa đơn này."}
-          </p>
-          <p>
-            {(result.coverageFacts ?? []).length
-              ? (result.coverageFacts ?? [])
-                  .map((fact) =>
-                    fact.issuedAt
-                      ? `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} đã phát hành.`
-                      : `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} chưa phát hành.`,
-                  )
-                  .join(" ")
-              : "Ưu đãi nộp trước: Không có ưu đãi áp dụng."}
-          </p>
-          {next && (
-            <button type="button" onClick={() => void open(next)}>
-              Hóa đơn tiếp theo
-            </button>
-          )}
-        </section>
       )}
     </section>
   );

@@ -300,10 +300,11 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     expect((await reconciledQueueRefresh).status()).toBe(200);
     await expect(page.getByRole('heading', { name: 'Kết quả ghi thực nhận' })).toBeVisible();
     expect(receiptPosts).toBe(1);
-    const nextReceipt = page.getByRole('button', { name: 'Hóa đơn tiếp theo' });
-    await expect(nextReceipt).toBeVisible();
-    await expect(nextReceipt).toBeInViewport();
-    await nextReceipt.click();
+    // Back on the refreshed queue: no next-Invoice prompt, Finance picks the next transfer from the list.
+    await expect(page.getByRole('heading', { name: 'Kết quả ghi thực nhận' })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Hóa đơn tiếp theo' })).toHaveCount(0);
+    await receiptQueue.getByRole('button', { name: /^Tùy chọn cho Bé Bình · / }).click();
+    await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
     const secondQueueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận · .* Bé Bình$/ });
     await expect(secondQueueReceipt).toBeVisible();
     expect(receiptPosts).toBe(1);
