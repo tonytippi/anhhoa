@@ -256,6 +256,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
       { id: personalAccount, kind: "PERSONAL", bankCode: "VCB", accountHolderName: "Chủ 215000002088", accountNumber: "215000002088" },
     ]);
     expect(issued.summary).toMatchObject({ noticeCount: 2, issuedNoticeCount: 2 });
+    // The run list carries the collection figures: owed, received and fully settled notices.
+    const listed: any = (await finance.runs(current.identity.id, current.school.id) as any).runs.find((item: any) => item.id === runId);
+    expect(listed.summary).toMatchObject({ receivableTotal: issued.notices.reduce((sum: bigint, notice: any) => sum + BigInt(notice.total), 0n).toString(), collectedTotal: "1100000", settledNoticeCount: 0, noticeCount: 2 });
 
     // Receipt queue: one row per channel Invoice, a Student's parts adjacent with the School account first.
     const queue: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09" });

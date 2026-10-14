@@ -2332,7 +2332,7 @@ export class FinanceService {
     coverageSelections: { select: { studentId: true, versionId: true, billingMonth: true }, orderBy: [{ studentId: "asc" }, { billingMonth: "asc" }, { versionId: "asc" }] },
     templateLines: { include: { receivable: { include: { lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 }, group: true } }, scopeClasses: { include: { classroom: { select: { name: true } } } }, scopeStudents: { include: { student: { select: { studentCode: true, fullName: true } } } } }, orderBy: { id: "asc" } },
     invoices: {
-      select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true, channel: true, kind: true, revisesInvoiceId: true, bankAccountIdSnapshot: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true },
+      select: { id: true, studentId: true, studentCodeSnapshot: true, studentNameSnapshot: true, classNameSnapshot: true, status: true, total: true, channel: true, kind: true, revisesInvoiceId: true, bankAccountIdSnapshot: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true, receipt: { select: { actualAmount: true } } },
       orderBy: [{ studentCodeSnapshot: "asc" }, { channel: "asc" }, { id: "asc" }],
     },
     lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 },
@@ -2373,6 +2373,8 @@ export class FinanceService {
   // Overview totals are summed here from BIGINT columns so Finance clients never add money themselves.
   private invoiceSummary(invoices: any[]) {
     const effective = invoices.filter((invoice) => invoice.status !== "CANCELLED");
+    // A revision DRAFT is not effective until issued: its ISSUED source still carries the obligation.
+    const live = effective.filter((invoice) => !(invoice.revisesInvoiceId && invoice.status === "DRAFT"));
     const notices = this.runNotices(invoices).filter((notice) => notice.status !== "CANCELLED");
     return {
       invoiceCount: effective.length,
@@ -2380,6 +2382,10 @@ export class FinanceService {
       invoiceTotal: effective.reduce((total: bigint, invoice) => total + BigInt(invoice.total), 0n).toString(),
       noticeCount: notices.length,
       issuedNoticeCount: notices.filter((notice) => notice.status !== "DRAFT").length,
+      // Run list collection figures: money owed by parents (refund parts excluded), money actually received, fully settled notices.
+      receivableTotal: live.reduce((total: bigint, invoice) => total + (BigInt(invoice.total) > 0n ? BigInt(invoice.total) : 0n), 0n).toString(),
+      collectedTotal: live.reduce((total: bigint, invoice) => total + BigInt(invoice.receipt?.actualAmount ?? 0), 0n).toString(),
+      settledNoticeCount: notices.filter((notice) => notice.status === "COMPLETED").length,
     };
   }
   // Decision 2026-10-05: the run list shows one payment notice per Student (all their Invoices in the run).

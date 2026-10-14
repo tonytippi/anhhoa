@@ -64,7 +64,7 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
     vi.stubGlobal("fetch", listFetch(() => response({})));
     render(<FinanceWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" features={centerFeatures} page="collection-runs" denied={vi.fn()} />);
     const table = await screen.findByRole("table", { name: "Danh sách đợt thu của Anh ngữ Sao Mai" });
-    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Lớp", "Tên đợt", "Kỳ", "Trạng thái", "Tùy chọn"]);
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Lớp", "Tên đợt", "Kỳ", "Trạng thái", "Đã thu / Phải thu (đ)", "Đã thanh toán", "Tùy chọn"]);
     const row = (await within(table).findByText("Movers B")).closest("tr")!;
     expect(within(row).getAllByRole("cell").slice(0, 4).map((cell) => cell.textContent)).toEqual(["Movers B", "Unit 6", "09/11/2026 – 02/01/2027", "Nháp"]);
     expect(within(table).getByText("Starters A").closest("tr")!.textContent).toContain("28/09/2026 – 21/11/2026");
@@ -227,9 +227,9 @@ describe("FinanceWorkspace · collection runs of a School-scoped School stay as 
     const onOpenRun = vi.fn();
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="collection-runs" onOpenRun={onOpenRun} denied={vi.fn()} />);
     const table = await screen.findByRole("table", { name: "Đợt thu theo trường" });
-    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Tháng", "Năm học", "Trạng thái", "Tùy chọn"]);
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Tháng", "Trạng thái", "Đã thu / Phải thu (đ)", "Đã thanh toán", "Tùy chọn"]);
     const row = (await within(table).findByText("09/2026")).closest("tr")!;
-    expect(within(row).getAllByRole("cell").slice(0, 3).map((cell) => cell.textContent)).toEqual(["09/2026", "Năm học 2026-2027", "Nháp"]);
+    expect(within(row).getAllByRole("cell").slice(0, 3).map((cell) => cell.textContent)).toEqual(["09/2026Năm học 2026-2027", "Nháp", "—"]);
     expect(screen.getByRole("button", { name: "Tùy chọn cho đợt thu 2026-09" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mở đợt thu" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Tạo đợt thu" }));

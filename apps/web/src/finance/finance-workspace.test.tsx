@@ -505,6 +505,17 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(await within(table).findByRole("button", { name: "09/2026" }));
     expect(onOpenRun).toHaveBeenCalledWith(run.id);
   });
+  it("shows server collection figures in the run list and a dash before invoices exist", async () => {
+    const generated = { ...run, id: "run-generated", billingMonth: "2026-10", status: "GENERATED" as const, summary: { invoiceCount: 3, issuedCount: 3, invoiceTotal: "879947000", noticeCount: 122, issuedNoticeCount: 122, receivableTotal: "879947000", collectedTotal: "769313000", settledNoticeCount: 114 } };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generated, run], meta: { nextCursor: null } }) : response(catalog))));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="collection-runs" onOpenRun={vi.fn()} denied={vi.fn()} />);
+    const table = await screen.findByRole("table", { name: "Đợt thu theo trường" });
+    const row = (await within(table).findByRole("button", { name: "10/2026" })).closest("tr")!;
+    expect(row.textContent).toContain("769.313.000 / 879.947.000");
+    expect(row.textContent).toContain("Học sinh đã thanh toán 114 / 122");
+    expect(within(table).getByRole("button", { name: "09/2026" }).closest("tr")!.textContent).toContain("——");
+    expect(within(table).queryByRole("columnheader", { name: "Năm học" })).toBeNull();
+  });
   it("keeps run validation beside dialog fields and clears a stale Draft queue on School switch or denied adjacent Invoice", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }, { id: "invoice-b", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [] };

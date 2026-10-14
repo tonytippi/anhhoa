@@ -260,6 +260,9 @@ type InvoiceSummary = {
   invoiceTotal: string;
   noticeCount?: number;
   issuedNoticeCount?: number;
+  receivableTotal?: string;
+  collectedTotal?: string;
+  settledNoticeCount?: number;
 };
 type Preview = {
   run: Run;
@@ -882,6 +885,38 @@ const lineEdit = (line: InvoiceLine, draft: LineDraft | undefined) => {
 // The server locks the lines of a part holding a prepaid package; remove the package to edit them.
 const lineEditable = (part: Invoice, line: InvoiceLine) =>
   part.status === "DRAFT" && line.receivableId !== null && (line.kind ?? "NORMAL") === "NORMAL" && !(part.coverageFacts ?? []).length;
+
+// Run list collection figures, all from the server summary: received over owed, and fully settled notices over all notices.
+function RunCollectionCells({ summary }: { summary?: InvoiceSummary }) {
+  if (!summary?.receivableTotal)
+    return (
+      <>
+        <td className="finance-money muted">—</td>
+        <td className="finance-money muted">—</td>
+      </>
+    );
+  const done = summary.noticeCount != null && summary.settledNoticeCount === summary.noticeCount && summary.noticeCount > 0;
+  return (
+    <>
+      <td className="finance-money finance-run-collection">
+        <b>{vnd(summary.collectedTotal ?? "0")}</b> / {vnd(summary.receivableTotal)}
+      </td>
+      <td className="finance-money">
+        <span
+          className={`finance-run-paid${done ? " finance-run-paid-done" : ""}`}
+          title="Số học sinh đã thanh toán đủ / tổng số học sinh có hóa đơn"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="4.5" r="2.5" fill="currentColor" />
+            <path d="M3 14c0-3 2.2-5 5-5s5 2 5 5H3Z" fill="currentColor" />
+          </svg>
+          <span className="sr-only">Học sinh đã thanh toán </span>
+          {summary.settledNoticeCount ?? 0} / {summary.noticeCount ?? 0}
+        </span>
+      </td>
+    </>
+  );
+}
 
 function InvoiceLinesTable({
   part,
@@ -3625,6 +3660,8 @@ export function FinanceWorkspace({
                     <th>Tên đợt</th>
                     <th>Kỳ</th>
                     <th>Trạng thái</th>
+                    <th className="finance-money">Đã thu / Phải thu (đ)</th>
+                    <th className="finance-money">Đã thanh toán</th>
                     <th>Tùy chọn</th>
                   </tr>
                 </thead>
@@ -3653,6 +3690,7 @@ export function FinanceWorkspace({
                             {runStatusLabel(item.status)}
                           </span>
                         </td>
+                        <RunCollectionCells summary={item.summary as InvoiceSummary | undefined} />
                         <td>
                           <AnchoredActionMenu
                             label={`Tùy chọn cho đợt thu ${runTitle(item)}`}
@@ -3670,7 +3708,7 @@ export function FinanceWorkspace({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
+                      <td colSpan={7}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
                     </tr>
                   )}
                 </tbody>
@@ -3683,8 +3721,9 @@ export function FinanceWorkspace({
               <thead>
                 <tr>
                   <th>Tháng</th>
-                  <th>Năm học</th>
                   <th>Trạng thái</th>
+                  <th className="finance-money">Đã thu / Phải thu (đ)</th>
+                  <th className="finance-money">Đã thanh toán</th>
                   <th>Tùy chọn</th>
                 </tr>
               </thead>
@@ -3701,10 +3740,10 @@ export function FinanceWorkspace({
                         >
                           {billingMonthLabel(item.billingMonth)}
                         </button>
-                      </td>
-                      <td>
-                        {(catalog?.schoolYears ?? []).find((year) => year.id === item.schoolYearId)?.name ??
-                          "Không xác định"}
+                        <small className="finance-run-year">
+                          {(catalog?.schoolYears ?? []).find((year) => year.id === item.schoolYearId)?.name ??
+                            "Năm học không xác định"}
+                        </small>
                       </td>
                       <td>
                         <span
@@ -3713,6 +3752,7 @@ export function FinanceWorkspace({
                           {runStatusLabel(item.status)}
                         </span>
                       </td>
+                      <RunCollectionCells summary={item.summary as InvoiceSummary | undefined} />
                       <td>
                         <AnchoredActionMenu
                           label={`Tùy chọn cho đợt thu ${item.billingMonth}`}
@@ -3730,7 +3770,7 @@ export function FinanceWorkspace({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
+                    <td colSpan={5}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
                   </tr>
                 )}
               </tbody>

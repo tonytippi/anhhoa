@@ -1801,6 +1801,13 @@ tbody tr:last-child td {
 }
 .school-context-workspace .finance-row-link:hover:not(:disabled) { border: 0; background: transparent; text-decoration-color: currentColor; }
 .school-context-workspace .finance-row-link:disabled { border: 0; background: transparent; color: #66746f; text-decoration: none; }
+.finance-run-year { display: block; margin-top: 2px; color: #66746f; font-size: 12px; }
+.finance-run-collection { white-space: nowrap; font-variant-numeric: tabular-nums; color: #4f5249; }
+.finance-run-collection b { color: #185d3d; }
+.finance-run-paid { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; color: #24261f; }
+.finance-run-paid svg { width: 14px; height: 14px; color: #2f6fb0; }
+.finance-run-paid-done svg { color: #247a51; }
+.school-context-workspace th.finance-money, .school-context-workspace td.finance-money { text-align: right; }
 .receipt-result {
   display: flex;
   align-items: flex-start;
