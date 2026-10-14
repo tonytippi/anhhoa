@@ -156,6 +156,7 @@ export class ParentsService {
           fullName: true,
           phone: true,
           emailNormalized: true,
+          userIdentityId: true,
           studentParents: {
             where: activeInYear,
             select: {
@@ -185,12 +186,17 @@ export class ParentsService {
         take: pageSize,
       }),
     ]);
+    const identityIds = profiles.map((profile) => profile.userIdentityId).filter((id): id is string => Boolean(id));
+    // Last use of this School only, so another School's activity of the same parent stays private.
+    const accesses = identityIds.length ? await this.prisma.schoolUserAccess.findMany({ where: { schoolId, userIdentityId: { in: identityIds } } }) : [];
+    const lastSeen = new Map(accesses.map((row) => [row.userIdentityId, row.lastSeenAt.toISOString()]));
     return {
       data: profiles.map((profile) => ({
         id: profile.id,
         fullName: profile.fullName,
         phone: profile.phone,
         email: profile.emailNormalized,
+        lastSeenAt: lastSeen.get(profile.userIdentityId ?? "") ?? null,
         children: profile.studentParents.map((link) => ({
           linkId: link.id,
           studentName: link.student.fullName,

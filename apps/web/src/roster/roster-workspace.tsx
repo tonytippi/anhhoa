@@ -1,3 +1,4 @@
+import { LastSeen } from "./last-seen";
 import {
   FormEvent,
   Fragment,
@@ -58,6 +59,7 @@ type ParentRow = {
   phone: string;
   email: string | null;
   children: Array<{ linkId: string; studentName: string; className: string | null; relationshipLabel: string }>;
+  lastSeenAt?: string | null;
 };
 type StudentDetail = RosterRow & {
   enrollments: Array<{ id: string; lifecycle: string; effectiveFrom: string; endedOn: string | null; classroom: { name: string } | null }>;
@@ -85,6 +87,7 @@ type Staff = {
   } | null;
   schoolMembershipId?: string | null;
   hasLoginAccess: boolean;
+  lastSeenAt?: string | null;
 };
 type StaffQuery = {
   q: string;
@@ -1964,11 +1967,12 @@ export function RosterWorkspace({
               <th>Lớp</th>
               <th>Chức danh chính</th>
               <th>Trạng thái</th>
+              <th>Truy cập gần nhất</th>
               <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {staffLoading ? <tr><td colSpan={8} role="status" className="student-empty-state">Đang tải danh sách nhân viên...</td></tr> : staff.length ? (
+            {staffLoading ? <tr><td colSpan={9} role="status" className="student-empty-state">Đang tải danh sách nhân viên...</td></tr> : staff.length ? (
               staff.map((item) => (
                 <tr key={item.id}>
                   <td>{(staffMeta.page - 1) * staffMeta.pageSize + staff.indexOf(item) + 1}</td>
@@ -1980,6 +1984,7 @@ export function RosterWorkspace({
                   <td>
                     {item.employmentStatus === 'ACTIVE' ? 'Đang hiệu lực' : 'Không hiệu lực'}
                   </td>
+                  <td><LastSeen value={item.lastSeenAt} empty={item.hasLoginAccess ? "Chưa truy cập" : "Chưa có quyền đăng nhập"} /></td>
                   <td className="roster-row-actions">
                     <button
                       ref={rowMenu === item.id ? rowMenuTrigger : undefined}
@@ -1996,10 +2001,10 @@ export function RosterWorkspace({
                 </tr>
               ))
             ) : staffLoadFailed ? (
-              <tr><td colSpan={8} role="status" className="student-empty-state"><strong>Không thể tải danh sách nhân viên</strong><span>Kiểm tra kết nối rồi thử làm mới danh sách.</span></td></tr>
+              <tr><td colSpan={9} role="status" className="student-empty-state"><strong>Không thể tải danh sách nhân viên</strong><span>Kiểm tra kết nối rồi thử làm mới danh sách.</span></td></tr>
             ) : (
               <tr>
-                <td colSpan={8} className="student-empty-state"><strong>Chưa có hồ sơ nhân sự</strong><span>Thay đổi điều kiện lọc hoặc thêm hồ sơ nhân viên đầu tiên.</span></td>
+                <td colSpan={9} className="student-empty-state"><strong>Chưa có hồ sơ nhân sự</strong><span>Thay đổi điều kiện lọc hoặc thêm hồ sơ nhân viên đầu tiên.</span></td>
               </tr>
             )}
           </tbody>
@@ -2990,17 +2995,18 @@ export function RosterWorkspace({
               </form>
               <div className="table-scroll student-list-table parent-list-table">
                 <table aria-label="Danh sách phụ huynh">
-                  <thead><tr><th>STT</th><th>Phụ huynh</th><th>Số điện thoại</th><th>Email</th><th>Con / lớp</th><th>Tùy chọn</th></tr></thead>
+                  <thead><tr><th>STT</th><th>Phụ huynh</th><th>Số điện thoại</th><th>Email</th><th>Con / lớp</th><th>Truy cập gần nhất</th><th>Tùy chọn</th></tr></thead>
                   <tbody>
-                    {rosterLoading ? <tr><td colSpan={6} role="status" className="student-empty-state">Đang tải danh sách phụ huynh...</td></tr>
+                    {rosterLoading ? <tr><td colSpan={7} role="status" className="student-empty-state">Đang tải danh sách phụ huynh...</td></tr>
                       : parents.length ? parents.map((item, index) => <tr key={item.id}>
                         <td>{(parentMeta.page - 1) * parentMeta.pageSize + index + 1}</td>
                         <th scope="row">{item.fullName}</th><td>{item.phone}</td><td>{item.email ?? "-"}</td>
                         <td><ul className="parent-children">{item.children.map((child) => <li key={child.linkId}>{child.studentName} · {child.className ?? "Chưa xếp lớp"} <span>({child.relationshipLabel})</span></li>)}</ul></td>
+                        <td><LastSeen value={item.lastSeenAt} /></td>
                         <td className="roster-row-actions"><button ref={rowMenu === item.id ? rowMenuTrigger : undefined} type="button" aria-label={`Tùy chọn cho ${item.fullName}`} aria-haspopup="menu" aria-expanded={rowMenu === item.id} onKeyDown={(event) => { if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) rowMenuKeyboardOpen.current = true; if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setRowMenu(item.id); } }} onClick={() => setRowMenu(rowMenu === item.id ? undefined : item.id)}>...</button>
                           {rowMenu === item.id && <div ref={rowMenuElement} className="roster-action-menu" role="menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setRowMenu(undefined); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setRowMenu(undefined); rowMenuTrigger.current?.focus(); } else if (event.key === "Tab") setRowMenu(undefined); }}><button type="button" role="menuitem" onClick={() => { parentDetailTrigger.current = rowMenuTrigger.current; setRowMenu(undefined); setParentDetail(item); }}>Xem chi tiết phụ huynh</button></div>}
                         </td>
-                      </tr>) : !rosterLoadFailed && <tr><td colSpan={6} className="student-empty-state"><strong>{usesSchoolYears ? "Chưa có phụ huynh liên kết trong năm học này" : "Chưa có phụ huynh liên kết"}</strong><span>Danh sách chỉ hiển thị liên kết đang hiệu lực.</span></td></tr>}
+                      </tr>) : !rosterLoadFailed && <tr><td colSpan={7} className="student-empty-state"><strong>{usesSchoolYears ? "Chưa có phụ huynh liên kết trong năm học này" : "Chưa có phụ huynh liên kết"}</strong><span>Danh sách chỉ hiển thị liên kết đang hiệu lực.</span></td></tr>}
                   </tbody>
                 </table>
               </div>

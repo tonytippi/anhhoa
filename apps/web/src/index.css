@@ -1586,6 +1586,8 @@ tbody tr:last-child td {
 .staff-list-table th:nth-child(5) { min-width: 200px; }
 .staff-list-table th:nth-child(6) { min-width: 140px; }
 .staff-list-table th:nth-child(7) { min-width: 120px; }
+.staff-list-table th:nth-child(8) { min-width: 150px; }
+.last-seen-empty { color: var(--muted, #6b7280); }
 .staff-email-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 .staff-class-cell { position: relative; }
 .staff-class-more {
@@ -1616,7 +1618,7 @@ tbody tr:last-child td {
 }
 .staff-class-popover li { padding: 3px 0; }
 .staff-contact { display: block; color: #5f746e; font-weight: 400; }
-.parent-list-table table { min-width: 860px; }
+.parent-list-table table { min-width: 1010px; }
 .parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }
 .parent-children span { color: #5f746e; }
 .staff-list-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: end; gap: 8px; }

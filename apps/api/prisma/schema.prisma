@@ -82,6 +82,7 @@ model School {
   invoicePayouts                    InvoicePayout[]
   extracurricularClasses            ExtracurricularClass[]
   extracurricularMemberships        ExtracurricularMembership[]
+  userAccesses                      SchoolUserAccess[]
 }
 
 enum ClassStatus {
@@ -627,6 +628,19 @@ model UserIdentity {
   parentProfile                ParentProfile?
   impersonationsStarted        Impersonation[]                         @relation("ImpersonationOperator")
   impersonationsReceived       Impersonation[]                         @relation("ImpersonationTarget")
+  schoolAccesses               SchoolUserAccess[]
+}
+
+// Last use of one School's portal data by a staff member or parent of that School; written only for real members,
+// so a School never learns when the same person used another School.
+model SchoolUserAccess {
+  schoolId       String       @db.Uuid
+  userIdentityId String       @db.Uuid
+  lastSeenAt     DateTime     @db.Timestamptz(3)
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  userIdentity   UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
+
+  @@id([schoolId, userIdentityId])
 }
 
 enum StudentParentStatus {
@@ -685,11 +699,11 @@ model OAuthTransaction {
 }
 
 model PlatformOperatorGrant {
-  id             String       @id @default(uuid()) @db.Uuid
-  userIdentityId String       @unique @db.Uuid
-  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
-  revokedAt      DateTime?    @db.Timestamptz(3)
-  userIdentity   UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
+  id             String          @id @default(uuid()) @db.Uuid
+  userIdentityId String          @unique @db.Uuid
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  revokedAt      DateTime?       @db.Timestamptz(3)
+  userIdentity   UserIdentity    @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   operations     Operation[]
   impersonations Impersonation[]
 }

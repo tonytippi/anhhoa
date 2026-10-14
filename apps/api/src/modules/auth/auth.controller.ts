@@ -37,6 +37,8 @@ export function sessionRefresh(auth: AuthService) {
         response.cookie(config.csrfCookieName, cookie(request, config.csrfCookieName) ?? randomBytes(32).toString('base64url'), sessionCookieOptions(selected, false, renewed.maxAge));
       }
     }
+    const school = /^schools\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i.exec(match[2]!);
+    if (school && identity && !impersonationId && selected !== 'ops') void auth.touchSchoolAccess(selected, identity.userIdentityId, school[1]!.toLowerCase());
     if (impersonationId) return runWithImpersonation(impersonationId, next);
     next();
   };

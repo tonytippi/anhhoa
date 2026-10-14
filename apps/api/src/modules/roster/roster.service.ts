@@ -533,6 +533,7 @@ export class RosterService {
         include: {
           primaryPosition: true,
           photo: { select: { id: true } },
+          schoolMembership: { select: { userIdentityId: true } },
           assignments: schoolYearId
             ? { where: { schoolId, schoolYearId, effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }] }, orderBy: { className: "asc" }, select: { className: true } }
             : false,
@@ -546,6 +547,7 @@ export class RosterService {
         take: pageSize,
       }),
     ]);
+    const lastSeen = await this.schoolLastSeen(schoolId, staff.map((item) => item.schoolMembership?.userIdentityId));
     return {
       data: staff.map((item) => ({
         id: item.id,
@@ -561,9 +563,16 @@ export class RosterService {
           ? { id: item.primaryPosition.id, code: item.primaryPosition.code, name: item.primaryPosition.name, status: item.primaryPosition.status }
           : null,
         hasLoginAccess: Boolean(item.schoolMembershipId),
+        lastSeenAt: lastSeen.get(item.schoolMembership?.userIdentityId ?? "") ?? null,
       })),
       meta: { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) },
     };
+  }
+  // Last use of this School only (SchoolUserAccess), keyed by sign-in identity.
+  private async schoolLastSeen(schoolId: string, identityIds: Array<string | null | undefined>) {
+    const ids = [...new Set(identityIds.filter((id): id is string => Boolean(id)))];
+    const rows = ids.length ? await this.prisma.schoolUserAccess.findMany({ where: { schoolId, userIdentityId: { in: ids } } }) : [];
+    return new Map(rows.map((row) => [row.userIdentityId, row.lastSeenAt.toISOString()]));
   }
   async staffProfile(identityId: string, schoolId: string, staffId: string) {
     await this.actor(identityId, schoolId);
