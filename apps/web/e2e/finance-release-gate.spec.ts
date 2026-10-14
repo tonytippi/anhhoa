@@ -279,7 +279,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await queueMenu.focus();
     await page.keyboard.press('ArrowDown');
     await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
-    const queueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận cho Bé An · / });
+    const queueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận · .* Bé An$/ });
     await expect(queueReceipt.getByLabel('Số thực nhận (đ)')).toHaveValue('135000');
     await expect(queueReceipt.getByLabel('Số thực nhận (đ)')).toBeFocused();
     await queueReceipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).focus();
@@ -304,7 +304,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await expect(nextReceipt).toBeVisible();
     await expect(nextReceipt).toBeInViewport();
     await nextReceipt.click();
-    const secondQueueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận cho Bé Bình · / });
+    const secondQueueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận · .* Bé Bình$/ });
     await expect(secondQueueReceipt).toBeVisible();
     expect(receiptPosts).toBe(1);
     await page.keyboard.press('Escape');

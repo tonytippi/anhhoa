@@ -39,6 +39,10 @@ type Detail = {
   obligationCode?: string | null;
   account?: ReceivingAccount | null;
   student: { code: string; name: string };
+  className?: string;
+  periodLabel?: string;
+  issuedTotal?: string;
+  lines?: Array<{ id: string; receivableName: string; unitLabel: string; quantity: number; amount: string }>;
   outstanding: string;
   direction?: Direction;
   status: "ISSUED";
@@ -590,19 +594,62 @@ export function ReceiptQueueWorkspace({
           <div className="dialog-backdrop" aria-hidden="true" />
           <div
             ref={dialogRef}
-            className="dialog"
+            className="dialog finance-confirm-dialog finance-issue-dialog"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="receipt-title"
+            aria-labelledby="receipt-title receipt-student"
             onKeyDown={trap}
           >
             <h3 id="receipt-title">
-              Ghi thực nhận cho {detail.student.name} · {accountTitle(detail)}
+              Ghi thực nhận · {detail.periodLabel ? detail.periodLabel.replace(/^Tháng /, "tháng ") : accountTitle(detail)}
             </h3>
-            <p>
-              {accountContext(detail)}. Nghĩa vụ do hệ thống xác nhận: {vnd(detail.outstanding)} đ. Kết quả thu thiếu,
-              đủ hoặc thừa do hệ thống quyết định và chỉ chuyển sang hóa đơn cùng tài khoản kỳ sau; hóa đơn của tài
-              khoản kia không thay đổi.
+            <div className="finance-issue-student">
+              <strong id="receipt-student">{detail.student.name}</strong>
+              <span>
+                {[detail.student.code, detail.className ? `Lớp ${detail.className}` : ""].filter(Boolean).join(" · ")}
+              </span>
+              <span>{accountContext(detail)}</span>
+            </div>
+            <div className="table-scroll">
+              <table className="finance-issue-lines">
+                <caption className="sr-only">Các khoản thu của hóa đơn</caption>
+                <thead>
+                  <tr>
+                    <th>Khoản thu</th>
+                    <th>Số lượng</th>
+                    <th className="finance-money">Thành tiền (đ)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detail.lines ?? []).map((line) => (
+                    <tr key={line.id}>
+                      <td>{line.receivableName}</td>
+                      <td>
+                        {line.quantity} {line.unitLabel}
+                      </td>
+                      <td className="finance-money">{vnd(line.amount)}</td>
+                    </tr>
+                  ))}
+                  {detail.issuedTotal && detail.issuedTotal !== detail.outstanding && (
+                    <tr className="finance-issue-subtotal">
+                      <td colSpan={2}>Tổng hóa đơn</td>
+                      <td className="finance-money">{vnd(detail.issuedTotal)}</td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th colSpan={2} scope="row">
+                      Cần thu <small>do hệ thống xác nhận</small>
+                    </th>
+                    <td className="finance-money">{vnd(detail.outstanding)} đ</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <p className="muted">
+              Thu thiếu, đủ hay thừa do hệ thống quyết định; phần chênh lệch chỉ chuyển sang hóa đơn cùng tài khoản kỳ
+              sau, hóa đơn của tài khoản kia không đổi.
             </p>
             <label>
               Số thực nhận (đ)

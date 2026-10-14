@@ -286,6 +286,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     expect(schoolOnly.invoices.map((row: any) => row.id)).toEqual([secondSchool.id]);
     const detail: any = await finance.receiptQueueDetail(current.identity.id, current.school.id, secondSchool.id);
     expect(detail).toMatchObject({ obligationCode: expect.stringMatching(/^OBL-/), account: { id: schoolAccount, kind: "SCHOOL", bankCode: "VCB" } });
+    expect(detail.className).toEqual(expect.any(String)); expect(detail.periodLabel).toBe("Tháng 09/2026");
+    expect(detail.lines.length).toBeGreaterThan(0); expect(detail.lines.reduce((sum: bigint, line: any) => sum + BigInt(line.amount), 0n).toString()).toBe(detail.issuedTotal);
     // An account of another School is refused, not silently ignored.
     await expect(finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", bankAccountId: foreignAccount })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { bankAccountId: expect.any(String) } } });
   });

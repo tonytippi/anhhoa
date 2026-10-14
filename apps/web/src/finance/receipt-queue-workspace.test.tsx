@@ -6,7 +6,7 @@ const schoolAccount = { id: "bank-school", kind: "SCHOOL" as const, bankCode: "V
 const personalAccount = { id: "bank-an", kind: "PERSONAL" as const, bankCode: "ABB", accountHolderName: "NGUYEN VAN AN", accountNumber: "215000002088" };
 const row = { id: "invoice-a", channel: "SCHOOL" as const, obligationCode: "OBL-202609-000123", account: schoolAccount, student: { code: "HS001", name: "Bé An" }, class: { id: "class-a", name: "Lá 1" }, schoolYearId: "year-a", billingMonth: "2026-09", issuedAt: "2026-09-01T00:00:00.000Z", outstanding: "120000", status: "ISSUED" as const };
 const queue = { invoices: [row], filters: { schoolYearId: null, billingMonth: "2026-09", classIdSnapshot: null, student: null }, meta: { nextCursor: null } };
-const detail = { id: "invoice-a", channel: "SCHOOL", obligationCode: "OBL-202609-000123", account: schoolAccount, status: "ISSUED", outstanding: "120000", student: { code: "HS001", name: "Bé An" } };
+const detail = { id: "invoice-a", channel: "SCHOOL", obligationCode: "OBL-202609-000123", account: schoolAccount, status: "ISSUED", outstanding: "120000", student: { code: "HS001", name: "Bé An" }, className: "Lá 1", periodLabel: "Tháng 09/2026", issuedTotal: "120000", lines: [{ id: "line-a", receivableName: "Học phí", unitLabel: "tháng", quantity: 1, amount: "120000" }] };
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
 
 const openReceiptMenu = async () => {
@@ -64,10 +64,12 @@ describe("ReceiptQueueWorkspace", () => {
     const receiptAction = screen.getByRole("menuitem", { name: "Ghi thực nhận" });
     expect(receiptAction.closest('[role="menu"]')?.parentElement?.parentElement?.parentElement).toBe(document.body);
     fireEvent.click(receiptAction);
-    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
+    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận · tháng 09/2026 Bé An" });
     expect(document.querySelector(".dialog-backdrop")).toBeTruthy();
-    expect(dialog.textContent).toContain("Hóa đơn OBL-202609-000123 · tài khoản trường VCB - TRUONG MN ANH HOA · 0123456789. Nghĩa vụ do hệ thống xác nhận: 120.000 đ.");
-    expect(dialog.textContent).toContain("hóa đơn của tài khoản kia không thay đổi.");
+    expect(dialog.textContent).toContain("Hóa đơn OBL-202609-000123 · tài khoản trường VCB - TRUONG MN ANH HOA · 0123456789");
+    expect(within(dialog).getByRole("row", { name: "Học phí 1 tháng 120.000" })).toBeTruthy();
+    expect(within(dialog).getByRole("row", { name: /Cần thu.*120\.000 đ/ })).toBeTruthy();
+    expect(dialog.textContent).toContain("hóa đơn của tài khoản kia không đổi.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
     expect(screen.getByText("Thực nhận: 120.000 đ.")).toBeTruthy();
@@ -93,7 +95,7 @@ describe("ReceiptQueueWorkspace", () => {
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openReceiptMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
-    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
+    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận · tháng 09/2026 Bé An" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByText("Số thực nhận không hợp lệ.");
     expect(screen.getByRole("dialog")).toBeTruthy();
@@ -165,7 +167,7 @@ describe("ReceiptQueueWorkspace", () => {
       await screen.findByText("HS001 / Bé An");
       await openReceiptMenu();
       fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
-      const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
+      const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận · tháng 09/2026 Bé An" });
       fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
       await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
     };

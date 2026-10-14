@@ -266,7 +266,7 @@ test('Admin runs a language center: staggered unit runs per class, a service, a 
   await expect(anQueueRow).toContainText('4.400.000 đ');
   await queue.getByRole('button', { name: /^Tùy chọn cho Học viên An · / }).click();
   await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
-  const receipt = page.getByRole('dialog', { name: /^Ghi thực nhận cho Học viên An · / });
+  const receipt = page.getByRole('dialog', { name: /^Ghi thực nhận · .* Học viên An$/ });
   await expect(receipt.getByLabel('Số thực nhận (đ)')).toHaveValue('4400000');
   const receiptPost = page.waitForResponse((response) => /\/finance\/invoices\/[^/]+\/receipt$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST');
   await receipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).click();
