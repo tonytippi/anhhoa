@@ -497,6 +497,14 @@ describe("FinanceWorkspace", () => {
     expect(await screen.findByRole("button", { name: "Học sinh trước" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Học sinh tiếp theo" })).toBeNull();
   });
+  it("opens a run in one click from its month in the run list", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [run], meta: { nextCursor: null } }) : response(catalog))));
+    const onOpenRun = vi.fn();
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="collection-runs" onOpenRun={onOpenRun} denied={vi.fn()} />);
+    const table = await screen.findByRole("table", { name: "Đợt thu theo trường" });
+    fireEvent.click(await within(table).findByRole("button", { name: "09/2026" }));
+    expect(onOpenRun).toHaveBeenCalledWith(run.id);
+  });
   it("keeps run validation beside dialog fields and clears a stale Draft queue on School switch or denied adjacent Invoice", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }, { id: "invoice-b", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [] };

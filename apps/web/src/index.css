@@ -1784,6 +1784,23 @@ tbody tr:last-child td {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+/* Run list: the month (or run name) opens the run in one click; the row menu keeps the same action. */
+.school-context-workspace .finance-row-link {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #185d3d;
+  font-size: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: #b7d9c5;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.school-context-workspace .finance-row-link:hover:not(:disabled) { border: 0; background: transparent; text-decoration-color: currentColor; }
+.school-context-workspace .finance-row-link:disabled { border: 0; background: transparent; color: #66746f; text-decoration: none; }
 .receipt-result {
   display: flex;
   align-items: flex-start;

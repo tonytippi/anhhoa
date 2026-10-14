@@ -3635,7 +3635,16 @@ export function FinanceWorkspace({
                         <td>
                           <b>{item.className ?? "—"}</b>
                         </td>
-                        <td>{item.name}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="finance-row-link"
+                            disabled={Boolean(pending)}
+                            onClick={() => onOpenRun?.(item.id) ?? chooseRun(item)}
+                          >
+                            {item.name}
+                          </button>
+                        </td>
                         <td>{runPeriod(item)}</td>
                         <td>
                           <span
@@ -3683,7 +3692,16 @@ export function FinanceWorkspace({
                 {runs.length ? (
                   runs.map((item) => (
                     <tr key={item.id}>
-                      <td>{billingMonthLabel(item.billingMonth)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="finance-row-link"
+                          disabled={Boolean(pending)}
+                          onClick={() => onOpenRun?.(item.id) ?? chooseRun(item)}
+                        >
+                          {billingMonthLabel(item.billingMonth)}
+                        </button>
+                      </td>
                       <td>
                         {(catalog?.schoolYears ?? []).find((year) => year.id === item.schoolYearId)?.name ??
                           "Không xác định"}
