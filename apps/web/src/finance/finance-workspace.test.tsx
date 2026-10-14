@@ -480,6 +480,26 @@ describe("FinanceWorkspace", () => {
     view.rerender(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     expect(await screen.findByRole("form", { name: "Điều khiển danh sách đợt thu" })).toBeTruthy();
   });
+  it("filters the run's invoices by Class and keeps the review queue inside that Class", async () => {
+    const students = [["invoice-a", fixtureStudentId, "HS001", "Bé An", "Lá 1"], ["invoice-b", "student-b", "HS002", "Bé Bình", "Chồi 1"], ["invoice-c", "student-c", "HS003", "Bé Chi", "Lá 1"]] as const;
+    const notice = ([invoiceId, studentId, studentCode, studentName, className]: (typeof students)[number]) => ({ invoiceId, studentId, studentCode, studentName, className, kind: "NORMAL", status: "DRAFT", settledParts: 0, partCount: 1, total: "100", parts: [{ id: invoiceId, channel: "PERSONAL", status: "DRAFT", total: "100", account: null }] });
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: students.map(([id, studentId, studentCode, studentName, className]) => ({ id, studentId, studentCode, studentName, className, status: "DRAFT", total: "100" })), notices: students.map(notice) };
+    const invoice = (id: string) => { const [, , code, name, className] = students.find((item) => item[0] === id)!; return { id, status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code, name, className }, lines: [] }; };
+    vi.stubGlobal("fetch", vi.fn((url: string) => { const opened = students.find(([id]) => url.includes(`/invoices/${id}`)); return Promise.resolve(opened ? response(invoice(opened[0])) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun], meta: { nextCursor: null } }) : response(catalog)); }));
+    render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await openRun();
+    const filter = await screen.findByLabelText("Lớp");
+    expect([...(filter as HTMLSelectElement).options].map((option) => option.textContent)).toEqual(["Tất cả lớp (3)", "Chồi 1 (1)", "Lá 1 (2)"]);
+    fireEvent.change(filter, { target: { value: "Lá 1" } });
+    const table = screen.getByRole("table", { name: "Hóa đơn hiện có trong đợt thu" });
+    expect(within(table).queryByText(/Bé Bình/)).toBeNull();
+    fireEvent.click(within(table).getAllByRole("button", { name: "Rà soát hóa đơn" })[0]!);
+    expect(await screen.findByText("Học sinh 1/2 · Lớp Lá 1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Học sinh tiếp theo" }));
+    expect(await screen.findByRole("region", { name: /Rà soát hóa đơn HS003/ })).toBeTruthy();
+    expect(screen.getByText("Học sinh 2/2 · Lớp Lá 1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Học sinh tiếp theo" })).toBeNull();
+  });
   it("uses a named run dialog and only exposes Draft navigation from the captured run order", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }, { id: "invoice-b", studentId: "student-b", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const invoice = (id: string, name: string, code: string) => ({ id, status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code, name, className: "Lá 1" }, lines: [] });

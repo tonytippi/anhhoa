@@ -1326,7 +1326,22 @@ export function FinanceWorkspace({
   const [openClass, setOpenClass] = useState(emptyClassRun);
   const [activeClasses, setActiveClasses] = useState<{ schoolId: string; classes?: RunClassOption[]; failed?: boolean }>();
   const [runDialog, setRunDialog] = useState(false);
-  const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[] }>();
+  const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[]; className?: string }>();
+  // Class filter of the run's invoice table; the review queue follows it so Finance works one Class at a time.
+  const [noticeClass, setNoticeClassState] = useState<{ runId: string; className: string }>();
+  const noticeClassRef = useRef(noticeClass);
+  const setNoticeClass = (value: { runId: string; className: string } | undefined) => {
+    noticeClassRef.current = value;
+    setNoticeClassState(value);
+  };
+  const queueFor = (source: Run) => {
+    const className = noticeClassRef.current && noticeClassRef.current.runId === source.id ? noticeClassRef.current.className : "";
+    return {
+      runId: source.id,
+      ids: studentQueueIds((source.invoices ?? []).filter((item) => !className || item.className === className)),
+      ...(className ? { className } : {}),
+    };
+  };
   const [templateDialog, setTemplateDialog] = useState<TemplateDialog>();
   const [scopeOptions, setScopeOptions] = useState<ScopeOptions>();
   const [templateRemoval, setTemplateRemoval] = useState<{ id: string; name: string }>();
@@ -2535,7 +2550,7 @@ export function FinanceWorkspace({
       if (activeSchool.current === schoolId && token === invoiceRequest.current) {
         setInvoice(next);
         setDraftCoverageVersionId(noticeCoverageFacts(next)[0]?.versionId ?? "");
-        if (sourceRun) setInvoiceQueue({ runId: sourceRun.id, ids: studentQueueIds(sourceRun.invoices) });
+        if (sourceRun) setInvoiceQueue(queueFor(sourceRun));
       }
       return true;
     } catch (error: any) {
@@ -2558,7 +2573,7 @@ export function FinanceWorkspace({
     if (run) {
       try {
         const refreshed = await refreshRun(run.id);
-        if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+        if (refreshed) setInvoiceQueue(queueFor(refreshed));
       } catch {
         setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất.");
       }
@@ -2593,7 +2608,7 @@ export function FinanceWorkspace({
     if (run) {
       try {
         const refreshed = await refreshRun(run.id);
-        if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+        if (refreshed) setInvoiceQueue(queueFor(refreshed));
       } catch {
         setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất.");
       }
@@ -2642,7 +2657,7 @@ export function FinanceWorkspace({
       if (run) {
         try {
           const refreshed = await refreshRun(run.id);
-          if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+          if (refreshed) setInvoiceQueue(queueFor(refreshed));
         } catch {
           setMessage("Đã xóa; chưa thể tải lại danh sách hóa đơn mới nhất.");
         }
@@ -2673,19 +2688,24 @@ export function FinanceWorkspace({
         if (runId) {
           const refreshed = await refreshRun(runId);
           // Continue with the next draft after the one just issued (server order), wrapping to earlier skipped drafts.
-          const ordered = refreshed?.invoices ?? [];
+          // With a Class filter on, only that Class's drafts are next.
+          const queued = refreshed ? queueFor(refreshed) : undefined;
+          const ordered = (refreshed?.invoices ?? []).filter((item) => !queued?.className || item.className === queued.className || item.id === invoice.id);
           const current = ordered.findIndex((item) => item.id === invoice.id);
           const isNextDraft = (item: (typeof ordered)[number]) =>
             item.status === "DRAFT" &&
             item.id !== invoice.id &&
             !invoice.notice?.invoices?.some((part) => part.id === item.id);
           const nextDraft = ordered.slice(current + 1).find(isNextDraft) ?? ordered.slice(0, Math.max(current, 0)).find(isNextDraft);
-          if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+          if (queued) setInvoiceQueue(queued);
           const issuedNote = `${issueActionLabel.replace("Phát hành", "Đã phát hành")} cho ${invoice.student.code} / ${invoice.student.name}.`;
           if (nextDraft) {
             await reviewInvoice(nextDraft.id);
             setNotice(`${issuedNote} Đang rà soát học sinh tiếp theo.`);
-          } else setNotice(`${issuedNote} Đã phát hành toàn bộ hóa đơn trong đợt.`);
+          } else
+            setNotice(
+              `${issuedNote} ${queued?.className ? `Đã phát hành toàn bộ hóa đơn của lớp ${queued.className}.` : "Đã phát hành toàn bộ hóa đơn trong đợt."}`,
+            );
         }
       } catch {
         setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất.");
@@ -2989,6 +3009,25 @@ export function FinanceWorkspace({
     part.channel === "SCHOOL" ? Boolean(issueSchoolBankAccountId) : Boolean(issueBankAccountId),
   );
   const liveNotices = (run?.notices ?? []).filter((notice) => notice.status !== "CANCELLED");
+  const noticeClasses = [...new Set((run?.notices ?? []).map((notice) => notice.className))].sort((a, b) => a.localeCompare(b, "vi"));
+  const selectedNoticeClass = run && noticeClass && noticeClass.runId === run.id && noticeClasses.includes(noticeClass.className) ? noticeClass.className : "";
+  const shownNotices = (run?.notices ?? []).filter((notice) => !selectedNoticeClass || notice.className === selectedNoticeClass);
+  const noticeClassFilter = run && noticeClasses.length > 1 && (
+    <label className="finance-notice-class-filter">
+      Lớp
+      <select
+        value={selectedNoticeClass}
+        onChange={(event) => setNoticeClass(event.target.value ? { runId: run.id, className: event.target.value } : undefined)}
+      >
+        <option value="">Tất cả lớp ({(run.notices ?? []).length})</option>
+        {noticeClasses.map((name) => (
+          <option key={name} value={name}>
+            {name} ({(run.notices ?? []).filter((notice) => notice.className === name).length})
+          </option>
+        ))}
+      </select>
+    </label>
+  );
   const draftNoticeCount = liveNotices.filter((notice) => notice.status === "DRAFT").length;
   const reviewInvoice = (id: string) => {
     if (onOpenInvoice && run) onOpenInvoice(run.id, id);
@@ -4452,8 +4491,9 @@ export function FinanceWorkspace({
                   Thêm học sinh
                 </button>
               </div>
+              {noticeClassFilter}
               <RunNoticeTable
-                notices={run.notices ?? []}
+                notices={shownNotices}
                 caption="Hóa đơn hiện có trong đợt thu"
                 overlapInvoiceIds={new Set((run.invoices ?? []).filter((item) => item.periodOverlap).map((item) => item.id))}
                 actionLabel="Rà soát hóa đơn"
@@ -4615,8 +4655,9 @@ export function FinanceWorkspace({
                 </h2>
                 <p>Máy chủ đã khóa đợt thu này. Không thể thêm học sinh hoặc tạo, sửa hóa đơn trong đợt thu đã đóng.</p>
               </div>
+              {noticeClassFilter}
               <RunNoticeTable
-                notices={run.notices ?? []}
+                notices={shownNotices}
                 caption="Hóa đơn đã khóa theo đợt thu"
                 overlapInvoiceIds={new Set((run.invoices ?? []).filter((item) => item.periodOverlap).map((item) => item.id))}
                 actionLabel="Xem hóa đơn"
@@ -4664,7 +4705,12 @@ export function FinanceWorkspace({
                       không được hoàn.
                     </p>
                   )}
-                  {invoiceQueueIndex >= 0 && invoiceQueue && <p className="muted">Học sinh {invoiceQueueIndex + 1}/{invoiceQueue.ids.length}</p>}
+                  {invoiceQueueIndex >= 0 && invoiceQueue && (
+                    <p className="muted">
+                      Học sinh {invoiceQueueIndex + 1}/{invoiceQueue.ids.length}
+                      {invoiceQueue.className ? ` · Lớp ${invoiceQueue.className}` : ""}
+                    </p>
+                  )}
                 </div>
                 <div className="finance-actions">
                   {onOpenInvoice && run && (

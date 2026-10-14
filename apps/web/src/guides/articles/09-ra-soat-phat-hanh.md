@@ -6,6 +6,8 @@ requires: collection-runs
 ---
 Trong đợt thu ở trạng thái `Đã tạo hóa đơn`, bấm `Rà soát hóa đơn` ở dòng học sinh đầu tiên. Dùng `Học sinh trước` / `Học sinh tiếp theo` để đi lần lượt; sau khi phát hành một hóa đơn, hệ thống tự chuyển sang hóa đơn nháp kế tiếp.
 
+Muốn làm gọn từng lớp (các khoản thu trong một lớp thường giống nhau), chọn lớp ở ô `Lớp` phía trên bảng hóa đơn trước khi bấm `Rà soát hóa đơn`. Khi đó `Học sinh trước` / `Học sinh tiếp theo` và việc tự chuyển sau khi phát hành chỉ đi trong lớp đã chọn; đầu trang rà soát ghi rõ `Học sinh 2/30 · Lớp …`.
+
 ## Đọc hóa đơn
 
 Phiếu thu chia theo tài khoản nhận: **Phần 1 · Thu vào tài khoản trường** (khoản có thuế) và **Phần 2 · Thu vào tài khoản cá nhân** (khoản không kê khai). Mỗi dòng có:
