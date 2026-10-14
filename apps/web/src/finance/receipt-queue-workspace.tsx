@@ -446,7 +446,7 @@ export function ReceiptQueueWorkspace({
         </section>
       )}
       <form
-        className="roster-list-filters"
+        className="roster-list-filters receipt-queue-filters"
         aria-label="Lọc hóa đơn chờ thu"
         onSubmit={(event) => {
           event.preventDefault();
@@ -461,7 +461,7 @@ export function ReceiptQueueWorkspace({
             onChange={(event) => setFilters({ ...filters, student: event.target.value })}
           />
         </label>
-        <label>
+        <label className="receipt-queue-filter-narrow">
           Tháng thu
           <select
             value={filters.billingMonth}
@@ -478,7 +478,7 @@ export function ReceiptQueueWorkspace({
               ))}
           </select>
         </label>
-        <label>
+        <label className="receipt-queue-filter-narrow">
           Lớp
           <select
             value={filters.classIdSnapshot}
@@ -514,14 +514,14 @@ export function ReceiptQueueWorkspace({
             )}
           </select>
         </label>
-        <label>
+        <label className="receipt-queue-filter-narrow">
           Trạng thái
           <select value={filters.state} onChange={(event) => setFilters({ ...filters, state: event.target.value })}>
             <option value="">Chưa xử lý</option>
             <option value="SETTLED">Đã xử lý</option>
           </select>
         </label>
-        <label>
+        <label className="receipt-queue-filter-narrow">
           Loại
           <select
             value={filters.direction}

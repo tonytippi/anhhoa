@@ -1746,7 +1746,13 @@ tbody tr:last-child td {
   font-weight: 800;
 }
 .roster-list-filters .roster-filter-search { flex: 2 1 240px; }
-.roster-list-filters .receipt-queue-account-filter { flex: 2 1 260px; }
+/* Receipt queue: short-valued selects stay narrow so the whole filter row fits one line on a desktop. */
+.receipt-queue-filters .roster-filter-search { flex: 2 1 200px; }
+.roster-list-filters .receipt-queue-account-filter { flex: 1 1 200px; }
+.roster-list-filters .receipt-queue-filter-narrow { flex: 0 1 130px; }
+@media (max-width: 767px) {
+  .roster-list-filters .receipt-queue-filter-narrow { flex-basis: 100%; }
+}
 .roster-list-filters input,
 .roster-list-filters select { width: 100%; min-width: 0; }
 .roster-list-filters button { min-height: 42px; }
