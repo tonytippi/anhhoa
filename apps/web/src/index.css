@@ -1844,6 +1844,12 @@ tbody tr:last-child td {
 .finance-review-student span { color: #5f746e; font-size: 15px; font-weight: 600; }
 .finance-card-heading { display: grid; gap: 4px; }
 .finance-card-heading p { margin: 0; color: #5f746e; font-size: 14px; line-height: 1.5; }
+.finance-card-heading.finance-catalog-heading { display: flex; flex-wrap: nowrap; align-items: flex-end; }
+.finance-card-heading.finance-catalog-heading > div { display: grid; flex: 1 1 auto; gap: 4px; min-width: 0; }
+.finance-card-heading.finance-catalog-heading > button { flex: none; }
+@media (max-width: 720px) {
+  .finance-card-heading.finance-catalog-heading { flex-wrap: wrap; }
+}
 .finance-actions {
   display: flex;
   flex-wrap: wrap;
