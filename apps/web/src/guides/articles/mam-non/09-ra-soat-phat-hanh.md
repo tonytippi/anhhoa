@@ -28,7 +28,7 @@ Hóa đơn nháp sửa trực tiếp trên bảng như bảng tính:
 
 ![Bớt tiền ăn 3 ngày: 2 ngày nghỉ có phép và 1 ngày phụ huynh báo sau, kèm lý do](hoa-don-sua-bot.jpg)
 
-Các thao tác khác: `Thêm dòng` để thêm khoản phát sinh riêng cho học sinh này, `Xóa` để bỏ một dòng, `Nguồn` để ghi chú căn cứ (ngày dịch vụ, điểm danh, giờ đón, số phút trông muộn).
+Các thao tác khác: `Thêm dòng` để thêm khoản phát sinh riêng cho học sinh này (chọn `Loại dòng` **Chỉ bớt (Thu 0)** khi chỉ cần trả lại tiền của một khoản không thu tháng này, kèm lý do), `Xóa` để bỏ một dòng, `Nguồn` để ghi chú căn cứ (ngày dịch vụ, điểm danh, giờ đón, số phút trông muộn).
 
 > Gợi ý "Đề xuất N ngày × giá · nghỉ có phép MM/YYYY" lấy từ đơn nghỉ có phép đã duyệt của **tháng trước**.
 

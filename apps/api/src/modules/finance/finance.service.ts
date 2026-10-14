@@ -1272,8 +1272,12 @@ export class FinanceService {
   }
   async addInvoiceLine(identityId: string, schoolId: string, invoiceId: string, key: string, operationId: string, body: any) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
-    const input = { receivableId: this.identifier(body?.receivableId, "receivableId"), quantity: this.quantity(body?.quantity), unitPrice: body?.unitPrice == null ? null : this.linePrice(body.unitPrice), overrideReason: body?.unitPrice == null ? null : this.text(body?.overrideReason, "overrideReason", true, 500)! };
-    return this.mutate(actor, identityId, schoolId, routes.addInvoiceLine, key, operationId, { invoiceId, ...input, unitPrice: input.unitPrice?.toString() ?? null, source: body?.source ?? null, sourceReason: body?.sourceReason ?? null }, async (tx, operation) => {
+    // Sprint change 2026-10-14: a "Thu 0" line carries only a manual Bớt with its reason, e.g. a long absence in a prepaid month.
+    const refundOnly = body?.quantity === "0" && body?.deductionQuantity != null;
+    const input = { receivableId: this.identifier(body?.receivableId, "receivableId"), quantity: refundOnly ? 0 : this.quantity(body?.quantity), unitPrice: refundOnly || body?.unitPrice == null ? null : this.linePrice(body.unitPrice), overrideReason: refundOnly || body?.unitPrice == null ? null : this.text(body?.overrideReason, "overrideReason", true, 500)! };
+    const manualDeduction = refundOnly ? { deductionQuantity: this.deductionQuantity(body?.deductionQuantity), refundUnitPrice: body?.refundUnitPrice == null || body?.refundUnitPrice === "" ? null : this.refundPrice(body.refundUnitPrice), reason: this.text(body?.deductionReason, "deductionReason", true, 500)! } : null;
+    if (manualDeduction && manualDeduction.deductionQuantity < 1) throw validation("deductionQuantity", "Dòng chỉ bớt cần số lượng bớt lớn hơn 0.");
+    return this.mutate(actor, identityId, schoolId, routes.addInvoiceLine, key, operationId, { invoiceId, ...input, unitPrice: input.unitPrice?.toString() ?? null, ...(manualDeduction ? { deduction: { ...manualDeduction, refundUnitPrice: manualDeduction.refundUnitPrice?.toString() ?? null } } : {}), source: body?.source ?? null, sourceReason: body?.sourceReason ?? null }, async (tx, operation) => {
       await this.promotionLock(tx, schoolId);
       const invoice = await this.draftInvoice(tx, schoolId, invoiceId);
       await this.lockReceivablesShared(tx, schoolId, [input.receivableId]);
@@ -1284,11 +1288,17 @@ export class FinanceService {
       // A line is written to the notice part of its receivable's payment channel, created on demand.
       const target = await this.channelDraft(tx, schoolId, invoice, taxChannel(receivable.taxCategory));
       const evaluated = await this.evaluateDraftPromotion(tx, schoolId, target, { receivableId: receivable.id, receivableName: receivable.displayName, amount });
-      const deduction = await this.lineProposal(tx, schoolId, target, receivable, unitPrice);
+      let deduction: any = await this.lineProposal(tx, schoolId, target, receivable, unitPrice);
+      if (manualDeduction) {
+        const refund = manualDeduction.refundUnitPrice ?? (BigInt(receivable.refundUnitPrice ?? 0) < unitPrice ? BigInt(receivable.refundUnitPrice ?? 0) : unitPrice);
+        if (refund <= 0n) throw validation("refundUnitPrice", "Khoản thu chưa có giá hoàn trả; nhập giá hoàn / đơn vị.");
+        this.refundWithinPrice(refund, unitPrice);
+        deduction = { refundUnitPriceSnapshot: refund, deductionQuantity: manualDeduction.deductionQuantity, proposedDeductionQuantity: 0, deductionAmount: refund * BigInt(manualDeduction.deductionQuantity), deductionSource: null, deductionReason: manualDeduction.reason };
+      }
       const netAmount = BigInt(evaluated.netAmount) - deduction.deductionAmount;
       const tax = taxedLine(netAmount, receivable.taxCategory);
       const line = await tx.invoiceLine.create({ data: { schoolId, invoiceId: target.id, sourceKind: "MANUAL", sourceDetail: { addedByMembershipId: actor.membershipId }, receivableId: receivable.id, receivableCodeSnapshot: receivable.code, receivableNameSnapshot: receivable.displayName, unitLabelSnapshot: receivable.unitLabel, defaultUnitPriceSnapshot: receivable.defaultUnitPrice, unitPrice, quantity: input.quantity, grossAmount: BigInt(evaluated.grossAmount), discountAmount: BigInt(evaluated.discountAmount), ...this.deductionData(deduction), netAmount, ...tax, promotionEvaluationProvenance: evaluated.promotionEvaluation, overrideReason: input.overrideReason, ...source } });
-      const outcome = await this.refreshInvoice(tx, schoolId, target.id); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_ADDED", operation, null, { line: this.lineDto(line), invoice: outcome }); return outcome;
+      const outcome = await this.refreshInvoice(tx, schoolId, target.id); await this.audit(tx, schoolId, identityId, actor.membershipId, "INVOICE_LINE_ADDED", operation, null, { line: this.lineDto(line), invoice: outcome }, manualDeduction?.reason); return outcome;
     });
   }
   async editInvoiceLine(identityId: string, schoolId: string, invoiceId: string, lineId: string, key: string, operationId: string, body: any) {
@@ -3260,7 +3270,7 @@ export class FinanceService {
 
     // A package may list receivables of several classes (Học phí Mầm, Chồi, Lá); only those billed on this Invoice are
     // prepaid. A target without a line would issue coverage nobody paid for and later skip that receivable unpaid.
-    const lines = await tx.invoiceLine.findMany({ where: { schoolId, invoiceId: invoice.id, kind: "NORMAL", receivableId: { not: null } }, select: { receivableId: true, unitPrice: true } });
+    const lines = await tx.invoiceLine.findMany({ where: { schoolId, invoiceId: invoice.id, kind: "NORMAL", receivableId: { not: null }, quantity: { gt: 0 } }, select: { receivableId: true, unitPrice: true } });
     const targets = version.targets.filter((target: any) => lines.some((line: any) => line.receivableId === target.receivableId));
     if (!targets.length) throw validation("versionId", "Hóa đơn không có khoản thu nào thuộc gói nộp trước này.");
     // Decision 2026-10-14 §2.3: the package is paid on one line per receivable; a second line would collect it twice.
@@ -3518,7 +3528,8 @@ export class FinanceService {
 
     for (const line of invoice.lines) {
       if (line.kind === "PRIOR_DEBT" || !line.receivableId) continue;
-      if (coveredReceivableIds.has(line.receivableId)) {
+      // A "Thu 0" line only refunds; it never carries the package.
+      if (coveredReceivableIds.has(line.receivableId) && line.quantity > 0) {
         // The package is paid on this line: one month per coverage fact at its original price, less the package
         // reduction. Every later run skips the covered months, so the line must collect all of them now.
         const months = invoice.coverageFacts.filter((fact: any) => fact.receivableId === line.receivableId);
@@ -3698,7 +3709,7 @@ export class FinanceService {
             if (!part.coverageFacts.length) continue;
             // A covered line returns to one month at its price before the normal promotion evaluation below.
             const coveredIds = new Set(part.coverageFacts.map((fact: any) => fact.receivableId));
-            for (const line of part.lines.filter((item: any) => item.kind === "NORMAL" && coveredIds.has(item.receivableId))) {
+            for (const line of part.lines.filter((item: any) => item.kind === "NORMAL" && item.quantity > 0 && coveredIds.has(item.receivableId))) {
               const net = BigInt(line.unitPrice) - BigInt(line.deductionAmount);
               await tx.invoiceLine.update({ where: { id: line.id }, data: { quantity: 1, grossAmount: BigInt(line.unitPrice), discountAmount: 0n, netAmount: net, ...taxedLine(net, line.taxCategorySnapshot ?? "NOT_DECLARED") } });
             }

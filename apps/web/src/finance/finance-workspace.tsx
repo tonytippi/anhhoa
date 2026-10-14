@@ -865,6 +865,11 @@ const defaultPromotion = () => ({
 
 const emptyInvoiceLine = {
   receivableId: "",
+  // Sprint change 2026-10-14: a "Thu 0" line only refunds (manual Bớt with a reason).
+  refundOnly: false,
+  deductionQuantity: "",
+  refundUnitPrice: "",
+  deductionReason: "",
   quantity: "",
   unitPrice: "",
   overrideReason: "",
@@ -2650,8 +2655,12 @@ export function FinanceWorkspace({
     event.preventDefault();
     if (!invoice) return;
     completion.current = completeSaveLine;
-    const body: Record<string, unknown> = { receivableId: line.receivableId, quantity: line.quantity };
-    if (line.unitPrice) {
+    const body: Record<string, unknown> = { receivableId: line.receivableId, quantity: line.refundOnly ? "0" : line.quantity };
+    if (line.refundOnly && !editingLineId) {
+      body.deductionQuantity = line.deductionQuantity;
+      if (line.refundUnitPrice) body.refundUnitPrice = line.refundUnitPrice;
+      body.deductionReason = line.deductionReason;
+    } else if (line.unitPrice) {
       body.unitPrice = line.unitPrice;
       body.overrideReason = line.overrideReason;
     }
@@ -4856,6 +4865,7 @@ export function FinanceWorkspace({
                             setEditingLineInvoiceId(part.id);
                             setEditingSource(Boolean(item.source));
                             setLine({
+                              ...emptyInvoiceLine,
                               receivableId: item.receivableId ?? "",
                               quantity: item.quantity,
                               unitPrice: item.overrideReason ? item.unitPrice : "",
@@ -6557,6 +6567,67 @@ export function FinanceWorkspace({
                     <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>
                   )}
                 </div>
+                <fieldset className="chip-group full">
+                  <legend>Loại dòng</legend>
+                  {([[false, "Thu tiền"], [true, "Chỉ bớt (Thu 0)"]] as const).map(([value, label]) => (
+                    <label key={label}>
+                      <input type="radio" name="invoice-line-kind" checked={line.refundOnly === value} onChange={() => setLine({ ...line, refundOnly: value })} />
+                      {label}
+                    </label>
+                  ))}
+                </fieldset>
+                {line.refundOnly ? (
+                  <>
+                <div>
+                  <label>
+                    Số lượng bớt
+                    <input
+                      inputMode="numeric"
+                      value={line.deductionQuantity}
+                      onChange={(event) => setLine({ ...line, deductionQuantity: event.target.value })}
+                      {...invoiceField("deductionQuantity")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.deductionQuantity && (
+                    <small id="invoice-invoice-deductionQuantity-error">{errors.deductionQuantity}</small>
+                  )}
+                </div>
+                <div>
+                  <label>
+                    Giá hoàn / đơn vị (đ)
+                    <input
+                      inputMode="numeric"
+                      placeholder="Để trống: giá hoàn của khoản thu"
+                      value={line.refundUnitPrice}
+                      onChange={(event) => setLine({ ...line, refundUnitPrice: event.target.value })}
+                      {...invoiceField("refundUnitPrice")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.refundUnitPrice && (
+                    <small id="invoice-invoice-refundUnitPrice-error">{errors.refundUnitPrice}</small>
+                  )}
+                </div>
+                <div className="full">
+                  <label>
+                    Lý do bớt
+                    <input
+                      placeholder="Bắt buộc, ví dụ: Nghỉ ốm 2 tuần, 02/11-13/11"
+                      value={line.deductionReason}
+                      onChange={(event) => setLine({ ...line, deductionReason: event.target.value })}
+                      {...invoiceField("deductionReason")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.deductionReason && (
+                    <small id="invoice-invoice-deductionReason-error">{errors.deductionReason}</small>
+                  )}
+                </div>
+                <p className="muted full">
+                  Dòng Thu 0 chỉ trả lại tiền, không thu khoản này trong tháng. Dùng khi tháng này không có dòng của khoản thu,
+                  ví dụ học sinh nghỉ dài trong tháng thuộc gói nộp trước.
+                </p>
+                  </>
+                ) : (
+                  <>
                 <div>
                   <label>
                     Số lượng
@@ -6598,6 +6669,8 @@ export function FinanceWorkspace({
                     <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>
                   )}
                 </div>
+                  </>
+                )}
                   </>
                 )}
                 <details

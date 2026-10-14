@@ -657,6 +657,24 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("prepaid package r
     expect(await deductions("2026-06")).toEqual({ "Học phí Chồi": 0, "Tiền ăn": 1 });
   });
 
+  it("adds a manual Thu 0 line with only a Bớt in a prepaid month, and issues it", async () => {
+    const { current, pupil, tuition, meals, personal, march, issued } = await issuedPackage();
+    await pay(current, issued);
+    await finance.closeRun(current.identity.id, current.school.id, march.runId, uuid(), uuid(), { reason: "Khóa đợt" });
+    const april = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "1" }], "2026-04");
+    const invoice = await invoiceOf(current, april.runId, pupil.id);
+    const add = (body: Record<string, unknown>) => finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId: tuition, quantity: "0", ...body });
+    await expect(add({ deductionQuantity: "10", refundUnitPrice: "100000" })).rejects.toMatchObject({ response: { fieldErrors: { deductionReason: expect.any(String) } } });
+    await expect(add({ deductionQuantity: "0", refundUnitPrice: "100000", deductionReason: "Nghỉ 2 tuần" })).rejects.toMatchObject({ response: { fieldErrors: { deductionQuantity: expect.any(String) } } });
+    // Học phí Chồi has no refund price in this fixture, so the refund price must be typed.
+    await expect(add({ deductionQuantity: "10", deductionReason: "Nghỉ 2 tuần" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
+    await add({ deductionQuantity: "10", refundUnitPrice: "100000", deductionReason: "Nghỉ ốm 2 tuần, 02/04-15/04" });
+    const line = (await linesOf(invoice.id)).find((item) => item.receivableId === tuition)!;
+    expect(line).toMatchObject({ quantity: 0, grossAmount: 0n, deductionQuantity: 10, deductionAmount: 1_000_000n, netAmount: -1_000_000n, deductionReason: "Nghỉ ốm 2 tuần, 02/04-15/04" });
+    await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).not.toBe("DRAFT");
+  });
+
   it("stacks the package with the Student's other promotions and prices it at the line unit price", async () => {
     const current = await school();
     const pupil = await student(current, "Hoàng An Nhiên");

@@ -52,7 +52,7 @@ Sau khi kích hoạt, gói được áp dụng **trên từng hóa đơn nháp**
 > Ngừng một gói chỉ không cho áp dụng gói đó cho hóa đơn mới; hóa đơn đã phát hành vẫn giữ nguyên gói và vẫn ghi thực nhận được.
 
 > [!WARNING]
-> Các tháng thuộc gói **không tự trừ ngày nghỉ** của học phí. Trường hợp nghỉ dài (ví dụ nghỉ liên tục 2 tuần), kế toán bớt tay: sửa phần `Bớt` trên dòng học phí của tháng đầu tiên sau khi gói kết thúc, kèm lý do.
+> Các tháng thuộc gói **không tự trừ ngày nghỉ** của học phí. Trường hợp nghỉ dài (ví dụ nghỉ liên tục 2 tuần), kế toán bớt tay trên hóa đơn nháp của tháng kế tiếp: `Thêm dòng` → `Loại dòng` chọn **Chỉ bớt (Thu 0)**, chọn khoản học phí, nhập số lượng bớt, giá hoàn / đơn vị (để trống thì dùng giá hoàn của khoản thu) và lý do. Dòng này chỉ trả lại tiền, không thu học phí tháng đó.
 
 > Khi tạo gói, chỉ chọn các khoản thu **cùng loại tài khoản nhận** (cùng "Không kê khai" hoặc cùng có thuế). Hệ thống từ chối gói trộn khoản thu tài khoản trường với khoản thu tài khoản cá nhân.
 
