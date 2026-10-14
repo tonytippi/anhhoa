@@ -2006,7 +2006,25 @@ tbody tr:last-child td {
 }
 .finance-issue-student strong { font-size: 17px; color: #24261f; }
 .finance-issue-student span { color: #5f6258; font-size: 14px; }
-.finance-issue-lines { width: 100%; border-collapse: collapse; font-size: 14px; }
+.finance-issue-lines { width: 100%; min-width: 0; border-collapse: collapse; font-size: 14px; }
+.finance-issue-lines tfoot td.finance-money { font-size: 17px; }
+.finance-issue-dialog .dialog-actions { width: 100%; margin-top: 4px; }
+.finance-issue-dialog .dialog-actions .primary-action { border-color: #247a51; background: #247a51; color: #fff; }
+.finance-issue-dialog .dialog-actions .primary-action:hover:not(:disabled) { border-color: #1d6538; background: #1d6538; }
+.finance-issue-dialog .dialog-actions .primary-action:disabled { border-color: #dce4e0; background: #e8ecea; color: #66746f; }
+.finance-receiving-account {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 2px solid #247a51;
+  border-radius: 10px;
+  background: #eef6f1;
+}
+.finance-receiving-account header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: #247a51; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.finance-receiving-account p { margin: 0; color: #24261f; font-size: 15px; font-weight: 600; }
+.finance-receiving-account .finance-receiving-account-number { font-size: 22px; font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.finance-receiving-account .finance-receiving-account-number b { margin-right: 6px; color: #247a51; }
+.finance-issue-dialog .muted { color: #66695f; font-size: 13px; }
 .finance-issue-lines th, .finance-issue-lines td { padding: 6px 8px; border-bottom: 1px solid #e2e1d8; text-align: left; vertical-align: top; }
 .finance-issue-lines thead th { color: #5f6258; font-weight: 600; }
 .finance-issue-lines .finance-money { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }

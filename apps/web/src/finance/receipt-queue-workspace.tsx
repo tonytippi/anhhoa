@@ -606,10 +606,33 @@ export function ReceiptQueueWorkspace({
             <div className="finance-issue-student">
               <strong id="receipt-student">{detail.student.name}</strong>
               <span>
-                {[detail.student.code, detail.className ? `Lớp ${detail.className}` : ""].filter(Boolean).join(" · ")}
+                {[
+                  detail.student.code,
+                  detail.className ? `Lớp ${detail.className}` : "",
+                  detail.obligationCode ? `Hóa đơn ${detail.obligationCode}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
-              <span>{accountContext(detail)}</span>
             </div>
+            <section className="finance-receiving-account" aria-label="Tài khoản nhận">
+              <header>
+                <span>Tiền vào tài khoản</span>
+                <span className={`finance-badge finance-badge-${detail.channel === "SCHOOL" ? "info" : "neutral"}`}>
+                  {accountLabel(detail.channel)}
+                </span>
+              </header>
+              {detail.account ? (
+                <>
+                  <p className="finance-receiving-account-number">
+                    <b>{detail.account.bankCode}</b> {detail.account.accountNumber}
+                  </p>
+                  <p>{detail.account.accountHolderName}</p>
+                </>
+              ) : (
+                <p>Hóa đơn không ghi tài khoản nhận.</p>
+              )}
+            </section>
             <div className="table-scroll">
               <table className="finance-issue-lines">
                 <caption className="sr-only">Các khoản thu của hóa đơn</caption>

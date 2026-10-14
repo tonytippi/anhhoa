@@ -66,7 +66,8 @@ describe("ReceiptQueueWorkspace", () => {
     fireEvent.click(receiptAction);
     const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận · tháng 09/2026 Bé An" });
     expect(document.querySelector(".dialog-backdrop")).toBeTruthy();
-    expect(dialog.textContent).toContain("Hóa đơn OBL-202609-000123 · tài khoản trường VCB - TRUONG MN ANH HOA · 0123456789");
+    expect(dialog.textContent).toContain("HS001 · Lớp Lá 1 · Hóa đơn OBL-202609-000123");
+    expect(within(dialog).getByRole("region", { name: "Tài khoản nhận" }).textContent).toBe("Tiền vào tài khoảnTài khoản trườngVCB 0123456789TRUONG MN ANH HOA");
     expect(within(dialog).getByRole("row", { name: "Học phí 1 tháng 120.000" })).toBeTruthy();
     expect(within(dialog).getByRole("row", { name: /Cần thu.*120\.000 đ/ })).toBeTruthy();
     expect(dialog.textContent).toContain("hóa đơn của tài khoản kia không đổi.");
