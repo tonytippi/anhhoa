@@ -881,6 +881,8 @@ const anhNhatSeedReceivables = [
 ] as const;
 // Kidsonline "Khoản giảm trừ" as DISCOUNT promotion policies, in Kidsonline's order (first = highest priority). Their
 // receivables are matched by name to the codes above; "Lớp Năng khiếu Nhảy hiện đại" no longer exists in Kidsonline.
+// "Tặng 2 tháng… kỳ 6 tháng" is PREPAID_COVERAGE over the 8 months studied: 2 months of Học phí 2024-2025 (11.000.000 đ)
+// spread as 1.375.000 đ a month, replacing Kidsonline's 4.125.000 đ lump sum.
 const anhNhatSeedPromotions = [
   { name: 'Giảm trừ thêm 50%', discountType: 'PERCENTAGE', discountValue: 50n, targets: ['KO-40805'] },
   { name: 'Giảm trừ 45%', discountType: 'PERCENTAGE', discountValue: 45n, targets: ['KO-40805'] },
@@ -890,7 +892,7 @@ const anhNhatSeedPromotions = [
   { name: 'Giảm trừ HP 5%', discountType: 'PERCENTAGE', discountValue: 5n, targets: ['KO-37826', 'KO-37827'] },
   { name: 'Học phí giảm 25%', discountType: 'PERCENTAGE', discountValue: 25n, targets: ['KO-37827'] },
   { name: 'Giảm học phí thêm 10%', discountType: 'PERCENTAGE', discountValue: 10n, targets: ['KO-37826', 'KO-37827'] },
-  { name: 'Tặng 2 tháng học phí khi đóng theo kỳ 6 tháng', discountType: 'FIXED_VND', discountValue: 4125000n, targets: ['KO-37826'] },
+  { name: 'Tặng 2 tháng học phí khi đóng theo kỳ 6 tháng', discountType: 'FIXED_VND', discountValue: 1375000n, prepaidTermMonths: 8, targets: ['KO-37826'] },
   { name: 'Giảm trừ HP 3%', discountType: 'PERCENTAGE', discountValue: 3n, targets: ['KO-37826', 'KO-37827'] },
   { name: 'Giảm trừ học phẩm tháng (150k/ 1 tháng)', discountType: 'FIXED_VND', discountValue: 150000n, targets: ['KO-25638'] },
   { name: 'Giảm trừ HP 100%( con GV)', discountType: 'PERCENTAGE', discountValue: 100n, targets: ['KO-37827'] },
