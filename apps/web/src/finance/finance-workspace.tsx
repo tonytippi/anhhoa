@@ -2177,7 +2177,7 @@ export function FinanceWorkspace({
     setMessage("");
     setPreview(undefined);
     try {
-      const next = await get<Preview>(`/api/app/schools/${schoolId}/finance/collection-runs/${runId}/preview`, true);
+      const next = await get<Preview>(`/api/app/schools/${schoolId}/finance/collection-runs/${runId}/preview`);
       if (activeSchool.current === schoolId && token === request.current && runId === run.id) setPreview(next);
     } catch {
       if (activeSchool.current === schoolId && token === request.current) {
