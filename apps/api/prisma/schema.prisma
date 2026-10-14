@@ -1287,6 +1287,7 @@ model InvoicePromotionCoverageFact {
   assignmentId          String?                     @db.Uuid
   originalPrice         BigInt                      @db.BigInt
   reduction             BigInt                      @db.BigInt
+  promotionEvaluation   Json?
   serviceStart          DateTime                    @db.Date
   serviceEnd            DateTime                    @db.Date
   calendarEffectiveFrom DateTime                    @db.Date
