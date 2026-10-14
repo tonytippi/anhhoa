@@ -67,6 +67,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('Platform Operator
   it('searches identities with their School memberships', async () => {
     const actor = await operator(); const { owner } = await school(actor);
     const result = await ops.identities(actor, owner.emailNormalized.slice(0, 20));
-    expect(result.identities).toEqual(expect.arrayContaining([expect.objectContaining({ id: owner.id, platformOperator: false, memberships: [expect.objectContaining({ schoolName: 'Trường giả lập', status: 'ACTIVE' })] })]));
+    expect(result.identities).toEqual(expect.arrayContaining([expect.objectContaining({ id: owner.id, platformOperator: false, lastLoginAt: null, lastSeenAt: null, memberships: [expect.objectContaining({ schoolName: 'Trường giả lập', status: 'ACTIVE' })] })]));
+    await auth.touchLastSeen(owner.id);
+    const all = await ops.identities(actor, '');
+    expect(all.identities.find((identity) => identity.id === owner.id)?.lastSeenAt).toEqual(expect.any(String));
   });
 });

@@ -612,6 +612,9 @@ model UserIdentity {
   googleSubject                String?                                 @unique
   displayName                  String?
   pictureUrl                   String?
+  // Last Google sign-in, and last API use (touched at most hourly when the session slides); impersonation touches neither.
+  lastLoginAt                  DateTime?                               @db.Timestamptz(3)
+  lastSeenAt                   DateTime?                               @db.Timestamptz(3)
   createdAt                    DateTime                                @default(now()) @db.Timestamptz(3)
   updatedAt                    DateTime                                @updatedAt @db.Timestamptz(3)
   memberships                  SchoolMembership[]

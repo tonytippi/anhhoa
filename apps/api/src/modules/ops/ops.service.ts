@@ -78,13 +78,13 @@ export class OpsService {
   async identities(identityId: string, query: unknown) {
     await this.grantFor(identityId);
     const q = typeof query === 'string' ? query.trim() : '';
-    if (q.length < 2) return { identities: [] };
+    // An empty query lists everyone by most recent use, so operators can see who has never signed in.
     const rows = await this.prisma.userIdentity.findMany({
-      where: { OR: [{ emailNormalized: { contains: q.toLowerCase() } }, { displayName: { contains: q, mode: 'insensitive' } }] },
-      orderBy: { emailNormalized: 'asc' }, take: 20,
+      where: q ? { OR: [{ emailNormalized: { contains: q.toLowerCase() } }, { displayName: { contains: q, mode: 'insensitive' } }] } : {},
+      orderBy: [{ lastSeenAt: { sort: 'desc', nulls: 'last' } }, { emailNormalized: 'asc' }], take: q ? 50 : 500,
       include: { memberships: { include: { school: { select: { name: true, slug: true } } }, orderBy: { createdAt: 'asc' } }, parentProfile: { select: { id: true } }, platformGrant: { select: { revokedAt: true } } },
     });
-    return { identities: rows.map((row) => ({ id: row.id, email: row.emailNormalized, displayName: row.displayName, bound: Boolean(row.googleSubject), platformOperator: Boolean(row.platformGrant && !row.platformGrant.revokedAt), parent: Boolean(row.parentProfile), memberships: row.memberships.map((membership) => ({ schoolName: membership.school.name, schoolSlug: membership.school.slug, status: membership.status })) })) };
+    return { identities: rows.map((row) => ({ id: row.id, email: row.emailNormalized, displayName: row.displayName, bound: Boolean(row.googleSubject), lastLoginAt: row.lastLoginAt?.toISOString() ?? null, lastSeenAt: row.lastSeenAt?.toISOString() ?? null, platformOperator: Boolean(row.platformGrant && !row.platformGrant.revokedAt), parent: Boolean(row.parentProfile), memberships: row.memberships.map((membership) => ({ schoolName: membership.school.name, schoolSlug: membership.school.slug, status: membership.status })) })) };
   }
 
   // Issues a single-use, one-minute ticket that the target portal exchanges for an impersonated session.

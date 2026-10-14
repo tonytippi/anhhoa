@@ -80,6 +80,7 @@ export class AuthService {
       identity = await consumeAndBind();
     }
     await this.saveProfile(identity.id, google);
+    const signedInAt = new Date(); await this.prisma.userIdentity.update({ where: { id: identity.id }, data: { lastLoginAt: signedInAt, lastSeenAt: signedInAt } }).catch(() => undefined);
     if (audience === 'ops') {
       if (identity.emailNormalized !== superadminEmail()) return { redirect: audienceConfig(audience).deniedRedirect };
       const existingGrant = await this.prisma.platformOperatorGrant.findUnique({ where: { userIdentityId: identity.id }, select: { revokedAt: true } });
@@ -142,6 +143,7 @@ export class AuthService {
     const record = await this.prisma.impersonation.findUnique({ where: { id }, select: { endedAt: true, platformOperatorGrant: { select: { revokedAt: true } } } });
     return Boolean(record && !record.endedAt && !record.platformOperatorGrant.revokedAt);
   }
+  async touchLastSeen(userIdentityId: string): Promise<void> { await this.prisma.userIdentity.updateMany({ where: { id: userIdentityId }, data: { lastSeenAt: new Date() } }).catch(() => undefined); }
   async endImpersonation(id: string): Promise<void> { await this.prisma.impersonation.updateMany({ where: { id, endedAt: null }, data: { endedAt: new Date() } }); }
   // Renews a valid session at most hourly so active use keeps it alive up to the absolute limit.
   refresh(audience: Audience, token?: string): IssuedSession | undefined {

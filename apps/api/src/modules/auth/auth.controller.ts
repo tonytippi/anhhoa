@@ -20,8 +20,9 @@ export function sessionRefresh(auth: AuthService) {
     const match = request.path?.match(/^\/api\/(app|teacher|parent|ops)\/(.*)$/);
     if (!match) return next();
     const selected = match[1] as Audience; const config = audienceConfig(selected); const token = cookie(request, config.cookieName);
-    let impersonationId: string | undefined;
-    try { impersonationId = token ? auth.session(selected, token).impersonation?.id : undefined; } catch { impersonationId = undefined; }
+    let identity: ReturnType<AuthService['session']> | undefined;
+    try { identity = token ? auth.session(selected, token) : undefined; } catch { identity = undefined; }
+    const impersonationId = identity?.impersonation?.id;
     if (impersonationId && !(await auth.impersonationActive(impersonationId).catch(() => false))) {
       response.clearCookie(config.cookieName, sessionCookieOptions(selected, true));
       response.status(401).json?.({ error: { code: 'IMPERSONATION_ENDED', message: 'Phiên giả lập đã kết thúc.' } });
@@ -30,6 +31,8 @@ export function sessionRefresh(auth: AuthService) {
     if (!/^auth\/(?:logout|google\/|impersonate$)/.test(match[2]!)) {
       const renewed = auth.refresh(selected, token);
       if (renewed) {
+        // Renewal happens at most hourly per session, which bounds how often last-seen is written.
+        if (identity && !impersonationId) void auth.touchLastSeen(identity.userIdentityId);
         response.cookie(config.cookieName, renewed.cookie, sessionCookieOptions(selected, true, renewed.maxAge));
         response.cookie(config.csrfCookieName, cookie(request, config.csrfCookieName) ?? randomBytes(32).toString('base64url'), sessionCookieOptions(selected, false, renewed.maxAge));
       }
