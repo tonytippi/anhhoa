@@ -3,11 +3,15 @@ import { PrismaService } from '../identity/prisma.service.js';
 import { isSchoolKind, schoolFeatures } from '../common/school-features.js';
 import { auditData } from '../common/audit.js';
 import { requestFingerprint } from '../common/mutation-protection.js';
+import { AuthService } from '../auth/auth.service.js';
+import { audienceConfig } from '../auth/auth.config.js';
 import { isOperationIdempotencyCollision } from '../common/operation-idempotency.js';
 import { defaultReceivableGroupNames, defaultReceivableGroups, provisionDefaultReceivableGroupsFingerprint, provisionDefaultReceivableGroupsRoute } from '../finance/default-receivable-groups.js';
 
 type ProvisionInput = { name?: unknown; slug?: unknown; ownerEmail?: unknown; studentCodePrefix?: unknown; kind?: unknown };
 const email = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
+const impersonationAudiences = ['app', 'teacher', 'parent'] as const;
+type ImpersonationAudience = typeof impersonationAudiences[number];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
@@ -68,6 +72,36 @@ export class OpsService {
       }
       return { schoolId, status: next, noOp: school.status === next };
     });
+  }
+
+  // Lists sign-in identities so an operator can pick whom to impersonate; only identity and access facts, no School data.
+  async identities(identityId: string, query: unknown) {
+    await this.grantFor(identityId);
+    const q = typeof query === 'string' ? query.trim() : '';
+    if (q.length < 2) return { identities: [] };
+    const rows = await this.prisma.userIdentity.findMany({
+      where: { OR: [{ emailNormalized: { contains: q.toLowerCase() } }, { displayName: { contains: q, mode: 'insensitive' } }] },
+      orderBy: { emailNormalized: 'asc' }, take: 20,
+      include: { memberships: { include: { school: { select: { name: true, slug: true } } }, orderBy: { createdAt: 'asc' } }, parentProfile: { select: { id: true } }, platformGrant: { select: { revokedAt: true } } },
+    });
+    return { identities: rows.map((row) => ({ id: row.id, email: row.emailNormalized, displayName: row.displayName, bound: Boolean(row.googleSubject), platformOperator: Boolean(row.platformGrant && !row.platformGrant.revokedAt), parent: Boolean(row.parentProfile), memberships: row.memberships.map((membership) => ({ schoolName: membership.school.name, schoolSlug: membership.school.slug, status: membership.status })) })) };
+  }
+
+  // Issues a single-use, one-minute ticket that the target portal exchanges for an impersonated session.
+  async startImpersonation(identityId: string, input: unknown) {
+    const grant = await this.grantFor(identityId);
+    const body = (input && typeof input === 'object' ? input : {}) as { targetIdentityId?: unknown; audience?: unknown; reason?: unknown };
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    const audience = impersonationAudiences.find((value) => value === body.audience) as ImpersonationAudience | undefined;
+    if (typeof body.targetIdentityId !== 'string' || !uuid.test(body.targetIdentityId) || !audience || reason.length < 5) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Cần chọn người dùng, cổng và lý do (ít nhất 5 ký tự).' });
+    const target = await this.prisma.userIdentity.findUnique({ where: { id: body.targetIdentityId }, include: { platformGrant: { select: { revokedAt: true } } } });
+    if (!target) throw new NotFoundException({ code: 'IDENTITY_NOT_FOUND', message: 'Không tìm thấy người dùng.' });
+    if (target.id === identityId || (target.platformGrant && !target.platformGrant.revokedAt)) throw new ForbiddenException({ code: 'IMPERSONATION_TARGET_DENIED', message: 'Không thể giả lập nhân sự vận hành nền tảng.' });
+    const { ticket, ticketHash, ticketExpiresAt } = AuthService.impersonationTicket();
+    const record = await this.prisma.impersonation.create({ data: { platformOperatorGrantId: grant.id, operatorIdentityId: identityId, targetIdentityId: target.id, audience, reason, ticketHash, ticketExpiresAt } });
+    // The target portal's API lives beside its OAuth callback (same-origin /api proxy in deployment, the API host in dev).
+    const url = `${audienceConfig(audience).callbackUrl.replace(/\/google\/callback$/, '/impersonate')}?ticket=${encodeURIComponent(ticket)}`;
+    return { impersonationId: record.id, url, expiresAt: ticketExpiresAt.toISOString() };
   }
 
   async operation(identityId: string, operationId: string) {

@@ -7,7 +7,10 @@ import { ParentsService } from '../parents/parents.service.js';
 
 type IdToken = { iss: string; aud: string | string[]; azp?: string; sub: string; email: string; email_verified: boolean | string; name?: string; picture?: string; nonce: string; exp: number };
 // `auth` is the sign-in time that bounds sliding renewal; tokens issued before it existed simply expire at `exp`.
-type Session = { aud: Audience; sub: string; email: string; exp: number; auth?: number };
+// `imp`/`by` mark a Platform Operator acting as `sub`; such a session never outlives `impersonationTtlMs` from its start.
+type Session = { aud: Audience; sub: string; email: string; exp: number; auth?: number; imp?: string; by?: string };
+export type SessionIdentity = { userIdentityId: string; email: string; impersonation?: { id: string; operatorEmail: string } };
+type Impersonator = { imp: string; by: string };
 type IssuedSession = { cookie: string; maxAge: number };
 type Start = { authorizationUrl: string; correlation: string };
 const issuer = 'https://accounts.google.com';
@@ -15,6 +18,8 @@ const jwksUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const hash = (value: string) => createHash('sha256').update(value).digest('base64url');
 const random = () => randomBytes(32).toString('base64url');
 const refreshAfterMs = 60 * 60 * 1000;
+export const impersonationTtlMs = 60 * 60 * 1000;
+const impersonationTicketTtlMs = 60 * 1000;
 const json = <T>(value: string): T => JSON.parse(Buffer.from(value, 'base64url').toString()) as T;
 
 @Injectable()
@@ -114,21 +119,40 @@ export class AuthService {
     return { displayName: row?.displayName ?? null, pictureUrl: row?.pictureUrl ?? null };
   }
   issueSession(aud: Audience, userIdentityId: string, email: string): string { return this.newSession(aud, userIdentityId, email, Date.now()).cookie; }
-  private newSession(aud: Audience, sub: string, email: string, auth: number): IssuedSession {
+  private newSession(aud: Audience, sub: string, email: string, auth: number, impersonator?: Impersonator): IssuedSession {
     const { sessionIdleTtlSeconds, sessionAbsoluteTtlSeconds } = authSecrets(); const now = Date.now();
-    const exp = Math.min(now + sessionIdleTtlSeconds * 1000, auth + sessionAbsoluteTtlSeconds * 1000);
-    return { cookie: this.issue({ aud, sub, email, exp, auth }), maxAge: exp - now };
+    const exp = Math.min(now + sessionIdleTtlSeconds * 1000, auth + (impersonator ? Math.min(impersonationTtlMs, sessionAbsoluteTtlSeconds * 1000) : sessionAbsoluteTtlSeconds * 1000));
+    return { cookie: this.issue({ aud, sub, email, exp, auth, ...impersonator }), maxAge: exp - now };
   }
+  // Ops hands a single-use ticket to the target portal host, where it becomes that portal's session cookie.
+  static impersonationTicket(): { ticket: string; ticketHash: string; ticketExpiresAt: Date } { const ticket = random(); return { ticket, ticketHash: hash(ticket), ticketExpiresAt: new Date(Date.now() + impersonationTicketTtlMs) }; }
+  async impersonate(audience: Audience, ticket?: string): Promise<IssuedSession & { csrf: string }> {
+    const denied = () => new UnauthorizedException({ code: 'IMPERSONATION_DENIED', message: 'Phiên giả lập không hợp lệ hoặc đã hết hạn.' });
+    if (audience === 'ops' || !ticket) throw denied();
+    const now = new Date();
+    const record = await this.prisma.impersonation.findUnique({ where: { ticketHash: hash(ticket) }, include: { targetIdentity: true, operatorIdentity: true, platformOperatorGrant: true } });
+    if (!record || record.audience !== audience || record.startedAt || record.endedAt || record.ticketExpiresAt <= now || record.platformOperatorGrant.revokedAt || record.platformOperatorGrant.userIdentityId !== record.operatorIdentityId) throw denied();
+    const claimed = await this.prisma.impersonation.updateMany({ where: { id: record.id, startedAt: null }, data: { startedAt: now } });
+    if (claimed.count !== 1) throw denied();
+    const session = this.newSession(audience, record.targetIdentityId, record.targetIdentity.emailNormalized, now.getTime(), { imp: record.id, by: record.operatorIdentity.emailNormalized });
+    return { ...session, csrf: random() };
+  }
+  // Impersonated sessions are re-checked on every request so ending them or revoking the operator grant takes effect at once.
+  async impersonationActive(id: string): Promise<boolean> {
+    const record = await this.prisma.impersonation.findUnique({ where: { id }, select: { endedAt: true, platformOperatorGrant: { select: { revokedAt: true } } } });
+    return Boolean(record && !record.endedAt && !record.platformOperatorGrant.revokedAt);
+  }
+  async endImpersonation(id: string): Promise<void> { await this.prisma.impersonation.updateMany({ where: { id, endedAt: null }, data: { endedAt: new Date() } }); }
   // Renews a valid session at most hourly so active use keeps it alive up to the absolute limit.
   refresh(audience: Audience, token?: string): IssuedSession | undefined {
     if (!token) return undefined;
     let identity; try { identity = this.session(audience, token); } catch { return undefined; }
     const current = json<Session>(token.split('.')[0]!); if (current.auth === undefined) return undefined;
-    const next = this.newSession(audience, identity.userIdentityId, identity.email, current.auth);
+    const next = this.newSession(audience, identity.userIdentityId, identity.email, current.auth, current.imp && current.by ? { imp: current.imp, by: current.by } : undefined);
     return Date.now() + next.maxAge - current.exp >= refreshAfterMs ? next : undefined;
   }
   async platformOperatorGrant(userIdentityId: string): Promise<{ id: string } | null> { return this.prisma.platformOperatorGrant.findFirst({ where: { userIdentityId, revokedAt: null }, select: { id: true } }); }
-  session(audience: Audience, token?: string): { userIdentityId: string; email: string } {
+  session(audience: Audience, token?: string): SessionIdentity {
     const parts = token?.split('.') ?? []; const [encoded, signature] = parts;
     if (parts.length !== 2 || !encoded || !signature) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
     const expected = this.sign(encoded);
@@ -137,7 +161,8 @@ export class AuthService {
       const session = json<Session>(encoded);
       if (!session || typeof session.sub !== 'string' || typeof session.email !== 'string' || !Number.isFinite(session.exp) || session.exp < Date.now() || (session.auth !== undefined && (!Number.isFinite(session.auth) || session.auth + authSecrets().sessionAbsoluteTtlSeconds * 1000 < Date.now()))) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
       if (session.aud !== audience) throw new UnauthorizedException({ code: 'INVALID_AUDIENCE', message: 'Session không thuộc audience này.' });
-    return { userIdentityId: session.sub, email: session.email };
+      if (session.imp !== undefined && (typeof session.imp !== 'string' || typeof session.by !== 'string' || session.auth === undefined || session.auth + impersonationTtlMs < Date.now())) throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' });
+      return { userIdentityId: session.sub, email: session.email, ...(session.imp ? { impersonation: { id: session.imp, operatorEmail: session.by! } } : {}) };
     } catch (error) { if (error instanceof UnauthorizedException) throw error; throw new UnauthorizedException({ code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập.' }); }
   }
 }

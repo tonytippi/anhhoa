@@ -1,3 +1,4 @@
+import { ImpersonationBanner } from "./impersonation-banner";
 import {
   StrictMode,
   useEffect,
@@ -1191,17 +1192,25 @@ export function ParentShell() {
     );
   if (state === "signed-out") return <SignedOut headingRef={heading} />;
   const schools = groupSchools(session?.schools ?? []);
+  const banner = session && (
+    <ImpersonationBanner email={session.email} impersonation={session.impersonation} onEnd={signOut} />
+  );
   if (state === "chooser")
     return (
+      <>
+      {banner}
       <SchoolChooser
         schools={schools}
         onSelect={(id) => refresh(id)}
         onLogout={signOut}
         headingRef={heading}
       />
+      </>
     );
   const selected = schools.find((school) => school.schoolId === schoolId);
   return selected ? (
+    <>
+    {banner}
     <ParentWorkspace
       school={selected}
       canSwitch={schools.length > 1}
@@ -1217,6 +1226,7 @@ export function ParentShell() {
         setState("chooser");
       }}
     />
+    </>
   ) : (
     <SignedOut headingRef={heading} />
   );

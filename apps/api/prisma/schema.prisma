@@ -622,6 +622,8 @@ model UserIdentity {
   platformGrant                PlatformOperatorGrant?
   initiallyOwnedSchools        School[]                                @relation("InitialSchoolOwner")
   parentProfile                ParentProfile?
+  impersonationsStarted        Impersonation[]                         @relation("ImpersonationOperator")
+  impersonationsReceived       Impersonation[]                         @relation("ImpersonationTarget")
 }
 
 enum StudentParentStatus {
@@ -686,6 +688,31 @@ model PlatformOperatorGrant {
   revokedAt      DateTime?    @db.Timestamptz(3)
   userIdentity   UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
   operations     Operation[]
+  impersonations Impersonation[]
+}
+
+// A Platform Operator acting as another user in an app/teacher/parent portal. The single-use ticket hands the
+// session to the target portal host; Operations and AuditRecords written meanwhile point back here.
+model Impersonation {
+  id                      String                @id @default(uuid()) @db.Uuid
+  platformOperatorGrantId String                @db.Uuid
+  operatorIdentityId      String                @db.Uuid
+  targetIdentityId        String                @db.Uuid
+  audience                String
+  reason                  String
+  ticketHash              String                @unique
+  ticketExpiresAt         DateTime              @db.Timestamptz(3)
+  startedAt               DateTime?             @db.Timestamptz(3)
+  endedAt                 DateTime?             @db.Timestamptz(3)
+  createdAt               DateTime              @default(now()) @db.Timestamptz(3)
+  platformOperatorGrant   PlatformOperatorGrant @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
+  operatorIdentity        UserIdentity          @relation("ImpersonationOperator", fields: [operatorIdentityId], references: [id], onDelete: Restrict)
+  targetIdentity          UserIdentity          @relation("ImpersonationTarget", fields: [targetIdentityId], references: [id], onDelete: Restrict)
+  operations              Operation[]
+  auditRecords            AuditRecord[]
+
+  @@index([operatorIdentityId, createdAt])
+  @@index([targetIdentityId, createdAt])
 }
 
 model SchoolMembership {
@@ -744,8 +771,10 @@ model AuditRecord {
   action          String
   reason          String?
   provenance      Json?
+  impersonationId String?             @db.Uuid
   createdAt       DateTime            @default(now()) @db.Timestamptz(3)
   school          School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  impersonation   Impersonation?      @relation(fields: [impersonationId], references: [id], onDelete: Restrict)
   actorIdentity   UserIdentity?       @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
   membership      SchoolMembership?   @relation("AuditMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
 
@@ -763,6 +792,7 @@ model Operation {
   route                               String
   fingerprint                         String
   idempotencyKey                      String
+  impersonationId                     String?                                   @db.Uuid
   status                              OperationStatus                           @default(PENDING)
   outcome                             Json?
   createdAt                           DateTime                                  @default(now()) @db.Timestamptz(3)
@@ -771,6 +801,7 @@ model Operation {
   membership                          SchoolMembership?                         @relation("OperationMembership", fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   platformOperatorGrant               PlatformOperatorGrant?                    @relation(fields: [platformOperatorGrantId], references: [id], onDelete: Restrict)
   actorIdentity                       UserIdentity?                             @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
+  impersonation                       Impersonation?                            @relation(fields: [impersonationId], references: [id], onDelete: Restrict)
   closedSchoolYears                   SchoolYear[]                              @relation("SchoolYearCloseOperation")
   bankAccountLifecycleTransitions     BankAccountLifecycleTransition[]          @relation("BankAccountLifecycleOperation")
   receivableGroupLifecycleTransitions ReceivableGroupLifecycleTransition[]

@@ -21,6 +21,22 @@ describe('AuthController', () => {
     expect(response.status).toBe(302); expect(cookie).toContain('app_oauth_correlation=correlation-token'); expect(cookie).not.toContain('Secure');
   });
 
+  it('lands an impersonation ticket as the portal session and rejects requests once the impersonation ended', async () => {
+    const app = await createApi(); await app.listen(0); const port = app.getHttpServer().address().port; const auth = app.get(AuthService);
+    const issued = (auth as any).newSession('app', 'target-id', 'target@example.com', Date.now(), { imp: 'impersonation-id', by: 'operator@example.com' }) as { cookie: string; maxAge: number };
+    vi.spyOn(auth, 'impersonate').mockResolvedValue({ ...issued, csrf: 'csrf-token' });
+    const landed = await fetch(`http://127.0.0.1:${port}/api/app/auth/impersonate?ticket=t`, { redirect: 'manual' });
+    expect(landed.status).toBe(302); expect(landed.headers.get('location')).toBe('http://localhost:5173'); expect(landed.headers.get('set-cookie')).toContain(`app_session=${issued.cookie}`);
+    vi.spyOn(auth, 'profile').mockResolvedValue({ displayName: null, pictureUrl: null });
+    const active = vi.spyOn(auth, 'impersonationActive').mockResolvedValue(true);
+    const session = await fetch(`http://127.0.0.1:${port}/api/app/auth/session`, { headers: { cookie: `app_session=${issued.cookie}` } });
+    await expect(session.json()).resolves.toMatchObject({ data: { userIdentityId: 'target-id', impersonation: { id: 'impersonation-id', operatorEmail: 'operator@example.com' } } });
+    active.mockResolvedValue(false);
+    const ended = await fetch(`http://127.0.0.1:${port}/api/app/auth/session`, { headers: { cookie: `app_session=${issued.cookie}` } });
+    await app.close();
+    expect(ended.status).toBe(401); await expect(ended.json()).resolves.toEqual({ error: { code: 'IMPERSONATION_ENDED', message: 'Phiên giả lập đã kết thúc.' } });
+  });
+
   it('returns the global error envelope before protected data when a cross-audience cookie is supplied', async () => {
     const app = await createApi(); await app.listen(0); const port = app.getHttpServer().address().port;
     const token = app.get(AuthService).issueSession('app', 'identity-id', 'admin@example.com');

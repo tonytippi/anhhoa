@@ -1,4 +1,5 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
+import { ImpersonationBanner } from "./impersonation-banner";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import {
@@ -151,6 +152,7 @@ export function AdminShell() {
     );
   return (
     <div className="app-shell admin-app-shell">
+      <ImpersonationBanner email={session.email} impersonation={session.impersonation} onEnd={() => void logout("app", clear)} />
       <aside className="sidebar admin-sidebar" aria-label="Khung quản trị">
         <button className="brand" type="button" onClick={() => navigateHome.current?.()} aria-label="Về trang chủ PassionEdu">
           <span className="brand-mark" aria-hidden="true">✦</span>

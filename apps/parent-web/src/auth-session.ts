@@ -1,4 +1,5 @@
 import { rememberAccount } from "./last-account";
+import type { Impersonation } from "./impersonation-banner";
 export type ParentContext = {
   schoolId: string;
   schoolName: string;
@@ -11,6 +12,7 @@ export type Session = {
   displayName?: string | null;
   pictureUrl?: string | null;
   schools: ParentContext[];
+  impersonation?: Impersonation;
 };
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const csrfCookieName =
@@ -39,7 +41,8 @@ export async function bootstrapSession(
       return undefined;
     }
     const session = ((await response.json()) as { data: Session }).data;
-    rememberAccount(session);
+    // An impersonated user must not become this browser's remembered sign-in account.
+    if (!session.impersonation) rememberAccount(session);
     return session;
   } catch {
     if (!signal?.aborted) clear();

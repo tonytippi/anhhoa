@@ -1,6 +1,7 @@
 import { rememberAccount } from './last-account';
+import type { Impersonation } from './impersonation-banner';
 export type Audience = 'app' | 'teacher' | 'parent' | 'ops';
-export type Session = { audience: Audience; userIdentityId: string; email: string; displayName?: string | null; pictureUrl?: string | null };
+export type Session = { audience: Audience; userIdentityId: string; email: string; displayName?: string | null; pictureUrl?: string | null; impersonation?: Impersonation };
 const apiUrl = typeof __API_URL__ === 'undefined' ? '' : __API_URL__;
 const csrfCookieName = typeof __CSRF_COOKIE_NAME__ === 'undefined' ? 'app_csrf' : __CSRF_COOKIE_NAME__;
 
@@ -17,7 +18,8 @@ export async function bootstrapSession(audience: Audience, clearProtectedState: 
     const response = await fetch(`${apiUrl}/api/${audience}/auth/session`, { credentials: 'include', signal });
     if (!response.ok) { clearProtectedState(); return undefined; }
     const session = (await response.json() as { data: Session }).data;
-    rememberAccount(session);
+    // An impersonated user must not become this browser's remembered sign-in account.
+    if (!session.impersonation) rememberAccount(session);
     return session;
   } catch { if (!signal?.aborted) clearProtectedState(); return undefined; }
 }
