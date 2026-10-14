@@ -8,10 +8,11 @@ Stack internal test: PostgreSQL trong Docker, API, bốn portal; expose qua Clou
 cd deploy/internal-test
 cp .env.example .env   # điền secret giống apps/api/.env; database tự chứa trong Compose
 docker compose up -d --build
+docker compose --profile seed build seed      # `up --build` không build service thuộc profile seed
 docker compose --profile seed run --rm seed   # seed PeakLand (idempotent, chạy lại được)
 ```
 
-Reset dữ liệu: `docker compose down -v` rồi chạy lại hai lệnh trên.
+Reset dữ liệu: `docker compose down -v` rồi chạy lại ba lệnh trên. Seed bỏ qua bản ghi đã có, nên sửa seed xong phải reset thì dữ liệu mới đổi.
 
 ## Cloudflare Tunnel
 
