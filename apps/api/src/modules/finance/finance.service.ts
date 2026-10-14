@@ -770,15 +770,20 @@ export class FinanceService {
   // No month asked for: the latest month that still has issued Invoices, else the current month. "ALL" lists every month.
   private async receiptQueueFilters(schoolId: string, query: any) {
     const schoolYearId = query?.schoolYearId ? this.identifier(query.schoolYearId, "schoolYearId") : null;
-    const billingMonth = query?.billingMonth === "ALL" ? "ALL" : query?.billingMonth == null || query.billingMonth === "" ? (await this.receiptQueueMonths(schoolId, schoolYearId))[0] ?? this.currentBillingMonth() : this.month(query.billingMonth);
+    const state = query?.state == null || query.state === "" || query.state === "OPEN" ? "OPEN" as const : query.state === "SETTLED" ? "SETTLED" as const : (() => { throw validation("state", "Trạng thái không hợp lệ."); })();
+    const billingMonth = query?.billingMonth === "ALL" ? "ALL" : query?.billingMonth == null || query.billingMonth === "" ? (await this.receiptQueueMonths(schoolId, schoolYearId, state))[0] ?? this.currentBillingMonth() : this.month(query.billingMonth);
     const classIdSnapshot = query?.classIdSnapshot ? officialClassFilter(query.classIdSnapshot) ?? this.identifier(query.classIdSnapshot, "classIdSnapshot") : null;
     const student = query?.student == null || query.student === "" ? null : this.text(query.student, "student", false, 100);
     const direction = query?.direction == null || query.direction === "" ? null : query.direction === "COLLECT" || query.direction === "REFUND" ? query.direction as "COLLECT" | "REFUND" : (() => { throw validation("direction", "Loại không hợp lệ."); })();
     const bankAccountId = query?.bankAccountId ? this.identifier(query.bankAccountId, "bankAccountId") : null;
-    return { schoolYearId, billingMonth, classIdSnapshot, student, direction, bankAccountId };
+    return { schoolYearId, billingMonth, classIdSnapshot, student, direction, bankAccountId, state };
   }
-  private async receiptQueueMonths(schoolId: string, schoolYearId: string | null) {
-    const months = await this.prisma.invoice.findMany({ where: { schoolId, status: "ISSUED", debtTransfersFrom: { none: {} }, ...(schoolYearId ? { schoolYearId } : {}) }, distinct: ["billingMonth"], select: { billingMonth: true }, orderBy: { billingMonth: "desc" } });
+  // OPEN: issued Invoices still waiting for money. SETTLED: Invoices closed by a recorded receipt or refund payout.
+  private static receiptQueueState(state: "OPEN" | "SETTLED") {
+    return state === "OPEN" ? { status: "ISSUED" as const, debtTransfersFrom: { none: {} } } : { status: "CLOSED" as const, OR: [{ receipt: { isNot: null } }, { payout: { isNot: null } }] };
+  }
+  private async receiptQueueMonths(schoolId: string, schoolYearId: string | null, state: "OPEN" | "SETTLED" = "OPEN") {
+    const months = await this.prisma.invoice.findMany({ where: { schoolId, ...FinanceService.receiptQueueState(state), ...(schoolYearId ? { schoolYearId } : {}) }, distinct: ["billingMonth"], select: { billingMonth: true }, orderBy: { billingMonth: "desc" } });
     return months.map((item) => item.billingMonth);
   }
   private receiptQueueCursor(value: unknown, filters: Awaited<ReturnType<FinanceService["receiptQueueFilters"]>>) {
@@ -790,7 +795,7 @@ export class FinanceService {
     } catch { throw validation("cursor", "Con trỏ không hợp lệ."); }
   }
   private receiptQueueDto(invoice: any, transferred = 0n) {
-    return { id: invoice.id, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, account: this.accountDto(invoice), collectionRunId: invoice.collectionRunId, periodLabel: runPeriodLabel(invoice.collectionRun, invoice.billingMonth), student: { id: invoice.studentId, code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, class: { id: invoice.classIdSnapshot ?? EXTRACURRICULAR_ONLY, name: classLabel(invoice.classNameSnapshot) }, schoolYearId: invoice.schoolYearId, billingMonth: invoice.billingMonth, issuedAt: invoice.issuedAt.toISOString(), outstanding: (BigInt(invoice.obligationTotalSnapshot) - transferred).toString(), direction: BigInt(invoice.obligationTotalSnapshot) < 0n ? "REFUND" as const : "COLLECT" as const, status: "ISSUED" as const };
+    return { id: invoice.id, channel: invoice.channel ?? "PERSONAL", obligationCode: invoice.obligationCodeSnapshot, account: this.accountDto(invoice), collectionRunId: invoice.collectionRunId, periodLabel: runPeriodLabel(invoice.collectionRun, invoice.billingMonth), student: { id: invoice.studentId, code: invoice.studentCodeSnapshot, name: invoice.studentNameSnapshot }, class: { id: invoice.classIdSnapshot ?? EXTRACURRICULAR_ONLY, name: classLabel(invoice.classNameSnapshot) }, schoolYearId: invoice.schoolYearId, billingMonth: invoice.billingMonth, issuedAt: invoice.issuedAt.toISOString(), outstanding: (BigInt(invoice.obligationTotalSnapshot) - transferred).toString(), direction: BigInt(invoice.obligationTotalSnapshot) < 0n ? "REFUND" as const : "COLLECT" as const, status: invoice.status ?? "ISSUED", settlement: invoice.receipt ? { type: "RECEIPT" as const, amount: BigInt(invoice.receipt.actualAmount).toString(), outcome: invoice.receipt.outcome, on: isoDay(invoice.receipt.postedAt) } : invoice.payout ? { type: "PAYOUT" as const, amount: BigInt(invoice.payout.amount).toString(), method: invoice.payout.method, on: isoDay(invoice.payout.paidOn) } : null };
   }
   // The two parts of one Student's monthly notice stay adjacent, school account first: Student code, Student, month, channel, id.
   private static receiptQueueOrder = [{ studentCodeSnapshot: "asc" as const }, { studentId: "asc" as const }, { billingMonth: "asc" as const }, { channel: "asc" as const }, { id: "asc" as const }];
@@ -812,11 +817,12 @@ export class FinanceService {
     const limit = query?.limit == null ? 25 : Number(query.limit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw validation("limit", "Giới hạn phải từ 1 đến 100.");
     const cursor = this.receiptQueueCursor(query?.cursor, filters);
-    const baseWhere: any = { schoolId, status: "ISSUED", debtTransfersFrom: { none: {} }, ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.classIdSnapshot ? { classIdSnapshot: filters.classIdSnapshot === EXTRACURRICULAR_ONLY ? null : filters.classIdSnapshot } : {}), ...(filters.bankAccountId ? { bankAccountIdSnapshot: filters.bankAccountId } : {}), ...(filters.student ? { OR: [{ studentCodeSnapshot: { contains: filters.student, mode: "insensitive" } }, { studentNameSnapshot: { contains: filters.student, mode: "insensitive" } }] } : {}), ...(filters.direction ? { obligationTotalSnapshot: filters.direction === "REFUND" ? { lt: 0n } : { gte: 0n } } : {}) };
+    const { OR: stateOr, ...stateWhere } = FinanceService.receiptQueueState(filters.state) as any;
+    const baseWhere: any = { schoolId, ...stateWhere, ...(stateOr ? { AND: [{ OR: stateOr }] } : {}), ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}), ...(filters.classIdSnapshot ? { classIdSnapshot: filters.classIdSnapshot === EXTRACURRICULAR_ONLY ? null : filters.classIdSnapshot } : {}), ...(filters.bankAccountId ? { bankAccountIdSnapshot: filters.bankAccountId } : {}), ...(filters.student ? { OR: [{ studentCodeSnapshot: { contains: filters.student, mode: "insensitive" } }, { studentNameSnapshot: { contains: filters.student, mode: "insensitive" } }] } : {}), ...(filters.direction ? { obligationTotalSnapshot: filters.direction === "REFUND" ? { lt: 0n } : { gte: 0n } } : {}) };
     const after = cursor ? await this.prisma.invoice.findFirst({ where: { ...baseWhere, id: cursor.id }, select: { id: true, studentId: true, studentCodeSnapshot: true, billingMonth: true, channel: true } }) : null;
     if (cursor && !after) throw validation("cursor", "Con trỏ không thuộc kết quả hiện tại.");
-    const where = { ...baseWhere, ...(after ? { AND: [this.receiptQueueAfter(after)] } : {}) };
-    const invoices = await this.prisma.invoice.findMany({ where, select: { id: true, studentId: true, collectionRunId: true, collectionRun: { select: { name: true, classroom: { select: { name: true } } } }, channel: true, studentCodeSnapshot: true, studentNameSnapshot: true, classIdSnapshot: true, classNameSnapshot: true, schoolYearId: true, billingMonth: true, issuedAt: true, obligationTotalSnapshot: true, obligationCodeSnapshot: true, bankAccountIdSnapshot: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true }, orderBy: FinanceService.receiptQueueOrder, take: limit + 1 });
+    const where = { ...baseWhere, ...(after ? { AND: [...(baseWhere.AND ?? []), this.receiptQueueAfter(after)] } : {}) };
+    const invoices = await this.prisma.invoice.findMany({ where, select: { id: true, studentId: true, collectionRunId: true, collectionRun: { select: { name: true, classroom: { select: { name: true } } } }, channel: true, studentCodeSnapshot: true, studentNameSnapshot: true, classIdSnapshot: true, classNameSnapshot: true, schoolYearId: true, billingMonth: true, issuedAt: true, status: true, obligationTotalSnapshot: true, obligationCodeSnapshot: true, bankAccountIdSnapshot: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true, receipt: { select: { actualAmount: true, outcome: true, postedAt: true } }, payout: { select: { amount: true, paidOn: true, method: true } } }, orderBy: FinanceService.receiptQueueOrder, take: limit + 1 });
     const page = invoices.slice(0, limit), last = page.at(-1);
     const transfers = page.length ? await this.prisma.debtTransfer.groupBy({ by: ["sourceInvoiceId"], where: { schoolId, sourceInvoiceId: { in: page.map((invoice) => invoice.id) } }, _sum: { amount: true } }) : [];
     const transferred = new Map(transfers.map((item) => [item.sourceInvoiceId, BigInt(item._sum.amount ?? 0)]));
@@ -832,13 +838,13 @@ export class FinanceService {
   async receiptQueueClasses(identityId: string, schoolId: string, query: any = {}) {
     schoolId = this.school(schoolId); await this.actor(identityId, schoolId);
     const filters = await this.receiptQueueFilters(schoolId, query);
-    const scope = { schoolId, status: "ISSUED" as const, debtTransfersFrom: { none: {} }, ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}) };
+    const scope = { schoolId, ...FinanceService.receiptQueueState(filters.state), ...(filters.billingMonth === "ALL" ? {} : { billingMonth: filters.billingMonth }), ...(filters.schoolYearId ? { schoolYearId: filters.schoolYearId } : {}) };
     const values = await this.prisma.invoice.findMany({ where: scope, distinct: ["classIdSnapshot", "classNameSnapshot"], select: { classIdSnapshot: true, classNameSnapshot: true }, orderBy: { classNameSnapshot: "asc" } });
     // Receiving-account filter options: each account snapshotted on the queue's Invoices, named by its latest snapshot.
     const accounts = await this.prisma.invoice.findMany({ where: { ...scope, bankAccountIdSnapshot: { not: null } }, distinct: ["bankAccountIdSnapshot"], select: { bankAccountIdSnapshot: true, channel: true, receivingBankSnapshot: true, receivingBankBinSnapshot: true, accountNumberSnapshot: true, accountHolderNameSnapshot: true }, orderBy: [{ bankAccountIdSnapshot: "asc" }, { issuedAt: "desc" }] });
     return {
       classes: values.map((item) => ({ id: item.classIdSnapshot ?? EXTRACURRICULAR_ONLY, name: classLabel(item.classNameSnapshot) })),
-      months: await this.receiptQueueMonths(schoolId, filters.schoolYearId),
+      months: await this.receiptQueueMonths(schoolId, filters.schoolYearId, filters.state),
       accounts: accounts.map((item) => this.accountDto(item)).filter((item) => item !== null).sort((a, b) => (a.kind === b.kind ? `${a.bankCode} ${a.accountHolderName}`.localeCompare(`${b.bankCode} ${b.accountHolderName}`, "vi") : a.kind === "SCHOOL" ? -1 : 1)),
       filters: { schoolYearId: filters.schoolYearId, billingMonth: filters.billingMonth },
     };

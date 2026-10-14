@@ -46,7 +46,8 @@ describe("ReceiptQueueWorkspace", () => {
     fireEvent.change(within(dialog).getByLabelText("Hình thức"), { target: { value: "CASH" } });
     fireEvent.change(within(dialog).getByLabelText("Mã giao dịch hoặc ghi chú"), { target: { value: "Phiếu chi 12" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận đã chi" }));
-    await screen.findByRole("heading", { name: "Đã ghi nhận chi hoàn" });
+    expect((await screen.findByRole("heading", { name: /^Đã ghi nhận chi hoàn 448\.000 đ · HS001 \/ Bé An$/ })).textContent).toBeTruthy();
+    expect(screen.getByText("Ngày 12/09/2026 · Tiền mặt · Phiếu chi 12")).toBeTruthy();
     const post = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
     expect(String(post[0])).toMatch(/\/invoices\/invoice-r\/payout$/);
     expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ paidOn: "2026-09-12", method: "CASH", reference: "Phiếu chi 12" });
@@ -72,14 +73,25 @@ describe("ReceiptQueueWorkspace", () => {
     expect(within(dialog).getByRole("row", { name: /Cần thu.*120\.000 đ/ })).toBeTruthy();
     expect(dialog.textContent).toContain("hóa đơn của tài khoản kia không đổi.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
-    await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
-    expect(screen.getByText("Thực nhận: 120.000 đ.")).toBeTruthy();
-    expect(screen.getByText("Kết quả máy chủ: Đủ.")).toBeTruthy();
-    expect(screen.getByText("Chênh lệch: 0 đ.")).toBeTruthy();
-    expect(screen.getByText("Trạng thái chuyển kỳ: Máy chủ chưa tạo khoản chuyển kỳ cho hóa đơn này.")).toBeTruthy();
-    expect(screen.getByText("Ưu đãi nộp trước kỳ 10/2026 đã phát hành.")).toBeTruthy();
+    await screen.findByRole("heading", { name: "Đã ghi thực nhận 120.000 đ · HS001 / Bé An" });
+    expect(screen.getByText("Đủ · ưu đãi nộp trước kỳ 10/2026 đã phát hành")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Đóng thông báo" }));
+    expect(screen.queryByRole("heading", { name: /^Đã ghi thực nhận/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hóa đơn tiếp theo" })).toBeNull();
     await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).includes("receipt-queue?")).length).toBeGreaterThan(1));
+  });
+  it("lists settled Invoices with what was received and no actions", async () => {
+    const settledRow = { ...row, status: "CLOSED" as const, settlement: { type: "RECEIPT" as const, amount: "100000", outcome: "SHORTFALL" as const, on: "2026-09-15" } };
+    const fetch = vi.fn((url: string) => Promise.resolve(url.includes("/classes") ? response({ classes: [] }) : url.includes("state=SETTLED") ? response({ ...queue, invoices: [settledRow], filters: { ...queue.filters, state: "SETTLED" } }) : response(queue)));
+    vi.stubGlobal("fetch", fetch);
+    render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await screen.findByRole("button", { name: "Tùy chọn cho Bé An · Tài khoản trường" });
+    fireEvent.change(screen.getByLabelText("Trạng thái"), { target: { value: "SETTLED" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lọc" }));
+    const table = await screen.findByRole("table", { name: "Hóa đơn đã thu và phiếu hoàn tiền đã chi" });
+    expect(within(table).getByRole("row", { name: /HS001 \/ Bé An.*100\.000 đ.*Ngày 15\/09\/2026.*Thu thiếu/ })).toBeTruthy();
+    expect(within(table).queryByRole("button")).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/classes?") && String(url).includes("state=SETTLED"))).toBe(true);
   });
   it("clears protected state when Invoice detail is denied", async () => {
     const denied = vi.fn();
@@ -170,18 +182,18 @@ describe("ReceiptQueueWorkspace", () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
       const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận · tháng 09/2026 Bé An" });
       fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
-      await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
+      await screen.findByRole("heading", { name: /^Đã ghi thực nhận/ });
     };
     vi.stubGlobal("fetch", fetch());
     const center = render(<ReceiptQueueWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" classRuns denied={vi.fn()} />);
     await settle();
     // Only the invoice's own period takes the run label; another covered month stays a month.
-    expect(screen.getByText("Ưu đãi nộp trước kỳ Starters A · Unit 3 đã phát hành. Ưu đãi nộp trước kỳ 10/2026 chưa phát hành.")).toBeTruthy();
+    expect(screen.getByText("Đủ · ưu đãi nộp trước kỳ Starters A · Unit 3 đã phát hành · ưu đãi nộp trước kỳ 10/2026 chưa phát hành")).toBeTruthy();
     center.unmount();
     document.querySelectorAll("[data-base-ui-portal]").forEach((portal) => portal.remove());
     vi.stubGlobal("fetch", fetch());
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await settle();
-    expect(screen.getByText("Ưu đãi nộp trước kỳ 09/2026 đã phát hành. Ưu đãi nộp trước kỳ 10/2026 chưa phát hành.")).toBeTruthy();
+    expect(screen.getByText("Đủ · ưu đãi nộp trước kỳ 09/2026 đã phát hành · ưu đãi nộp trước kỳ 10/2026 chưa phát hành")).toBeTruthy();
   });
 });

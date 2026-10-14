@@ -23,7 +23,7 @@ Mở `Tài chính › Thu tiền`. Bảng liệt kê **hóa đơn chờ thu** v�
 
 ![Ghi thực nhận khi phụ huynh chuyển thiếu](thu-tien-ghi-thieu.jpg)
 
-Hệ thống trả về kết quả:
+Form đóng lại và bạn quay về danh sách; thông báo kết quả hiện ở đầu trang (bấm `×` để ẩn). Hệ thống trả về kết quả:
 
 - **Đủ** — hóa đơn đóng.
 - **Thu thiếu** — hóa đơn vẫn đóng; số còn thiếu tự chuyển sang hóa đơn **cùng tài khoản** của tháng sau.
@@ -43,6 +43,12 @@ Tháng sau, khoản chênh lệch hiện thành một dòng riêng trên hóa đ
 > Mỗi hóa đơn chỉ ghi thực nhận **một lần** — không có thu từng đợt. Nếu phụ huynh chuyển làm hai lần, hãy cộng lại và ghi một lần khi đã nhận đủ hoặc khi chốt sổ. Phần của tài khoản kia không bị ảnh hưởng.
 
 > Hóa đơn có gói nộp trước chỉ ghi được khi thực nhận **đúng bằng** số phải thu.
+
+## Xem hóa đơn đã thu
+
+Chọn `Trạng thái` là `Đã thu / đã chi` rồi bấm `Lọc`. Bảng liệt kê hóa đơn đã ghi thực nhận (số thực nhận, ngày ghi, kết quả **Đủ / Thu thiếu / Thu thừa**) và phiếu hoàn tiền đã chi. Các bộ lọc tháng, lớp, tài khoản nhận và tìm học sinh dùng như bình thường, nên có thể đối chiếu lại một sao kê đã ghi xong.
+
+> Đây là chế độ xem: hóa đơn đã thu không sửa hay ghi lại được.
 
 ## Đợt thu đã đóng
 

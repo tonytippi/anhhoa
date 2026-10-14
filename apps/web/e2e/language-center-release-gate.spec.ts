@@ -271,7 +271,7 @@ test('Admin runs a language center: staggered unit runs per class, a service, a 
   const receiptPost = page.waitForResponse((response) => /\/finance\/invoices\/[^/]+\/receipt$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST');
   await receipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).click();
   expect((await receiptPost).status()).toBe(201);
-  await expect(page.getByRole('heading', { name: 'Kết quả ghi thực nhận' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Đã ghi thực nhận / })).toBeVisible();
   await expect(queue.locator('tbody tr')).toHaveCount(2);
   await expect(queue).not.toContainText('Học viên An');
   await expect(queue.locator('tbody tr').filter({ hasText: 'TT2 / Học viên Bình' }).getByRole('cell').nth(2)).toHaveText('Starters A · Unit 1');

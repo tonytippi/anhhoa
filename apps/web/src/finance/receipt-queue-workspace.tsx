@@ -19,7 +19,12 @@ type Row = {
   issuedAt: string;
   outstanding: string;
   direction?: Direction;
-  status: "ISSUED";
+  status: "ISSUED" | "CLOSED";
+  // What closed the Invoice, on the settled view.
+  settlement?:
+    | { type: "RECEIPT"; amount: string; outcome: "EXACT" | "SHORTFALL" | "OVERPAYMENT"; on: string }
+    | { type: "PAYOUT"; amount: string; method: "BANK_TRANSFER" | "CASH"; on: string }
+    | null;
 };
 type Queue = {
   invoices: Row[];
@@ -30,6 +35,7 @@ type Queue = {
     student: string | null;
     direction?: Direction | null;
     bankAccountId?: string | null;
+    state?: "OPEN" | "SETTLED";
   };
   meta: { nextCursor: string | null };
 };
@@ -93,6 +99,8 @@ const accountContext = (item: Detail) =>
     .join(" · ");
 const outcome = (value: NonNullable<Closed["receipt"]>["outcome"]) =>
   value === "EXACT" ? "Đủ" : value === "SHORTFALL" ? "Thu thiếu" : "Thu thừa";
+const displayDay = (value: string) => value.split("-").reverse().join("/");
+const signed = (value: string) => (BigInt(value) > 0n ? `+${vnd(value)}` : vnd(value));
 const monthLabel = (value: string) => (value ? `${value.slice(5, 7)}/${value.slice(0, 4)}` : "");
 const errorMessage = async (response: Response) => {
   try {
@@ -129,6 +137,7 @@ export function ReceiptQueueWorkspace({
     student: "",
     direction: "",
     bankAccountId: "",
+    state: "",
   });
   const [payout, setPayout] = useState({ paidOn: today(), method: "BANK_TRANSFER", reference: "" });
   const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
@@ -138,6 +147,8 @@ export function ReceiptQueueWorkspace({
   const [actual, setActual] = useState("");
   const [pending, setPending] = useState<string>();
   const [result, setResult] = useState<Closed>();
+  // The table follows the loaded queue, not the unapplied filter form.
+  const settledView = queue?.filters.state === "SETTLED";
   const [message, setMessage] = useState("");
   const active = useRef(schoolId);
   const generation = useRef(0);
@@ -172,6 +183,7 @@ export function ReceiptQueueWorkspace({
       student: value.filters.student ?? "",
       direction: value.filters.direction ?? "",
       bankAccountId: value.filters.bankAccountId ?? "",
+      state: value.filters.state === "SETTLED" ? "SETTLED" : "",
     }));
     return value;
   };
@@ -179,6 +191,7 @@ export function ReceiptQueueWorkspace({
     const value = new URLSearchParams();
     if (filters.schoolYearId) value.set("schoolYearId", filters.schoolYearId);
     if (filters.billingMonth) value.set("billingMonth", filters.billingMonth);
+    if (filters.state) value.set("state", filters.state);
     const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/receipt-queue/classes?${value}`, {
       credentials: "include",
     });
@@ -394,46 +407,42 @@ export function ReceiptQueueWorkspace({
         riêng.
       </p>
       {message && <p role="alert">{message}</p>}
-      {result && result.payout && (
-        <section aria-labelledby="receipt-result-title">
-          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
-            Đã ghi nhận chi hoàn
-          </h3>
-          <p>
-            Đã chi {vnd(result.payout.amount)} đ ngày {result.payout.paidOn.split("-").reverse().join("/")} ·{" "}
-            {result.payout.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"} · {result.payout.reference}.
-          </p>
-        </section>
-      )}
-      {result && result.receipt && (
-        <section aria-labelledby="receipt-result-title">
-          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
-            Kết quả ghi thực nhận
-          </h3>
-          <p>Thực nhận: {vnd(result.receipt.actualAmount)} đ.</p>
-          <p>Kết quả máy chủ: {outcome(result.receipt.outcome)}.</p>
-          <p>Chênh lệch: {vnd(result.receipt.difference?.signedAmount ?? "0")} đ.</p>
-          <p>
-            {(result.carries ?? []).length
-              ? (result.carries ?? [])
-                  .map(
-                    (carry) =>
-                      `${carry.type === "SHORTFALL_CARRY" ? "Khoản thu thiếu chuyển kỳ" : "Khoản thu thừa khấu trừ kỳ sau"}: ${vnd(carry.amount)} đ.`,
-                  )
-                  .join(" ")
-              : "Trạng thái chuyển kỳ: Máy chủ chưa tạo khoản chuyển kỳ cho hóa đơn này."}
-          </p>
-          <p>
-            {(result.coverageFacts ?? []).length
-              ? (result.coverageFacts ?? [])
-                  .map((fact) =>
-                    fact.issuedAt
-                      ? `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} đã phát hành.`
-                      : `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} chưa phát hành.`,
-                  )
-                  .join(" ")
-              : "Ưu đãi nộp trước: Không có ưu đãi áp dụng."}
-          </p>
+      {result && (
+        <section className="receipt-result" aria-labelledby="receipt-result-title">
+          <span className="receipt-result-icon" aria-hidden="true">✓</span>
+          <div>
+            <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
+              {result.payout
+                ? `Đã ghi nhận chi hoàn ${vnd(result.payout.amount)} đ`
+                : `Đã ghi thực nhận ${vnd(result.receipt?.actualAmount ?? "0")} đ`}{" "}
+              · {result.student.code} / {result.student.name}
+            </h3>
+            <p>
+              {result.payout
+                ? `Ngày ${displayDay(result.payout.paidOn)} · ${result.payout.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"} · ${result.payout.reference}`
+                : result.receipt
+                  ? [
+                      outcome(result.receipt.outcome),
+                      BigInt(result.receipt.difference?.signedAmount ?? "0") !== 0n
+                        ? `chênh lệch ${signed(result.receipt.difference!.signedAmount)} đ`
+                        : "",
+                      ...(result.carries ?? []).map(
+                        (carry) =>
+                          `${carry.type === "SHORTFALL_CARRY" ? "thu thiếu chuyển kỳ sau" : "thu thừa khấu trừ kỳ sau"} ${vnd(carry.amount)} đ`,
+                      ),
+                      ...(result.coverageFacts ?? []).map(
+                        (fact) =>
+                          `ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} ${fact.issuedAt ? "đã phát hành" : "chưa phát hành"}`,
+                      ),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : ""}
+            </p>
+          </div>
+          <button type="button" className="receipt-result-close" aria-label="Đóng thông báo" onClick={() => setResult(undefined)}>
+            ×
+          </button>
         </section>
       )}
       <form
@@ -506,6 +515,13 @@ export function ReceiptQueueWorkspace({
           </select>
         </label>
         <label>
+          Trạng thái
+          <select value={filters.state} onChange={(event) => setFilters({ ...filters, state: event.target.value })}>
+            <option value="">Chờ thu / chờ chi</option>
+            <option value="SETTLED">Đã thu / đã chi</option>
+          </select>
+        </label>
+        <label>
           Loại
           <select
             value={filters.direction}
@@ -521,16 +537,16 @@ export function ReceiptQueueWorkspace({
         </div>
       </form>
       <table>
-        <caption>Hóa đơn chờ thu và phiếu hoàn tiền chờ chi</caption>
+        <caption>{settledView ? "Hóa đơn đã thu và phiếu hoàn tiền đã chi" : "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi"}</caption>
         <thead>
           <tr>
             <th>Học sinh</th>
             <th>Lớp</th>
             <th>{classRuns ? "Kỳ" : "Tháng"}</th>
             <th>Tài khoản nhận</th>
-            <th>Còn phải thu</th>
-            <th>Trạng thái</th>
-            <th>Tùy chọn</th>
+            <th>{settledView ? "Đã thu / đã chi" : "Còn phải thu"}</th>
+            <th>{settledView ? "Kết quả" : "Trạng thái"}</th>
+            {!settledView && <th>Tùy chọn</th>}
           </tr>
         </thead>
         <tbody>
@@ -543,11 +559,36 @@ export function ReceiptQueueWorkspace({
                 <td>{row.class.name}</td>
                 <td>{classRuns && row.periodLabel ? row.periodLabel : monthLabel(row.billingMonth)}</td>
                 <td>{row.account ? <ReceivingAccountLabel account={row.account} /> : accountLabel(row.channel)}</td>
-                <td>
-                  {isRefund(row) ? `Hoàn ${vnd((-BigInt(row.outstanding)).toString())}` : vnd(row.outstanding)} đ
-                </td>
-                <td>{isRefund(row) ? "Chờ chi hoàn" : "Chờ thu"}</td>
-                <td>
+                {row.settlement ? (
+                  <>
+                    <td>
+                      {row.settlement.type === "PAYOUT" ? `Đã chi ${vnd(row.settlement.amount)}` : vnd(row.settlement.amount)} đ
+                      <br />
+                      <small className="muted">Ngày {displayDay(row.settlement.on)}</small>
+                    </td>
+                    <td>
+                      {row.settlement.type === "PAYOUT" ? (
+                        <span className="finance-badge finance-badge-success">
+                          Đã chi hoàn · {row.settlement.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}
+                        </span>
+                      ) : (
+                        <span
+                          className={`finance-badge finance-badge-${row.settlement.outcome === "EXACT" ? "success" : "warning"}`}
+                        >
+                          {outcome(row.settlement.outcome)}
+                        </span>
+                      )}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td>
+                      {isRefund(row) ? `Hoàn ${vnd((-BigInt(row.outstanding)).toString())}` : vnd(row.outstanding)} đ
+                    </td>
+                    <td>{isRefund(row) ? "Chờ chi hoàn" : "Chờ thu"}</td>
+                  </>
+                )}
+                {!settledView && <td>
                   <AnchoredActionMenu
                     label={`Tùy chọn cho ${row.student.name} · ${accountLabel(row.channel)}`}
                     disabled={Boolean(pending)}
@@ -559,12 +600,12 @@ export function ReceiptQueueWorkspace({
                       {isRefund(row) ? "Ghi nhận đã chi" : "Ghi thực nhận"}
                     </AnchoredActionMenuItem>
                   </AnchoredActionMenu>
-                </td>
+                </td>}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={7}>Không có hóa đơn chờ thu.</td>
+              <td colSpan={settledView ? 6 : 7}>{settledView ? "Không có hóa đơn đã thu." : "Không có hóa đơn chờ thu."}</td>
             </tr>
           )}
         </tbody>

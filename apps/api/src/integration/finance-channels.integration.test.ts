@@ -288,6 +288,14 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     expect(detail).toMatchObject({ obligationCode: expect.stringMatching(/^OBL-/), account: { id: schoolAccount, kind: "SCHOOL", bankCode: "VCB" } });
     expect(detail.className).toEqual(expect.any(String)); expect(detail.periodLabel).toBe("Tháng 09/2026");
     expect(detail.lines.length).toBeGreaterThan(0); expect(detail.lines.reduce((sum: bigint, line: any) => sum + BigInt(line.amount), 0n).toString()).toBe(detail.issuedTotal);
+    // The settled view lists Invoices closed by a receipt, with what was recorded; the open view no longer does.
+    const settled: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", state: "SETTLED", limit: 1 });
+    expect(settled.invoices.map((row: any) => [row.id, row.status, row.settlement?.type, row.settlement?.amount, row.settlement?.outcome])).toEqual([[firstSchool.id, "CLOSED", "RECEIPT", "1100000", "EXACT"]]);
+    const settledStudent: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", state: "SETTLED", student: first.studentCode });
+    expect(settledStudent.invoices.map((row: any) => row.id)).toEqual([firstSchool.id]);
+    expect((await finance.receiptQueueClasses(current.identity.id, current.school.id, { state: "SETTLED" }) as any).months).toEqual(["2026-09"]);
+    expect((await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09" }) as any).invoices.map((row: any) => row.id)).not.toContain(firstSchool.id);
+    await expect(finance.receiptQueue(current.identity.id, current.school.id, { state: "PAID" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { state: expect.any(String) } } });
     // An account of another School is refused, not silently ignored.
     await expect(finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", bankAccountId: foreignAccount })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { bankAccountId: expect.any(String) } } });
   });

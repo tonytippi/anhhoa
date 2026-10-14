@@ -1784,6 +1784,23 @@ tbody tr:last-child td {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.receipt-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #b7d9c5;
+  border-radius: 10px;
+  background: #eef6f1;
+}
+.receipt-result > div { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.receipt-result h3 { margin: 0; color: #185d3d; font-size: 15px; font-weight: 700; }
+.receipt-result h3:focus { outline: none; }
+.receipt-result p { margin: 0; color: #4f5249; font-size: 13px; }
+.receipt-result p:empty { display: none; }
+.receipt-result-icon { display: grid; flex: 0 0 24px; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #247a51; color: #fff; font-size: 13px; font-weight: 800; }
+.school-context-workspace .receipt-result-close { min-height: 28px; border: 0; background: transparent; color: #4f5249; padding: 0 6px; font-size: 18px; line-height: 1; }
 .finance-review-student { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 2px; }
 .finance-review-student strong { color: #24261f; font-size: 20px; }
 .finance-review-student span { color: #5f746e; font-size: 15px; font-weight: 600; }
