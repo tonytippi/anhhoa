@@ -95,6 +95,11 @@ describe('payment image', () => {
     }
     expect(found).toEqual(new Set([part().qrPayload, personal.qrPayload]));
   }, 20000);
+  it('titles a class-run notice by its unit and dates instead of a month', () => {
+    const tree = JSON.stringify(paymentImageTree({ ...input, className: 'Starters 1', period: { name: 'Unit 1', startsOn: '2026-08-03', endsOn: '2026-09-26' }, parts: [part()] }));
+    for (const value of ['Thông báo học phí Unit 1', 'Kỳ', '03/08/2026 – 26/09/2026']) expect(tree).toContain(value);
+    expect(tree).not.toContain('Thông báo học phí tháng');
+  });
   it('shows the server totals and payment facts', () => {
     const single = JSON.stringify(paymentImageTree({ ...input, parts: [part()] }));
     for (const value of ['Thông báo học phí tháng 10/2026', 'HS001 · Nguyễn Minh Anh', 'OBL-202610-000123', '10/10/2026', '1.500.000 đ', '-150.000 đ', 'Thuế GTGT 5%', '67.500 đ', 'Tổng cần nộp', '1.417.500 đ', 'Vietcombank', 'Nguyen Minh Anh Mam 4A']) expect(single).toContain(value);

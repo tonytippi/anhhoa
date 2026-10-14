@@ -627,7 +627,7 @@ export class FinanceService {
   // The image covers the whole payment notice: one section per unsettled channel Invoice of the Student in the run.
   async paymentImage(identityId: string, schoolId: string, invoiceId: string) {
     schoolId = this.school(schoolId); const actor = await this.actor(identityId, schoolId); this.identifier(invoiceId, "invoiceId");
-    const invoice: any = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { ...this.invoiceInclude, school: { select: { name: true } } } });
+    const invoice: any = await this.prisma.invoice.findFirst({ where: { id: invoiceId, schoolId }, include: { ...this.invoiceInclude, school: { select: { name: true } }, collectionRun: { select: { scope: true, name: true, periodStartsOn: true, periodEndsOn: true } } } });
     if (!invoice) throw new NotFoundException({ code: "INVOICE_NOT_FOUND", message: "Không tìm thấy hóa đơn." });
     if (!this.paymentImageAvailable(invoice)) throw new ConflictException({ code: "PAYMENT_IMAGE_UNAVAILABLE", message: "Chỉ tải ảnh cho hóa đơn đã phát hành và chưa thu tiền." });
     const siblings: any[] = await this.prisma.invoice.findMany({ where: { schoolId, studentId: invoice.studentId, collectionRunId: invoice.collectionRunId, status: "ISSUED", id: { not: invoice.id } }, include: this.invoiceInclude });
@@ -637,6 +637,7 @@ export class FinanceService {
     const png = await renderPaymentImage({
       schoolName: profile?.schoolName ?? invoice.school.name, billingMonth: invoice.billingMonth,
       studentCode: invoice.studentCodeSnapshot, studentName: invoice.studentNameSnapshot, className: classLabel(invoice.classNameSnapshot),
+      ...(invoice.collectionRun?.scope === "CLASS" ? { period: { name: invoice.collectionRun.name, startsOn: isoDay(invoice.collectionRun.periodStartsOn), endsOn: isoDay(invoice.collectionRun.periodEndsOn) } } : {}),
       dueOn: parts.map((part) => part.dueOn.toISOString().slice(0, 10)).sort()[0]!,
       parts: parts.map((part) => this.paymentImagePart(part)),
     });

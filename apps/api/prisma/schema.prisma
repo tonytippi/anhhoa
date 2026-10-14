@@ -1405,7 +1405,8 @@ model DebtTransfer {
   reason          String
   actorIdentityId String           @db.Uuid
   membershipId    String           @db.Uuid
-  operationId     String           @unique @db.Uuid
+  // One run-level transfer moves several unpaid invoices under a single Operation.
+  operationId     String           @db.Uuid
   createdAt       DateTime         @default(now()) @db.Timestamptz(6)
   school          School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student         Student          @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
@@ -1420,6 +1421,7 @@ model DebtTransfer {
   @@unique([schoolId, id])
   @@unique([schoolId, targetLineId])
   @@index([schoolId, sourceInvoiceId])
+  @@index([schoolId, operationId])
   @@index([schoolId, targetInvoiceId])
 }
 

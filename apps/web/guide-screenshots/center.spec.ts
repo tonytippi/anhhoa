@@ -289,14 +289,10 @@ test('language center guide screenshots', async ({ page }) => {
     const debts = region(page, 'Công nợ kỳ trước');
     await expect(debts).toContainText('Phạm Đức Duy');
     await shot(debts, 'cong-no-danh-sach');
-    // "Chuyển tất cả công nợ" with both parts of one student currently fails on the server, so transfer one by one.
-    for (const index of [0, 1]) {
-      await debts.locator('tbody tr').first().getByRole('button', { name: 'Chuyển vào hóa đơn đợt này' }).click();
-      if (index === 0) await shot(page.getByRole('dialog'), 'cong-no-xac-nhan');
-      await page.getByRole('dialog').getByRole('button', { name: 'Chuyển công nợ' }).click();
-      await expect(page.getByRole('dialog')).toBeHidden();
-      await expect(page.getByText('Lỗi máy chủ nội bộ.')).toHaveCount(0);
-    }
+    await debts.getByRole('button', { name: 'Chuyển tất cả công nợ' }).click();
+    await shot(page.getByRole('dialog'), 'cong-no-xac-nhan');
+    await page.getByRole('dialog').getByRole('button', { name: 'Chuyển công nợ' }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
     await page.waitForTimeout(800);
 
     const review = async (student: string) => {

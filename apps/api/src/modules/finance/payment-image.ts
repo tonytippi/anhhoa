@@ -23,6 +23,8 @@ export type PaymentImageInput = {
   studentCode: string;
   studentName: string;
   className: string;
+  // A class run (language center) names its unit and dates instead of a billing month.
+  period?: { name: string; startsOn: string; endsOn: string };
   dueOn: string;
   parts: PaymentImagePart[];
 };
@@ -83,9 +85,10 @@ export function paymentImageTree(input: PaymentImageInput): Node {
   return h("div", { display: "flex", flexDirection: "column", width: 1080, padding: "64px 64px 56px", background: "#fff", color: ink, fontFamily: "Be Vietnam Pro" },
     h("div", { display: "flex", flexDirection: "column", borderBottom: `3px solid ${green}`, paddingBottom: 28, marginBottom: 32 },
       h("div", { color: green, fontWeight: 800, fontSize: 26, letterSpacing: 2 }, input.schoolName.toUpperCase()),
-      h("div", { marginTop: 8, fontWeight: 800, fontSize: 44 }, refundOnly ? `Phiếu hoàn tiền tháng ${month(input.billingMonth)}` : `Thông báo học phí tháng ${month(input.billingMonth)}`)),
+      h("div", { marginTop: 8, fontWeight: 800, fontSize: 44 }, `${refundOnly ? "Phiếu hoàn tiền" : "Thông báo học phí"} ${input.period ? input.period.name : `tháng ${month(input.billingMonth)}`}`)),
     fact("Học sinh", `${input.studentCode} · ${input.studentName}`),
     fact("Lớp", input.className),
+    ...(input.period ? [fact("Kỳ", `${date(input.period.startsOn)} – ${date(input.period.endsOn)}`)] : []),
     ...(several ? [] : [fact("Mã hóa đơn", input.parts[0]!.obligationCode)]),
     ...(refundOnly ? [] : [fact("Hạn thanh toán", date(input.dueOn))]),
     ...input.parts.map(part),
