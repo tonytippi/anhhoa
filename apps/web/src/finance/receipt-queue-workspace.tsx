@@ -517,8 +517,8 @@ export function ReceiptQueueWorkspace({
         <label>
           Trạng thái
           <select value={filters.state} onChange={(event) => setFilters({ ...filters, state: event.target.value })}>
-            <option value="">Chờ thu / chờ chi</option>
-            <option value="SETTLED">Đã thu / đã chi</option>
+            <option value="">Chưa xử lý</option>
+            <option value="SETTLED">Đã xử lý</option>
           </select>
         </label>
         <label>
@@ -528,8 +528,8 @@ export function ReceiptQueueWorkspace({
             onChange={(event) => setFilters({ ...filters, direction: event.target.value })}
           >
             <option value="">Tất cả</option>
-            <option value="COLLECT">Cần thu</option>
-            <option value="REFUND">Cần chi hoàn</option>
+            <option value="COLLECT">Hóa đơn thu tiền</option>
+            <option value="REFUND">Phiếu hoàn tiền</option>
           </select>
         </label>
         <div className="roster-list-filter-actions">

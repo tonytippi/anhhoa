@@ -46,7 +46,7 @@ Tháng sau, khoản chênh lệch hiện thành một dòng riêng trên hóa đ
 
 ## Xem hóa đơn đã thu
 
-Chọn `Trạng thái` là `Đã thu / đã chi` rồi bấm `Lọc`. Bảng liệt kê hóa đơn đã ghi thực nhận (số thực nhận, ngày ghi, kết quả **Đủ / Thu thiếu / Thu thừa**) và phiếu hoàn tiền đã chi. Các bộ lọc tháng, lớp, tài khoản nhận và tìm học sinh dùng như bình thường, nên có thể đối chiếu lại một sao kê đã ghi xong.
+Chọn `Trạng thái` là `Đã xử lý` rồi bấm `Lọc` (chọn thêm `Loại` là `Hóa đơn thu tiền` hoặc `Phiếu hoàn tiền` nếu chỉ muốn xem một loại). Bảng liệt kê hóa đơn đã ghi thực nhận (số thực nhận, ngày ghi, kết quả **Đủ / Thu thiếu / Thu thừa**) và phiếu hoàn tiền đã chi. Các bộ lọc tháng, lớp, tài khoản nhận và tìm học sinh dùng như bình thường, nên có thể đối chiếu lại một sao kê đã ghi xong.
 
 > Đây là chế độ xem: hóa đơn đã thu không sửa hay ghi lại được.
 
