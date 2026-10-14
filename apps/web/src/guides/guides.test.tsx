@@ -11,11 +11,15 @@ describe('guide articles', () => {
   it('ships ordered articles whose guide links and images resolve', async () => {
     const { readdirSync } = await import('node:fs');
     const images = new Set(readdirSync('public/guides'));
-    const ids = new Set(guideArticles.map((article) => article.id));
-    expect(guideArticles.length).toBeGreaterThan(0);
-    for (const article of guideArticles) {
-      for (const [, id] of article.body.matchAll(/\]\(guide:([a-z0-9-]+)\)/g)) expect(ids.has(id!), `${article.id} → ${id}`).toBe(true);
-      for (const [, src] of article.body.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) expect(images.has(src!), `${article.id} → ${src}`).toBe(true);
+    for (const articles of Object.values(guideArticles)) {
+      // Links stay inside one School kind's set, so a center reader never lands on a preschool article.
+      const ids = new Set(articles.map((article) => article.id));
+      expect(articles.length).toBeGreaterThan(0);
+      expect(ids.size).toBe(articles.length);
+      for (const article of articles) {
+        for (const [, id] of article.body.matchAll(/\]\(guide:([a-z0-9-]+)\)/g)) expect(ids.has(id!), `${article.id} → ${id}`).toBe(true);
+        for (const [, src] of article.body.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) expect(images.has(src!), `${article.id} → ${src}`).toBe(true);
+      }
     }
   });
   it('hides articles for pages the position cannot open', () => {
@@ -25,15 +29,15 @@ describe('guide articles', () => {
     expect(visible).not.toContain('khoan-thu');
   });
   it('suggests the articles that belong to the open page', () => {
-    const ids = (page: string) => guidesForPage(guideArticles, page).map((article) => article.id);
+    const ids = (page: string) => guidesForPage(guideArticles.PRESCHOOL, page).map((article) => article.id);
     expect(ids('receipt-queue')).toEqual(expect.arrayContaining(['thu-tien', 'quyet-toan-nghi-hoc', 'khi-mang-chap-chon']));
     expect(ids('receipt-queue')).not.toContain('tao-dot-thu');
     expect(ids('overview')).toEqual(['bat-dau']);
     expect(ids('students')).toEqual([]);
   });
   it('searches titles and article text without Vietnamese diacritics', () => {
-    const ids = (query: string) => searchGuides(guideArticles, query).map(({ article }) => article.id);
-    expect(ids('')).toHaveLength(guideArticles.length);
+    const ids = (query: string) => searchGuides(guideArticles.PRESCHOOL, query).map(({ article }) => article.id);
+    expect(ids('')).toHaveLength(guideArticles.PRESCHOOL.length);
     expect(ids('dong dot thu')).toContain('dong-dot-thu');
     expect(ids('ĐÓNG ĐỢT')).toContain('dong-dot-thu');
     expect(ids('khong co bai nao nhu the nay')).toEqual([]);
@@ -49,20 +53,22 @@ describe('guide articles', () => {
       { kind: 'list', ordered: true, start: 3, items: [{ text: 'Ba', children: [] }] },
     ]);
   });
-  it('lists the class-run article only for a School that bills by Class and suggests it on Đợt thu', () => {
-    const pages = ['overview', 'collection-runs', 'guides'];
-    const center = visibleGuides(pages, 'CLASS');
-    expect(center.map((article) => article.id)).toContain('dot-thu-theo-lop-trung-tam');
-    expect(guidesForPage(center, 'collection-runs').map((article) => article.title)).toContain('Đợt thu theo lớp cho trung tâm');
-    expect(guidesForPage(center, 'receipt-queue').map((article) => article.id)).not.toContain('dot-thu-theo-lop-trung-tam');
-    expect(visibleGuides(['overview', 'guides'], 'CLASS').map((article) => article.id)).not.toContain('dot-thu-theo-lop-trung-tam');
-    // A preschool sees exactly the articles it saw before.
+  it('gives a language center its own guide set and a preschool the preschool set', () => {
+    const pages = ['overview', 'collection-runs', 'extracurricular-classes', 'guides'];
+    const titles = (articles: { title: string }[]) => articles.map((article) => article.title);
+    const center = visibleGuides(pages, 'LANGUAGE_CENTER');
     const preschool = visibleGuides(pages);
-    expect(preschool.map((article) => article.id)).not.toContain('dot-thu-theo-lop-trung-tam');
-    expect(visibleGuides(pages, 'SCHOOL')).toEqual(preschool);
-    expect(center.filter((article) => article.id !== 'dot-thu-theo-lop-trung-tam')).toEqual(preschool);
-    expect(guideArticles.filter((article) => article.runScope).map((article) => article.id)).toEqual(['dot-thu-theo-lop-trung-tam']);
-    const body = guideArticles.find((article) => article.id === 'dot-thu-theo-lop-trung-tam')!.body;
-    for (const text of ['Trùng kỳ', 'tháng có ngày bắt đầu', 'Nghỉ học không tự hoàn tiền', 'hồ sơ cũ', 'cùng một email']) expect(body).toContain(text);
+    expect(visibleGuides(pages, 'PRESCHOOL')).toEqual(preschool);
+    expect(titles(center)).toContain('Mở đợt thu theo lớp và tạo hóa đơn nháp');
+    expect(titles(center)).toContain('Dịch vụ');
+    expect(titles(center)).not.toContain('Lớp ngoại khóa');
+    expect(titles(preschool)).toContain('Lớp ngoại khóa');
+    expect(titles(preschool)).not.toContain('Mở đợt thu theo lớp và tạo hóa đơn nháp');
+    expect(guidesForPage(center, 'collection-runs').map((article) => article.id)).toContain('mo-dot-thu');
+    // The center set never sends readers into preschool-only concepts.
+    for (const article of guideArticles.LANGUAGE_CENTER) expect(`${article.title} ${article.summary} ${article.body}`, article.id).not.toMatch(/[Mm]ầm non|[Nn]ăm học|[Nn]goại khóa|[Tt]iền ăn/);
+    const body = guideArticles.LANGUAGE_CENTER.find((article) => article.id === 'mo-dot-thu')!.body;
+    for (const text of ['Trùng kỳ', 'tháng có ngày bắt đầu', 'hồ sơ cũ', 'cùng một email']) expect(guideArticles.LANGUAGE_CENTER.some((article) => article.body.includes(text)), text).toBe(true);
+    expect(body).toContain('Trùng kỳ');
   });
 });
