@@ -5126,10 +5126,15 @@ export function FinanceWorkspace({
                         Hủy bản điều chỉnh
                       </button>
                     )}
-                    {!invoice.revisesInvoiceId && revisionParts.length > 0 && (
+                  </div>
+                  {/* Revising an issued Invoice is rare and heavy: a quiet entry under a divider, apart from the payment-image actions. */}
+                  {!invoice.revisesInvoiceId && revisionParts.length > 0 && (
+                    <p className="finance-revision-entry">
+                      Cần sửa hóa đơn đã phát hành?{" "}
                       <button
                         ref={revisionTrigger}
                         type="button"
+                        className="finance-row-link"
                         disabled={Boolean(pending)}
                         onClick={() => {
                           setRevisionReason("");
@@ -5139,8 +5144,8 @@ export function FinanceWorkspace({
                       >
                         Chuẩn bị bản điều chỉnh
                       </button>
-                    )}
-                  </div>
+                    </p>
+                  )}
                 </aside>
               </div>
               {["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status) &&
