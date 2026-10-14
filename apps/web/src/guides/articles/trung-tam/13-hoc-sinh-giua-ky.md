@@ -13,11 +13,15 @@ Học sinh được xếp vào lớp **trước khi** tạo hóa đơn nháp s�
 2. Bấm `Thêm học sinh` trong bảng **Hóa đơn trong đợt**, chọn em rồi `Yêu cầu thêm`. Chỉ học sinh của lớp này mới hiện trong danh sách.
 3. Hóa đơn bổ sung tính **trọn kỳ**. Nếu chỉ thu phần còn lại của unit, sửa số lượng hoặc dùng `Bớt` trên hóa đơn nháp, kèm lý do, rồi phát hành.
 
+![Thêm học sinh vào lớp sau khi đã tạo hóa đơn](tt-dot-thu-them-hoc-sinh.jpg)
+
 > Đợt đã đóng thì không thêm được học sinh. Hãy thêm xong học sinh vào giữa kỳ trước khi đóng đợt.
 
 ## Chuyển lớp giữa kỳ
 
 Chuyển lớp làm ở `Danh bộ › Học sinh › Chuyển danh bộ` (xem [Lớp học và học sinh](guide:lop-hoc-va-hoc-sinh)). Hóa đơn đã tạo ở lớp cũ không đổi. Khi lớp mới tạo hóa đơn cho kỳ có ngày trùng, các dòng mà em đã có ở lớp cũ được gắn nhãn `Trùng kỳ`:
+
+![Hai học sinh chuyển từ Starters 3 có nhãn Trùng kỳ](tt-dot-thu-hoa-don-trung-ky.jpg)
 
 - Học sinh thật sự học cả hai lớp: thu đủ.
 - Học sinh chỉ chuyển lớp và đã đóng tiền ở lớp cũ: giảm số lượng, dùng `Bớt` hoặc xóa dòng trên hóa đơn ở lớp mới.

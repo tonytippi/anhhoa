@@ -17,8 +17,13 @@ Công nợ **đi theo học sinh, kể cả khi em đã chuyển sang lớp khá
 ## Các bước
 
 1. Mở đợt thu kỳ này (trạng thái `Đã tạo hóa đơn`). Nếu có công nợ đủ điều kiện, bên dưới bảng hóa đơn hiện mục `Công nợ kỳ trước`; cột `Kỳ` cho biết hóa đơn cũ thuộc lớp và đợt nào. Không có mục này nghĩa là chưa có gì để chuyển.
+
+![Công nợ Unit 1 chưa thu trong đợt Unit 2](tt-cong-no-danh-sach.jpg)
+
 2. Chuyển từng hóa đơn bằng `Chuyển vào hóa đơn đợt này` ở dòng của học sinh, hoặc bấm `Chuyển tất cả công nợ`.
 3. Hộp xác nhận nêu số hóa đơn và tổng tiền. Bấm `Chuyển công nợ` để xác nhận.
+
+![Xác nhận chuyển công nợ](tt-cong-no-xac-nhan.jpg)
 
 ## Điều gì xảy ra
 
@@ -26,6 +31,8 @@ Công nợ **đi theo học sinh, kể cả khi em đã chuyển sang lớp khá
 - Lý do của dòng tự ghi "Chuyển công nợ" kèm tên đợt cũ (ví dụ "Chuyển công nợ Unit 3"). Dòng này không sửa hay xóa được.
 - Hóa đơn cũ **rời trang `Thu tiền`** và không còn tải được ảnh VietQR; báo cáo không tính nó là còn nợ nữa. Phụ huynh nhận ảnh của hóa đơn kỳ này, đã gồm khoản nợ cũ.
 - Thao tác chọn nhiều hóa đơn là **tất cả hoặc không**: một hóa đơn không còn đủ điều kiện thì không hóa đơn nào được chuyển.
+
+![Dòng Công nợ kỳ trước trên hóa đơn Unit 2](tt-cong-no-tren-hoa-don.jpg)
 
 > [!WARNING]
 > Chuyển công nợ không thể hoàn tác. Kiểm tra kỹ học sinh và số tiền trong hộp xác nhận trước khi bấm `Chuyển công nợ`.

@@ -16,6 +16,8 @@ Hóa đơn đã phát hành không sửa và không hủy trực tiếp. Cách d
 6. Bấm `Phát hành bản thay thế` và xác nhận. Hóa đơn gốc chuyển sang `Đã hủy`, bản mới thay thế; trang hiện dòng "Liên kết điều chỉnh" kèm lý do.
 7. Gửi lại ảnh hóa đơn mới cho phụ huynh.
 
+![Chọn phần cần điều chỉnh và nhập lý do](tt-dieu-chinh-chuan-bi.jpg)
+
 > Trong lúc chuẩn bị, hóa đơn gốc **vẫn giữ nguyên hiệu lực**. Mở lại phiếu thu từ đợt thu sẽ tự vào bản điều chỉnh đang dở để bạn làm tiếp.
 
 ## Hủy bản điều chỉnh đang dở

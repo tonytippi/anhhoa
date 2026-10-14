@@ -30,6 +30,6 @@ Trung tâm không thu theo tháng của cả trường. Mỗi lớp có **chuỗ
 
 ## Dùng mục Hướng dẫn
 
-Mỗi bài trong menu **Hướng dẫn** mô tả một việc cụ thể. Nút `Hướng dẫn` ở đầu mỗi trang gợi ý các bài liên quan tới trang đang mở.
+Mỗi bài trong menu **Hướng dẫn** mô tả một việc cụ thể. Nút `Hướng dẫn` ở đầu mỗi trang gợi ý các bài liên quan tới trang đang mở. Bấm vào ảnh để xem kích thước đầy đủ. Ảnh minh họa dùng trung tâm và học sinh mẫu ("Trung tâm Anh ngữ Hoa Mai"), không phải dữ liệu thật.
 
 Nên đọc theo thứ tự: [Quy trình thu tiền theo kỳ](guide:quy-trinh-thu-tien) trước, sau đó đến từng bài chi tiết.

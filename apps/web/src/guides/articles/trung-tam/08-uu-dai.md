@@ -16,6 +16,8 @@ Mở `Tài chính › Ưu đãi`. Mỗi chính sách có nhiều **phiên bản*
 6. Ở `Cách thực hiện`, chọn **Giảm trên hóa đơn**.
 7. Bấm `Lưu phiên bản ưu đãi`. Phiên bản mới ở trạng thái `Nháp`.
 
+![Tạo ưu đãi giảm 10% học phí](tt-uu-dai-them.jpg)
+
 ## Kích hoạt phiên bản
 
 Bấm `...` ở dòng phiên bản, chọn `Kích hoạt phiên bản` rồi `Xác nhận kích hoạt`. Chỉ phiên bản `Đang áp dụng` mới gán được cho học sinh.
@@ -26,6 +28,8 @@ Bấm `...` ở dòng phiên bản, chọn `Kích hoạt phiên bản` rồi `X�
 2. Chọn `Phiên bản đang áp dụng`, `Áp dụng từ` và (nếu có) `Áp dụng đến (bao gồm)`.
 3. Lọc theo lớp hoặc tìm tên, đánh dấu các học sinh. Học sinh đã có ưu đãi này hiện "Đã gán ưu đãi này".
 4. Nhập `Lý do` (ví dụ "Anh chị em cùng học") rồi bấm `Lưu gán học sinh`.
+
+![Gán ưu đãi cho hai học sinh](tt-uu-dai-gan-hoc-sinh.jpg)
 
 Học sinh đã gán hiện ở bảng `Học sinh đang áp dụng ưu đãi`. Muốn dừng, chọn `Kết thúc áp dụng`, nhập ngày kết thúc và lý do.
 

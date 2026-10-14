@@ -12,6 +12,8 @@ Mỗi lớp có thể chọn trước một tài khoản trường và một tà
 2. Bấm `Tài khoản thu` ở dòng của lớp.
 3. Chọn `Tài khoản trường mặc định` và `Tài khoản cá nhân mặc định`, rồi bấm `Lưu tài khoản thu`.
 
+![Chọn tài khoản thu mặc định cho lớp](tt-lop-hoc-tai-khoan-thu.jpg)
+
 Sau khi lưu, cột `Tài khoản thu mặc định` hiển thị ngân hàng, 4 số cuối và chủ tài khoản.
 
 > Chỉ chọn được tài khoản đang hiệu lực. Nếu danh sách trống, xem lại [Thiết lập tài khoản nhận tiền](guide:tai-khoan-nhan-tien). Nếu trung tâm chỉ có đúng một tài khoản trường, hệ thống tự chọn tài khoản đó khi phát hành dù lớp chưa chọn.

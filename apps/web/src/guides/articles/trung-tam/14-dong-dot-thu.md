@@ -10,6 +10,8 @@ requires: collection-runs
 
 Hóa đơn của một đợt chỉ phát hành được sau khi **đợt trước của cùng lớp đã đóng**. Nếu chưa, trang đợt thu báo "Chưa thể phát hành hóa đơn của đợt này: cần đóng đợt … của lớp … trước.", kèm nút `Mở đợt thu …` để sang đóng đợt đó, và nút phát hành hóa đơn bị khóa. Đợt của lớp khác không ảnh hưởng.
 
+![Unit 2 báo cần đóng Unit 1 của lớp trước](tt-dot-thu-khoa-dot-truoc.jpg)
+
 Kỳ sau vẫn **mở đợt, xem trước và tạo hóa đơn nháp** được trước khi đóng kỳ trước; chỉ việc phát hành là phải chờ. Bản thay thế của hóa đơn (xem [Điều chỉnh hóa đơn](guide:dieu-chinh-hoa-don)) thuộc đợt chưa đóng nên không bị chặn.
 
 ## Các bước
@@ -18,6 +20,8 @@ Kỳ sau vẫn **mở đợt, xem trước và tạo hóa đơn nháp** được
    - "Chưa thể đóng: còn N phiếu thu nháp cần phát hành." — phát hành hết trước đã.
    - "Mọi hóa đơn đã phát hành; có thể đóng đợt thu."
 2. Bấm `Đóng đợt thu`, nhập `Lý do đóng đợt thu` và xác nhận.
+
+![Xác nhận đóng đợt thu](tt-dot-thu-dong.jpg)
 
 Đợt đã đóng hiện "Đợt thu đã đóng"; các hóa đơn chỉ còn xem được bằng `Xem hóa đơn`.
 

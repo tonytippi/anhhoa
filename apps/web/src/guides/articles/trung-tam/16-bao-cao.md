@@ -10,9 +10,13 @@ Mở `Tài chính › Báo cáo`. Chọn bộ lọc (`Tháng thu` dạng YYYY-MM
 
 ## Tổng quan
 
+![Thẻ Tổng quan](tt-bao-cao-tong-quan.jpg)
+
 Bốn chỉ số chính: **Phải thu ròng** (sau ưu đãi, bớt, thuế và nợ chuyển kỳ), **Đã thu**, **Còn phải thu**, **Đã chi hoàn**. Bên dưới là biểu đồ theo tháng, diễn giải từ tổng phải thu đến phải thu ròng và tiến độ thu theo đợt (mỗi đợt ghi tên lớp và tên kỳ).
 
 ## Đối soát đợt thu
+
+![Thẻ Đối soát đợt thu theo từng đợt của lớp](tt-bao-cao-doi-soat.jpg)
 
 Số hóa đơn đã phát hành, đã thu đủ, chênh lệch chờ chuyển kỳ sau và đã chuyển kỳ; bảng đối soát theo từng đợt thu của từng lớp.
 

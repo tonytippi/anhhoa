@@ -7,6 +7,8 @@ pages: receivables, classes
 ---
 Mở `Tài chính › Khoản thu`. Đây là danh mục mọi khoản trung tâm thu (học phí, giáo trình, đưa đón…). Hóa đơn được tạo từ danh mục này.
 
+![Danh sách khoản thu của trung tâm](tt-khoan-thu-danh-sach.jpg)
+
 ## Ba nhóm khoản thu
 
 - **Khoản thu cố định** — tự thêm vào mỗi đợt thu khi mở đợt, cho mọi lớp hoặc chỉ các lớp được chọn (ví dụ học phí theo trình độ).
@@ -28,6 +30,8 @@ Mở `Tài chính › Khoản thu`. Đây là danh mục mọi khoản trung tâ
    - Các mức còn lại → tài khoản trường.
 7. Bấm `Lưu khoản thu`.
 
+![Thêm học phí cố định cho các lớp được chọn](tt-khoan-thu-them.jpg)
+
 ## Học phí theo trình độ: mỗi mức giá một khoản thu
 
 Giá nằm trên khoản thu, không nằm trên lớp. Vì vậy mỗi mức học phí là **một khoản thu cố định riêng** (ví dụ "Học phí Starter", "Học phí Movers"), mỗi khoản chọn `Các lớp được chọn` và đánh dấu các lớp học mức đó.
@@ -36,6 +40,8 @@ Danh sách lớp của khoản thu cố định sửa được ở hai nơi:
 
 - Trang `Khoản thu`: sửa khoản thu, đổi mục `Lớp áp dụng`.
 - Theo từng lớp: mở `Danh bộ › Lớp học`, bấm `Khoản thu cố định` ở dòng của lớp, đánh dấu các khoản áp dụng cho lớp rồi `Lưu khoản thu cố định`. Khoản `Toàn trường` luôn được đánh dấu và không bỏ được ở đây.
+
+![Chọn khoản thu cố định cho lớp Starters 1](tt-lop-hoc-khoan-thu-co-dinh.jpg)
 
 Cột `Khoản thu` của danh sách ghi `Toàn trường`, tên các lớp, hoặc `Chưa gán lớp` khi khoản theo lớp chưa còn lớp nào.
 

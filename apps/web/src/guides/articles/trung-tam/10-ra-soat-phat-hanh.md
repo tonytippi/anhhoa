@@ -17,6 +17,8 @@ Phiếu thu chia theo tài khoản nhận: **Phần 1 · Thu vào tài khoản t
 - `Thuế GTGT` — tính trên số tiền sau ưu đãi và bớt
 - `Tổng phải thu`
 
+![Hóa đơn nháp: phần tài khoản trường (giáo trình, đưa đón) và phần tài khoản cá nhân (học phí)](tt-hoa-don-chi-tiet.jpg)
+
 ## Sửa trên hóa đơn nháp
 
 Hóa đơn nháp sửa trực tiếp trên bảng như bảng tính:
@@ -36,9 +38,17 @@ Học sinh **đã có cùng khoản thu đó** trên hóa đơn của một đ�
 - Thu đủ nếu học sinh thật sự học cả hai lớp.
 - Giảm số lượng, dùng `Bớt` hoặc `Xóa` dòng nếu khoản đó đã thu ở lớp kia.
 
+![Dòng học phí có nhãn Trùng kỳ: đã có trên hóa đơn đợt Starters 3 · Unit 2](tt-hoa-don-trung-ky.jpg)
+
+![Bớt toàn bộ học phí trùng kỳ, kèm lý do](tt-hoa-don-sua-bot.jpg)
+
 ## Phát hành
 
 Ở khung **Rà soát trước khi phát hành**, kiểm tra tài khoản nhận cho từng phần (chọn sẵn theo tài khoản mặc định của lớp), rồi bấm `Phát hành phiếu thu` (hoặc `Phát hành hóa đơn` nếu chỉ có một phần). Hộp xác nhận nhắc lại tổng tiền đã gồm thuế; bấm phát hành để hoàn tất. Hai phần được phát hành cùng lúc.
+
+![Khung rà soát trước khi phát hành](tt-hoa-don-ra-soat-phat-hanh.jpg)
+
+![Xác nhận phát hành phiếu thu](tt-hoa-don-xac-nhan-phat-hanh.jpg)
 
 > [!WARNING]
 > Sau khi phát hành, hóa đơn **không sửa trực tiếp được**. Nút phát hành bị khóa khi còn thay đổi chưa lưu, hoặc khi đợt trước của cùng lớp chưa đóng (trang báo "Đợt thu … của lớp … chưa đóng").
@@ -47,7 +57,11 @@ Học sinh **đã có cùng khoản thu đó** trên hóa đơn của một đ�
 
 Sau khi phát hành, khung **Thanh toán** hiện mã hóa đơn, hạn thanh toán, số tiền và tài khoản của từng phần, cùng nội dung chuyển khoản.
 
+![Khung thanh toán sau khi phát hành](tt-hoa-don-thanh-toan.jpg)
+
 Bấm `Xem ảnh hóa đơn` hoặc `Tải ảnh hóa đơn` để lấy ảnh thông báo học phí có mã VietQR, rồi gửi cho phụ huynh qua kênh liên lạc của trung tâm (Zalo, email…). Phụ huynh quét mã là đúng số tiền, đúng tài khoản và đúng nội dung chuyển khoản.
+
+![Ảnh thông báo học phí có mã VietQR](tt-hoa-don-anh.jpg)
 
 > Ảnh chỉ tạo được cho hóa đơn đã phát hành và chưa thu tiền. Phiếu thu hai phần nghĩa là phụ huynh cần chuyển khoản **hai lần** vào hai tài khoản.
 

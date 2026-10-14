@@ -6,12 +6,16 @@ requires: extracurricular-classes
 ---
 Dịch vụ nằm ở `Danh bộ › Dịch vụ`. Mỗi dịch vụ gắn với một khoản thu nhóm **Dịch vụ**; học sinh dùng dịch vụ sẽ được tính khoản đó trong đợt thu của lớp em đang học. Dịch vụ không thay đổi lớp, điểm danh hay quyền của giáo viên.
 
+![Danh sách dịch vụ](tt-dich-vu-danh-sach.jpg)
+
 ## Tạo dịch vụ
 
 1. Bấm `Thêm dịch vụ`.
 2. Nhập `Tên dịch vụ` (ví dụ "Đưa đón tuyến 1") và chọn `Khoản thu`. Chỉ khoản thu nhóm Dịch vụ đang áp dụng mới hiện ở đây; nếu chưa có, tạo ở [Quản lý khoản thu](guide:khoan-thu).
 3. Đánh dấu `Điểm danh riêng` nếu dịch vụ cần điểm danh riêng. Hiện đây chỉ là đánh dấu, chức năng điểm danh sẽ có sau.
 4. Bấm `Lưu dịch vụ`.
+
+![Thêm dịch vụ đưa đón](tt-dich-vu-them.jpg)
 
 > Nhiều dịch vụ có thể dùng chung một khoản thu, nên dùng chung một giá. Muốn dịch vụ có giá khác, hãy tạo khoản thu Dịch vụ khác. Nút `Sửa giá` trong trang dịch vụ sẽ đổi giá cho **mọi dịch vụ** dùng chung khoản thu đó.
 
@@ -20,6 +24,10 @@ Dịch vụ nằm ở `Danh bộ › Dịch vụ`. Mỗi dịch vụ gắn với
 1. Bấm `Xem thành viên` ở dòng của dịch vụ.
 2. Bấm `Thêm học sinh`, lọc theo `Lớp` hoặc tìm tên, đánh dấu học sinh. Học sinh đã có trong dịch vụ hiện "Đã dùng dịch vụ này".
 3. Chọn `Hiệu lực từ`, nhập `Lý do` (ví dụ "Đăng ký đưa đón từ kỳ này") rồi bấm `Thêm học sinh đã chọn`.
+
+![Trang dịch vụ với danh sách học sinh đang dùng](tt-dich-vu-chi-tiet.jpg)
+
+![Chọn học sinh dùng dịch vụ](tt-dich-vu-them-hoc-sinh.jpg)
 
 ## Kết thúc dùng dịch vụ
 

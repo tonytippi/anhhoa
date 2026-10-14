@@ -21,6 +21,8 @@ Muốn đổi chính sách, nhập `Ngày hiệu lực` mới, điền `Lý do` 
 2. Chọn `Ngân hàng nhận`, nhập `Số tài khoản` và `Chủ tài khoản` (viết hoa không dấu như trên thẻ/ứng dụng ngân hàng).
 3. Bấm `Thêm tài khoản nhận tiền`.
 
+![Thêm tài khoản và danh sách tài khoản trường, tài khoản cá nhân](tt-cau-hinh-tai-khoan.jpg)
+
 Sau khi thêm, tài khoản hiện trong bảng tương ứng với trạng thái `Đang hiệu lực`. Số tài khoản được che bớt (•••• 4567); rê chuột vào để xem đầy đủ.
 
 > Nội dung chuyển khoản trên hóa đơn luôn là **tên học sinh + tên lớp**, bỏ dấu, tối đa 50 ký tự. Khi đối chiếu sao kê, tìm theo nội dung này.
