@@ -724,16 +724,17 @@ const financeSeedReceivables = [
 ] as const;
 // Kidsonline deductions ("Khoản giảm trừ") as DISCOUNT promotion policies on the same receivables, same VND or % value,
 // in Kidsonline's sort order (first = highest priority). Kidsonline picks deductions per invoice line, so there are no
-// standing Student assignments to migrate; Finance assigns Students here. Prepaid packages ("Gói 4 tặng 2"…) stay a
-// lump-sum discount on a multi-month quantity, as staff enter them today. Skipped: deductions whose only receivables
+// standing Student assignments to migrate; Finance assigns Students here. Prepaid packages ("Gói X tặng Y", 12 tháng)
+// become PREPAID_COVERAGE over the X+Y months studied, their lump sum spread as an equal per-month reduction. The half-month
+// packages (tặng 2,5 / 1.5) and 5 tặng 2 (13.800.000 đ does not split evenly over 7 months) stay lump-sum discounts. Skipped: deductions whose only receivables
 // no longer exist in Kidsonline, ƯU ĐÃI VOCHER (its receivable is dropped), the one-off meal refunds (Nghỉ tết dương
 // lịch 1/1/2026, Hoàn trả 2 phiếu ăn…, Tiền ăn ngày nghỉ có phép tháng 9: leave deduction on Tiền ăn covers them) and
 // the three with no receivable.
 const financeSeedPromotions = [
-  { name: 'ĐÓNG 12 THÁNG GIẢM 37% HỌC PHÍ TIÊU CHUẨN', discountType: 'FIXED_VND', discountValue: 30000000n, targets: ['KO-37955'] },
+  { name: 'ĐÓNG 12 THÁNG GIẢM 37% HỌC PHÍ TIÊU CHUẨN', discountType: 'FIXED_VND', discountValue: 2500000n, prepaidTermMonths: 12, targets: ['KO-37955'] },
   { name: 'GIẢM 30% HỌC PHÍ TIÊU CHUẨN', discountType: 'FIXED_VND', discountValue: 6300000n, targets: ['KO-37955'] },
   { name: 'Giảm 80% học phí tiêu chuẩn', discountType: 'PERCENTAGE', discountValue: 80n, targets: ['KO-37955'] },
-  { name: 'GÓI ƯU ĐÃI 4 TẶNG 2', discountType: 'FIXED_VND', discountValue: 13800000n, targets: ['KO-37955'] },
+  { name: 'GÓI ƯU ĐÃI 4 TẶNG 2', discountType: 'FIXED_VND', discountValue: 2300000n, prepaidTermMonths: 6, targets: ['KO-37955'] },
   { name: 'ƯU ĐÃI GÓI 1 THÁNG CHO 20 SUẤT ĐẶC BIỆT THÁNG 3.2026', discountType: 'FIXED_VND', discountValue: 1550000n, targets: ['KO-37955'] },
   { name: 'Ưu đãi 30% cho đồng phục', discountType: 'PERCENTAGE', discountValue: 30n, targets: ['KO-36749'] },
   { name: 'Ưu đãi giảm 20% phí sự kiện', discountType: 'PERCENTAGE', discountValue: 20n, targets: ['KO-30780'] },
@@ -749,15 +750,15 @@ const financeSeedPromotions = [
   { name: 'Ưu đãi HP CON GIÁO VIÊN CON CÔ NGÂN', discountType: 'PERCENTAGE', discountValue: 90n, targets: ['KO-37955'] },
   { name: 'ƯU ĐÃI T7.2024', discountType: 'PERCENTAGE', discountValue: 38n, targets: ['KO-37955'] },
   { name: 'Ưu đãi gói 1 tháng CTT8.2024', discountType: 'PERCENTAGE', discountValue: 30n, targets: ['KO-37955'] },
-  { name: 'Ưu đãi gói hp 12 tháng', discountType: 'PERCENTAGE', discountValue: 43n, targets: ['KO-37955'] },
-  { name: 'GÓI ƯU ĐÃI 6 TẶNG 3', discountType: 'FIXED_VND', discountValue: 20700000n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi gói hp 12 tháng', discountType: 'PERCENTAGE', discountValue: 43n, prepaidTermMonths: 12, targets: ['KO-37955'] },
+  { name: 'GÓI ƯU ĐÃI 6 TẶNG 3', discountType: 'FIXED_VND', discountValue: 2300000n, prepaidTermMonths: 9, targets: ['KO-37955'] },
   { name: 'ƯU ĐÃI HP GÓI 1 THÁNG', discountType: 'PERCENTAGE', discountValue: 20n, targets: ['KO-37955'] },
   { name: 'Ưu đãi 35% gói 1 tháng', discountType: 'PERCENTAGE', discountValue: 35n, targets: ['KO-37955'] },
   { name: 'ƯU ĐÃI 50 HỌC SINH KHAI GIẢNG 2023', discountType: 'PERCENTAGE', discountValue: 40n, targets: ['KO-37955'] },
   { name: 'Ưu đãi giảm 7% cho hs gom nhom', discountType: 'PERCENTAGE', discountValue: 7n, targets: ['KO-37955'] },
   { name: 'Ưu đãi giảm 5% gom nhóm', discountType: 'PERCENTAGE', discountValue: 5n, targets: ['KO-37955'] },
   { name: 'HOÀN TIỀN ĐẶT CỌC HỌC SINH MỚI', discountType: 'FIXED_VND', discountValue: 2000000n, targets: ['KO-38076'] },
-  { name: 'Ưu đãi gói 3 tháng tặng 2 tháng', discountType: 'FIXED_VND', discountValue: 13800000n, targets: ['KO-37955'] },
+  { name: 'Ưu đãi gói 3 tháng tặng 2 tháng', discountType: 'FIXED_VND', discountValue: 2760000n, prepaidTermMonths: 5, targets: ['KO-37955'] },
   { name: 'Ưu đãi phí sự kiện theo năm', discountType: 'FIXED_VND', discountValue: 1000000n, targets: ['KO-30780'] },
 ] as const;
 // Kidsonline bills these per session through receivables only (its extracurricular module is empty), so each
@@ -801,7 +802,7 @@ async function seedFinanceFixtures(tx: any, input: { schoolId: string; schoolYea
 
 type CatalogContext = { schoolId: string; schoolYearId: string; membershipId: string; ownerId: string; operationId: string };
 type CatalogReceivable = { code: string; displayName: string; unitLabel: string; defaultUnitPrice: bigint; refundUnitPrice?: bigint; autoLeaveDeduction?: boolean; taxCategory: string; group: string };
-type CatalogPromotion = { name: string; discountType: string; discountValue: bigint; targets: readonly string[] };
+type CatalogPromotion = { name: string; discountType: string; discountValue: bigint; prepaidTermMonths?: number; targets: readonly string[] };
 
 // Rows are created once and left untouched on later seeds.
 async function seedReceivableCatalog(tx: any, context: CatalogContext, catalog: { receivables: readonly CatalogReceivable[]; extracurricularClasses: ReadonlyArray<{ name: string; code: string }>; promotions: readonly CatalogPromotion[] }) {
@@ -820,11 +821,11 @@ async function seedReceivableCatalog(tx: any, context: CatalogContext, catalog: 
     const row = await tx.extracurricularClass.create({ data: { schoolId, schoolYearId: context.schoolYearId, name, receivableId: receivable.id } });
     await tx.extracurricularClassLifecycleTransition.create({ data: { schoolId, extracurricularClassId: row.id, status: 'ACTIVE', actorIdentityId: ownerId, membershipId, operationId: operation.id, sequence: 1 } });
   }
-  for (const [index, { name, targets, ...value }] of catalog.promotions.entries()) {
+  for (const [index, { name, targets, prepaidTermMonths, ...value }] of catalog.promotions.entries()) {
     if (await tx.promotionPolicy.findFirst({ where: { schoolId, name } })) continue;
     const receivables = await tx.receivable.findMany({ where: { schoolId, code: { in: [...targets] } } });
     const policy = await tx.promotionPolicy.create({ data: { schoolId, name } });
-    const version = await tx.promotionPolicyVersion.create({ data: { schoolId, policyId: policy.id, version: 1, status: 'DRAFT', ...value, priority: catalog.promotions.length - index, stackingMode: 'STACKABLE', fulfillmentMode: 'DISCOUNT', effectiveFrom: new Date('2026-08-01T00:00:00.000Z') } });
+    const version = await tx.promotionPolicyVersion.create({ data: { schoolId, policyId: policy.id, version: 1, status: 'DRAFT', ...value, priority: catalog.promotions.length - index, stackingMode: 'STACKABLE', fulfillmentMode: prepaidTermMonths ? 'PREPAID_COVERAGE' : 'DISCOUNT', prepaidTermMonths: prepaidTermMonths ?? null, effectiveFrom: new Date('2026-08-01T00:00:00.000Z') } });
     await tx.promotionPolicyTarget.createMany({ data: receivables.map((receivable: { id: string }) => ({ schoolId, versionId: version.id, receivableId: receivable.id })) });
     await tx.promotionPolicyVersion.update({ where: { id: version.id }, data: { status: 'ACTIVE' } });
   }
