@@ -158,14 +158,14 @@ describe("ReceiptQueueWorkspace", () => {
     const center = render(<ReceiptQueueWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" classRuns denied={vi.fn()} />);
     const table = await screen.findByRole("table", { name: "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi" });
     const cells = within((await within(table).findByText(/HS001/)).closest("tr")!).getAllByRole("cell");
-    expect(within(table).getAllByRole("columnheader")[2]!.textContent).toBe("Kỳ");
+    expect(within(table).getAllByRole("columnheader")[3]!.textContent).toBe("Kỳ");
     expect(cells[2]!.textContent).toBe("Starters A · Unit 3");
     expect(screen.getByLabelText("Tháng thu")).toBeTruthy();
     center.unmount();
     vi.stubGlobal("fetch", fetch());
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     const monthly = await screen.findByRole("table", { name: "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi" });
-    expect(within(monthly).getAllByRole("columnheader")[2]!.textContent).toBe("Tháng");
+    expect(within(monthly).getAllByRole("columnheader")[3]!.textContent).toBe("Tháng");
     expect(within((await within(monthly).findByText(/HS001/)).closest("tr")!).getAllByRole("cell")[2]!.textContent).toBe("09/2026");
   });
   it("names the invoice's own period by the run label in the receipt result for a class-scoped School and keeps the month otherwise", async () => {

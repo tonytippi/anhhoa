@@ -536,32 +536,34 @@ export function ReceiptQueueWorkspace({
           <button>Lọc</button>
         </div>
       </form>
-      <table>
-        <caption>{settledView ? "Hóa đơn đã thu và phiếu hoàn tiền đã chi" : "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi"}</caption>
+      <div className="table-scroll student-list-table receipt-queue-table">
+      <table aria-label={settledView ? "Hóa đơn đã thu và phiếu hoàn tiền đã chi" : "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi"}>
         <thead>
           <tr>
+            <th>STT</th>
             <th>Học sinh</th>
             <th>Lớp</th>
             <th>{classRuns ? "Kỳ" : "Tháng"}</th>
             <th>Tài khoản nhận</th>
-            <th>{settledView ? "Đã thu / đã chi" : "Còn phải thu"}</th>
+            <th className="finance-money">{settledView ? "Đã thu / đã chi" : "Còn phải thu"}</th>
             <th>{settledView ? "Kết quả" : "Trạng thái"}</th>
             {!settledView && <th>Tùy chọn</th>}
           </tr>
         </thead>
         <tbody>
           {queue?.invoices.length ? (
-            queue.invoices.map((row) => (
+            queue.invoices.map((row, index) => (
               <tr key={row.id}>
-                <td>
+                <td>{index + 1}</td>
+                <th scope="row">
                   {row.student.code} / {row.student.name}
-                </td>
+                </th>
                 <td>{row.class.name}</td>
                 <td>{classRuns && row.periodLabel ? row.periodLabel : monthLabel(row.billingMonth)}</td>
                 <td>{row.account ? <ReceivingAccountLabel account={row.account} /> : accountLabel(row.channel)}</td>
                 {row.settlement ? (
                   <>
-                    <td>
+                    <td className="finance-money">
                       {row.settlement.type === "PAYOUT" ? `Đã chi ${vnd(row.settlement.amount)}` : vnd(row.settlement.amount)} đ
                       <br />
                       <small className="muted">Ngày {displayDay(row.settlement.on)}</small>
@@ -582,13 +584,17 @@ export function ReceiptQueueWorkspace({
                   </>
                 ) : (
                   <>
-                    <td>
+                    <td className="finance-money">
                       {isRefund(row) ? `Hoàn ${vnd((-BigInt(row.outstanding)).toString())}` : vnd(row.outstanding)} đ
                     </td>
-                    <td>{isRefund(row) ? "Chờ chi hoàn" : "Chờ thu"}</td>
+                    <td>
+                      <span className={`finance-badge finance-badge-${isRefund(row) ? "info" : "warning"}`}>
+                        {isRefund(row) ? "Chờ chi hoàn" : "Chờ thu"}
+                      </span>
+                    </td>
                   </>
                 )}
-                {!settledView && <td>
+                {!settledView && <td className="roster-row-actions">
                   <AnchoredActionMenu
                     label={`Tùy chọn cho ${row.student.name} · ${accountLabel(row.channel)}`}
                     disabled={Boolean(pending)}
@@ -605,11 +611,14 @@ export function ReceiptQueueWorkspace({
             ))
           ) : (
             <tr>
-              <td colSpan={settledView ? 6 : 7}>{settledView ? "Không có hóa đơn đã thu." : "Không có hóa đơn chờ thu."}</td>
+              <td colSpan={settledView ? 7 : 8} className="student-empty-state">
+                {settledView ? "Không có hóa đơn đã thu." : "Không có hóa đơn chờ thu."}
+              </td>
             </tr>
           )}
         </tbody>
       </table>
+      </div>
       {detail && isRefund(detail) && (
         <>
           <div className="dialog-backdrop" aria-hidden="true" />

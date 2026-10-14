@@ -1805,6 +1805,10 @@ tbody tr:last-child td {
 .finance-actions:empty { display: none; }
 .finance-revision-entry { margin: 4px 0 0; padding-top: 12px; border-top: 1px solid #e2e1d8; color: #66746f; font-size: 13px; }
 .school-context-workspace .finance-revision-entry .finance-row-link { font-size: 13px; font-weight: 600; }
+.receipt-queue-table { margin-top: 16px; }
+.receipt-queue-table table { min-width: 960px; }
+.receipt-queue-table tbody th { font-weight: 600; }
+.receipt-queue-table td.finance-money small { display: block; }
 .finance-run-year { display: block; margin-top: 2px; color: #66746f; font-size: 12px; }
 .finance-run-collection { white-space: nowrap; font-variant-numeric: tabular-nums; color: #4f5249; }
 .finance-run-collection b { color: #185d3d; }
