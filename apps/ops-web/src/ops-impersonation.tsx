@@ -5,11 +5,15 @@ type Audience = 'app' | 'teacher' | 'parent';
 const audienceLabels: Record<Audience, string> = { app: 'Quản trị trường', teacher: 'Giáo viên', parent: 'Phụ huynh' };
 const apiUrl = typeof __API_URL__ === 'undefined' ? '' : __API_URL__;
 const csrfName = typeof __CSRF_COOKIE_NAME__ === 'undefined' ? 'ops_csrf' : __CSRF_COOKIE_NAME__;
-const lastAccess = (value: string | null) => {
-  if (!value) return 'Chưa truy cập';
-  const days = Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000);
-  return `${new Date(value).toLocaleString('vi-VN')} (${days <= 0 ? 'hôm nay' : `${days} ngày trước`})`;
-};
+// Schools run on Vietnam time, so "hôm nay"/"hôm qua" are calendar days there, not 24-hour spans.
+const timeZone = 'Asia/Ho_Chi_Minh';
+const dayNumber = (date: Date) => Date.parse(new Intl.DateTimeFormat('en-CA', { timeZone }).format(date)) / 86_400_000;
+const exactTime = (value: string) => { const date = new Date(value); return `${new Intl.DateTimeFormat('vi-VN', { timeZone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(date)} ${new Intl.DateTimeFormat('vi-VN', { timeZone, hour: '2-digit', minute: '2-digit' }).format(date)}`; };
+function When({ value, empty }: { value: string | null; empty: string }) {
+  if (!value) return <span className="muted">{empty}</span>;
+  const days = dayNumber(new Date()) - dayNumber(new Date(value));
+  return <>{days <= 0 ? 'Hôm nay' : days === 1 ? 'Hôm qua' : `${days} ngày trước`}<br /><small>{exactTime(value)}</small></>;
+}
 const csrf = () => document.cookie.split('; ').find((entry) => entry.startsWith(`${csrfName}=`))?.slice(csrfName.length + 1);
 
 // Lets a Platform Operator open a portal as another user to reproduce what they see; every start is recorded with its reason.
@@ -45,8 +49,8 @@ export function OpsImpersonation({ clear }: { clear: () => void }) {
     <form className="ops-search" onSubmit={search}><label>Email hoặc tên (để trống để xem tất cả)<input value={query} onChange={(event) => setQuery(event.target.value)} /></label><button>Tìm</button></form>
     {error && <p role="alert">{error}</p>}
     {link && <p className="notice"><a href={link.url} target="_blank" rel="noreferrer" onClick={() => setLink(undefined)}>{link.label}</a> — liên kết dùng một lần, hết hạn sau 1 phút.</p>}
-    {identities && <div className="table-wrap"><table><caption>Kết quả tìm kiếm</caption><thead><tr><th>Người dùng</th><th>Trường</th><th>Phụ huynh</th><th>Truy cập gần nhất</th><th>Đăng nhập gần nhất</th><th>Thao tác</th></tr></thead><tbody>
-      {identities.length ? identities.map((identity) => <tr key={identity.id}><td>{identity.displayName ? <>{identity.displayName}<br /><small>{identity.email}</small></> : identity.email}</td><td>{identity.memberships.length ? identity.memberships.map((membership) => `${membership.schoolName}${membership.status === 'ACTIVE' ? '' : ' (đã khóa)'}`).join(', ') : '—'}</td><td>{identity.parent ? 'Có' : '—'}</td><td>{lastAccess(identity.lastSeenAt)}</td><td>{identity.lastLoginAt ? new Date(identity.lastLoginAt).toLocaleString('vi-VN') : identity.bound ? 'Chưa ghi nhận' : 'Chưa đăng nhập'}</td><td>{identity.platformOperator ? <small>Nhân sự vận hành</small> : <button type="button" onClick={() => { setLink(undefined); setDialog({ identity, audience: identity.memberships.length || !identity.parent ? 'app' : 'parent', reason: '' }); }}>Giả lập</button>}</td></tr>)
+    {identities && <div className="table-wrap"><table><caption>{identities.length} người dùng</caption><thead><tr><th>Người dùng</th><th>Trường</th><th>Phụ huynh</th><th>Truy cập gần nhất</th><th>Đăng nhập gần nhất</th><th>Thao tác</th></tr></thead><tbody>
+      {identities.length ? identities.map((identity) => <tr key={identity.id}><td>{identity.displayName ? <>{identity.displayName}<br /><small>{identity.email}</small></> : identity.email}</td><td>{identity.memberships.length ? identity.memberships.map((membership) => `${membership.schoolName}${membership.status === 'ACTIVE' ? '' : ' (đã khóa)'}`).join(', ') : '—'}</td><td>{identity.parent ? 'Có' : '—'}</td><td><When value={identity.lastSeenAt} empty="Chưa truy cập" /></td><td><When value={identity.lastLoginAt} empty={identity.bound ? 'Chưa ghi nhận' : 'Chưa đăng nhập'} /></td><td>{identity.platformOperator ? <small>Nhân sự vận hành</small> : <button type="button" onClick={() => { setLink(undefined); setDialog({ identity, audience: identity.memberships.length || !identity.parent ? 'app' : 'parent', reason: '' }); }}>Giả lập</button>}</td></tr>)
         : <tr><td colSpan={6}>Không tìm thấy người dùng.</td></tr>}
     </tbody></table></div>}
     {dialog && <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="ops-impersonation-dialog-title" className="dialog" onKeyDown={(event) => { if (event.key === 'Escape' && !pending) setDialog(undefined); }}><form onSubmit={start}>
