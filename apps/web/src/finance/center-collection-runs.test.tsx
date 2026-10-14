@@ -201,7 +201,7 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
     const line = (await screen.findByText("Học phí unit")).closest("tr")!;
     expect(within(line).getByText("Trùng kỳ").className).toContain("warning");
     expect(line.textContent).toContain("đã có trên hóa đơn của đợt thu Starters B · Unit 3");
-    expect(screen.getByText(/Đợt thu Starters A · Unit 3 ·/)).toBeTruthy();
+    expect(screen.getByText("Đợt thu Starters A · Unit 3")).toBeTruthy();
     expect(screen.queryByText("Quản lý ưu đãi nộp trước")).toBeNull();
   });
 

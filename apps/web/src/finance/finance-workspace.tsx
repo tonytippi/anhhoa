@@ -4557,13 +4557,10 @@ export function FinanceWorkspace({
             >
               <header className="finance-run-header">
                 <div>
-                  <p className="finance-eyebrow">
-                    Đợt thu {invoicePeriod} ·{" "}
-                    <span id="invoice-review-student">
-                      {invoice.student.code} / {invoice.student.name}
-                    </span>{" "}
-                    · {invoice.student.className}
-                  </p>
+                  <p className="finance-eyebrow">Đợt thu {invoicePeriod}</p>
+                  <span id="invoice-review-student" hidden>
+                    {invoice.student.code} / {invoice.student.name}
+                  </span>
                   <div className="finance-title-row">
                     <InvoiceHeading id="invoice-review-title" tabIndex={-1}>
                       Rà soát hóa đơn
@@ -4576,6 +4573,12 @@ export function FinanceWorkspace({
                     {invoice.kind === "SETTLEMENT" && (
                       <span className="finance-badge finance-badge-info">Quyết toán</span>
                     )}
+                  </div>
+                  <div className="finance-review-student">
+                    <strong>{invoice.student.name}</strong>
+                    <span>
+                      {invoice.student.code} · Lớp {invoice.student.className}
+                    </span>
                   </div>
                   {invoice.kind === "SETTLEMENT" && (
                     <p>

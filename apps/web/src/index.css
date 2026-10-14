@@ -1784,6 +1784,9 @@ tbody tr:last-child td {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.finance-review-student { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 2px; }
+.finance-review-student strong { color: #24261f; font-size: 20px; }
+.finance-review-student span { color: #5f746e; font-size: 15px; font-weight: 600; }
 .finance-card-heading { display: grid; gap: 4px; }
 .finance-card-heading p { margin: 0; color: #5f746e; font-size: 14px; line-height: 1.5; }
 .finance-actions {
