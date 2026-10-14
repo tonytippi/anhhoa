@@ -1398,6 +1398,8 @@ export function FinanceWorkspace({
   const [message, setMessage] = useState("");
   // Success confirmations stay out of the error alert so a completed issue never reads as a failure.
   const [notice, setNotice] = useState("");
+  // After issuing, the issued Invoice stays open for its payment image; this is where "Học sinh kế tiếp" goes.
+  const [afterIssue, setAfterIssue] = useState<{ invoiceIds: string[]; nextId?: string; nextClassName?: string }>();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [scope, setScope] = useState<"receivable" | "invoice" | "lifecycle" | "promotion" | "run">("receivable");
   const [pending, setPending] = useState<Pending>();
@@ -2688,24 +2690,38 @@ export function FinanceWorkspace({
         if (runId) {
           const refreshed = await refreshRun(runId);
           // Continue with the next draft after the one just issued (server order), wrapping to earlier skipped drafts.
-          // With a Class filter on, only that Class's drafts are next.
+          // Next draft: the rest of the same Class first (the filtered Class, else the issued Student's), wrapping to
+          // its earlier skipped drafts; then the other Classes in name order. None left: back to the run.
           const queued = refreshed ? queueFor(refreshed) : undefined;
-          const ordered = (refreshed?.invoices ?? []).filter((item) => !queued?.className || item.className === queued.className || item.id === invoice.id);
+          const ordered = refreshed?.invoices ?? [];
           const current = ordered.findIndex((item) => item.id === invoice.id);
-          const isNextDraft = (item: (typeof ordered)[number]) =>
-            item.status === "DRAFT" &&
-            item.id !== invoice.id &&
-            !invoice.notice?.invoices?.some((part) => part.id === item.id);
-          const nextDraft = ordered.slice(current + 1).find(isNextDraft) ?? ordered.slice(0, Math.max(current, 0)).find(isNextDraft);
+          const issuedIds = [invoice.id, ...(invoice.notice?.invoices ?? []).map((part) => part.id)];
+          const isNextDraft = (item: (typeof ordered)[number]) => item.status === "DRAFT" && !issuedIds.includes(item.id);
+          const sameClass = queued?.className ?? invoice.student.className;
+          const inClass = ordered.filter((item, index) => index === current || item.className === sameClass);
+          const at = inClass.findIndex((item) => item.id === invoice.id);
+          const nextDraft =
+            inClass.slice(at + 1).find(isNextDraft) ??
+            inClass.slice(0, Math.max(at, 0)).find(isNextDraft) ??
+            [...ordered]
+              .filter((item) => item.className !== sameClass && isNextDraft(item))
+              .sort((a, b) => a.className.localeCompare(b.className, "vi"))[0];
           if (queued) setInvoiceQueue(queued);
+          setAfterIssue({
+            invoiceIds: issuedIds,
+            nextId: nextDraft?.id,
+            nextClassName: nextDraft && nextDraft.className !== sameClass ? nextDraft.className : undefined,
+          });
           const issuedNote = `${issueActionLabel.replace("Phát hành", "Đã phát hành")} cho ${invoice.student.code} / ${invoice.student.name}.`;
-          if (nextDraft) {
-            await reviewInvoice(nextDraft.id);
-            setNotice(`${issuedNote} Đang rà soát học sinh tiếp theo.`);
-          } else
-            setNotice(
-              `${issuedNote} ${queued?.className ? `Đã phát hành toàn bộ hóa đơn của lớp ${queued.className}.` : "Đã phát hành toàn bộ hóa đơn trong đợt."}`,
-            );
+          setNotice(
+            `${issuedNote} ${
+              !nextDraft
+                ? "Đã phát hành toàn bộ hóa đơn trong đợt."
+                : nextDraft.className !== sameClass
+                  ? `Đã phát hành toàn bộ hóa đơn của lớp ${sameClass}.`
+                  : "Tải ảnh hóa đơn để gửi phụ huynh, rồi chuyển sang học sinh kế tiếp."
+            }`,
+          );
         }
       } catch {
         setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất.");
@@ -3032,6 +3048,19 @@ export function FinanceWorkspace({
   const reviewInvoice = (id: string) => {
     if (onOpenInvoice && run) onOpenInvoice(run.id, id);
     else void openInvoice(id, run);
+  };
+  const issuedJustNow = Boolean(invoice && afterIssue?.invoiceIds.includes(invoice.id));
+  const continueAfterIssue = () => {
+    const target = afterIssue;
+    setAfterIssue(undefined);
+    setNotice("");
+    if (!run || !target) return;
+    if (target.nextId) {
+      // Crossing into another Class moves the Class filter with it, so the queue keeps following one Class.
+      if (target.nextClassName && noticeClassRef.current && noticeClassRef.current.runId === run.id) setNoticeClass({ runId: run.id, className: target.nextClassName });
+      reviewInvoice(target.nextId);
+    } else if (onBackToRun) onBackToRun(run.id);
+    else setInvoice(undefined);
   };
   const previousInvoiceId = invoiceQueueIndex > 0 ? invoiceQueue!.ids[invoiceQueueIndex - 1] : undefined;
   const nextInvoiceId =
@@ -4723,10 +4752,20 @@ export function FinanceWorkspace({
                       Học sinh trước
                     </button>
                   )}
-                  {nextInvoiceId && (
-                    <button type="button" disabled={Boolean(pending)} onClick={() => keepLineEdits() && reviewInvoice(nextInvoiceId)}>
-                      Học sinh tiếp theo
+                  {issuedJustNow ? (
+                    <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={continueAfterIssue}>
+                      {afterIssue!.nextId
+                        ? afterIssue!.nextClassName
+                          ? `Học sinh kế tiếp · Lớp ${afterIssue!.nextClassName}`
+                          : "Học sinh kế tiếp"
+                        : "Về đợt thu"}
                     </button>
+                  ) : (
+                    nextInvoiceId && (
+                      <button type="button" disabled={Boolean(pending)} onClick={() => keepLineEdits() && reviewInvoice(nextInvoiceId)}>
+                        Học sinh tiếp theo
+                      </button>
+                    )
                   )}
                 </div>
               </header>

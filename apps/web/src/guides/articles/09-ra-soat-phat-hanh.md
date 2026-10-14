@@ -4,9 +4,9 @@ summary: Kiểm tra từng hóa đơn nháp, sửa số lượng hoặc phần b
 order: 9
 requires: collection-runs
 ---
-Trong đợt thu ở trạng thái `Đã tạo hóa đơn`, bấm `Rà soát hóa đơn` ở dòng học sinh đầu tiên. Dùng `Học sinh trước` / `Học sinh tiếp theo` để đi lần lượt; sau khi phát hành một hóa đơn, hệ thống tự chuyển sang hóa đơn nháp kế tiếp.
+Trong đợt thu ở trạng thái `Đã tạo hóa đơn`, bấm `Rà soát hóa đơn` ở dòng học sinh đầu tiên. Dùng `Học sinh trước` / `Học sinh tiếp theo` để đi lần lượt. Sau khi phát hành, trang vẫn giữ hóa đơn vừa phát hành để bạn tải ảnh gửi phụ huynh; bấm `Học sinh kế tiếp` để sang hóa đơn nháp kế tiếp **cùng lớp**. Hết lớp, nút đổi thành `Học sinh kế tiếp · Lớp …` để sang lớp khác; khi đã phát hành toàn bộ, nút là `Về đợt thu`.
 
-Muốn làm gọn từng lớp (các khoản thu trong một lớp thường giống nhau), chọn lớp ở ô `Lớp` phía trên bảng hóa đơn trước khi bấm `Rà soát hóa đơn`. Khi đó `Học sinh trước` / `Học sinh tiếp theo` và việc tự chuyển sau khi phát hành chỉ đi trong lớp đã chọn; đầu trang rà soát ghi rõ `Học sinh 2/30 · Lớp …`.
+Muốn làm gọn từng lớp (các khoản thu trong một lớp thường giống nhau), chọn lớp ở ô `Lớp` phía trên bảng hóa đơn trước khi bấm `Rà soát hóa đơn`. Khi đó `Học sinh trước` / `Học sinh tiếp theo` chỉ đi trong lớp đã chọn, và khi `Học sinh kế tiếp` sang lớp khác thì bộ lọc lớp cũng chuyển theo; đầu trang rà soát ghi rõ `Học sinh 2/30 · Lớp …`.
 
 ## Đọc hóa đơn
 

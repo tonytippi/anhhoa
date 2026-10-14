@@ -97,7 +97,7 @@ async function readyAndGenerate(page: Page, students: number) {
   await expect(page.getByRole('list', { name: 'Tiến trình đợt thu' }).locator('[aria-current="step"]')).toHaveText('Đã tạo hóa đơn');
 }
 // Issues the invoice on screen; the portal then moves to the next DRAFT of the run, or reports that none is left.
-async function issueCurrentInvoice(page: Page, student: RegExp, runTitle: string) {
+async function issueCurrentInvoice(page: Page, student: RegExp, runTitle: string, next = false) {
   const review = page.getByRole('region', { name: student });
   await expect(review.getByText('Nháp', { exact: true })).toBeVisible();
   await review.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
@@ -107,6 +107,8 @@ async function issueCurrentInvoice(page: Page, student: RegExp, runTitle: string
   await dialog.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
   expect((await issued).status()).toBe(201);
   await expect(dialog).toBeHidden();
+  // The issued Invoice stays open for its payment image; Finance moves on explicitly.
+  if (next) await review.getByRole('button', { name: /^Học sinh kế tiếp/ }).click();
 }
 
 test('Admin runs a language center: staggered unit runs per class, a service, a mid-unit student, receipt, close and the next unit with old debt', async ({ page }) => {
@@ -240,12 +242,12 @@ test('Admin runs a language center: staggered unit runs per class, a service, a 
   // 6. Issue the three invoices, record one receipt, leave the others unpaid, close the run.
   await invoiceRow(runInvoices(page), 'TT1 / Học viên An').getByRole('button', { name: 'Rà soát hóa đơn' }).click();
   const anReview = page.getByRole('region', { name: /Rà soát hóa đơn TT1 \/ Học viên An/ });
-  await expect(anReview.getByText(/Đợt thu Starters A · Unit 1 ·/)).toBeVisible();
+  await expect(anReview.getByText('Đợt thu Starters A · Unit 1', { exact: true })).toBeVisible();
   const anLines = anReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' });
   await expect(anLines.getByRole('row').filter({ hasText: 'Học phí unit' }).getByTitle('Nguồn')).toHaveText('Linh hoạt · Cả lớp');
   await expect(anLines.getByRole('row').filter({ hasText: 'Đưa đón' }).getByTitle('Nguồn')).toHaveText('Dịch vụ · Đưa đón');
-  await issueCurrentInvoice(page, /Rà soát hóa đơn TT1 \/ Học viên An/, 'Starters A · Unit 1');
-  await issueCurrentInvoice(page, /Rà soát hóa đơn TT2 \/ Học viên Bình/, 'Starters A · Unit 1');
+  await issueCurrentInvoice(page, /Rà soát hóa đơn TT1 \/ Học viên An/, 'Starters A · Unit 1', true);
+  await issueCurrentInvoice(page, /Rà soát hóa đơn TT2 \/ Học viên Bình/, 'Starters A · Unit 1', true);
   await issueCurrentInvoice(page, /Rà soát hóa đơn TT5 \/ Học viên Em/, 'Starters A · Unit 1');
   await expect(page.getByText('Đã phát hành toàn bộ hóa đơn trong đợt.')).toBeVisible();
 

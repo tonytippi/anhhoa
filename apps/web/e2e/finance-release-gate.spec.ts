@@ -217,13 +217,16 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(invoiceReview.getByTitle('Nguồn')).toHaveText('Cố định');
    await invoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
    const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn · tháng 10/2026' });
-   await expect(firstIssue).toContainText('RG1-1 / Bé An · tháng 10/2026');
+   await expect(firstIssue).toContainText('Bé AnRG1-1 · Lớp');
    const issuedRunRefresh = page.waitForResponse((response) =>
      /\/finance\/collection-runs\/[^/]+$/.test(new URL(response.url()).pathname) &&
      response.request().method() === 'GET',
    );
    await firstIssue.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
    expect((await issuedRunRefresh).status()).toBe(200);
+     // The issued Invoice stays open for its payment image until Finance moves on.
+     await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
+     await page.getByRole('button', { name: /^Học sinh kế tiếp/ }).click();
      await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' }).getByText('Nháp', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Học sinh trước' }).click();
@@ -241,7 +244,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
 
   await secondInvoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
    const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn · tháng 10/2026' });
-    await expect(secondIssue).toContainText('RG1-2 / Bé Bình · tháng 10/2026');
+    await expect(secondIssue).toContainText('Bé BìnhRG1-2 · Lớp');
     await secondIssue.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
    await expect(secondInvoiceReview.getByRole('complementary', { name: 'Thanh toán' })).toContainText('Tổng cần nộp150.000 đ');
     // The initial queue load rewrites the filter form with the server's default month when it lands, so let it finish before typing.
