@@ -1992,6 +1992,25 @@ tbody tr:last-child td {
   background: #247a51;
   color: #fff;
 }
+.finance-issue-dialog { width: min(600px, calc(100vw - 32px)); }
+.finance-issue-student {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #e2e1d8;
+  border-radius: 9px;
+  background: #f7f7f2;
+}
+.finance-issue-student strong { font-size: 17px; color: #24261f; }
+.finance-issue-student span { color: #5f6258; font-size: 14px; }
+.finance-issue-lines { width: 100%; border-collapse: collapse; font-size: 14px; }
+.finance-issue-lines th, .finance-issue-lines td { padding: 6px 8px; border-bottom: 1px solid #e2e1d8; text-align: left; vertical-align: top; }
+.finance-issue-lines thead th { color: #5f6258; font-weight: 600; }
+.finance-issue-lines .finance-money { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.finance-issue-lines .finance-issue-part th { padding-top: 10px; font-weight: 600; color: #4f5249; }
+.finance-issue-lines .finance-issue-subtotal td { color: #5f6258; }
+.finance-issue-lines tfoot th, .finance-issue-lines tfoot td { border-bottom: 0; font-weight: 700; color: #24261f; }
+.finance-issue-lines tfoot small { margin-left: 4px; color: #5f6258; font-weight: 400; }
 @media (max-width: 767px) {
   .finance-metrics { grid-template-columns: 1fr; }
   .finance-run-header { flex-direction: column; align-items: stretch; }

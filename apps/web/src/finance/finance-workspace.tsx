@@ -5166,20 +5166,67 @@ export function FinanceWorkspace({
               <div className="dialog-backdrop" aria-hidden="true" />
               <div
                 ref={issueDialog}
-                className="dialog finance-confirm-dialog"
+                className="dialog finance-confirm-dialog finance-issue-dialog"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="finance-issue-title"
                 onKeyDown={trapIssueFocus}
               >
                 <h3 id="finance-issue-title">
-                  {issueActionLabel} cho {invoice.student.code} / {invoice.student.name} · {invoicePeriod}
+                  {issueActionLabel} · {invoicePeriod}
                 </h3>
-                <p>
-                  Lớp {invoice.student.className}. Tổng cần thu do máy chủ xác nhận:{" "}
-                  {vnd(invoice.noticeTotal ?? invoice.total)} đ, đã gồm thuế
-                  GTGT.
-                </p>
+                <div className="finance-issue-student">
+                  <strong>{invoice.student.name}</strong>
+                  <span>
+                    {invoice.student.code} · Lớp {invoice.student.className}
+                  </span>
+                </div>
+                <div className="table-scroll">
+                  <table className="finance-issue-lines">
+                    <caption className="sr-only">Các khoản thu sẽ phát hành</caption>
+                    <thead>
+                      <tr>
+                        <th>Khoản thu</th>
+                        <th>Số lượng</th>
+                        <th className="finance-money">Thành tiền (đ)</th>
+                      </tr>
+                    </thead>
+                    {issueParts.map((part, index) => (
+                      <tbody key={part.id}>
+                        {issueParts.length > 1 && (
+                          <tr className="finance-issue-part">
+                            <th colSpan={3} scope="rowgroup">
+                              Phần {index + 1} · Thu vào {channelAccountLabel(part.channel).toLocaleLowerCase("vi")}
+                            </th>
+                          </tr>
+                        )}
+                        {part.lines.map((item) => (
+                          <tr key={item.id}>
+                            <td>{item.receivableName}</td>
+                            <td>
+                              {item.quantity} {item.unitLabel}
+                            </td>
+                            <td className="finance-money">{vnd(item.amount)}</td>
+                          </tr>
+                        ))}
+                        {issueParts.length > 1 && (
+                          <tr className="finance-issue-subtotal">
+                            <td colSpan={2}>Tổng phần {index + 1}</td>
+                            <td className="finance-money">{vnd(part.total)}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    ))}
+                    <tfoot>
+                      <tr>
+                        <th colSpan={2} scope="row">
+                          Tổng cần thu <small>đã gồm thuế GTGT</small>
+                        </th>
+                        <td className="finance-money">{signedVnd(invoice.noticeTotal ?? invoice.total)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
                 <p>Sau khi phát hành, hóa đơn không sửa trực tiếp được; muốn thay đổi phải tạo bản điều chỉnh.</p>
                 {issueParts.map((part) =>
                   part.channel === "SCHOOL" ? (

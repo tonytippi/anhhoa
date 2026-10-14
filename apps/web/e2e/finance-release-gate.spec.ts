@@ -216,7 +216,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
    await expect(invoiceReview.getByTitle('Nguồn')).toHaveText('Cố định');
    await invoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
-   const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho RG1-1 / Bé An · tháng 10/2026' });
+   const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn · tháng 10/2026' });
    await expect(firstIssue).toContainText('RG1-1 / Bé An · tháng 10/2026');
    const issuedRunRefresh = page.waitForResponse((response) =>
      /\/finance\/collection-runs\/[^/]+$/.test(new URL(response.url()).pathname) &&
@@ -240,7 +240,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(secondInvoiceReview.getByText('135.000')).toHaveCount(0);
 
   await secondInvoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
-   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho RG1-2 / Bé Bình · tháng 10/2026' });
+   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn · tháng 10/2026' });
     await expect(secondIssue).toContainText('RG1-2 / Bé Bình · tháng 10/2026');
     await secondIssue.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
    await expect(secondInvoiceReview.getByRole('complementary', { name: 'Thanh toán' })).toContainText('Tổng cần nộp150.000 đ');

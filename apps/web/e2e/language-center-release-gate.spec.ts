@@ -101,7 +101,7 @@ async function issueCurrentInvoice(page: Page, student: RegExp, runTitle: string
   const review = page.getByRole('region', { name: student });
   await expect(review.getByText('Nháp', { exact: true })).toBeVisible();
   await review.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
-  const dialog = page.getByRole('dialog', { name: new RegExp(`^Phát hành hóa đơn cho .* · ${runTitle}$`) });
+  const dialog = page.getByRole('dialog', { name: new RegExp(`^Phát hành hóa đơn · ${runTitle}$`) });
   await expect(dialog).toBeVisible();
   const issued = page.waitForResponse((response) => /\/finance\/invoices\/[^/]+\/issue$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST');
   await dialog.getByRole('button', { name: 'Phát hành hóa đơn' }).click();

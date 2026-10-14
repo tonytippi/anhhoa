@@ -394,7 +394,7 @@ describe("FinanceWorkspace", () => {
     expect(within(panel).getByRole("option", { name: "ABBANK · 2088 · NGUYEN VAN AN (mặc định lớp Mầm 4A)" })).toBeTruthy();
     fireEvent.change(within(panel).getByLabelText("Tài khoản cá nhân"), { target: { value: "bank-binh" } });
     fireEvent.click(within(panel).getByRole("button", { name: "Phát hành phiếu thu" }));
-    const dialog = await screen.findByRole("dialog", { name: /Phát hành phiếu thu cho HS001 \/ Bé An · tháng 10\/2026/ });
+    const dialog = await screen.findByRole("dialog", { name: "Phát hành phiếu thu · tháng 10/2026" });
     expect((within(dialog).getByLabelText("Tài khoản trường · 1.417.500 đ") as HTMLSelectElement).value).toBe("bank-school");
     expect(within(dialog).queryByLabelText(/Nhập chính xác/)).toBeNull();
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Hủy" }));
@@ -1748,7 +1748,7 @@ describe("FinanceWorkspace", () => {
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ });
     fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
-    const dialog = await screen.findByRole("dialog", { name: /Phát hành hóa đơn cho HS001 \/ Bé An · tháng 09\/2026/ }); const confirm = within(dialog).getByRole("button", { name: "Phát hành hóa đơn" });
+    const dialog = await screen.findByRole("dialog", { name: "Phát hành hóa đơn · tháng 09/2026" }); const confirm = within(dialog).getByRole("button", { name: "Phát hành hóa đơn" });
     expect(dialog.textContent).toContain("Ngân hàng A / 123 / Ánh Hoa"); expect(dialog.textContent).not.toContain("inactive"); expect(dialog.textContent).toContain("Lớp Lá 1"); expect(dialog.textContent).toContain("100 đ"); expect(dialog.textContent).toContain("phải tạo bản điều chỉnh");
     expect(within(dialog).queryByRole("textbox")).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Hủy" })));
