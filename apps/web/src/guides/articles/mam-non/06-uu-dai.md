@@ -45,6 +45,8 @@ Dùng khi phụ huynh đóng trước nhiều tháng liên tiếp. Ở bước `
 
 Sau khi kích hoạt, gói được áp dụng **trên từng hóa đơn nháp** ở mục `Quản lý ưu đãi nộp trước` (xem [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh)). Khi áp dụng, hóa đơn thu luôn **đủ số tháng của gói** (ví dụ gói 3 tháng: Học phí 3 tháng, trừ phần giảm của cả 3 tháng); các đợt thu tháng sau sẽ tự bỏ qua học phí của những tháng đã nộp trước. Quyền ưu đãi các tháng sau chỉ được phát hành khi hóa đơn đó được thu **đủ đúng số tiền**.
 
+> Một gói có thể gồm học phí của nhiều lớp (ví dụ Học phí Mầm, Chồi, Lá): khi áp dụng, hệ thống chỉ tính nộp trước cho khoản thu có trên hóa đơn của học sinh đó.
+
 > Khi tạo gói, chỉ chọn các khoản thu **cùng loại tài khoản nhận** (cùng "Không kê khai" hoặc cùng có thuế). Hệ thống từ chối gói trộn khoản thu tài khoản trường với khoản thu tài khoản cá nhân.
 
 > [!WARNING]

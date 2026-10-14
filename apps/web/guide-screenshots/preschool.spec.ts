@@ -126,7 +126,7 @@ test('preschool guide screenshots', async ({ page }) => {
     await page.getByRole('button', { name: 'Thêm chính sách' }).click();
     add = dialog(page, 'Thêm chính sách ưu đãi');
     await add.getByLabel('Tên chính sách').fill('Đóng trước 3 tháng');
-    await add.getByRole('checkbox', { name: 'Học phí Chồi' }).check();
+    for (const name of ['Học phí Mầm', 'Học phí Chồi', 'Học phí Lá']) await add.getByRole('checkbox', { name }).check();
     await add.getByLabel('Mức giảm').fill('5');
     await add.getByLabel('Hiệu lực từ').fill('01/08/2026');
     await add.getByRole('radio', { name: /Ưu đãi nộp trước/ }).check();

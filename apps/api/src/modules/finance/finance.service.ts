@@ -3209,6 +3209,14 @@ export class FinanceService {
       }
     }
 
+    // A package may list receivables of several classes (Học phí Mầm, Chồi, Lá); only those billed on this Invoice are
+    // prepaid. A target without a line would issue coverage nobody paid for and later skip that receivable unpaid.
+    const billed = new Set(
+      (await tx.invoiceLine.findMany({ where: { schoolId, invoiceId: invoice.id, kind: "NORMAL", receivableId: { not: null } }, select: { receivableId: true } })).map((line: any) => line.receivableId),
+    );
+    const targets = version.targets.filter((target: any) => billed.has(target.receivableId));
+    if (!targets.length) throw validation("versionId", "Hóa đơn không có khoản thu nào thuộc gói nộp trước này.");
+
     const run = await this.lockRun(tx, schoolId, invoice.collectionRunId);
     if (run.status === "CLOSED" || run.scope !== "SCHOOL") {
       throw new ConflictException({
@@ -3318,7 +3326,7 @@ export class FinanceService {
         });
       }
 
-      for (const target of version.targets) {
+      for (const target of targets) {
         const issued = await tx.studentPromotionalCoverage.findFirst({
           where: {
             schoolId,
