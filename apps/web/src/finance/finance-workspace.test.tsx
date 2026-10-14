@@ -1537,7 +1537,7 @@ describe("FinanceWorkspace", () => {
     await waitFor(() => expect(screen.queryByText("Kết quả tạo hóa đơn từ máy chủ")).toBeNull());
   });
   it("marks the server lifecycle step and shows only the server summary for a generated run", async () => {
-    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }], summary: { invoiceCount: 7, issuedCount: 5, invoiceTotal: "9007199254740993" } };
+    const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }], summary: { invoiceCount: 7, issuedCount: 5, invoiceTotal: "9007199254740993", noticeCount: 7, issuedNoticeCount: 5, receivableTotal: "9007199254740993", collectedTotal: "9007199254740991", settledNoticeCount: 3 } };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
@@ -1545,9 +1545,10 @@ describe("FinanceWorkspace", () => {
     expect(within(steps).getAllByRole("listitem").map((item) => item.getAttribute("aria-current"))).toEqual([null, null, "step", null]);
     expect(within(steps).queryByRole("button")).toBeNull();
     const overview = screen.getByLabelText("Tổng quan do máy chủ tính");
-    expect(within(overview).getByText("7")).toBeTruthy();
-    expect(within(overview).getByText("5")).toBeTruthy();
-    expect(within(overview).getByText("9.007.199.254.740.993 đ")).toBeTruthy();
+    const metric = (label: string) => within(overview).getByText(label).nextElementSibling?.textContent;
+    expect(metric("Đã phát hành")).toBe("5 / 7 phiếu thu");
+    expect(metric("Đã thu / Phải thu")).toBe("9.007.199.254.740.991 / 9.007.199.254.740.993 đ");
+    expect(metric("Đã thanh toán")).toBe("3 / 7 học sinh");
   });
   it("shows the READY server summary and locked template, and waits for a DRAFT preview before showing figures", async () => {
     const readyRun = { ...run, status: "READY" as const, templateLines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí tháng", unitLabel: "tháng", defaultUnitPrice: "1500000", quantity: "1", amount: "1500000" }], summary: { eligibleCount: 124, skippedCount: 1, expectedTotal: "262600000" } };
@@ -1651,7 +1652,7 @@ describe("FinanceWorkspace", () => {
     expect(within(rows[1]!).queryByText(/VCB|ABB/)).toBeNull();
     expect(within(rows[2]!).getByText("—")).toBeTruthy();
     expect(within(rows[2]!).getByText("Hoàn tất")).toBeTruthy();
-    expect(screen.getByText("Phiếu thu")).toBeTruthy();
+    expect(screen.getByText("Đã phát hành")).toBeTruthy();
     expect(screen.getByText("Chưa thể đóng: còn 1 phiếu thu nháp cần phát hành.")).toBeTruthy();
   });
   it("allows close when every invoice has been issued", async () => {

@@ -1921,6 +1921,10 @@ tbody tr:last-child td {
 .finance-metrics > div { border-radius: 14px; background: #eef6f1; padding: 16px 18px; }
 .finance-metrics dt { color: #5f746e; font-size: 13px; font-weight: 700; }
 .finance-metrics dd { margin: 4px 0 0; color: #18332d; font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.finance-metrics dd small { color: #5f746e; font-size: 13px; font-weight: 600; }
+.finance-metrics .finance-metric-collected { color: #247a51; }
+.finance-metrics .finance-run-paid { gap: 6px; font-weight: inherit; }
+.finance-metrics .finance-run-paid svg { width: 18px; height: 18px; }
 .school-context-workspace .finance-workspace > section.finance-notice {
   gap: 6px;
   border-color: #c9e4d3;

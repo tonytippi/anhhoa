@@ -1,4 +1,4 @@
-import { FormEvent, Fragment, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ReceivingAccountLabel, type ReceivingAccount } from "./receiving-account";
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 import { PaymentImagePanel } from "./payment-image-panel";
@@ -530,7 +530,7 @@ const runStatusLabel = (status: Run["status"]) =>
   })[status];
 const runSteps = ["DRAFT", "READY", "GENERATED", "CLOSED"] as const;
 // Overview values render only the server `summary`; the browser never adds VND amounts.
-const runMetrics = (run: Run, preview?: Preview): Array<[string, string]> => {
+const runMetrics = (run: Run, preview?: Preview): Array<[string, ReactNode]> => {
   if (run.status === "DRAFT" || run.status === "READY") {
     const summary = (run.status === "DRAFT" ? preview?.summary : run.summary) as PreviewSummary | undefined;
     const missing = run.status === "DRAFT" ? "Chưa xem trước" : "Chưa có số liệu";
@@ -541,10 +541,25 @@ const runMetrics = (run: Run, preview?: Preview): Array<[string, string]> => {
     ];
   }
   const summary = run.summary as InvoiceSummary | undefined;
+  if (!summary) return [["Đã phát hành", "Chưa có số liệu"], ["Đã thu / Phải thu", "Chưa có số liệu"], ["Đã thanh toán", "Chưa có số liệu"]];
+  const notices = summary.noticeCount ?? summary.invoiceCount;
+  // Same figures as the run list: received over owed, fully settled notices over all notices.
   return [
-    ["Phiếu thu", summary ? String(summary.noticeCount ?? summary.invoiceCount) : "Chưa có số liệu"],
-    ["Đã phát hành", summary ? String(summary.issuedNoticeCount ?? summary.issuedCount) : "Chưa có số liệu"],
-    ["Tổng phải thu", summary ? `${vnd(summary.invoiceTotal)} đ` : "Chưa có số liệu"],
+    ["Đã phát hành", <>{summary.issuedNoticeCount ?? summary.issuedCount} / {notices} <small>phiếu thu</small></>],
+    [
+      "Đã thu / Phải thu",
+      <>
+        <span className="finance-metric-collected">{vnd(summary.collectedTotal ?? "0")}</span> /{" "}
+        {vnd(summary.receivableTotal ?? summary.invoiceTotal)} <small>đ</small>
+      </>,
+    ],
+    [
+      "Đã thanh toán",
+      <span className={`finance-run-paid${notices > 0 && summary.settledNoticeCount === notices ? " finance-run-paid-done" : ""}`}>
+        <PaidIcon />
+        {summary.settledNoticeCount ?? 0} / {notices} <small>học sinh</small>
+      </span>,
+    ],
   ];
 };
 const billingMonthLabel = (month: string) => {
@@ -886,6 +901,12 @@ const lineEdit = (line: InvoiceLine, draft: LineDraft | undefined) => {
 const lineEditable = (part: Invoice, line: InvoiceLine) =>
   part.status === "DRAFT" && line.receivableId !== null && (line.kind ?? "NORMAL") === "NORMAL" && !(part.coverageFacts ?? []).length;
 
+const PaidIcon = () => (
+  <svg viewBox="0 0 16 16" aria-hidden="true">
+    <circle cx="8" cy="4.5" r="2.5" fill="currentColor" />
+    <path d="M3 14c0-3 2.2-5 5-5s5 2 5 5H3Z" fill="currentColor" />
+  </svg>
+);
 // Run list collection figures, all from the server summary: received over owed, and fully settled notices over all notices.
 function RunCollectionCells({ summary }: { summary?: InvoiceSummary }) {
   if (!summary?.receivableTotal)
@@ -906,10 +927,7 @@ function RunCollectionCells({ summary }: { summary?: InvoiceSummary }) {
           className={`finance-run-paid${done ? " finance-run-paid-done" : ""}`}
           title="Số học sinh đã thanh toán đủ / tổng số học sinh có hóa đơn"
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <circle cx="8" cy="4.5" r="2.5" fill="currentColor" />
-            <path d="M3 14c0-3 2.2-5 5-5s5 2 5 5H3Z" fill="currentColor" />
-          </svg>
+          <PaidIcon />
           <span className="sr-only">Học sinh đã thanh toán </span>
           {summary.settledNoticeCount ?? 0} / {summary.noticeCount ?? 0}
         </span>
