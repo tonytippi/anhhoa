@@ -2006,7 +2006,7 @@ tbody tr:last-child td {
 }
 .finance-issue-student strong { font-size: 17px; color: #24261f; }
 .finance-issue-student span { color: #5f6258; font-size: 14px; }
-.finance-issue-lines { width: 100%; min-width: 0; border-collapse: collapse; font-size: 14px; }
+.finance-issue-lines, .dialog table.finance-issue-lines { width: 100%; min-width: 0; border-collapse: collapse; font-size: 14px; }
 .finance-issue-lines tfoot td.finance-money { font-size: 17px; }
 .finance-issue-dialog .dialog-actions { width: 100%; margin-top: 4px; }
 .finance-issue-dialog .dialog-actions .primary-action { border-color: #247a51; background: #247a51; color: #fff; }
