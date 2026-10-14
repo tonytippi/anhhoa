@@ -19,6 +19,8 @@ type Row = {
   issuedAt: string;
   outstanding: string;
   direction?: Direction;
+  // Sprint change 2026-10-14 §3: a prepaid package is recorded only at its exact amount.
+  prepaid?: Prepaid;
   status: "ISSUED" | "CLOSED";
   // What closed the Invoice, on the settled view.
   settlement?:
@@ -51,6 +53,7 @@ type Detail = {
   lines?: Array<{ id: string; receivableName: string; unitLabel: string; quantity: number; amount: string }>;
   outstanding: string;
   direction?: Direction;
+  prepaid?: Prepaid;
   status: "ISSUED";
 };
 type Closed = {
@@ -66,6 +69,9 @@ type Closed = {
   coverageFacts?: Array<{ billingMonth: string; issuedAt: string | null }>;
 };
 type Operation = { status: string; outcome?: Closed };
+type Prepaid = { months: number; firstMonth: string; lastMonth: string } | null;
+const monthText = (billingMonth: string) => `${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
+const prepaidText = (prepaid: NonNullable<Prepaid>) => `Gói nộp trước ${prepaid.months} tháng · ${monthText(prepaid.firstMonth)}–${monthText(prepaid.lastMonth)}`;
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const pendingKey = "passionedu.app.pending-receipt-queue-operation";
 const csrf = () =>
@@ -591,6 +597,7 @@ export function ReceiptQueueWorkspace({
                       <span className={`finance-badge finance-badge-${isRefund(row) ? "info" : "warning"}`}>
                         {isRefund(row) ? "Chờ chi hoàn" : "Chờ thu"}
                       </span>
+                      {row.prepaid && <small className="finance-badge-note">{prepaidText(row.prepaid)} · thu đúng số</small>}
                     </td>
                   </>
                 )}
@@ -760,6 +767,13 @@ export function ReceiptQueueWorkspace({
               Thu thiếu, đủ hay thừa do hệ thống quyết định; phần chênh lệch chỉ chuyển sang hóa đơn cùng tài khoản kỳ
               sau, hóa đơn của tài khoản kia không đổi.
             </p>
+            {detail.prepaid && (
+              <p className="finance-line-warning">
+                {prepaidText(detail.prepaid)}: chỉ ghi được thực nhận đúng {vnd(detail.outstanding)} đ. Phụ huynh chuyển
+                thiếu hoặc thừa thì đề nghị chuyển bổ sung hoặc hoàn lại phần thừa trước khi ghi; khi đợt thu chưa đóng
+                có thể điều chỉnh hóa đơn để bỏ gói.
+              </p>
+            )}
             <label>
               Số thực nhận (đ)
               <input inputMode="numeric" value={actual} onChange={(event) => setActual(event.target.value)} />

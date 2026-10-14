@@ -43,7 +43,7 @@ Tháng sau, khoản chênh lệch hiện thành một dòng riêng trên hóa đ
 > [!WARNING]
 > Mỗi hóa đơn chỉ ghi thực nhận **một lần** — không có thu từng đợt. Nếu phụ huynh chuyển làm hai lần, hãy cộng lại và ghi một lần khi đã nhận đủ hoặc khi chốt sổ. Phần của tài khoản kia không bị ảnh hưởng.
 
-> Hóa đơn có gói nộp trước chỉ ghi được khi thực nhận **đúng bằng** số phải thu.
+> Hóa đơn có gói nộp trước hiện nhãn `Gói nộp trước … · thu đúng số` và chỉ ghi được khi thực nhận **đúng bằng** số phải thu. Phụ huynh chuyển thiếu hoặc thừa thì đề nghị chuyển bổ sung hoặc hoàn phần thừa trước khi ghi; khi đợt thu chưa đóng có thể [điều chỉnh hóa đơn](guide:dieu-chinh-hoa-don) để bỏ gói. Hóa đơn gói vẫn ghi thực nhận được sau khi đã đóng đợt thu.
 
 ## Xem hóa đơn đã thu
 

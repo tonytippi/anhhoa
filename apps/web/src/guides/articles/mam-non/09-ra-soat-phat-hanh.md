@@ -59,13 +59,25 @@ Bấm `Xem ảnh hóa đơn` hoặc `Tải ảnh hóa đơn` để lấy ảnh t
 
 ## Gói nộp trước
 
-Trên hóa đơn nháp, mục `Quản lý ưu đãi nộp trước` cho phép chọn gói (xem [Ưu đãi và gói nộp trước](guide:uu-dai)) và bấm `Áp dụng ưu đãi nộp trước`. Bảng **Ưu đãi nộp trước** liệt kê từng tháng của gói với giá gốc, phần giảm và thành tiền.
+Dưới bảng dòng của hóa đơn nháp có thẻ `Gói nộp trước`. Bấm `Áp dụng gói nộp trước`, chọn gói (chỉ hiện gói có khoản thu trên phiếu thu này, xem [Ưu đãi và gói nộp trước](guide:uu-dai)). Hộp thoại hiện **xem trước** do hệ thống tính: từng tháng với giá, ưu đãi (gồm cả ưu đãi đang gán cho học sinh, như anh chị em) và số phải thu, cùng tổng dòng gói. Kiểm tra rồi bấm `Áp dụng gói`.
+
+![Xem trước gói 3 tháng trước khi áp dụng](hoa-don-nop-truoc-xem-truoc.jpg)
+
+Sau khi áp dụng, thẻ hiện tên gói, số tháng, khoảng tháng và trạng thái `Chờ thu đủ`; khi phần thu được ghi thực nhận đủ, trạng thái chuyển `Đã thu`.
 
 ![Gói 3 tháng đã áp dụng: từng tháng và phần giảm](hoa-don-nop-truoc.jpg)
 
-Dòng khoản thu của gói chuyển thành **đủ số tháng** (ví dụ Học phí Chồi 3 tháng = 10.200.000 đ, ưu đãi 510.000 đ). Gói tự gắn vào đúng phần của phiếu thu theo tài khoản nhận của khoản thu (học phí "Không kê khai" → phần tài khoản cá nhân), dù bạn đang mở phần nào.
+Dòng khoản thu của gói chuyển thành **đủ số tháng** (ví dụ Học phí Chồi 3 tháng = 10.200.000 đ, ưu đãi 510.000 đ), tính theo **đơn giá của dòng** — nếu đã sửa đơn giá kèm lý do (ví dụ con nhân viên) thì gói dùng đơn giá đó. Gói tự gắn vào đúng phần của phiếu thu theo tài khoản nhận của khoản thu (học phí "Không kê khai" → phần tài khoản cá nhân), dù bạn đang mở phần nào.
 
 ![Học phí thu đủ 3 tháng của gói trên phần tài khoản cá nhân](hoa-don-nop-truoc-dong.jpg)
 
 > [!WARNING]
-> Khi phần hóa đơn đang có gói nộp trước, các dòng của phần đó **bị khóa**. Muốn sửa số lượng, đơn giá hay phần bớt, bấm `Xóa ưu đãi nộp trước` (dòng trở về 1 tháng), sửa xong rồi áp dụng lại gói. Phụ huynh phải chuyển **đúng** số tiền của phần đó; chuyển thiếu hoặc thừa sẽ không ghi thực nhận được.
+> Khi phần hóa đơn đang có gói nộp trước, các dòng của phần đó **bị khóa**. Muốn sửa số lượng, đơn giá hay phần bớt, bấm `Bỏ gói nộp trước` (dòng trở về 1 tháng), sửa xong rồi áp dụng lại gói. Phụ huynh phải chuyển **đúng** số tiền của phần đó; chuyển thiếu hoặc thừa sẽ không ghi thực nhận được.
+
+Hệ thống từ chối áp dụng gói khi:
+
+- Hóa đơn có **hai dòng cùng khoản thu** của gói — giữ lại một dòng.
+- Một tháng của gói **đã được thu ở hóa đơn khác** (ví dụ đợt tháng sau đã tạo hóa đơn có học phí) — xóa dòng đó hoặc điều chỉnh hóa đơn kia trước.
+- Một tháng của gói đã thuộc gói khác (đã thu hoặc đang chờ thu).
+
+> Khi gói đang chờ thu, các đợt thu tháng sau trong thời hạn gói **tự bỏ qua** học phí đó; trang xem trước đợt thu ghi "Đã nộp trước" cạnh tên học sinh. Nếu bỏ gói sau khi đã tạo đợt tháng sau, hóa đơn các tháng đó không có học phí — thêm lại bằng tay.

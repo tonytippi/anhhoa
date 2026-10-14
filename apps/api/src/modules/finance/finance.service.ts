@@ -607,7 +607,7 @@ export class FinanceService {
         postedAt: invoice.settlementTransferTo.sourceReceipt.postedAt.toISOString(),
       } : null,
       carries: (invoice.settlementCarries ?? []).map((carry: any) => ({ type: carry.type, amount: carry.amount.toString(), sourceDifferenceId: carry.settlementDifferenceId })),
-      coverageFacts: (invoice.coverageFacts ?? []).map((fact: any) => ({ coverageId: fact.issuedCoverage?.id ?? null, receivableId: fact.receivableId, billingMonth: fact.billingMonth, policyId: fact.policyId, versionId: fact.versionId, originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), netPrice: (BigInt(fact.originalPrice) - BigInt(fact.reduction)).toString(), serviceStart: fact.serviceStart.toISOString().slice(0, 10), serviceEnd: fact.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: fact.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: fact.timezone, issuedAt: fact.issuedCoverage?.issuedAt?.toISOString() ?? null })),
+      coverageFacts: (invoice.coverageFacts ?? []).map((fact: any) => ({ coverageId: fact.issuedCoverage?.id ?? null, receivableId: fact.receivableId, billingMonth: fact.billingMonth, policyId: fact.policyId, versionId: fact.versionId, originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), netPrice: (BigInt(fact.originalPrice) - BigInt(fact.reduction)).toString(), promotions: ((fact.promotionEvaluation as any)?.applications ?? []).filter((application: any) => BigInt(application.appliedDiscount) > 0n).map((application: any) => ({ policyId: application.policyId, amount: application.appliedDiscount })), serviceStart: fact.serviceStart.toISOString().slice(0, 10), serviceEnd: fact.serviceEnd.toISOString().slice(0, 10), calendarEffectiveFrom: fact.calendarEffectiveFrom.toISOString().slice(0, 10), timezone: fact.timezone, issuedAt: fact.issuedCoverage?.issuedAt?.toISOString() ?? null })),
     };
     if (["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status)) result.issue = {
       issuedAt: invoice.issuedAt.toISOString(), obligationCode: invoice.obligationCodeSnapshot ?? null, obligationTotal: invoice.obligationTotalSnapshot.toString(),
@@ -3603,7 +3603,7 @@ export class FinanceService {
         months: facts.map((fact: any) => ({
           billingMonth: fact.billingMonth, receivableId: fact.receivableId, receivableName: name(fact.receivableId),
           originalPrice: fact.originalPrice.toString(), reduction: fact.reduction.toString(), netPrice: (BigInt(fact.originalPrice) - BigInt(fact.reduction)).toString(),
-          promotions: fact.promotionEvaluation.applications.filter((application: any) => BigInt(application.appliedDiscount) > 0n).map((application: any) => policies.get(application.policyId) ?? ""),
+          promotions: fact.promotionEvaluation.applications.filter((application: any) => BigInt(application.appliedDiscount) > 0n).map((application: any) => ({ name: policies.get(application.policyId) ?? "", amount: application.appliedDiscount })),
         })),
         originalTotal: facts.reduce((sum: bigint, fact: any) => sum + BigInt(fact.originalPrice), 0n).toString(),
         reductionTotal: facts.reduce((sum: bigint, fact: any) => sum + BigInt(fact.reduction), 0n).toString(),

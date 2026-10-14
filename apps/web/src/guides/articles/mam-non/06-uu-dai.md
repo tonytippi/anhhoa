@@ -43,9 +43,16 @@ Dùng khi phụ huynh đóng trước nhiều tháng liên tiếp. Ở bước `
 
 ![Tạo gói đóng trước 3 tháng giảm 5%](uu-dai-nop-truoc.jpg)
 
-Sau khi kích hoạt, gói được áp dụng **trên từng hóa đơn nháp** ở mục `Quản lý ưu đãi nộp trước` (xem [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh)). Khi áp dụng, hóa đơn thu luôn **đủ số tháng của gói** (ví dụ gói 3 tháng: Học phí 3 tháng, trừ phần giảm của cả 3 tháng); các đợt thu tháng sau sẽ tự bỏ qua học phí của những tháng đã nộp trước. Quyền ưu đãi các tháng sau chỉ được phát hành khi hóa đơn đó được thu **đủ đúng số tiền**.
+Sau khi kích hoạt, gói được áp dụng **trên từng hóa đơn nháp** ở thẻ `Gói nộp trước` (xem [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh)). Khi áp dụng, hóa đơn thu luôn **đủ số tháng của gói** (ví dụ gói 3 tháng: Học phí 3 tháng, trừ phần giảm của cả 3 tháng); các đợt thu tháng sau sẽ tự bỏ qua học phí của những tháng đã nộp trước. Quyền ưu đãi các tháng sau chỉ được phát hành khi hóa đơn đó được thu **đủ đúng số tiền**.
 
-> Một gói có thể gồm học phí của nhiều lớp (ví dụ Học phí Mầm, Chồi, Lá): khi áp dụng, hệ thống chỉ tính nộp trước cho khoản thu có trên hóa đơn của học sinh đó.
+> Nên cho một gói gồm học phí của **mọi lớp** (ví dụ Học phí Mầm, Chồi, Lá). Khi áp dụng, hệ thống chỉ thu khoản có trên hóa đơn của học sinh đó; nhưng trong thời hạn gói, các khoản thu của gói **thay thế cho nhau**: học sinh chuyển lớp hoặc lên lớp sang năm học mới không bị thu học phí lớp mới, và **giữ mức giá đã trả trước** (không thu bù chênh lệch). Khoản thu không thuộc gói vẫn thu bình thường.
+
+> Gói cộng với các ưu đãi đang gán cho học sinh (ví dụ anh chị em) theo đúng quy tắc **cộng dồn/độc quyền** của từng chính sách: ưu đãi giảm cố định cộng dồn được với nhau, ưu đãi phần trăm chỉ lấy một, chính sách độc quyền thì đứng một mình.
+
+> Ngừng một gói chỉ không cho áp dụng gói đó cho hóa đơn mới; hóa đơn đã phát hành vẫn giữ nguyên gói và vẫn ghi thực nhận được.
+
+> [!WARNING]
+> Các tháng thuộc gói **không tự trừ ngày nghỉ** của học phí. Trường hợp nghỉ dài (ví dụ nghỉ liên tục 2 tuần), kế toán bớt tay: sửa phần `Bớt` trên dòng học phí của tháng đầu tiên sau khi gói kết thúc, kèm lý do.
 
 > Khi tạo gói, chỉ chọn các khoản thu **cùng loại tài khoản nhận** (cùng "Không kê khai" hoặc cùng có thuế). Hệ thống từ chối gói trộn khoản thu tài khoản trường với khoản thu tài khoản cá nhân.
 

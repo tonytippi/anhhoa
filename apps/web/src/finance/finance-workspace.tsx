@@ -272,6 +272,8 @@ type Preview = {
     fullName: string;
     className: string;
     totals?: { grossAmount: string; discountAmount: string; deductionAmount: string; vatAmount: string; amount: string };
+    // Sprint change 2026-10-14 §3: receivables skipped because the month belongs to a prepaid package.
+    prepaid?: Array<{ receivableId: string; receivableName: string; sourceMonth: string }>;
     lines: Array<{
       receivableId: string;
       receivableName: string;
@@ -383,6 +385,7 @@ type Invoice = {
     originalPrice: string;
     reduction: string;
     netPrice: string;
+    promotions?: Array<{ policyId: string; amount: string }>;
     serviceStart: string;
     serviceEnd: string;
     calendarEffectiveFrom: string;
@@ -603,6 +606,17 @@ const invoiceStatusLabel = (status: string) =>
 // Prepaid coverage sits on the notice part its receivables are paid into, not necessarily the part that is open.
 const noticeCoverageFacts = (invoice: Invoice) =>
   (invoice.notice?.invoices?.length ? invoice.notice.invoices : [invoice]).flatMap((part) => part.coverageFacts ?? []);
+// Sprint change 2026-10-14 §3: what applying a prepaid package would bill, computed by the API.
+type CoveragePreview = {
+  invoiceId: string;
+  versionId: string;
+  months: Array<{ billingMonth: string; receivableId: string; receivableName: string; originalPrice: string; reduction: string; netPrice: string; promotions: Array<{ name: string; amount: string }> }>;
+  originalTotal: string;
+  reductionTotal: string;
+  total: string;
+  unbilledReceivables: string[];
+};
+const monthText = (billingMonth: string) => `${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
 const noticeLineName = (invoice: Invoice, receivableId: string) =>
   (invoice.notice?.invoices?.length ? invoice.notice.invoices : [invoice])
     .flatMap((part) => part.lines)
@@ -690,6 +704,11 @@ function PreviewEligibleTable({ eligible }: { eligible: Preview["eligible"] }) {
                 <tr key={item.studentId}>
                   <td>
                     {item.studentCode} / {item.fullName}
+                    {(item.prepaid ?? []).length > 0 && (
+                      <small className="finance-badge-note">
+                        Đã nộp trước: {item.prepaid!.map((entry) => `${entry.receivableName} (gói từ ${monthText(entry.sourceMonth)})`).join(", ")}
+                      </small>
+                    )}
                   </td>
                   <td>{item.className}</td>
                   <td className="finance-money">{vnd(item.totals?.grossAmount ?? "0")} đ</td>
@@ -1171,7 +1190,7 @@ function InvoiceLinesTable({
                       {multiPeriod && (
                         <p className="finance-line-warning">
                           Thu {quantity} {item.unitLabel} bằng số lượng thì các tháng sau vẫn bị thu và không được hoàn khi học
-                          sinh nghỉ học. Thu nhiều tháng nên dùng gói nộp trước ở mục Quản lý ưu đãi nộp trước bên dưới.
+                          sinh nghỉ học. Thu nhiều tháng nên dùng thẻ Gói nộp trước bên dưới.
                         </p>
                       )}
                       {needsPriceReason &&
@@ -1284,6 +1303,9 @@ export function FinanceWorkspace({
     reason: "",
   });
   const [draftCoverageVersionId, setDraftCoverageVersionId] = useState("");
+  const [packageDialog, setPackageDialog] = useState<"apply" | "remove">();
+  const [packagePreview, setPackagePreview] = useState<CoveragePreview | { error: string } | "loading">();
+  const packageDialogRef = useRef<HTMLDivElement>(null);
   const [endingAssignment, setEndingAssignment] = useState<{ id: string; effectiveTo: string; reason: string }>();
   const [candidates, setCandidates] = useState<Candidates>();
   const [runs, setRuns] = useState<Run[]>([]);
@@ -2472,7 +2494,7 @@ export function FinanceWorkspace({
       await load();
     }
   };
-  const applyCoverage = async (versionId: string) => {
+  const applyCoverage = async (versionId: string | null) => {
     if (!invoice) return;
     const outcome = await command(
       `/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/coverage`,
@@ -2481,24 +2503,32 @@ export function FinanceWorkspace({
       "invoice",
     );
     if (outcome) {
-      await openInvoice(invoice.id, run);
-      await load();
-    }
-  };
-  const clearCoverage = async () => {
-    if (!invoice) return;
-    const outcome = await command(
-      `/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/coverage`,
-      "PUT",
-      { versionId: null },
-      "invoice",
-    );
-    if (outcome) {
+      closeManagedDialog(() => setPackageDialog(undefined));
       setDraftCoverageVersionId("");
       await openInvoice(invoice.id, run);
       await load();
     }
   };
+  // The preview is read again whenever the chosen package changes; the API refuses a package it would not apply.
+  useEffect(() => {
+    if (packageDialog !== "apply" || !invoice || !draftCoverageVersionId) {
+      setPackagePreview(undefined);
+      return;
+    }
+    let current = true;
+    setPackagePreview("loading");
+    fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/coverage-preview?versionId=${encodeURIComponent(draftCoverageVersionId)}`, { credentials: "include" })
+      .then(async (response) => {
+        if ([401, 403].includes(response.status)) return denied();
+        const body = (await response.json()) as { data?: CoveragePreview; error?: { message?: string; fieldErrors?: Record<string, string> } };
+        if (!current) return;
+        setPackagePreview(response.ok && body.data ? body.data : { error: body.error?.fieldErrors?.versionId ?? body.error?.message ?? "Không tính được gói nộp trước." });
+      })
+      .catch(() => current && setPackagePreview({ error: "Không tính được gói nộp trước. Thử lại." }));
+    return () => {
+      current = false;
+    };
+  }, [packageDialog, draftCoverageVersionId, invoice?.id, schoolId]);
   const endAssignment = async (event: FormEvent) => {
     event.preventDefault();
     if (!endingAssignment) return;
@@ -4880,6 +4910,94 @@ export function FinanceWorkspace({
                       thể thay đổi.
                     </p>
                   )}
+                  {(() => {
+                    // Sprint change 2026-10-14 §3: the package card sits under the lines; applying goes through a previewed dialog.
+                    const facts = noticeCoverageFacts(invoice);
+                    const editable = invoice.status === "DRAFT" && !isClassRun(invoiceRun);
+                    if (!facts.length && !editable) return null;
+                    const months = [...new Set(facts.map((fact) => fact.billingMonth))].sort();
+                    const applied = promotionVersions.find(({ version }) => version.id === facts[0]?.versionId);
+                    const paid = facts.length > 0 && facts.every((fact) => fact.issuedAt);
+                    const policyName = (policyId: string) => promotionPolicies.find((policy) => policy.id === policyId)?.name ?? "Ưu đãi";
+                    return (
+                      <section className="finance-package" aria-labelledby="finance-package-title">
+                        <div className="finance-title-row">
+                          <h3 id="finance-package-title">Gói nộp trước</h3>
+                          <span className={`finance-badge finance-badge-${!facts.length ? "neutral" : paid ? "success" : "warning"}`}>
+                            {!facts.length ? "Chưa áp dụng" : paid ? "Đã thu" : "Chờ thu đủ"}
+                          </span>
+                        </div>
+                        {!facts.length ? (
+                          <p className="muted">Phụ huynh đóng trước nhiều tháng thì áp dụng gói tại đây, không tăng số lượng học phí trên dòng.</p>
+                        ) : (
+                          <>
+                            <p>
+                              <b>{applied?.policy.name ?? "Gói nộp trước"}</b> · {months.length} tháng · {monthText(months[0]!)}–{monthText(months.at(-1)!)}
+                            </p>
+                            <div className="table-scroll">
+                              <table className="finance-package-months">
+                                <caption className="sr-only">Các tháng của gói nộp trước</caption>
+                                <thead>
+                                  <tr>
+                                    <th>Tháng</th>
+                                    <th>Khoản thu</th>
+                                    <th className="finance-money">Giá (đ)</th>
+                                    <th className="finance-money">Ưu đãi (đ)</th>
+                                    <th className="finance-money">Phải thu (đ)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {facts.map((fact) => (
+                                    <tr key={`${fact.receivableId}-${fact.billingMonth}`}>
+                                      <td>{monthText(fact.billingMonth)}</td>
+                                      <td>{noticeLineName(invoice, fact.receivableId)}</td>
+                                      <td className="finance-money">{vnd(fact.originalPrice)}</td>
+                                      <td className="finance-money">
+                                        {vnd(fact.reduction)}
+                                        {(fact.promotions ?? []).length > 0 && (
+                                          <small>{fact.promotions!.map((item) => `${policyName(item.policyId)} ${vnd(item.amount)}`).join(" · ")}</small>
+                                        )}
+                                      </td>
+                                      <td className="finance-money">{vnd(fact.netPrice)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            {!paid && months.length > 1 && (
+                              <small className="muted">
+                                Đợt thu {months.slice(1).map(monthText).join(", ")} tự bỏ qua {[...new Set(facts.map((fact) => noticeLineName(invoice, fact.receivableId)))].join(", ")}. Quyền nộp trước được ghi nhận khi phần thu này được thu đủ đúng số tiền.
+                              </small>
+                            )}
+                          </>
+                        )}
+                        {editable && (
+                          <div className="finance-actions">
+                            {!facts.length ? (
+                              <button
+                                type="button"
+                                disabled={Boolean(pending) || pendingLineEdits.length > 0}
+                                onClick={(event) =>
+                                  openManagedDialog(event.currentTarget, () => {
+                                    setErrors({});
+                                    setMessage("");
+                                    setDraftCoverageVersionId("");
+                                    setPackageDialog("apply");
+                                  })
+                                }
+                              >
+                                Áp dụng gói nộp trước
+                              </button>
+                            ) : (
+                              <button type="button" disabled={Boolean(pending)} onClick={(event) => openManagedDialog(event.currentTarget, () => setPackageDialog("remove"))}>
+                                Bỏ gói nộp trước
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })()}
                 </section>
                 <aside aria-labelledby="invoice-issue-title">
                   {paymentParts.length === 1 && noticeParts.length === 1 ? (
@@ -5214,93 +5332,6 @@ export function FinanceWorkspace({
                   ))}
                 </section>
               )}
-              {invoice.status === "DRAFT" && !isClassRun(invoiceRun) && (
-                <section aria-label="Ưu đãi nộp trước đang soạn">
-                  <h4>Quản lý ưu đãi nộp trước</h4>
-                  <p>
-                    Chọn chính sách ưu đãi nộp trước cho hóa đơn nháp. Kỳ bắt đầu là kỳ của hóa đơn (
-                    {invoice.billingMonth}), máy chủ sẽ tự động tạo đủ số kỳ liên tiếp.
-                  </p>
-                  <label>
-                    Chính sách ưu đãi nộp trước
-                    <select
-                      value={draftCoverageVersionId}
-                      onChange={(event) => setDraftCoverageVersionId(event.target.value)}
-                      aria-invalid={Boolean(errors.versionId)}
-                      aria-describedby={errors.versionId ? "finance-coverage-version-error" : undefined}
-                    >
-                      <option value="">Chọn chính sách ưu đãi nộp trước</option>
-                      {promotionVersions
-                        .filter(
-                          ({ version }) =>
-                            version.status === "ACTIVE" && version.fulfillmentMode === "PREPAID_COVERAGE",
-                        )
-                        .map(({ policy, version }) => (
-                          <option key={version.id} value={version.id}>
-                            {policy.name} / Phiên bản {version.version} ({version.prepaidTermMonths ?? 1} tháng)
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  {errors.versionId && <small id="finance-coverage-version-error">{errors.versionId}</small>}
-                  <button
-                    type="button"
-                    disabled={Boolean(pending) || !draftCoverageVersionId}
-                    onClick={() => void applyCoverage(draftCoverageVersionId)}
-                  >
-                    Áp dụng ưu đãi nộp trước
-                  </button>
-                  {noticeCoverageFacts(invoice).length > 0 && (
-                    <button type="button" disabled={Boolean(pending)} onClick={() => void clearCoverage()}>
-                      Xóa ưu đãi nộp trước
-                    </button>
-                  )}
-                </section>
-              )}
-              {noticeCoverageFacts(invoice).length > 0 && (
-                <section aria-label="Thông tin ưu đãi nộp trước">
-                  <h4>Ưu đãi nộp trước</h4>
-                  <table>
-                    <caption>Thông tin ưu đãi nộp trước cho hóa đơn</caption>
-                    <thead>
-                      <tr>
-                        <th>Kỳ</th>
-                        <th>Khoản thu</th>
-                        <th>Giá gốc (đ)</th>
-                        <th>Ưu đãi (đ)</th>
-                        <th>Thành tiền (đ)</th>
-                        <th>Thời gian</th>
-                        <th>Trạng thái</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {noticeCoverageFacts(invoice).map((fact) => {
-                        return (
-                          <tr key={`table-${fact.receivableId}-${fact.billingMonth}`}>
-                            <td>{fact.billingMonth}</td>
-                            <td>{noticeLineName(invoice, fact.receivableId)}</td>
-                            <td style={{ textAlign: "right" }}>{vnd(fact.originalPrice)}</td>
-                            <td style={{ textAlign: "right" }}>{vnd(fact.reduction)}</td>
-                            <td style={{ textAlign: "right" }}>{vnd(fact.netPrice)}</td>
-                            <td>
-                              {fact.serviceStart} đến {fact.serviceEnd}
-                            </td>
-                            <td>{fact.issuedAt ? `Đã phát hành ${fact.issuedAt}` : "Chờ hóa đơn đóng"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {noticeCoverageFacts(invoice).map((fact) => (
-                    <p key={`${fact.receivableId}-${fact.billingMonth}`}>
-                      Kỳ {fact.billingMonth}: giá gốc {vnd(fact.originalPrice)} đ, giảm {vnd(fact.reduction)} đ,
-                      khoảng dịch vụ {fact.serviceStart} đến {fact.serviceEnd}, lịch {fact.calendarEffectiveFrom} /{" "}
-                      {fact.timezone}.{" "}
-                      {fact.issuedAt ? `Đã phát hành ${fact.issuedAt}.` : "Chờ hóa đơn đóng đúng số tiền."}
-                    </p>
-                  ))}
-                </section>
-              )}
               <details className="finance-guide">
                 <summary>Hướng dẫn</summary>
                 <p>
@@ -5310,6 +5341,131 @@ export function FinanceWorkspace({
                 <p>Dòng, chính sách và số tiền được chốt khi phát hành.</p>
               </details>
             </section>
+          )}
+          {packageDialog && invoice && (
+            <div className="dialog-backdrop">
+              <div
+                ref={packageDialogRef}
+                className={`dialog${packageDialog === "apply" ? " dialog-wide" : " finance-confirm-dialog"}`}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="finance-package-dialog-title"
+                onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPackageDialog(undefined), () => setDraftCoverageVersionId(""))}
+              >
+                {packageDialog === "apply" ? (
+                  (() => {
+                    const lineIds = new Set(noticeParts.flatMap((part) => part.lines.filter((line) => (line.kind ?? "NORMAL") === "NORMAL").map((line) => line.receivableId)));
+                    const options = promotionVersions.filter(
+                      ({ version }) =>
+                        version.status === "ACTIVE" &&
+                        version.fulfillmentMode === "PREPAID_COVERAGE" &&
+                        version.targets.some((target) => lineIds.has(target.receivableId)),
+                    );
+                    const preview = typeof packagePreview === "object" && "months" in packagePreview ? packagePreview : undefined;
+                    return (
+                      <>
+                        <h3 id="finance-package-dialog-title">Áp dụng gói nộp trước</h3>
+                        <div className="dialog-grid">
+                          <label className="full">
+                            Gói nộp trước
+                            <select
+                              id="invoice-invoice-versionId-field"
+                              autoFocus
+                              value={draftCoverageVersionId}
+                              onChange={(event) => setDraftCoverageVersionId(event.target.value)}
+                            >
+                              <option value="">Chọn gói</option>
+                              {options.map(({ policy, version }) => (
+                                <option key={version.id} value={version.id}>
+                                  {policy.name} · {version.prepaidTermMonths ?? 1} tháng ·{" "}
+                                  {version.discountValue === "0"
+                                    ? "không giảm"
+                                    : `giảm ${version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} đ/tháng`}`}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                        <p className="muted">
+                          {options.length
+                            ? `Chỉ hiện gói có khoản thu trên phiếu thu này. Gói bắt đầu từ tháng ${monthText(invoice.billingMonth)}.`
+                            : "Chưa có gói nộp trước đang áp dụng nào gồm khoản thu trên phiếu thu này."}
+                        </p>
+                        {packagePreview === "loading" && <p className="muted" role="status">Đang tính…</p>}
+                        {typeof packagePreview === "object" && "error" in packagePreview && <p role="alert">{packagePreview.error}</p>}
+                        {preview && (
+                          <>
+                            <div className="table-scroll">
+                              <table className="finance-package-months">
+                                <caption className="sr-only">Xem trước gói nộp trước</caption>
+                                <thead>
+                                  <tr>
+                                    <th>Tháng</th>
+                                    <th>Khoản thu</th>
+                                    <th className="finance-money">Giá (đ)</th>
+                                    <th className="finance-money">Ưu đãi (đ)</th>
+                                    <th className="finance-money">Phải thu (đ)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {preview.months.map((month) => (
+                                    <tr key={`${month.receivableId}-${month.billingMonth}`}>
+                                      <td>{monthText(month.billingMonth)}</td>
+                                      <td>{month.receivableName}</td>
+                                      <td className="finance-money">{vnd(month.originalPrice)}</td>
+                                      <td className="finance-money">
+                                        {vnd(month.reduction)}
+                                        {month.promotions.length > 0 && <small>{month.promotions.map((item) => `${item.name} ${vnd(item.amount)}`).join(" · ")}</small>}
+                                      </td>
+                                      <td className="finance-money">{vnd(month.netPrice)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <p className="finance-payment-total">
+                              <span>
+                                Dòng gói sau khi áp dụng <small>gồm thuế GTGT</small>
+                              </span>
+                              <b>{vnd(preview.total)} đ</b>
+                            </p>
+                            <p className="muted">
+                              Ưu đãi của từng tháng gồm gói và các ưu đãi đang gán cho học sinh, theo quy tắc cộng dồn.
+                              {preview.unbilledReceivables.length > 0 &&
+                                ` Khoản thu của gói không có trên phiếu thu này (${preview.unbilledReceivables.join(", ")}) không được tính.`}
+                            </p>
+                          </>
+                        )}
+                        {message && <p role="alert">{message}</p>}
+                        <div className="dialog-actions">
+                          <button type="button" data-dialog-cancel disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setPackageDialog(undefined), () => setDraftCoverageVersionId(""))}>
+                            Hủy
+                          </button>
+                          <button className="primary-action" type="button" disabled={Boolean(pending) || !preview} onClick={() => void applyCoverage(draftCoverageVersionId)}>
+                            Áp dụng gói
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()
+                ) : (
+                  <>
+                    <h3 id="finance-package-dialog-title">Bỏ gói nộp trước?</h3>
+                    <p>Dòng khoản thu của gói trở về 1 tháng và ưu đãi tính lại như tháng thường.</p>
+                    <p className="muted">Nếu đợt thu các tháng sau của gói đã được tạo, hóa đơn các tháng đó không có khoản thu này; thêm lại bằng tay.</p>
+                    {message && <p role="alert">{message}</p>}
+                    <div className="dialog-actions">
+                      <button type="button" data-dialog-cancel autoFocus disabled={Boolean(pending)} onClick={() => closeManagedDialog(() => setPackageDialog(undefined))}>
+                        Hủy
+                      </button>
+                      <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={() => void applyCoverage(null)}>
+                        Bỏ gói
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           )}
           {removeConfirmation && (
             <>

@@ -673,7 +673,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("prepaid package r
     // 100.000 off first, then 5% of the remaining 2.900.000.
     const preview: any = await finance.coveragePreview(current.identity.id, current.school.id, source.id, { versionId });
     expect(preview).toMatchObject({ originalTotal: "9000000", reductionTotal: "735000", total: "8265000", unbilledReceivables: [] });
-    expect(preview.months[0]).toMatchObject({ billingMonth: "2026-03", originalPrice: "3000000", reduction: "245000", promotions: ["Anh chị em", "Đóng trước 3 tháng"] });
+    expect(preview.months[0]).toMatchObject({ billingMonth: "2026-03", originalPrice: "3000000", reduction: "245000", promotions: [{ name: "Anh chị em", amount: "100000" }, { name: "Đóng trước 3 tháng", amount: "145000" }] });
     await finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId });
     const facts = await prisma.invoicePromotionCoverageFact.findMany({ where: { invoiceId: source.id } });
     expect(facts.map((fact) => [fact.originalPrice, fact.reduction])).toEqual([[3_000_000n, 245_000n], [3_000_000n, 245_000n], [3_000_000n, 245_000n]]);

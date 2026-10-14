@@ -2214,7 +2214,7 @@ describe("FinanceWorkspace", () => {
     });
   });
 
-  it("applies and clears coverage on a DRAFT invoice with derived facts", async () => {
+  it("applies a previewed prepaid package and removes it through a confirmation (sprint change 2026-10-14)", async () => {
     const generatedRun = {
       ...run,
       status: "GENERATED" as const,
@@ -2241,7 +2241,8 @@ describe("FinanceWorkspace", () => {
         },
       ],
     };
-    const draftInvoice = {
+    let withFacts = false;
+    const draftInvoice = () => ({
       id: "invoice-draft",
       status: "DRAFT",
       total: "180",
@@ -2251,7 +2252,7 @@ describe("FinanceWorkspace", () => {
       replacementInvoiceId: null,
       receipt: null,
       carries: [],
-      coverageFacts: [
+      coverageFacts: !withFacts ? [] : [
         {
           receivableId: "meal",
           billingMonth: "2026-10",
@@ -2264,6 +2265,8 @@ describe("FinanceWorkspace", () => {
           timezone: "Asia/Ho_Chi_Minh",
           issuedAt: null,
           versionId: "cov-ver-1",
+          policyId: "cov-pol",
+          promotions: [{ policyId: "cov-pol", amount: "10" }],
         },
       ],
       student: { code: "HS001", name: "Bé An", className: "Lá 1" },
@@ -2290,15 +2293,28 @@ describe("FinanceWorkspace", () => {
         },
       ],
       issue: null,
+    });
+    const preview = {
+      invoiceId: "invoice-draft",
+      versionId: "cov-ver-1",
+      months: ["2026-10", "2026-11", "2026-12"].map((billingMonth) => ({ billingMonth, receivableId: "meal", receivableName: "Học phí", originalPrice: "100", reduction: "10", netPrice: "90", promotions: [{ name: "Prepaid 3M", amount: "10" }] })),
+      originalTotal: "300",
+      reductionTotal: "30",
+      total: "270",
+      unbilledReceivables: ["Học phí Lá"],
     };
 
     const fetch = vi.fn((url: string, options?: RequestInit) => {
       const urlStr = String(url);
       if (options?.method === "PUT" && urlStr.includes("/invoices/invoice-draft/coverage")) {
+        withFacts = JSON.parse(String(options.body)).versionId !== null;
         return Promise.resolve(response({ outcome: { id: "invoice-draft" } }));
       }
+      if (urlStr.includes("/invoices/invoice-draft/coverage-preview?versionId=cov-ver-1")) {
+        return Promise.resolve(response(preview));
+      }
       if (urlStr.includes("/invoices/invoice-draft")) {
-        return Promise.resolve(response(draftInvoice));
+        return Promise.resolve(response(draftInvoice()));
       }
       if (urlStr.includes("promotion-policies")) {
         return Promise.resolve(response({ policies: [coveragePolicy] }));
@@ -2318,33 +2334,26 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
     await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ });
 
-    // Verify derived coverage facts table rendering
-    expect(await screen.findByText("Thông tin ưu đãi nộp trước cho hóa đơn")).toBeTruthy();
-    expect(screen.getByText("Chờ hóa đơn đóng")).toBeTruthy();
-
-    // Verify Apply coverage
-    fireEvent.change(screen.getByLabelText("Chính sách ưu đãi nộp trước"), { target: { value: "cov-ver-1" } });
-    const applyBtn = screen.getByRole("button", { name: "Áp dụng ưu đãi nộp trước" });
-    expect(applyBtn).toHaveProperty("disabled", false);
-    fireEvent.click(applyBtn);
-
+    const card = await screen.findByText("Gói nộp trước", { selector: "h3" });
+    expect(card.parentElement?.textContent).toContain("Chưa áp dụng");
+    fireEvent.click(screen.getByRole("button", { name: "Áp dụng gói nộp trước" }));
+    const dialog = await screen.findByRole("dialog", { name: "Áp dụng gói nộp trước" });
+    fireEvent.change(within(dialog).getByLabelText("Gói nộp trước"), { target: { value: "cov-ver-1" } });
+    expect(await within(dialog).findByText("270 đ")).toBeTruthy();
+    expect(within(dialog).getByText(/Học phí Lá\) không được tính/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Áp dụng gói" }));
     await waitFor(() => {
-      const call = fetch.mock.calls.find(([u, opts]) =>
-        String(u).includes("/invoices/invoice-draft/coverage") && opts?.method === "PUT"
-      );
-      expect(call).toBeTruthy();
+      const call = fetch.mock.calls.find(([u, opts]) => String(u).includes("/invoices/invoice-draft/coverage") && opts?.method === "PUT");
       expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({ versionId: "cov-ver-1" });
     });
+    expect(await screen.findByText("Chờ thu đủ")).toBeTruthy();
+    expect(screen.getByText(/Prepaid 3M/, { selector: "b" })).toBeTruthy();
 
-    // Verify Clear coverage
-    const clearBtn = screen.getByRole("button", { name: "Xóa ưu đãi nộp trước" });
-    fireEvent.click(clearBtn);
-
+    fireEvent.click(screen.getByRole("button", { name: "Bỏ gói nộp trước" }));
+    const confirm = await screen.findByRole("dialog", { name: "Bỏ gói nộp trước?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Bỏ gói" }));
     await waitFor(() => {
-      const call = fetch.mock.calls.find(([u, opts]) =>
-        String(u).includes("/invoices/invoice-draft/coverage") && opts?.method === "PUT" &&
-        JSON.parse((opts as RequestInit).body as string).versionId === null
-      );
+      const call = fetch.mock.calls.find(([u, opts]) => String(u).includes("/invoices/invoice-draft/coverage") && opts?.method === "PUT" && JSON.parse((opts as RequestInit).body as string).versionId === null);
       expect(call).toBeTruthy();
     });
   });

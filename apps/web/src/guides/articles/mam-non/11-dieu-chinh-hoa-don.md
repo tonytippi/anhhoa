@@ -40,5 +40,6 @@ Chuẩn bị nhầm hoặc đổi ý thì bấm `Hủy bản điều chỉnh` c�
 
 - Phần **đã thu tiền**: tổng của bản thay thế phải đúng bằng số đã thu. Muốn thu thêm hoặc trả lại tiền, dùng hóa đơn tháng sau (thêm dòng hoặc phần bớt) thay vì điều chỉnh.
 - Tổng của bản thay thế phải lớn hơn 0.
-- Không điều chỉnh được hóa đơn có công nợ đã chuyển kỳ, hoặc có gói nộp trước chưa thu tiền.
+- Không điều chỉnh được hóa đơn có công nợ đã chuyển kỳ.
+- Hóa đơn có gói nộp trước **chưa thu tiền**: bản điều chỉnh chép cả gói. Giữ gói (ví dụ để đổi tài khoản nhận) hoặc bấm `Bỏ gói nộp trước` để thu theo tháng; khi phát hành bản thay thế, các tháng của gói được nhả cho các đợt thu sau.
 - Đợt thu đã đóng thì chỉ xem, không điều chỉnh được.
