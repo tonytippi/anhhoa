@@ -298,7 +298,7 @@ export function SchoolContext({ clear, userIdentityId, registerHomeNavigation, o
     if (isRail) setRailGroup(undefined);
     requestDestination({ schoolSlug: context!.schoolSlug, page, guideId });
   };
-  const guides = context ? visibleGuides(allowedPages(context), featuresOf(context).collectionRunScope) : [];
+  const guides = context ? visibleGuides(allowedPages(context), context.schoolKind) : [];
   const currentGuideId = view === "guides" ? destinationFromPath(location.pathname)?.guideId : undefined;
   useEffect(() => { document.title = context?.schoolName ?? "Passion Edu"; return () => { document.title = "Passion Edu"; }; }, [context?.schoolName]);
   useEffect(() => { onRoleChange?.(context?.positionName); }, [onRoleChange, context?.positionName]);

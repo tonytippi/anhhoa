@@ -2787,8 +2787,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       const first = await finance.receiptQueue(fixture.current.identity.id, fixture.current.school.id, { billingMonth: fixture.invoice.billingMonth, limit: "1" });
       expect(first.invoices).toHaveLength(1);
       expect(first.meta.nextCursor).toEqual(expect.any(String));
-      expect(Object.keys(first.invoices[0]!).sort()).toEqual(["account", "billingMonth", "channel", "class", "collectionRunId", "direction", "id", "issuedAt", "obligationCode", "outstanding", "periodLabel", "schoolYearId", "status", "student"]);
-      expect(first.invoices[0]).toMatchObject({ status: "ISSUED", outstanding: "100", student: { code: expect.any(String), name: expect.any(String) } });
+      expect(Object.keys(first.invoices[0]!).sort()).toEqual(["account", "billingMonth", "channel", "class", "collectionRunId", "direction", "id", "issuedAt", "obligationCode", "outstanding", "periodLabel", "prepaid", "schoolYearId", "settlement", "status", "student"]);
+      expect(first.invoices[0]).toMatchObject({ status: "ISSUED", settlement: null, outstanding: "100", student: { code: expect.any(String), name: expect.any(String) } });
       expect(first.invoices[0]).not.toHaveProperty("lines");
       expect(first.invoices[0]).not.toHaveProperty("issue");
 
@@ -2804,7 +2804,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
         expect(response.status).toBe(200);
         const body = await response.json() as { data: typeof first };
         expect(Object.keys(body)).toEqual(["data"]);
-        expect(Object.keys(body.data.invoices[0]!).sort()).toEqual(["account", "billingMonth", "channel", "class", "collectionRunId", "direction", "id", "issuedAt", "obligationCode", "outstanding", "periodLabel", "schoolYearId", "status", "student"]);
+        expect(Object.keys(body.data.invoices[0]!).sort()).toEqual(["account", "billingMonth", "channel", "class", "collectionRunId", "direction", "id", "issuedAt", "obligationCode", "outstanding", "periodLabel", "prepaid", "schoolYearId", "settlement", "status", "student"]);
       } finally {
         await app.close();
       }
@@ -3137,10 +3137,10 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       await finance.readyRun(fixture.current.identity.id, fixture.current.school.id, run2Id, uuid(), uuid(), { previewFingerprint: preview2.fingerprint });
       const gen2 = await generate(fixture.current, run2Id);
       expect(gen2.status).toBe("COMPLETED");
-      const invoice2 = await prisma.invoice.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, collectionRunId: run2Id, studentId: fixture.student.student.id } });
-      await expect(
-        finance.applyInvoiceCoverage(fixture.current.identity.id, fixture.current.school.id, invoice2.id, uuid(), uuid(), { versionId: fixture.versionId })
-      ).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_ALREADY_RESERVED" } });
+      // Decision 2026-10-14 §2.2: October is held by the September package DRAFT, so the October run skips its receivable.
+      expect((preview2 as any).eligible.find((row: any) => row.studentId === fixture.student.student.id)?.prepaid).toEqual([expect.objectContaining({ receivableId: fixture.coveredReceivableId, sourceMonth: "2026-09" })]);
+      const invoice2 = await prisma.invoice.findFirst({ where: { schoolId: fixture.current.school.id, collectionRunId: run2Id, studentId: fixture.student.student.id }, include: { lines: true } });
+      expect(invoice2?.lines.some((line) => line.receivableId === fixture.coveredReceivableId) ?? false).toBe(false);
     });
 
     it("puts prepaid coverage on the notice part paid into the covered receivable's account and bills every package month", async () => {
@@ -3165,13 +3165,15 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: school.id, invoiceId: fixture.invoice.id, receivableId: fixture.coveredReceivableId } })).toMatchObject({ quantity: 1, grossAmount: 100n, amount: 100n });
     });
 
-    it("rejects source-line mutation and revision while a DRAFT Invoice owns coverage facts", async () => {
+    it("rejects source-line mutation while a DRAFT Invoice owns coverage facts and revises an unpaid package with it", async () => {
       const fixture = await coverageFixture();
       const line = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: fixture.current.school.id, invoiceId: fixture.invoice.id } });
       await expect(finance.editInvoiceLine(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, line.id, uuid(), uuid(), { quantity: "2" })).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_FACTS_IMMUTABLE" } });
       await expect(finance.removeInvoiceLine(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, line.id, uuid(), uuid())).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_FACTS_IMMUTABLE" } });
       await finance.issueInvoice(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { bankAccountId: fixture.bank.id });
-      await expect(finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Không được mất coverage" })).rejects.toMatchObject({ status: 409, response: { code: "COVERAGE_REVISION_FORBIDDEN" } });
+      // Decision 2026-10-14 §2.4: the revision of an unpaid package Invoice carries the package.
+      const revision: any = await finance.prepareRevision(fixture.current.identity.id, fixture.current.school.id, fixture.invoice.id, uuid(), uuid(), { reason: "Đổi tài khoản nhận" });
+      expect(await prisma.invoicePromotionCoverageFact.count({ where: { invoiceId: revision.outcome.id } })).toBe(await prisma.invoicePromotionCoverageFact.count({ where: { invoiceId: fixture.invoice.id } }));
     });
 
     it("closes a coverage Invoice exactly once and atomically issues immutable paid coverage with replay", async () => {

@@ -36,7 +36,7 @@ Mở `Tài chính › Khoản thu`. Đây là danh mục mọi khoản trường
 Mỗi khoản thu cố định có mục `Áp dụng cho`:
 
 - `Toàn trường` (mặc định) — mọi đợt thu tự thêm khoản này cho tất cả học sinh.
-- `Các lớp được chọn` — đợt thu chỉ tự thêm khoản này cho học sinh của các lớp đã đánh dấu. Ở trung tâm, chỉ đợt thu của các lớp đó có khoản này.
+- `Các lớp được chọn` — đợt thu chỉ tự thêm khoản này cho học sinh của các lớp đã đánh dấu.
 
 Cột `Khoản thu` của danh sách ghi `Toàn trường`, tên các lớp, hoặc `Chưa gán lớp` khi khoản theo lớp chưa còn lớp nào. Trên đợt thu, phạm vi của khoản cố định không sửa được; chỉ sửa số lượng hoặc bỏ dòng khi đợt còn `Nháp`.
 
@@ -65,7 +65,7 @@ Bấm `...` ở cột `Tùy chọn` của dòng, chọn `Chỉnh sửa`.
 
 Sửa thông tin cần thiết, nhập `Lý do` (bắt buộc) rồi bấm `Lưu thay đổi`.
 
-![Sửa khoản Tiền ăn sang giá theo ngày](khoan-thu-sua.jpg)
+![Sửa giá Tiền ăn, kèm lý do](khoan-thu-sua.jpg)
 
 - Hóa đơn **đã tạo** giữ nguyên tên, đơn vị, giá và mức thuế lúc tạo.
 - Giá mới chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó. Nếu đợt thu tháng này còn ở trạng thái nháp, hãy `Xem trước từ máy chủ` lại.

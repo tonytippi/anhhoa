@@ -216,6 +216,31 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     expect(target.lines.find((line) => line.kind === "PRIOR_DEBT")).toMatchObject({ amount: 3_600_000n, sourceReason: expect.stringContaining("Unit 1") });
   });
 
+  it("transfers both unpaid parts of one Student in a single prior-debt request", async () => {
+    const s = await setup();
+    const membership = await prisma.schoolMembership.findFirstOrThrow({ where: { schoolId: s.school.id } });
+    await prisma.financePolicy.create({ data: { schoolId: s.school.id, effectiveFrom: date("2026-01-01"), dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT", actorIdentityId: s.identity.id, membershipId: membership.id } });
+    const personal = id(await settings.createBankAccount(s.identity.id, s.school.id, uuid(), uuid(), { bankBin: "970436", accountNumber: "215000002088", accountHolderName: "Trung tâm", transferTemplate: "{{studentName}} {{className}}", kind: "PERSONAL" }));
+    const schoolAccount = id(await settings.createBankAccount(s.identity.id, s.school.id, uuid(), uuid(), { bankBin: "970436", accountNumber: "215000002099", accountHolderName: "Công ty", transferTemplate: "{{studentName}} {{className}}", kind: "SCHOOL" }));
+    const taxed = id(await finance.createReceivable(s.identity.id, s.school.id, uuid(), uuid(), { kind: "FLEXIBLE", displayName: "Giáo trình có thuế", unitLabel: "bộ", defaultUnitPrice: "650000", taxCategory: "VAT_5" }));
+    const debtor = await s.enroll(s.starters, "2026-08-01");
+    const first = id(await open(s, s.starters.id, "Unit 1", "2026-08-03", "2026-09-26"));
+    await finance.saveTemplateLine(s.identity.id, s.school.id, first, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
+    await finance.saveTemplateLine(s.identity.id, s.school.id, first, uuid(), uuid(), { receivableId: taxed, quantity: "1", expectedVersion: 2 });
+    const parts = await generate(s, first);
+    expect(parts.map((invoice) => invoice.channel).sort()).toEqual(["PERSONAL", "SCHOOL"]);
+    await finance.issueInvoice(s.identity.id, s.school.id, parts[0]!.id, uuid(), uuid(), { bankAccountId: schoolAccount, personalBankAccountId: personal });
+    expect(await prisma.invoice.count({ where: { schoolId: s.school.id, collectionRunId: first, status: "ISSUED" } })).toBe(2);
+    await finance.closeRun(s.identity.id, s.school.id, first, uuid(), uuid(), { reason: "Hết unit" });
+    const second = id(await open(s, s.starters.id, "Unit 2", "2026-09-28", "2026-11-21"));
+    await generate(s, second);
+    const debts: any = await finance.priorDebts(s.identity.id, s.school.id, second);
+    expect(debts.debts).toHaveLength(2);
+    await finance.transferPriorDebts(s.identity.id, s.school.id, second, uuid(), uuid(), { sourceInvoiceIds: debts.debts.map((debt: any) => debt.sourceInvoiceId) });
+    const lines = await prisma.invoiceLine.findMany({ where: { schoolId: s.school.id, kind: "PRIOR_DEBT", invoice: { collectionRunId: second, studentId: debtor.studentId } }, include: { invoice: true } });
+    expect(lines.map((line) => line.invoice.channel).sort()).toEqual(["PERSONAL", "SCHOOL"]);
+  });
+
   // Sprint change 2026-10-13: a FIXED receivable applies to the whole School or to the Classes chosen on it.
   it("seeds FIXED receivables of the whole School or of the Class into a class run, never by copy", async () => {
     const s = await setup();

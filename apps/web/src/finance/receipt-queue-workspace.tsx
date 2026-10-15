@@ -19,7 +19,14 @@ type Row = {
   issuedAt: string;
   outstanding: string;
   direction?: Direction;
-  status: "ISSUED";
+  // Sprint change 2026-10-14 §3: a prepaid package is recorded only at its exact amount.
+  prepaid?: Prepaid;
+  status: "ISSUED" | "CLOSED";
+  // What closed the Invoice, on the settled view.
+  settlement?:
+    | { type: "RECEIPT"; amount: string; outcome: "EXACT" | "SHORTFALL" | "OVERPAYMENT"; on: string }
+    | { type: "PAYOUT"; amount: string; method: "BANK_TRANSFER" | "CASH"; on: string }
+    | null;
 };
 type Queue = {
   invoices: Row[];
@@ -30,6 +37,7 @@ type Queue = {
     student: string | null;
     direction?: Direction | null;
     bankAccountId?: string | null;
+    state?: "OPEN" | "SETTLED";
   };
   meta: { nextCursor: string | null };
 };
@@ -39,8 +47,13 @@ type Detail = {
   obligationCode?: string | null;
   account?: ReceivingAccount | null;
   student: { code: string; name: string };
+  className?: string;
+  periodLabel?: string;
+  issuedTotal?: string;
+  lines?: Array<{ id: string; receivableName: string; unitLabel: string; quantity: number; amount: string }>;
   outstanding: string;
   direction?: Direction;
+  prepaid?: Prepaid;
   status: "ISSUED";
 };
 type Closed = {
@@ -56,6 +69,9 @@ type Closed = {
   coverageFacts?: Array<{ billingMonth: string; issuedAt: string | null }>;
 };
 type Operation = { status: string; outcome?: Closed };
+type Prepaid = { months: number; firstMonth: string; lastMonth: string } | null;
+const monthText = (billingMonth: string) => `${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
+const prepaidText = (prepaid: NonNullable<Prepaid>) => `Gói nộp trước ${prepaid.months} tháng · ${monthText(prepaid.firstMonth)}–${monthText(prepaid.lastMonth)}`;
 const apiUrl = typeof __API_URL__ === "undefined" ? "" : __API_URL__;
 const pendingKey = "passionedu.app.pending-receipt-queue-operation";
 const csrf = () =>
@@ -89,6 +105,8 @@ const accountContext = (item: Detail) =>
     .join(" · ");
 const outcome = (value: NonNullable<Closed["receipt"]>["outcome"]) =>
   value === "EXACT" ? "Đủ" : value === "SHORTFALL" ? "Thu thiếu" : "Thu thừa";
+const displayDay = (value: string) => value.split("-").reverse().join("/");
+const signed = (value: string) => (BigInt(value) > 0n ? `+${vnd(value)}` : vnd(value));
 const monthLabel = (value: string) => (value ? `${value.slice(5, 7)}/${value.slice(0, 4)}` : "");
 const errorMessage = async (response: Response) => {
   try {
@@ -125,6 +143,7 @@ export function ReceiptQueueWorkspace({
     student: "",
     direction: "",
     bankAccountId: "",
+    state: "",
   });
   const [payout, setPayout] = useState({ paidOn: today(), method: "BANK_TRANSFER", reference: "" });
   const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
@@ -134,7 +153,8 @@ export function ReceiptQueueWorkspace({
   const [actual, setActual] = useState("");
   const [pending, setPending] = useState<string>();
   const [result, setResult] = useState<Closed>();
-  const [next, setNext] = useState<Row>();
+  // The table follows the loaded queue, not the unapplied filter form.
+  const settledView = queue?.filters.state === "SETTLED";
   const [message, setMessage] = useState("");
   const active = useRef(schoolId);
   const generation = useRef(0);
@@ -169,6 +189,7 @@ export function ReceiptQueueWorkspace({
       student: value.filters.student ?? "",
       direction: value.filters.direction ?? "",
       bankAccountId: value.filters.bankAccountId ?? "",
+      state: value.filters.state === "SETTLED" ? "SETTLED" : "",
     }));
     return value;
   };
@@ -176,6 +197,7 @@ export function ReceiptQueueWorkspace({
     const value = new URLSearchParams();
     if (filters.schoolYearId) value.set("schoolYearId", filters.schoolYearId);
     if (filters.billingMonth) value.set("billingMonth", filters.billingMonth);
+    if (filters.state) value.set("state", filters.state);
     const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/receipt-queue/classes?${value}`, {
       credentials: "include",
     });
@@ -198,20 +220,15 @@ export function ReceiptQueueWorkspace({
     generation.current += 1;
     setDetail(undefined);
     setResult(undefined);
-    setNext(undefined);
   };
   const finished = async (closed: Closed, expected: number) => {
     if (expected !== generation.current) return;
     setDetail(undefined);
     setResult(closed);
     try {
-      const refreshed = await load(undefined, true, expected);
-      if (expected === generation.current) setNext(refreshed?.invoices.find((row) => row.id !== closed.id));
+      await load(undefined, true, expected);
     } catch {
-      if (expected === generation.current) {
-        setNext(undefined);
-        setMessage("Đã ghi thực nhận; chưa thể tải lại hàng đợi mới nhất.");
-      }
+      if (expected === generation.current) setMessage("Đã ghi thực nhận; chưa thể tải lại hàng đợi mới nhất.");
     }
   };
   const reconcile = async (operationId: string, expected = generation.current) => {
@@ -280,7 +297,7 @@ export function ReceiptQueueWorkspace({
     if (detail) dialogRef.current?.querySelector<HTMLInputElement>("input")?.focus();
     else if (trigger.current?.isConnected) trigger.current.focus();
   }, [detail]);
-  // The outcome renders below a possibly long queue: bring it (and "Hóa đơn tiếp theo") into view.
+  // Receipts are recorded one bank transfer at a time: the outcome sits above the refreshed queue, not a next-Invoice prompt.
   useEffect(() => {
     if (result) resultHeading.current?.focus();
   }, [result]);
@@ -396,8 +413,46 @@ export function ReceiptQueueWorkspace({
         riêng.
       </p>
       {message && <p role="alert">{message}</p>}
+      {result && (
+        <section className="receipt-result" aria-labelledby="receipt-result-title">
+          <span className="receipt-result-icon" aria-hidden="true">✓</span>
+          <div>
+            <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
+              {result.payout
+                ? `Đã ghi nhận chi hoàn ${vnd(result.payout.amount)} đ`
+                : `Đã ghi thực nhận ${vnd(result.receipt?.actualAmount ?? "0")} đ`}{" "}
+              · {result.student.code} / {result.student.name}
+            </h3>
+            <p>
+              {result.payout
+                ? `Ngày ${displayDay(result.payout.paidOn)} · ${result.payout.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"} · ${result.payout.reference}`
+                : result.receipt
+                  ? [
+                      outcome(result.receipt.outcome),
+                      BigInt(result.receipt.difference?.signedAmount ?? "0") !== 0n
+                        ? `chênh lệch ${signed(result.receipt.difference!.signedAmount)} đ`
+                        : "",
+                      ...(result.carries ?? []).map(
+                        (carry) =>
+                          `${carry.type === "SHORTFALL_CARRY" ? "thu thiếu chuyển kỳ sau" : "thu thừa khấu trừ kỳ sau"} ${vnd(carry.amount)} đ`,
+                      ),
+                      ...(result.coverageFacts ?? []).map(
+                        (fact) =>
+                          `ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} ${fact.issuedAt ? "đã phát hành" : "chưa phát hành"}`,
+                      ),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : ""}
+            </p>
+          </div>
+          <button type="button" className="receipt-result-close" aria-label="Đóng thông báo" onClick={() => setResult(undefined)}>
+            ×
+          </button>
+        </section>
+      )}
       <form
-        className="roster-list-filters"
+        className="roster-list-filters receipt-queue-filters"
         aria-label="Lọc hóa đơn chờ thu"
         onSubmit={(event) => {
           event.preventDefault();
@@ -412,7 +467,7 @@ export function ReceiptQueueWorkspace({
             onChange={(event) => setFilters({ ...filters, student: event.target.value })}
           />
         </label>
-        <label>
+        <label className="receipt-queue-filter-narrow">
           Tháng thu
           <select
             value={filters.billingMonth}
@@ -429,7 +484,7 @@ export function ReceiptQueueWorkspace({
               ))}
           </select>
         </label>
-        <label>
+        <label className="receipt-queue-filter-narrow">
           Lớp
           <select
             value={filters.classIdSnapshot}
@@ -465,49 +520,88 @@ export function ReceiptQueueWorkspace({
             )}
           </select>
         </label>
-        <label>
+        <label className="receipt-queue-filter-narrow">
+          Trạng thái
+          <select value={filters.state} onChange={(event) => setFilters({ ...filters, state: event.target.value })}>
+            <option value="">Chưa xử lý</option>
+            <option value="SETTLED">Đã xử lý</option>
+          </select>
+        </label>
+        <label className="receipt-queue-filter-narrow">
           Loại
           <select
             value={filters.direction}
             onChange={(event) => setFilters({ ...filters, direction: event.target.value })}
           >
             <option value="">Tất cả</option>
-            <option value="COLLECT">Cần thu</option>
-            <option value="REFUND">Cần chi hoàn</option>
+            <option value="COLLECT">Hóa đơn thu tiền</option>
+            <option value="REFUND">Phiếu hoàn tiền</option>
           </select>
         </label>
         <div className="roster-list-filter-actions">
           <button>Lọc</button>
         </div>
       </form>
-      <table>
-        <caption>Hóa đơn chờ thu và phiếu hoàn tiền chờ chi</caption>
+      <div className="table-scroll student-list-table receipt-queue-table">
+      <table aria-label={settledView ? "Hóa đơn đã thu và phiếu hoàn tiền đã chi" : "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi"}>
         <thead>
           <tr>
+            <th>STT</th>
             <th>Học sinh</th>
             <th>Lớp</th>
             <th>{classRuns ? "Kỳ" : "Tháng"}</th>
             <th>Tài khoản nhận</th>
-            <th>Còn phải thu</th>
-            <th>Trạng thái</th>
-            <th>Tùy chọn</th>
+            <th className="finance-money">{settledView ? "Đã thu / đã chi" : "Còn phải thu"}</th>
+            <th>{settledView ? "Kết quả" : "Trạng thái"}</th>
+            {!settledView && <th>Tùy chọn</th>}
           </tr>
         </thead>
         <tbody>
           {queue?.invoices.length ? (
-            queue.invoices.map((row) => (
+            queue.invoices.map((row, index) => (
               <tr key={row.id}>
-                <td>
+                <td>{index + 1}</td>
+                <th scope="row">
                   {row.student.code} / {row.student.name}
-                </td>
+                </th>
                 <td>{row.class.name}</td>
                 <td>{classRuns && row.periodLabel ? row.periodLabel : monthLabel(row.billingMonth)}</td>
                 <td>{row.account ? <ReceivingAccountLabel account={row.account} /> : accountLabel(row.channel)}</td>
-                <td>
-                  {isRefund(row) ? `Hoàn ${vnd((-BigInt(row.outstanding)).toString())}` : vnd(row.outstanding)} đ
-                </td>
-                <td>{isRefund(row) ? "Chờ chi hoàn" : "Chờ thu"}</td>
-                <td>
+                {row.settlement ? (
+                  <>
+                    <td className="finance-money">
+                      {row.settlement.type === "PAYOUT" ? `Đã chi ${vnd(row.settlement.amount)}` : vnd(row.settlement.amount)} đ
+                      <br />
+                      <small className="muted">Ngày {displayDay(row.settlement.on)}</small>
+                    </td>
+                    <td>
+                      {row.settlement.type === "PAYOUT" ? (
+                        <span className="finance-badge finance-badge-success">
+                          Đã chi hoàn · {row.settlement.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}
+                        </span>
+                      ) : (
+                        <span
+                          className={`finance-badge finance-badge-${row.settlement.outcome === "EXACT" ? "success" : "warning"}`}
+                        >
+                          {outcome(row.settlement.outcome)}
+                        </span>
+                      )}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="finance-money">
+                      {isRefund(row) ? `Hoàn ${vnd((-BigInt(row.outstanding)).toString())}` : vnd(row.outstanding)} đ
+                    </td>
+                    <td>
+                      <span className={`finance-badge finance-badge-${isRefund(row) ? "info" : "warning"}`}>
+                        {isRefund(row) ? "Chờ chi hoàn" : "Chờ thu"}
+                      </span>
+                      {row.prepaid && <small className="finance-badge-note">{prepaidText(row.prepaid)} · thu đúng số</small>}
+                    </td>
+                  </>
+                )}
+                {!settledView && <td className="roster-row-actions">
                   <AnchoredActionMenu
                     label={`Tùy chọn cho ${row.student.name} · ${accountLabel(row.channel)}`}
                     disabled={Boolean(pending)}
@@ -519,16 +613,19 @@ export function ReceiptQueueWorkspace({
                       {isRefund(row) ? "Ghi nhận đã chi" : "Ghi thực nhận"}
                     </AnchoredActionMenuItem>
                   </AnchoredActionMenu>
-                </td>
+                </td>}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={7}>Không có hóa đơn chờ thu.</td>
+              <td colSpan={settledView ? 7 : 8} className="student-empty-state">
+                {settledView ? "Không có hóa đơn đã thu." : "Không có hóa đơn chờ thu."}
+              </td>
             </tr>
           )}
         </tbody>
       </table>
+      </div>
       {detail && isRefund(detail) && (
         <>
           <div className="dialog-backdrop" aria-hidden="true" />
@@ -590,20 +687,93 @@ export function ReceiptQueueWorkspace({
           <div className="dialog-backdrop" aria-hidden="true" />
           <div
             ref={dialogRef}
-            className="dialog"
+            className="dialog finance-confirm-dialog finance-issue-dialog"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="receipt-title"
+            aria-labelledby="receipt-title receipt-student"
             onKeyDown={trap}
           >
             <h3 id="receipt-title">
-              Ghi thực nhận cho {detail.student.name} · {accountTitle(detail)}
+              Ghi thực nhận · {detail.periodLabel ? detail.periodLabel.replace(/^Tháng /, "tháng ") : accountTitle(detail)}
             </h3>
-            <p>
-              {accountContext(detail)}. Nghĩa vụ do hệ thống xác nhận: {vnd(detail.outstanding)} đ. Kết quả thu thiếu,
-              đủ hoặc thừa do hệ thống quyết định và chỉ chuyển sang hóa đơn cùng tài khoản kỳ sau; hóa đơn của tài
-              khoản kia không thay đổi.
+            <div className="finance-issue-student">
+              <strong id="receipt-student">{detail.student.name}</strong>
+              <span>
+                {[
+                  detail.student.code,
+                  detail.className ? `Lớp ${detail.className}` : "",
+                  detail.obligationCode ? `Hóa đơn ${detail.obligationCode}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </div>
+            <section className="finance-receiving-account" aria-label="Tài khoản nhận">
+              <header>
+                <span>Tiền vào tài khoản</span>
+                <span className={`finance-badge finance-badge-${detail.channel === "SCHOOL" ? "info" : "neutral"}`}>
+                  {accountLabel(detail.channel)}
+                </span>
+              </header>
+              {detail.account ? (
+                <>
+                  <p className="finance-receiving-account-number">
+                    <b>{detail.account.bankCode}</b> {detail.account.accountNumber}
+                  </p>
+                  <p>{detail.account.accountHolderName}</p>
+                </>
+              ) : (
+                <p>Hóa đơn không ghi tài khoản nhận.</p>
+              )}
+            </section>
+            <div className="table-scroll">
+              <table className="finance-issue-lines">
+                <caption className="sr-only">Các khoản thu của hóa đơn</caption>
+                <thead>
+                  <tr>
+                    <th>Khoản thu</th>
+                    <th>Số lượng</th>
+                    <th className="finance-money">Thành tiền (đ)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detail.lines ?? []).map((line) => (
+                    <tr key={line.id}>
+                      <td>{line.receivableName}</td>
+                      <td>
+                        {line.quantity} {line.unitLabel}
+                      </td>
+                      <td className="finance-money">{vnd(line.amount)}</td>
+                    </tr>
+                  ))}
+                  {detail.issuedTotal && detail.issuedTotal !== detail.outstanding && (
+                    <tr className="finance-issue-subtotal">
+                      <td colSpan={2}>Tổng hóa đơn</td>
+                      <td className="finance-money">{vnd(detail.issuedTotal)}</td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th colSpan={2} scope="row">
+                      Cần thu <small>do hệ thống xác nhận</small>
+                    </th>
+                    <td className="finance-money">{vnd(detail.outstanding)} đ</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <p className="muted">
+              Thu thiếu, đủ hay thừa do hệ thống quyết định; phần chênh lệch chỉ chuyển sang hóa đơn cùng tài khoản kỳ
+              sau, hóa đơn của tài khoản kia không đổi.
             </p>
+            {detail.prepaid && (
+              <p className="finance-line-warning">
+                {prepaidText(detail.prepaid)}: chỉ ghi được thực nhận đúng {vnd(detail.outstanding)} đ. Phụ huynh chuyển
+                thiếu hoặc thừa thì đề nghị chuyển bổ sung hoặc hoàn lại phần thừa trước khi ghi; khi đợt thu chưa đóng
+                có thể điều chỉnh hóa đơn để bỏ gói.
+              </p>
+            )}
             <label>
               Số thực nhận (đ)
               <input inputMode="numeric" value={actual} onChange={(event) => setActual(event.target.value)} />
@@ -623,58 +793,6 @@ export function ReceiptQueueWorkspace({
             </div>
           </div>
         </>
-      )}
-      {result && result.payout && (
-        <section aria-labelledby="receipt-result-title">
-          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
-            Đã ghi nhận chi hoàn
-          </h3>
-          <p>
-            Đã chi {vnd(result.payout.amount)} đ ngày {result.payout.paidOn.split("-").reverse().join("/")} ·{" "}
-            {result.payout.method === "CASH" ? "Tiền mặt" : "Chuyển khoản"} · {result.payout.reference}.
-          </p>
-          {next && (
-            <button type="button" onClick={() => void open(next)}>
-              Hóa đơn tiếp theo
-            </button>
-          )}
-        </section>
-      )}
-      {result && result.receipt && (
-        <section aria-labelledby="receipt-result-title">
-          <h3 id="receipt-result-title" ref={resultHeading} tabIndex={-1}>
-            Kết quả ghi thực nhận
-          </h3>
-          <p>Thực nhận: {vnd(result.receipt.actualAmount)} đ.</p>
-          <p>Kết quả máy chủ: {outcome(result.receipt.outcome)}.</p>
-          <p>Chênh lệch: {vnd(result.receipt.difference?.signedAmount ?? "0")} đ.</p>
-          <p>
-            {(result.carries ?? []).length
-              ? (result.carries ?? [])
-                  .map(
-                    (carry) =>
-                      `${carry.type === "SHORTFALL_CARRY" ? "Khoản thu thiếu chuyển kỳ" : "Khoản thu thừa khấu trừ kỳ sau"}: ${vnd(carry.amount)} đ.`,
-                  )
-                  .join(" ")
-              : "Trạng thái chuyển kỳ: Máy chủ chưa tạo khoản chuyển kỳ cho hóa đơn này."}
-          </p>
-          <p>
-            {(result.coverageFacts ?? []).length
-              ? (result.coverageFacts ?? [])
-                  .map((fact) =>
-                    fact.issuedAt
-                      ? `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} đã phát hành.`
-                      : `Ưu đãi nộp trước kỳ ${periodName(fact.billingMonth)} chưa phát hành.`,
-                  )
-                  .join(" ")
-              : "Ưu đãi nộp trước: Không có ưu đãi áp dụng."}
-          </p>
-          {next && (
-            <button type="button" onClick={() => void open(next)}>
-              Hóa đơn tiếp theo
-            </button>
-          )}
-        </section>
       )}
     </section>
   );

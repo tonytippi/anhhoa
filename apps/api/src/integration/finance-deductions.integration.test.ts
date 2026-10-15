@@ -406,6 +406,34 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
 
   // The stakeholder example: 6.900.000/month, 12 months prepaid with 30.000.000 off (52.800.000 paid),
   // withdrawal after 6 started months refunds 52.800.000 - 6.900.000 x 6 = 11.400.000 plus its VAT.
+  it("prepays only the package receivables billed on the Invoice, never another class's tuition", async () => {
+    const current = await school();
+    const pupil = await student(current, "Vũ Minh Khang");
+    const own = await receivable(current, "Học phí Chồi", "3400000");
+    const other = await receivable(current, "Học phí Lá", "3300000");
+    const personal = await account(current, "PERSONAL", "215000002088");
+    const create = async (name: string, receivableIds: string[]) => {
+      const policy: any = await finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { name, receivableIds, discountType: "PERCENTAGE", discountValue: "5", priority: "1", stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 3, effectiveFrom: "2026-03-01" });
+      const versionId = policy.outcome.versions[0].id as string;
+      await finance.activatePromotionVersion(current.identity.id, current.school.id, versionId, uuid(), uuid());
+      return versionId;
+    };
+    const everyClass = await create("Đóng trước 3 tháng", [own, other]);
+    const otherOnly = await create("Đóng trước 3 tháng lớp Lá", [other]);
+    const run = await generatedRun(current, [{ receivableId: own, quantity: "1" }], "2026-03");
+    const source = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: run.runId, studentId: pupil.id } });
+    await expect(finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId: otherOnly })).rejects.toMatchObject({ response: { fieldErrors: { versionId: expect.any(String) } } });
+    await finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId: everyClass });
+    const facts = await prisma.invoicePromotionCoverageFact.findMany({ where: { invoiceId: source.id } });
+    expect(facts.map((fact) => [fact.receivableId, fact.billingMonth]).sort()).toEqual([[own, "2026-03"], [own, "2026-04"], [own, "2026-05"]]);
+    await finance.issueInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { personalBankAccountId: personal });
+    const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } });
+    expect(issued.obligationTotalSnapshot).toBe(3n * 3_400_000n - 3n * 170_000n);
+    await finance.closeInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { actualAmount: issued.obligationTotalSnapshot!.toString() });
+    const coverage = await prisma.studentPromotionalCoverage.findMany({ where: { studentId: pupil.id } });
+    expect(coverage.map((item) => item.receivableId)).toEqual([own, own, own]);
+  });
+
   it("settles a withdrawn Student with unused meals and the unused prepaid package across the SchoolYear end", async () => {
     const current = await school();
     const pupil = await student(current, "Trần Gia Bảo");
@@ -497,5 +525,176 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance leave-day
     for (const line of [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "20" }]) version = (await finance.saveTemplateLine(current.identity.id, current.school.id, runId, uuid(), uuid(), { ...line, expectedVersion: version }) as any).outcome.version;
     const preview: any = await finance.preview(current.identity.id, current.school.id, runId);
     expect(preview.eligible[0].lines.map((line: any) => line.receivableId)).toEqual([meals]);
+  });
+});
+
+// Sprint change 2026-10-14: an issued package keeps its frozen figures, holds its months until paid or revised away,
+// covers every receivable it lists, proposes no leave days, stacks with other promotions and is priced at the line.
+describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("prepaid package review", () => {
+  const prepaidPackage = async (current: School, receivableIds: string[], extra: Record<string, unknown> = {}) => {
+    const policy: any = await finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { name: "Đóng trước 3 tháng", receivableIds, discountType: "PERCENTAGE", discountValue: "5", priority: "1", stackingMode: "EXCLUSIVE", fulfillmentMode: "PREPAID_COVERAGE", prepaidTermMonths: 3, effectiveFrom: "2026-03-01", ...extra });
+    const versionId = policy.outcome.versions[0].id as string;
+    await finance.activatePromotionVersion(current.identity.id, current.school.id, versionId, uuid(), uuid());
+    return versionId;
+  };
+  const invoiceOf = (current: School, runId: string, studentId: string) => prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId, revisesInvoiceId: null } });
+  const linesOf = (invoiceId: string) => prisma.invoiceLine.findMany({ where: { invoiceId } });
+  // A March package of three months, issued into the personal account.
+  const issuedPackage = async (receivableIds?: string[], extra: Record<string, unknown> = {}) => {
+    const current = await school();
+    const pupil = await student(current, "Lê Bảo Ngọc");
+    const tuition = await receivable(current, "Học phí Chồi", "3400000");
+    const meals = await receivable(current, "Tiền ăn", "30000");
+    const personal = await account(current, "PERSONAL", "215000002088");
+    const versionId = await prepaidPackage(current, receivableIds ?? [tuition], extra);
+    const march = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-03");
+    const source = await invoiceOf(current, march.runId, pupil.id);
+    await finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId });
+    await finance.issueInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { personalBankAccountId: personal });
+    const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } });
+    return { current, pupil, tuition, meals, personal, versionId, march, issued };
+  };
+  const pay = (current: School, invoice: { id: string; obligationTotalSnapshot: bigint | null }) => finance.closeInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { actualAmount: invoice.obligationTotalSnapshot!.toString() });
+
+  it("records the Receipt of an issued package after the run lock, a price change and the package retired", async () => {
+    const { current, pupil, tuition, versionId, march, issued } = await issuedPackage();
+    await finance.closeRun(current.identity.id, current.school.id, march.runId, uuid(), uuid(), { reason: "Khóa đợt" });
+    await finance.updateReceivable(current.identity.id, current.school.id, tuition, uuid(), uuid(), { defaultUnitPrice: "3600000", reason: "Tăng giá" });
+    await finance.retirePromotionVersion(current.identity.id, current.school.id, versionId, uuid(), uuid());
+    await pay(current, issued);
+    const coverage = await prisma.studentPromotionalCoverage.findMany({ where: { studentId: pupil.id }, orderBy: { billingMonth: "asc" } });
+    expect(coverage.map((item) => [item.billingMonth, item.originalPrice])).toEqual([["2026-03", 3_400_000n], ["2026-04", 3_400_000n], ["2026-05", 3_400_000n]]);
+  });
+
+  it("holds the months of an unpaid package: later runs skip them and a manual line is not issued", async () => {
+    const { current, pupil, tuition, meals, personal, march, issued } = await issuedPackage();
+    await finance.closeRun(current.identity.id, current.school.id, march.runId, uuid(), uuid(), { reason: "Khóa đợt" });
+    const april = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "1" }], "2026-04");
+    expect((april.preview as any).eligible[0].prepaid).toEqual([{ receivableId: tuition, receivableName: "Học phí Chồi", sourceMonth: "2026-03" }]);
+    const aprilInvoice = await invoiceOf(current, april.runId, pupil.id);
+    expect((await linesOf(aprilInvoice.id)).map((line) => line.receivableId)).toEqual([meals]);
+    await finance.addInvoiceLine(current.identity.id, current.school.id, aprilInvoice.id, uuid(), uuid(), { receivableId: tuition, quantity: "1" });
+    await expect(finance.issueInvoice(current.identity.id, current.school.id, aprilInvoice.id, uuid(), uuid(), { personalBankAccountId: personal })).rejects.toMatchObject({ response: { code: "PREPAID_MONTH_BILLED" } });
+    await pay(current, issued);
+    expect(await prisma.studentPromotionalCoverage.count({ where: { studentId: pupil.id } })).toBe(3);
+  });
+
+  it("refuses a package whose month is billed on another Invoice or whose receivable is on two lines", async () => {
+    const current = await school();
+    const pupil = await student(current, "Phạm Gia Hân");
+    const tuition = await receivable(current, "Học phí Chồi", "3400000");
+    const versionId = await prepaidPackage(current, [tuition]);
+    const march = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-03");
+    const marchInvoice = await invoiceOf(current, march.runId, pupil.id);
+    await finance.addInvoiceLine(current.identity.id, current.school.id, marchInvoice.id, uuid(), uuid(), { receivableId: tuition, quantity: "1" });
+    await expect(finance.applyInvoiceCoverage(current.identity.id, current.school.id, marchInvoice.id, uuid(), uuid(), { versionId })).rejects.toMatchObject({ response: { fieldErrors: { versionId: expect.stringContaining("nhiều dòng") } } });
+    const extra = (await linesOf(marchInvoice.id)).find((line) => line.sourceKind === "MANUAL")!;
+    await finance.removeInvoiceLine(current.identity.id, current.school.id, marchInvoice.id, extra.id, uuid(), uuid());
+    await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-04");
+    await expect(finance.applyInvoiceCoverage(current.identity.id, current.school.id, marchInvoice.id, uuid(), uuid(), { versionId })).rejects.toMatchObject({ response: { code: "COVERAGE_MONTH_BILLED" } });
+  });
+
+  it("revises an unpaid package Invoice keeping the retired package, and pays the replacement", async () => {
+    const { current, pupil, versionId, personal, issued } = await issuedPackage();
+    await finance.retirePromotionVersion(current.identity.id, current.school.id, versionId, uuid(), uuid());
+    const replacementId = ((await finance.prepareRevision(current.identity.id, current.school.id, issued.id, uuid(), uuid(), { reason: "Đổi tài khoản nhận" })) as any).outcome.id as string;
+    expect(await prisma.invoicePromotionCoverageFact.count({ where: { invoiceId: replacementId } })).toBe(3);
+    await finance.issueRevision(current.identity.id, current.school.id, replacementId, uuid(), uuid(), { personalBankAccountId: personal });
+    await pay(current, await prisma.invoice.findUniqueOrThrow({ where: { id: replacementId } }));
+    const coverage = await prisma.studentPromotionalCoverage.findMany({ where: { studentId: pupil.id } });
+    expect(coverage.map((item) => item.sourceInvoiceId)).toEqual([replacementId, replacementId, replacementId]);
+  });
+
+  it("releases the months when an unpaid package Invoice is revised without the package", async () => {
+    const { current, pupil, tuition, personal, issued } = await issuedPackage();
+    const replacementId = ((await finance.prepareRevision(current.identity.id, current.school.id, issued.id, uuid(), uuid(), { reason: "Phụ huynh đóng theo tháng" })) as any).outcome.id as string;
+    await finance.applyInvoiceCoverage(current.identity.id, current.school.id, replacementId, uuid(), uuid(), { versionId: null });
+    expect((await linesOf(replacementId)).map((line) => [line.quantity, line.amount])).toEqual([[1, 3_400_000n]]);
+    await finance.issueRevision(current.identity.id, current.school.id, replacementId, uuid(), uuid(), { personalBankAccountId: personal });
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: issued.id } })).status).toBe("CANCELLED");
+    const april = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-04");
+    expect((await linesOf((await invoiceOf(current, april.runId, pupil.id)).id)).map((line) => line.receivableId)).toEqual([tuition]);
+  });
+
+  it("covers every receivable of the package after a class change, at the price paid", async () => {
+    const current = await school();
+    const pupil = await student(current, "Đỗ Minh Quân");
+    const own = await receivable(current, "Học phí Chồi", "3400000");
+    const next = await receivable(current, "Học phí Lá", "3600000");
+    const meals = await receivable(current, "Tiền ăn", "30000");
+    const personal = await account(current, "PERSONAL", "215000002088");
+    const versionId = await prepaidPackage(current, [own, next]);
+    const march = await generatedRun(current, [{ receivableId: own, quantity: "1" }], "2026-03");
+    const source = await invoiceOf(current, march.runId, pupil.id);
+    await finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId });
+    await finance.issueInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { personalBankAccountId: personal });
+    await pay(current, await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } }));
+    const april = await generatedRun(current, [{ receivableId: next, quantity: "1" }, { receivableId: meals, quantity: "1" }], "2026-04");
+    expect((await linesOf((await invoiceOf(current, april.runId, pupil.id)).id)).map((line) => line.receivableId)).toEqual([meals]);
+    expect(await prisma.studentPromotionalCoverage.count({ where: { studentId: pupil.id } })).toBe(3);
+  });
+
+  it("proposes no leave days for a receivable whose previous month is prepaid", async () => {
+    const current = await school();
+    const pupil = await student(current, "Ngô Khánh Linh");
+    const tuition = await receivable(current, "Học phí Chồi", "3400000", { refundUnitPrice: "100000" });
+    const meals = await receivable(current, "Tiền ăn", "30000", { refundUnitPrice: "30000" });
+    const personal = await account(current, "PERSONAL", "215000002088");
+    const versionId = await prepaidPackage(current, [tuition]);
+    const template = [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "1" }];
+    const march = await generatedRun(current, template, "2026-03");
+    const source = await invoiceOf(current, march.runId, pupil.id);
+    await finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId });
+    await finance.issueInvoice(current.identity.id, current.school.id, source.id, uuid(), uuid(), { personalBankAccountId: personal });
+    await pay(current, await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } }));
+    await leave(current, pupil.id, ["2026-03-10", "2026-04-14", "2026-05-12"]);
+    const deductions = async (billingMonth: string) => {
+      const run = await generatedRun(current, template, billingMonth);
+      return Object.fromEntries((await linesOf((await invoiceOf(current, run.runId, pupil.id)).id)).map((line) => [line.receivableNameSnapshot, line.deductionQuantity]));
+    };
+    expect(await deductions("2026-04")).toEqual({ "Tiền ăn": 1 });
+    expect(await deductions("2026-05")).toEqual({ "Tiền ăn": 1 });
+    expect(await deductions("2026-06")).toEqual({ "Học phí Chồi": 0, "Tiền ăn": 1 });
+  });
+
+  it("adds a manual Thu 0 line with only a Bớt in a prepaid month, and issues it", async () => {
+    const { current, pupil, tuition, meals, personal, march, issued } = await issuedPackage();
+    await pay(current, issued);
+    await finance.closeRun(current.identity.id, current.school.id, march.runId, uuid(), uuid(), { reason: "Khóa đợt" });
+    const april = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "1" }], "2026-04");
+    const invoice = await invoiceOf(current, april.runId, pupil.id);
+    const add = (body: Record<string, unknown>) => finance.addInvoiceLine(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { receivableId: tuition, quantity: "0", ...body });
+    await expect(add({ deductionQuantity: "10", refundUnitPrice: "100000" })).rejects.toMatchObject({ response: { fieldErrors: { deductionReason: expect.any(String) } } });
+    await expect(add({ deductionQuantity: "0", refundUnitPrice: "100000", deductionReason: "Nghỉ 2 tuần" })).rejects.toMatchObject({ response: { fieldErrors: { deductionQuantity: expect.any(String) } } });
+    // Học phí Chồi has no refund price in this fixture, so the refund price must be typed.
+    await expect(add({ deductionQuantity: "10", deductionReason: "Nghỉ 2 tuần" })).rejects.toMatchObject({ response: { fieldErrors: { refundUnitPrice: expect.any(String) } } });
+    await add({ deductionQuantity: "10", refundUnitPrice: "100000", deductionReason: "Nghỉ ốm 2 tuần, 02/04-15/04" });
+    const line = (await linesOf(invoice.id)).find((item) => item.receivableId === tuition)!;
+    expect(line).toMatchObject({ quantity: 0, grossAmount: 0n, deductionQuantity: 10, deductionAmount: 1_000_000n, netAmount: -1_000_000n, deductionReason: "Nghỉ ốm 2 tuần, 02/04-15/04" });
+    await finance.issueInvoice(current.identity.id, current.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).not.toBe("DRAFT");
+  });
+
+  it("stacks the package with the Student's other promotions and prices it at the line unit price", async () => {
+    const current = await school();
+    const pupil = await student(current, "Hoàng An Nhiên");
+    const tuition = await receivable(current, "Học phí Chồi", "3400000");
+    const sibling: any = await finance.createPromotionPolicy(current.identity.id, current.school.id, uuid(), uuid(), { name: "Anh chị em", receivableIds: [tuition], discountType: "FIXED_VND", discountValue: "100000", priority: "1", stackingMode: "STACKABLE", effectiveFrom: "2026-03-01" });
+    const siblingVersion = sibling.outcome.versions[0].id as string;
+    await finance.activatePromotionVersion(current.identity.id, current.school.id, siblingVersion, uuid(), uuid());
+    await finance.assignPromotionStudents(current.identity.id, current.school.id, siblingVersion, uuid(), uuid(), { studentIds: [pupil.id], effectiveFrom: "2026-03-01", reason: "Có anh đang học" });
+    const versionId = await prepaidPackage(current, [tuition], { stackingMode: "STACKABLE" });
+    const march = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-03");
+    const source = await invoiceOf(current, march.runId, pupil.id);
+    const [line] = await linesOf(source.id);
+    await finance.editInvoiceLine(current.identity.id, current.school.id, source.id, line!.id, uuid(), uuid(), { quantity: "1", unitPrice: "3000000", overrideReason: "Con nhân viên" });
+    // 100.000 off first, then 5% of the remaining 2.900.000.
+    const preview: any = await finance.coveragePreview(current.identity.id, current.school.id, source.id, { versionId });
+    expect(preview).toMatchObject({ originalTotal: "9000000", reductionTotal: "735000", total: "8265000", unbilledReceivables: [] });
+    expect(preview.months[0]).toMatchObject({ billingMonth: "2026-03", originalPrice: "3000000", reduction: "245000", promotions: [{ name: "Anh chị em", amount: "100000" }, { name: "Đóng trước 3 tháng", amount: "145000" }] });
+    await finance.applyInvoiceCoverage(current.identity.id, current.school.id, source.id, uuid(), uuid(), { versionId });
+    const facts = await prisma.invoicePromotionCoverageFact.findMany({ where: { invoiceId: source.id } });
+    expect(facts.map((fact) => [fact.originalPrice, fact.reduction])).toEqual([[3_000_000n, 245_000n], [3_000_000n, 245_000n], [3_000_000n, 245_000n]]);
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: source.id } })).total).toBe(8_265_000n);
   });
 });

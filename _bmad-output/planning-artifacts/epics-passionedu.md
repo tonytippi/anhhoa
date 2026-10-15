@@ -910,6 +910,25 @@ Source: sprint-change-proposal-2026-10-13-fixed-receivable-classes.
 
 **And** editing a `FIXED` line on a run keeps its seeded scope; changing the Classes of a Receivable does not change runs already opened.
 
+### Story 5.55: Rà soát gói nộp trước
+
+As a Finance Manager,
+I want an issued prepaid package to keep its frozen figures and its months to be billed exactly once,
+So that a parent's payment can always be recorded and no tuition month is charged twice.
+
+Source: sprint-change-proposal-2026-10-14-prepaid-package-review.
+
+**Acceptance Criteria:**
+
+**Given** an issued, unpaid package Invoice
+**Then** its exact Receipt issues coverage after the run lock, a receivable price change or the package retired; its revision carries the package or drops it and releases its months.
+
+**And** a month paid or held by a package Invoice is skipped by later runs for every receivable of the package, cannot be issued on another line, and blocks applying a package that would cover a month already billed elsewhere; a receivable on two lines refuses the package.
+
+**And** a receivable whose previous month is prepaid gets no leave-day proposal.
+
+**And** each package month is priced at the line unit price and stacks with the Student's other promotions by the existing rules; the review shows a server-computed preview before applying.
+
 ### Epic 2: Thiết lập trường học và danh bộ có lịch sử
 
 School Admin thiet lap SchoolYear, Class, Student enrollment, Parent links va Staff assignment theo effective date ma khong pha lich su van hanh.

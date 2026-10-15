@@ -216,14 +216,17 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
    await expect(invoiceReview.getByTitle('Nguồn')).toHaveText('Cố định');
    await invoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
-   const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho RG1-1 / Bé An · tháng 10/2026' });
-   await expect(firstIssue).toContainText('RG1-1 / Bé An · tháng 10/2026');
+   const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn · tháng 10/2026' });
+   await expect(firstIssue).toContainText('Bé AnRG1-1 · Lớp');
    const issuedRunRefresh = page.waitForResponse((response) =>
      /\/finance\/collection-runs\/[^/]+$/.test(new URL(response.url()).pathname) &&
      response.request().method() === 'GET',
    );
    await firstIssue.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
    expect((await issuedRunRefresh).status()).toBe(200);
+     // The issued Invoice stays open for its payment image until Finance moves on.
+     await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
+     await page.getByRole('button', { name: /^Học sinh kế tiếp/ }).click();
      await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' }).getByText('Nháp', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Học sinh trước' }).click();
@@ -240,8 +243,8 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(secondInvoiceReview.getByText('135.000')).toHaveCount(0);
 
   await secondInvoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
-   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn cho RG1-2 / Bé Bình · tháng 10/2026' });
-    await expect(secondIssue).toContainText('RG1-2 / Bé Bình · tháng 10/2026');
+   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn · tháng 10/2026' });
+    await expect(secondIssue).toContainText('Bé BìnhRG1-2 · Lớp');
     await secondIssue.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
    await expect(secondInvoiceReview.getByRole('complementary', { name: 'Thanh toán' })).toContainText('Tổng cần nộp150.000 đ');
     // The initial queue load rewrites the filter form with the server's default month when it lands, so let it finish before typing.
@@ -279,7 +282,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     await queueMenu.focus();
     await page.keyboard.press('ArrowDown');
     await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
-    const queueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận cho Bé An · / });
+    const queueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận · .* Bé An$/ });
     await expect(queueReceipt.getByLabel('Số thực nhận (đ)')).toHaveValue('135000');
     await expect(queueReceipt.getByLabel('Số thực nhận (đ)')).toBeFocused();
     await queueReceipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).focus();
@@ -298,13 +301,14 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     }, { times: 1 });
     await queueReceipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).click();
     expect((await reconciledQueueRefresh).status()).toBe(200);
-    await expect(page.getByRole('heading', { name: 'Kết quả ghi thực nhận' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Đã ghi thực nhận / })).toBeVisible();
     expect(receiptPosts).toBe(1);
-    const nextReceipt = page.getByRole('button', { name: 'Hóa đơn tiếp theo' });
-    await expect(nextReceipt).toBeVisible();
-    await expect(nextReceipt).toBeInViewport();
-    await nextReceipt.click();
-    const secondQueueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận cho Bé Bình · / });
+    // Back on the refreshed queue: no next-Invoice prompt, Finance picks the next transfer from the list.
+    await expect(page.getByRole('heading', { name: /^Đã ghi thực nhận / })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Hóa đơn tiếp theo' })).toHaveCount(0);
+    await receiptQueue.getByRole('button', { name: /^Tùy chọn cho Bé Bình · / }).click();
+    await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
+    const secondQueueReceipt = page.getByRole('dialog', { name: /^Ghi thực nhận · .* Bé Bình$/ });
     await expect(secondQueueReceipt).toBeVisible();
     expect(receiptPosts).toBe(1);
     await page.keyboard.press('Escape');

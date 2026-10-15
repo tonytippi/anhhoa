@@ -1,4 +1,4 @@
-import { FormEvent, Fragment, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ReceivingAccountLabel, type ReceivingAccount } from "./receiving-account";
 import { AnchoredActionMenu, AnchoredActionMenuItem } from "../components/anchored-action-menu";
 import { PaymentImagePanel } from "./payment-image-panel";
@@ -260,6 +260,9 @@ type InvoiceSummary = {
   invoiceTotal: string;
   noticeCount?: number;
   issuedNoticeCount?: number;
+  receivableTotal?: string;
+  collectedTotal?: string;
+  settledNoticeCount?: number;
 };
 type Preview = {
   run: Run;
@@ -269,6 +272,8 @@ type Preview = {
     fullName: string;
     className: string;
     totals?: { grossAmount: string; discountAmount: string; deductionAmount: string; vatAmount: string; amount: string };
+    // Sprint change 2026-10-14 §3: receivables skipped because the month belongs to a prepaid package.
+    prepaid?: Array<{ receivableId: string; receivableName: string; sourceMonth: string }>;
     lines: Array<{
       receivableId: string;
       receivableName: string;
@@ -380,6 +385,7 @@ type Invoice = {
     originalPrice: string;
     reduction: string;
     netPrice: string;
+    promotions?: Array<{ policyId: string; amount: string }>;
     serviceStart: string;
     serviceEnd: string;
     calendarEffectiveFrom: string;
@@ -527,7 +533,7 @@ const runStatusLabel = (status: Run["status"]) =>
   })[status];
 const runSteps = ["DRAFT", "READY", "GENERATED", "CLOSED"] as const;
 // Overview values render only the server `summary`; the browser never adds VND amounts.
-const runMetrics = (run: Run, preview?: Preview): Array<[string, string]> => {
+const runMetrics = (run: Run, preview?: Preview): Array<[string, ReactNode]> => {
   if (run.status === "DRAFT" || run.status === "READY") {
     const summary = (run.status === "DRAFT" ? preview?.summary : run.summary) as PreviewSummary | undefined;
     const missing = run.status === "DRAFT" ? "Chưa xem trước" : "Chưa có số liệu";
@@ -538,10 +544,25 @@ const runMetrics = (run: Run, preview?: Preview): Array<[string, string]> => {
     ];
   }
   const summary = run.summary as InvoiceSummary | undefined;
+  if (!summary) return [["Đã phát hành", "Chưa có số liệu"], ["Đã thu / Phải thu", "Chưa có số liệu"], ["Đã thanh toán", "Chưa có số liệu"]];
+  const notices = summary.noticeCount ?? summary.invoiceCount;
+  // Same figures as the run list: received over owed, fully settled notices over all notices.
   return [
-    ["Phiếu thu", summary ? String(summary.noticeCount ?? summary.invoiceCount) : "Chưa có số liệu"],
-    ["Đã phát hành", summary ? String(summary.issuedNoticeCount ?? summary.issuedCount) : "Chưa có số liệu"],
-    ["Tổng phải thu", summary ? `${vnd(summary.invoiceTotal)} đ` : "Chưa có số liệu"],
+    ["Đã phát hành", <>{summary.issuedNoticeCount ?? summary.issuedCount} / {notices} <small>phiếu thu</small></>],
+    [
+      "Đã thu / Phải thu",
+      <>
+        <span className="finance-metric-collected">{vnd(summary.collectedTotal ?? "0")}</span> /{" "}
+        {vnd(summary.receivableTotal ?? summary.invoiceTotal)} <small>đ</small>
+      </>,
+    ],
+    [
+      "Đã thanh toán",
+      <span className={`finance-run-paid${notices > 0 && summary.settledNoticeCount === notices ? " finance-run-paid-done" : ""}`}>
+        <PaidIcon />
+        {summary.settledNoticeCount ?? 0} / {notices} <small>học sinh</small>
+      </span>,
+    ],
   ];
 };
 const billingMonthLabel = (month: string) => {
@@ -585,6 +606,17 @@ const invoiceStatusLabel = (status: string) =>
 // Prepaid coverage sits on the notice part its receivables are paid into, not necessarily the part that is open.
 const noticeCoverageFacts = (invoice: Invoice) =>
   (invoice.notice?.invoices?.length ? invoice.notice.invoices : [invoice]).flatMap((part) => part.coverageFacts ?? []);
+// Sprint change 2026-10-14 §3: what applying a prepaid package would bill, computed by the API.
+type CoveragePreview = {
+  invoiceId: string;
+  versionId: string;
+  months: Array<{ billingMonth: string; receivableId: string; receivableName: string; originalPrice: string; reduction: string; netPrice: string; promotions: Array<{ name: string; amount: string }> }>;
+  originalTotal: string;
+  reductionTotal: string;
+  total: string;
+  unbilledReceivables: string[];
+};
+const monthText = (billingMonth: string) => `${billingMonth.slice(5, 7)}/${billingMonth.slice(0, 4)}`;
 const noticeLineName = (invoice: Invoice, receivableId: string) =>
   (invoice.notice?.invoices?.length ? invoice.notice.invoices : [invoice])
     .flatMap((part) => part.lines)
@@ -672,6 +704,11 @@ function PreviewEligibleTable({ eligible }: { eligible: Preview["eligible"] }) {
                 <tr key={item.studentId}>
                   <td>
                     {item.studentCode} / {item.fullName}
+                    {(item.prepaid ?? []).length > 0 && (
+                      <small className="finance-badge-note">
+                        Đã nộp trước: {item.prepaid!.map((entry) => `${entry.receivableName} (gói từ ${monthText(entry.sourceMonth)})`).join(", ")}
+                      </small>
+                    )}
                   </td>
                   <td>{item.className}</td>
                   <td className="finance-money">{vnd(item.totals?.grossAmount ?? "0")} đ</td>
@@ -828,6 +865,11 @@ const defaultPromotion = () => ({
 
 const emptyInvoiceLine = {
   receivableId: "",
+  // Sprint change 2026-10-14: a "Thu 0" line only refunds (manual Bớt with a reason).
+  refundOnly: false,
+  deductionQuantity: "",
+  refundUnitPrice: "",
+  deductionReason: "",
   quantity: "",
   unitPrice: "",
   overrideReason: "",
@@ -882,6 +924,41 @@ const lineEdit = (line: InvoiceLine, draft: LineDraft | undefined) => {
 // The server locks the lines of a part holding a prepaid package; remove the package to edit them.
 const lineEditable = (part: Invoice, line: InvoiceLine) =>
   part.status === "DRAFT" && line.receivableId !== null && (line.kind ?? "NORMAL") === "NORMAL" && !(part.coverageFacts ?? []).length;
+
+const PaidIcon = () => (
+  <svg viewBox="0 0 16 16" aria-hidden="true">
+    <circle cx="8" cy="4.5" r="2.5" fill="currentColor" />
+    <path d="M3 14c0-3 2.2-5 5-5s5 2 5 5H3Z" fill="currentColor" />
+  </svg>
+);
+// Run list collection figures, all from the server summary: received over owed, and fully settled notices over all notices.
+function RunCollectionCells({ summary }: { summary?: InvoiceSummary }) {
+  if (!summary?.receivableTotal)
+    return (
+      <>
+        <td className="finance-money muted">—</td>
+        <td className="finance-money muted">—</td>
+      </>
+    );
+  const done = summary.noticeCount != null && summary.settledNoticeCount === summary.noticeCount && summary.noticeCount > 0;
+  return (
+    <>
+      <td className="finance-money finance-run-collection">
+        <b>{vnd(summary.collectedTotal ?? "0")}</b> / {vnd(summary.receivableTotal)}
+      </td>
+      <td className="finance-money">
+        <span
+          className={`finance-run-paid${done ? " finance-run-paid-done" : ""}`}
+          title="Số học sinh đã thanh toán đủ / tổng số học sinh có hóa đơn"
+        >
+          <PaidIcon />
+          <span className="sr-only">Học sinh đã thanh toán </span>
+          {summary.settledNoticeCount ?? 0} / {summary.noticeCount ?? 0}
+        </span>
+      </td>
+    </>
+  );
+}
 
 function InvoiceLinesTable({
   part,
@@ -1118,7 +1195,7 @@ function InvoiceLinesTable({
                       {multiPeriod && (
                         <p className="finance-line-warning">
                           Thu {quantity} {item.unitLabel} bằng số lượng thì các tháng sau vẫn bị thu và không được hoàn khi học
-                          sinh nghỉ học. Thu nhiều tháng nên dùng gói nộp trước ở mục Quản lý ưu đãi nộp trước bên dưới.
+                          sinh nghỉ học. Thu nhiều tháng nên dùng thẻ Gói nộp trước bên dưới.
                         </p>
                       )}
                       {needsPriceReason &&
@@ -1231,6 +1308,9 @@ export function FinanceWorkspace({
     reason: "",
   });
   const [draftCoverageVersionId, setDraftCoverageVersionId] = useState("");
+  const [packageDialog, setPackageDialog] = useState<"apply" | "remove">();
+  const [packagePreview, setPackagePreview] = useState<CoveragePreview | { error: string } | "loading">();
+  const packageDialogRef = useRef<HTMLDivElement>(null);
   const [endingAssignment, setEndingAssignment] = useState<{ id: string; effectiveTo: string; reason: string }>();
   const [candidates, setCandidates] = useState<Candidates>();
   const [runs, setRuns] = useState<Run[]>([]);
@@ -1273,7 +1353,22 @@ export function FinanceWorkspace({
   const [openClass, setOpenClass] = useState(emptyClassRun);
   const [activeClasses, setActiveClasses] = useState<{ schoolId: string; classes?: RunClassOption[]; failed?: boolean }>();
   const [runDialog, setRunDialog] = useState(false);
-  const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[] }>();
+  const [invoiceQueue, setInvoiceQueue] = useState<{ runId: string; ids: string[]; className?: string }>();
+  // Class filter of the run's invoice table; the review queue follows it so Finance works one Class at a time.
+  const [noticeClass, setNoticeClassState] = useState<{ runId: string; className: string }>();
+  const noticeClassRef = useRef(noticeClass);
+  const setNoticeClass = (value: { runId: string; className: string } | undefined) => {
+    noticeClassRef.current = value;
+    setNoticeClassState(value);
+  };
+  const queueFor = (source: Run) => {
+    const className = noticeClassRef.current && noticeClassRef.current.runId === source.id ? noticeClassRef.current.className : "";
+    return {
+      runId: source.id,
+      ids: studentQueueIds((source.invoices ?? []).filter((item) => !className || item.className === className)),
+      ...(className ? { className } : {}),
+    };
+  };
   const [templateDialog, setTemplateDialog] = useState<TemplateDialog>();
   const [scopeOptions, setScopeOptions] = useState<ScopeOptions>();
   const [templateRemoval, setTemplateRemoval] = useState<{ id: string; name: string }>();
@@ -1330,6 +1425,8 @@ export function FinanceWorkspace({
   const [message, setMessage] = useState("");
   // Success confirmations stay out of the error alert so a completed issue never reads as a failure.
   const [notice, setNotice] = useState("");
+  // After issuing, the issued Invoice stays open for its payment image; this is where "Học sinh kế tiếp" goes.
+  const [afterIssue, setAfterIssue] = useState<{ invoiceIds: string[]; nextId?: string; nextClassName?: string }>();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [scope, setScope] = useState<"receivable" | "invoice" | "lifecycle" | "promotion" | "run">("receivable");
   const [pending, setPending] = useState<Pending>();
@@ -2402,7 +2499,7 @@ export function FinanceWorkspace({
       await load();
     }
   };
-  const applyCoverage = async (versionId: string) => {
+  const applyCoverage = async (versionId: string | null) => {
     if (!invoice) return;
     const outcome = await command(
       `/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/coverage`,
@@ -2411,24 +2508,32 @@ export function FinanceWorkspace({
       "invoice",
     );
     if (outcome) {
-      await openInvoice(invoice.id, run);
-      await load();
-    }
-  };
-  const clearCoverage = async () => {
-    if (!invoice) return;
-    const outcome = await command(
-      `/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/coverage`,
-      "PUT",
-      { versionId: null },
-      "invoice",
-    );
-    if (outcome) {
+      closeManagedDialog(() => setPackageDialog(undefined));
       setDraftCoverageVersionId("");
       await openInvoice(invoice.id, run);
       await load();
     }
   };
+  // The preview is read again whenever the chosen package changes; the API refuses a package it would not apply.
+  useEffect(() => {
+    if (packageDialog !== "apply" || !invoice || !draftCoverageVersionId) {
+      setPackagePreview(undefined);
+      return;
+    }
+    let current = true;
+    setPackagePreview("loading");
+    fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/coverage-preview?versionId=${encodeURIComponent(draftCoverageVersionId)}`, { credentials: "include" })
+      .then(async (response) => {
+        if ([401, 403].includes(response.status)) return denied();
+        const body = (await response.json()) as { data?: CoveragePreview; error?: { message?: string; fieldErrors?: Record<string, string> } };
+        if (!current) return;
+        setPackagePreview(response.ok && body.data ? body.data : { error: body.error?.fieldErrors?.versionId ?? body.error?.message ?? "Không tính được gói nộp trước." });
+      })
+      .catch(() => current && setPackagePreview({ error: "Không tính được gói nộp trước. Thử lại." }));
+    return () => {
+      current = false;
+    };
+  }, [packageDialog, draftCoverageVersionId, invoice?.id, schoolId]);
   const endAssignment = async (event: FormEvent) => {
     event.preventDefault();
     if (!endingAssignment) return;
@@ -2482,7 +2587,7 @@ export function FinanceWorkspace({
       if (activeSchool.current === schoolId && token === invoiceRequest.current) {
         setInvoice(next);
         setDraftCoverageVersionId(noticeCoverageFacts(next)[0]?.versionId ?? "");
-        if (sourceRun) setInvoiceQueue({ runId: sourceRun.id, ids: studentQueueIds(sourceRun.invoices) });
+        if (sourceRun) setInvoiceQueue(queueFor(sourceRun));
       }
       return true;
     } catch (error: any) {
@@ -2505,7 +2610,7 @@ export function FinanceWorkspace({
     if (run) {
       try {
         const refreshed = await refreshRun(run.id);
-        if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+        if (refreshed) setInvoiceQueue(queueFor(refreshed));
       } catch {
         setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất.");
       }
@@ -2540,7 +2645,7 @@ export function FinanceWorkspace({
     if (run) {
       try {
         const refreshed = await refreshRun(run.id);
-        if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+        if (refreshed) setInvoiceQueue(queueFor(refreshed));
       } catch {
         setMessage("Đã lưu; chưa thể tải lại danh sách hóa đơn mới nhất.");
       }
@@ -2550,8 +2655,12 @@ export function FinanceWorkspace({
     event.preventDefault();
     if (!invoice) return;
     completion.current = completeSaveLine;
-    const body: Record<string, unknown> = { receivableId: line.receivableId, quantity: line.quantity };
-    if (line.unitPrice) {
+    const body: Record<string, unknown> = { receivableId: line.receivableId, quantity: line.refundOnly ? "0" : line.quantity };
+    if (line.refundOnly && !editingLineId) {
+      body.deductionQuantity = line.deductionQuantity;
+      if (line.refundUnitPrice) body.refundUnitPrice = line.refundUnitPrice;
+      body.deductionReason = line.deductionReason;
+    } else if (line.unitPrice) {
       body.unitPrice = line.unitPrice;
       body.overrideReason = line.overrideReason;
     }
@@ -2589,7 +2698,7 @@ export function FinanceWorkspace({
       if (run) {
         try {
           const refreshed = await refreshRun(run.id);
-          if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+          if (refreshed) setInvoiceQueue(queueFor(refreshed));
         } catch {
           setMessage("Đã xóa; chưa thể tải lại danh sách hóa đơn mới nhất.");
         }
@@ -2620,19 +2729,38 @@ export function FinanceWorkspace({
         if (runId) {
           const refreshed = await refreshRun(runId);
           // Continue with the next draft after the one just issued (server order), wrapping to earlier skipped drafts.
+          // Next draft: the rest of the same Class first (the filtered Class, else the issued Student's), wrapping to
+          // its earlier skipped drafts; then the other Classes in name order. None left: back to the run.
+          const queued = refreshed ? queueFor(refreshed) : undefined;
           const ordered = refreshed?.invoices ?? [];
           const current = ordered.findIndex((item) => item.id === invoice.id);
-          const isNextDraft = (item: (typeof ordered)[number]) =>
-            item.status === "DRAFT" &&
-            item.id !== invoice.id &&
-            !invoice.notice?.invoices?.some((part) => part.id === item.id);
-          const nextDraft = ordered.slice(current + 1).find(isNextDraft) ?? ordered.slice(0, Math.max(current, 0)).find(isNextDraft);
-          if (refreshed) setInvoiceQueue({ runId: refreshed.id, ids: studentQueueIds(refreshed.invoices) });
+          const issuedIds = [invoice.id, ...(invoice.notice?.invoices ?? []).map((part) => part.id)];
+          const isNextDraft = (item: (typeof ordered)[number]) => item.status === "DRAFT" && !issuedIds.includes(item.id);
+          const sameClass = queued?.className ?? invoice.student.className;
+          const inClass = ordered.filter((item, index) => index === current || item.className === sameClass);
+          const at = inClass.findIndex((item) => item.id === invoice.id);
+          const nextDraft =
+            inClass.slice(at + 1).find(isNextDraft) ??
+            inClass.slice(0, Math.max(at, 0)).find(isNextDraft) ??
+            [...ordered]
+              .filter((item) => item.className !== sameClass && isNextDraft(item))
+              .sort((a, b) => a.className.localeCompare(b.className, "vi"))[0];
+          if (queued) setInvoiceQueue(queued);
+          setAfterIssue({
+            invoiceIds: issuedIds,
+            nextId: nextDraft?.id,
+            nextClassName: nextDraft && nextDraft.className !== sameClass ? nextDraft.className : undefined,
+          });
           const issuedNote = `${issueActionLabel.replace("Phát hành", "Đã phát hành")} cho ${invoice.student.code} / ${invoice.student.name}.`;
-          if (nextDraft) {
-            await reviewInvoice(nextDraft.id);
-            setNotice(`${issuedNote} Đang rà soát học sinh tiếp theo.`);
-          } else setNotice(`${issuedNote} Đã phát hành toàn bộ hóa đơn trong đợt.`);
+          setNotice(
+            `${issuedNote} ${
+              !nextDraft
+                ? "Đã phát hành toàn bộ hóa đơn trong đợt."
+                : nextDraft.className !== sameClass
+                  ? `Đã phát hành toàn bộ hóa đơn của lớp ${sameClass}.`
+                  : "Tải ảnh hóa đơn để gửi phụ huynh, rồi chuyển sang học sinh kế tiếp."
+            }`,
+          );
         }
       } catch {
         setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất.");
@@ -2936,10 +3064,42 @@ export function FinanceWorkspace({
     part.channel === "SCHOOL" ? Boolean(issueSchoolBankAccountId) : Boolean(issueBankAccountId),
   );
   const liveNotices = (run?.notices ?? []).filter((notice) => notice.status !== "CANCELLED");
+  const noticeClasses = [...new Set((run?.notices ?? []).map((notice) => notice.className))].sort((a, b) => a.localeCompare(b, "vi"));
+  const selectedNoticeClass = run && noticeClass && noticeClass.runId === run.id && noticeClasses.includes(noticeClass.className) ? noticeClass.className : "";
+  const shownNotices = (run?.notices ?? []).filter((notice) => !selectedNoticeClass || notice.className === selectedNoticeClass);
+  const noticeClassFilter = run && noticeClasses.length > 1 && (
+    <label className="finance-notice-class-filter">
+      Lớp
+      <select
+        value={selectedNoticeClass}
+        onChange={(event) => setNoticeClass(event.target.value ? { runId: run.id, className: event.target.value } : undefined)}
+      >
+        <option value="">Tất cả lớp ({(run.notices ?? []).length})</option>
+        {noticeClasses.map((name) => (
+          <option key={name} value={name}>
+            {name} ({(run.notices ?? []).filter((notice) => notice.className === name).length})
+          </option>
+        ))}
+      </select>
+    </label>
+  );
   const draftNoticeCount = liveNotices.filter((notice) => notice.status === "DRAFT").length;
   const reviewInvoice = (id: string) => {
     if (onOpenInvoice && run) onOpenInvoice(run.id, id);
     else void openInvoice(id, run);
+  };
+  const issuedJustNow = Boolean(invoice && afterIssue?.invoiceIds.includes(invoice.id));
+  const continueAfterIssue = () => {
+    const target = afterIssue;
+    setAfterIssue(undefined);
+    setNotice("");
+    if (!run || !target) return;
+    if (target.nextId) {
+      // Crossing into another Class moves the Class filter with it, so the queue keeps following one Class.
+      if (target.nextClassName && noticeClassRef.current && noticeClassRef.current.runId === run.id) setNoticeClass({ runId: run.id, className: target.nextClassName });
+      reviewInvoice(target.nextId);
+    } else if (onBackToRun) onBackToRun(run.id);
+    else setInvoice(undefined);
   };
   const previousInvoiceId = invoiceQueueIndex > 0 ? invoiceQueue!.ids[invoiceQueueIndex - 1] : undefined;
   const nextInvoiceId =
@@ -3625,6 +3785,8 @@ export function FinanceWorkspace({
                     <th>Tên đợt</th>
                     <th>Kỳ</th>
                     <th>Trạng thái</th>
+                    <th className="finance-money">Đã thu / Phải thu (đ)</th>
+                    <th className="finance-money">Đã thanh toán</th>
                     <th>Tùy chọn</th>
                   </tr>
                 </thead>
@@ -3635,7 +3797,16 @@ export function FinanceWorkspace({
                         <td>
                           <b>{item.className ?? "—"}</b>
                         </td>
-                        <td>{item.name}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="finance-row-link"
+                            disabled={Boolean(pending)}
+                            onClick={() => onOpenRun?.(item.id) ?? chooseRun(item)}
+                          >
+                            {item.name}
+                          </button>
+                        </td>
                         <td>{runPeriod(item)}</td>
                         <td>
                           <span
@@ -3644,6 +3815,7 @@ export function FinanceWorkspace({
                             {runStatusLabel(item.status)}
                           </span>
                         </td>
+                        <RunCollectionCells summary={item.summary as InvoiceSummary | undefined} />
                         <td>
                           <AnchoredActionMenu
                             label={`Tùy chọn cho đợt thu ${runTitle(item)}`}
@@ -3661,7 +3833,7 @@ export function FinanceWorkspace({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
+                      <td colSpan={7}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
                     </tr>
                   )}
                 </tbody>
@@ -3674,8 +3846,9 @@ export function FinanceWorkspace({
               <thead>
                 <tr>
                   <th>Tháng</th>
-                  <th>Năm học</th>
                   <th>Trạng thái</th>
+                  <th className="finance-money">Đã thu / Phải thu (đ)</th>
+                  <th className="finance-money">Đã thanh toán</th>
                   <th>Tùy chọn</th>
                 </tr>
               </thead>
@@ -3683,10 +3856,19 @@ export function FinanceWorkspace({
                 {runs.length ? (
                   runs.map((item) => (
                     <tr key={item.id}>
-                      <td>{billingMonthLabel(item.billingMonth)}</td>
                       <td>
-                        {(catalog?.schoolYears ?? []).find((year) => year.id === item.schoolYearId)?.name ??
-                          "Không xác định"}
+                        <button
+                          type="button"
+                          className="finance-row-link"
+                          disabled={Boolean(pending)}
+                          onClick={() => onOpenRun?.(item.id) ?? chooseRun(item)}
+                        >
+                          {billingMonthLabel(item.billingMonth)}
+                        </button>
+                        <small className="finance-run-year">
+                          {(catalog?.schoolYears ?? []).find((year) => year.id === item.schoolYearId)?.name ??
+                            "Năm học không xác định"}
+                        </small>
                       </td>
                       <td>
                         <span
@@ -3695,6 +3877,7 @@ export function FinanceWorkspace({
                           {runStatusLabel(item.status)}
                         </span>
                       </td>
+                      <RunCollectionCells summary={item.summary as InvoiceSummary | undefined} />
                       <td>
                         <AnchoredActionMenu
                           label={`Tùy chọn cho đợt thu ${item.billingMonth}`}
@@ -3712,7 +3895,7 @@ export function FinanceWorkspace({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
+                    <td colSpan={5}>{catalog ? "Chưa có đợt thu." : "Đang tải đợt thu."}</td>
                   </tr>
                 )}
               </tbody>
@@ -4376,8 +4559,9 @@ export function FinanceWorkspace({
                   Thêm học sinh
                 </button>
               </div>
+              {noticeClassFilter}
               <RunNoticeTable
-                notices={run.notices ?? []}
+                notices={shownNotices}
                 caption="Hóa đơn hiện có trong đợt thu"
                 overlapInvoiceIds={new Set((run.invoices ?? []).filter((item) => item.periodOverlap).map((item) => item.id))}
                 actionLabel="Rà soát hóa đơn"
@@ -4539,8 +4723,9 @@ export function FinanceWorkspace({
                 </h2>
                 <p>Máy chủ đã khóa đợt thu này. Không thể thêm học sinh hoặc tạo, sửa hóa đơn trong đợt thu đã đóng.</p>
               </div>
+              {noticeClassFilter}
               <RunNoticeTable
-                notices={run.notices ?? []}
+                notices={shownNotices}
                 caption="Hóa đơn đã khóa theo đợt thu"
                 overlapInvoiceIds={new Set((run.invoices ?? []).filter((item) => item.periodOverlap).map((item) => item.id))}
                 actionLabel="Xem hóa đơn"
@@ -4557,13 +4742,10 @@ export function FinanceWorkspace({
             >
               <header className="finance-run-header">
                 <div>
-                  <p className="finance-eyebrow">
-                    Đợt thu {invoicePeriod} ·{" "}
-                    <span id="invoice-review-student">
-                      {invoice.student.code} / {invoice.student.name}
-                    </span>{" "}
-                    · {invoice.student.className}
-                  </p>
+                  <p className="finance-eyebrow">Đợt thu {invoicePeriod}</p>
+                  <span id="invoice-review-student" hidden>
+                    {invoice.student.code} / {invoice.student.name}
+                  </span>
                   <div className="finance-title-row">
                     <InvoiceHeading id="invoice-review-title" tabIndex={-1}>
                       Rà soát hóa đơn
@@ -4577,6 +4759,12 @@ export function FinanceWorkspace({
                       <span className="finance-badge finance-badge-info">Quyết toán</span>
                     )}
                   </div>
+                  <div className="finance-review-student">
+                    <strong>{invoice.student.name}</strong>
+                    <span>
+                      {invoice.student.code} · Lớp {invoice.student.className}
+                    </span>
+                  </div>
                   {invoice.kind === "SETTLEMENT" && (
                     <p>
                       Hóa đơn cuối cùng sau khi học sinh nghỉ học
@@ -4585,7 +4773,12 @@ export function FinanceWorkspace({
                       không được hoàn.
                     </p>
                   )}
-                  {invoiceQueueIndex >= 0 && invoiceQueue && <p className="muted">Học sinh {invoiceQueueIndex + 1}/{invoiceQueue.ids.length}</p>}
+                  {invoiceQueueIndex >= 0 && invoiceQueue && (
+                    <p className="muted">
+                      Học sinh {invoiceQueueIndex + 1}/{invoiceQueue.ids.length}
+                      {invoiceQueue.className ? ` · Lớp ${invoiceQueue.className}` : ""}
+                    </p>
+                  )}
                 </div>
                 <div className="finance-actions">
                   {onOpenInvoice && run && (
@@ -4598,10 +4791,20 @@ export function FinanceWorkspace({
                       Học sinh trước
                     </button>
                   )}
-                  {nextInvoiceId && (
-                    <button type="button" disabled={Boolean(pending)} onClick={() => keepLineEdits() && reviewInvoice(nextInvoiceId)}>
-                      Học sinh tiếp theo
+                  {issuedJustNow ? (
+                    <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={continueAfterIssue}>
+                      {afterIssue!.nextId
+                        ? afterIssue!.nextClassName
+                          ? `Học sinh kế tiếp · Lớp ${afterIssue!.nextClassName}`
+                          : "Học sinh kế tiếp"
+                        : "Về đợt thu"}
                     </button>
+                  ) : (
+                    nextInvoiceId && (
+                      <button type="button" disabled={Boolean(pending)} onClick={() => keepLineEdits() && reviewInvoice(nextInvoiceId)}>
+                        Học sinh tiếp theo
+                      </button>
+                    )
                   )}
                 </div>
               </header>
@@ -4662,6 +4865,7 @@ export function FinanceWorkspace({
                             setEditingLineInvoiceId(part.id);
                             setEditingSource(Boolean(item.source));
                             setLine({
+                              ...emptyInvoiceLine,
                               receivableId: item.receivableId ?? "",
                               quantity: item.quantity,
                               unitPrice: item.overrideReason ? item.unitPrice : "",
@@ -4716,6 +4920,94 @@ export function FinanceWorkspace({
                       thể thay đổi.
                     </p>
                   )}
+                  {(() => {
+                    // Sprint change 2026-10-14 §3: the package card sits under the lines; applying goes through a previewed dialog.
+                    const facts = noticeCoverageFacts(invoice);
+                    const editable = invoice.status === "DRAFT" && !isClassRun(invoiceRun);
+                    if (!facts.length && !editable) return null;
+                    const months = [...new Set(facts.map((fact) => fact.billingMonth))].sort();
+                    const applied = promotionVersions.find(({ version }) => version.id === facts[0]?.versionId);
+                    const paid = facts.length > 0 && facts.every((fact) => fact.issuedAt);
+                    const policyName = (policyId: string) => promotionPolicies.find((policy) => policy.id === policyId)?.name ?? "Ưu đãi";
+                    return (
+                      <section className="finance-package" aria-labelledby="finance-package-title">
+                        <div className="finance-title-row">
+                          <h3 id="finance-package-title">Gói nộp trước</h3>
+                          <span className={`finance-badge finance-badge-${!facts.length ? "neutral" : paid ? "success" : "warning"}`}>
+                            {!facts.length ? "Chưa áp dụng" : paid ? "Đã thu" : "Chờ thu đủ"}
+                          </span>
+                        </div>
+                        {!facts.length ? (
+                          <p className="muted">Phụ huynh đóng trước nhiều tháng thì áp dụng gói tại đây, không tăng số lượng học phí trên dòng.</p>
+                        ) : (
+                          <>
+                            <p>
+                              <b>{applied?.policy.name ?? "Gói nộp trước"}</b> · {months.length} tháng · {monthText(months[0]!)}–{monthText(months.at(-1)!)}
+                            </p>
+                            <div className="table-scroll">
+                              <table className="finance-package-months">
+                                <caption className="sr-only">Các tháng của gói nộp trước</caption>
+                                <thead>
+                                  <tr>
+                                    <th>Tháng</th>
+                                    <th>Khoản thu</th>
+                                    <th className="finance-money">Giá (đ)</th>
+                                    <th className="finance-money">Ưu đãi (đ)</th>
+                                    <th className="finance-money">Phải thu (đ)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {facts.map((fact) => (
+                                    <tr key={`${fact.receivableId}-${fact.billingMonth}`}>
+                                      <td>{monthText(fact.billingMonth)}</td>
+                                      <td>{noticeLineName(invoice, fact.receivableId)}</td>
+                                      <td className="finance-money">{vnd(fact.originalPrice)}</td>
+                                      <td className="finance-money">
+                                        {vnd(fact.reduction)}
+                                        {(fact.promotions ?? []).length > 0 && (
+                                          <small>{fact.promotions!.map((item) => `${policyName(item.policyId)} ${vnd(item.amount)}`).join(" · ")}</small>
+                                        )}
+                                      </td>
+                                      <td className="finance-money">{vnd(fact.netPrice)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            {!paid && months.length > 1 && (
+                              <small className="muted">
+                                Đợt thu {months.slice(1).map(monthText).join(", ")} tự bỏ qua {[...new Set(facts.map((fact) => noticeLineName(invoice, fact.receivableId)))].join(", ")}. Quyền nộp trước được ghi nhận khi phần thu này được thu đủ đúng số tiền.
+                              </small>
+                            )}
+                          </>
+                        )}
+                        {editable && (
+                          <div className="finance-actions">
+                            {!facts.length ? (
+                              <button
+                                type="button"
+                                disabled={Boolean(pending) || pendingLineEdits.length > 0}
+                                onClick={(event) =>
+                                  openManagedDialog(event.currentTarget, () => {
+                                    setErrors({});
+                                    setMessage("");
+                                    setDraftCoverageVersionId("");
+                                    setPackageDialog("apply");
+                                  })
+                                }
+                              >
+                                Áp dụng gói nộp trước
+                              </button>
+                            ) : (
+                              <button type="button" disabled={Boolean(pending)} onClick={(event) => openManagedDialog(event.currentTarget, () => setPackageDialog("remove"))}>
+                                Bỏ gói nộp trước
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })()}
                 </section>
                 <aside aria-labelledby="invoice-issue-title">
                   {paymentParts.length === 1 && noticeParts.length === 1 ? (
@@ -4962,10 +5254,15 @@ export function FinanceWorkspace({
                         Hủy bản điều chỉnh
                       </button>
                     )}
-                    {!invoice.revisesInvoiceId && revisionParts.length > 0 && (
+                  </div>
+                  {/* Revising an issued Invoice is rare and heavy: a quiet entry under a divider, apart from the payment-image actions. */}
+                  {!invoice.revisesInvoiceId && revisionParts.length > 0 && (
+                    <p className="finance-revision-entry">
+                      Cần sửa hóa đơn đã phát hành?{" "}
                       <button
                         ref={revisionTrigger}
                         type="button"
+                        className="finance-row-link"
                         disabled={Boolean(pending)}
                         onClick={() => {
                           setRevisionReason("");
@@ -4975,8 +5272,8 @@ export function FinanceWorkspace({
                       >
                         Chuẩn bị bản điều chỉnh
                       </button>
-                    )}
-                  </div>
+                    </p>
+                  )}
                 </aside>
               </div>
               {["ISSUED", "CLOSED", "CANCELLED"].includes(invoice.status) &&
@@ -5045,93 +5342,6 @@ export function FinanceWorkspace({
                   ))}
                 </section>
               )}
-              {invoice.status === "DRAFT" && !isClassRun(invoiceRun) && (
-                <section aria-label="Ưu đãi nộp trước đang soạn">
-                  <h4>Quản lý ưu đãi nộp trước</h4>
-                  <p>
-                    Chọn chính sách ưu đãi nộp trước cho hóa đơn nháp. Kỳ bắt đầu là kỳ của hóa đơn (
-                    {invoice.billingMonth}), máy chủ sẽ tự động tạo đủ số kỳ liên tiếp.
-                  </p>
-                  <label>
-                    Chính sách ưu đãi nộp trước
-                    <select
-                      value={draftCoverageVersionId}
-                      onChange={(event) => setDraftCoverageVersionId(event.target.value)}
-                      aria-invalid={Boolean(errors.versionId)}
-                      aria-describedby={errors.versionId ? "finance-coverage-version-error" : undefined}
-                    >
-                      <option value="">Chọn chính sách ưu đãi nộp trước</option>
-                      {promotionVersions
-                        .filter(
-                          ({ version }) =>
-                            version.status === "ACTIVE" && version.fulfillmentMode === "PREPAID_COVERAGE",
-                        )
-                        .map(({ policy, version }) => (
-                          <option key={version.id} value={version.id}>
-                            {policy.name} / Phiên bản {version.version} ({version.prepaidTermMonths ?? 1} tháng)
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  {errors.versionId && <small id="finance-coverage-version-error">{errors.versionId}</small>}
-                  <button
-                    type="button"
-                    disabled={Boolean(pending) || !draftCoverageVersionId}
-                    onClick={() => void applyCoverage(draftCoverageVersionId)}
-                  >
-                    Áp dụng ưu đãi nộp trước
-                  </button>
-                  {noticeCoverageFacts(invoice).length > 0 && (
-                    <button type="button" disabled={Boolean(pending)} onClick={() => void clearCoverage()}>
-                      Xóa ưu đãi nộp trước
-                    </button>
-                  )}
-                </section>
-              )}
-              {noticeCoverageFacts(invoice).length > 0 && (
-                <section aria-label="Thông tin ưu đãi nộp trước">
-                  <h4>Ưu đãi nộp trước</h4>
-                  <table>
-                    <caption>Thông tin ưu đãi nộp trước cho hóa đơn</caption>
-                    <thead>
-                      <tr>
-                        <th>Kỳ</th>
-                        <th>Khoản thu</th>
-                        <th>Giá gốc (đ)</th>
-                        <th>Ưu đãi (đ)</th>
-                        <th>Thành tiền (đ)</th>
-                        <th>Thời gian</th>
-                        <th>Trạng thái</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {noticeCoverageFacts(invoice).map((fact) => {
-                        return (
-                          <tr key={`table-${fact.receivableId}-${fact.billingMonth}`}>
-                            <td>{fact.billingMonth}</td>
-                            <td>{noticeLineName(invoice, fact.receivableId)}</td>
-                            <td style={{ textAlign: "right" }}>{vnd(fact.originalPrice)}</td>
-                            <td style={{ textAlign: "right" }}>{vnd(fact.reduction)}</td>
-                            <td style={{ textAlign: "right" }}>{vnd(fact.netPrice)}</td>
-                            <td>
-                              {fact.serviceStart} đến {fact.serviceEnd}
-                            </td>
-                            <td>{fact.issuedAt ? `Đã phát hành ${fact.issuedAt}` : "Chờ hóa đơn đóng"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {noticeCoverageFacts(invoice).map((fact) => (
-                    <p key={`${fact.receivableId}-${fact.billingMonth}`}>
-                      Kỳ {fact.billingMonth}: giá gốc {vnd(fact.originalPrice)} đ, giảm {vnd(fact.reduction)} đ,
-                      khoảng dịch vụ {fact.serviceStart} đến {fact.serviceEnd}, lịch {fact.calendarEffectiveFrom} /{" "}
-                      {fact.timezone}.{" "}
-                      {fact.issuedAt ? `Đã phát hành ${fact.issuedAt}.` : "Chờ hóa đơn đóng đúng số tiền."}
-                    </p>
-                  ))}
-                </section>
-              )}
               <details className="finance-guide">
                 <summary>Hướng dẫn</summary>
                 <p>
@@ -5141,6 +5351,131 @@ export function FinanceWorkspace({
                 <p>Dòng, chính sách và số tiền được chốt khi phát hành.</p>
               </details>
             </section>
+          )}
+          {packageDialog && invoice && (
+            <div className="dialog-backdrop">
+              <div
+                ref={packageDialogRef}
+                className={`dialog${packageDialog === "apply" ? " dialog-wide" : " finance-confirm-dialog"}`}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="finance-package-dialog-title"
+                onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setPackageDialog(undefined), () => setDraftCoverageVersionId(""))}
+              >
+                {packageDialog === "apply" ? (
+                  (() => {
+                    const lineIds = new Set(noticeParts.flatMap((part) => part.lines.filter((line) => (line.kind ?? "NORMAL") === "NORMAL").map((line) => line.receivableId)));
+                    const options = promotionVersions.filter(
+                      ({ version }) =>
+                        version.status === "ACTIVE" &&
+                        version.fulfillmentMode === "PREPAID_COVERAGE" &&
+                        version.targets.some((target) => lineIds.has(target.receivableId)),
+                    );
+                    const preview = typeof packagePreview === "object" && "months" in packagePreview ? packagePreview : undefined;
+                    return (
+                      <>
+                        <h3 id="finance-package-dialog-title">Áp dụng gói nộp trước</h3>
+                        <div className="dialog-grid">
+                          <label className="full">
+                            Gói nộp trước
+                            <select
+                              id="invoice-invoice-versionId-field"
+                              autoFocus
+                              value={draftCoverageVersionId}
+                              onChange={(event) => setDraftCoverageVersionId(event.target.value)}
+                            >
+                              <option value="">Chọn gói</option>
+                              {options.map(({ policy, version }) => (
+                                <option key={version.id} value={version.id}>
+                                  {policy.name} · {version.prepaidTermMonths ?? 1} tháng ·{" "}
+                                  {version.discountValue === "0"
+                                    ? "không giảm"
+                                    : `giảm ${version.discountType === "PERCENTAGE" ? `${version.discountValue}%` : `${vnd(version.discountValue)} đ/tháng`}`}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                        <p className="muted">
+                          {options.length
+                            ? `Chỉ hiện gói có khoản thu trên phiếu thu này. Gói bắt đầu từ tháng ${monthText(invoice.billingMonth)}.`
+                            : "Chưa có gói nộp trước đang áp dụng nào gồm khoản thu trên phiếu thu này."}
+                        </p>
+                        {packagePreview === "loading" && <p className="muted" role="status">Đang tính…</p>}
+                        {typeof packagePreview === "object" && "error" in packagePreview && <p role="alert">{packagePreview.error}</p>}
+                        {preview && (
+                          <>
+                            <div className="table-scroll">
+                              <table className="finance-package-months">
+                                <caption className="sr-only">Xem trước gói nộp trước</caption>
+                                <thead>
+                                  <tr>
+                                    <th>Tháng</th>
+                                    <th>Khoản thu</th>
+                                    <th className="finance-money">Giá (đ)</th>
+                                    <th className="finance-money">Ưu đãi (đ)</th>
+                                    <th className="finance-money">Phải thu (đ)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {preview.months.map((month) => (
+                                    <tr key={`${month.receivableId}-${month.billingMonth}`}>
+                                      <td>{monthText(month.billingMonth)}</td>
+                                      <td>{month.receivableName}</td>
+                                      <td className="finance-money">{vnd(month.originalPrice)}</td>
+                                      <td className="finance-money">
+                                        {vnd(month.reduction)}
+                                        {month.promotions.length > 0 && <small>{month.promotions.map((item) => `${item.name} ${vnd(item.amount)}`).join(" · ")}</small>}
+                                      </td>
+                                      <td className="finance-money">{vnd(month.netPrice)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <p className="finance-payment-total">
+                              <span>
+                                Dòng gói sau khi áp dụng <small>gồm thuế GTGT</small>
+                              </span>
+                              <b>{vnd(preview.total)} đ</b>
+                            </p>
+                            <p className="muted">
+                              Ưu đãi của từng tháng gồm gói và các ưu đãi đang gán cho học sinh, theo quy tắc cộng dồn.
+                              {preview.unbilledReceivables.length > 0 &&
+                                ` Khoản thu của gói không có trên phiếu thu này (${preview.unbilledReceivables.join(", ")}) không được tính.`}
+                            </p>
+                          </>
+                        )}
+                        {message && <p role="alert">{message}</p>}
+                        <div className="dialog-actions">
+                          <button type="button" data-dialog-cancel disabled={Boolean(pending)} onClick={() => closeNewDialog(() => setPackageDialog(undefined), () => setDraftCoverageVersionId(""))}>
+                            Hủy
+                          </button>
+                          <button className="primary-action" type="button" disabled={Boolean(pending) || !preview} onClick={() => void applyCoverage(draftCoverageVersionId)}>
+                            Áp dụng gói
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()
+                ) : (
+                  <>
+                    <h3 id="finance-package-dialog-title">Bỏ gói nộp trước?</h3>
+                    <p>Dòng khoản thu của gói trở về 1 tháng và ưu đãi tính lại như tháng thường.</p>
+                    <p className="muted">Nếu đợt thu các tháng sau của gói đã được tạo, hóa đơn các tháng đó không có khoản thu này; thêm lại bằng tay.</p>
+                    {message && <p role="alert">{message}</p>}
+                    <div className="dialog-actions">
+                      <button type="button" data-dialog-cancel autoFocus disabled={Boolean(pending)} onClick={() => closeManagedDialog(() => setPackageDialog(undefined))}>
+                        Hủy
+                      </button>
+                      <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={() => void applyCoverage(null)}>
+                        Bỏ gói
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           )}
           {removeConfirmation && (
             <>
@@ -5166,20 +5501,67 @@ export function FinanceWorkspace({
               <div className="dialog-backdrop" aria-hidden="true" />
               <div
                 ref={issueDialog}
-                className="dialog finance-confirm-dialog"
+                className="dialog finance-confirm-dialog finance-issue-dialog"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="finance-issue-title"
                 onKeyDown={trapIssueFocus}
               >
                 <h3 id="finance-issue-title">
-                  {issueActionLabel} cho {invoice.student.code} / {invoice.student.name} · {invoicePeriod}
+                  {issueActionLabel} · {invoicePeriod}
                 </h3>
-                <p>
-                  Lớp {invoice.student.className}. Tổng cần thu do máy chủ xác nhận:{" "}
-                  {vnd(invoice.noticeTotal ?? invoice.total)} đ, đã gồm thuế
-                  GTGT.
-                </p>
+                <div className="finance-issue-student">
+                  <strong>{invoice.student.name}</strong>
+                  <span>
+                    {invoice.student.code} · Lớp {invoice.student.className}
+                  </span>
+                </div>
+                <div className="table-scroll">
+                  <table className="finance-issue-lines">
+                    <caption className="sr-only">Các khoản thu sẽ phát hành</caption>
+                    <thead>
+                      <tr>
+                        <th>Khoản thu</th>
+                        <th>Số lượng</th>
+                        <th className="finance-money">Thành tiền (đ)</th>
+                      </tr>
+                    </thead>
+                    {issueParts.map((part, index) => (
+                      <tbody key={part.id}>
+                        {issueParts.length > 1 && (
+                          <tr className="finance-issue-part">
+                            <th colSpan={3} scope="rowgroup">
+                              Phần {index + 1} · Thu vào {channelAccountLabel(part.channel).toLocaleLowerCase("vi")}
+                            </th>
+                          </tr>
+                        )}
+                        {part.lines.map((item) => (
+                          <tr key={item.id}>
+                            <td>{item.receivableName}</td>
+                            <td>
+                              {item.quantity} {item.unitLabel}
+                            </td>
+                            <td className="finance-money">{vnd(item.amount)}</td>
+                          </tr>
+                        ))}
+                        {issueParts.length > 1 && (
+                          <tr className="finance-issue-subtotal">
+                            <td colSpan={2}>Tổng phần {index + 1}</td>
+                            <td className="finance-money">{vnd(part.total)}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    ))}
+                    <tfoot>
+                      <tr>
+                        <th colSpan={2} scope="row">
+                          Tổng cần thu <small>đã gồm thuế GTGT</small>
+                        </th>
+                        <td className="finance-money">{signedVnd(invoice.noticeTotal ?? invoice.total)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
                 <p>Sau khi phát hành, hóa đơn không sửa trực tiếp được; muốn thay đổi phải tạo bản điều chỉnh.</p>
                 {issueParts.map((part) =>
                   part.channel === "SCHOOL" ? (
@@ -6185,6 +6567,67 @@ export function FinanceWorkspace({
                     <small id="invoice-invoice-receivableId-error">{errors.receivableId}</small>
                   )}
                 </div>
+                <fieldset className="chip-group full">
+                  <legend>Loại dòng</legend>
+                  {([[false, "Thu tiền"], [true, "Chỉ bớt (Thu 0)"]] as const).map(([value, label]) => (
+                    <label key={label}>
+                      <input type="radio" name="invoice-line-kind" checked={line.refundOnly === value} onChange={() => setLine({ ...line, refundOnly: value })} />
+                      {label}
+                    </label>
+                  ))}
+                </fieldset>
+                {line.refundOnly ? (
+                  <>
+                <div>
+                  <label>
+                    Số lượng bớt
+                    <input
+                      inputMode="numeric"
+                      value={line.deductionQuantity}
+                      onChange={(event) => setLine({ ...line, deductionQuantity: event.target.value })}
+                      {...invoiceField("deductionQuantity")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.deductionQuantity && (
+                    <small id="invoice-invoice-deductionQuantity-error">{errors.deductionQuantity}</small>
+                  )}
+                </div>
+                <div>
+                  <label>
+                    Giá hoàn / đơn vị (đ)
+                    <input
+                      inputMode="numeric"
+                      placeholder="Để trống: giá hoàn của khoản thu"
+                      value={line.refundUnitPrice}
+                      onChange={(event) => setLine({ ...line, refundUnitPrice: event.target.value })}
+                      {...invoiceField("refundUnitPrice")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.refundUnitPrice && (
+                    <small id="invoice-invoice-refundUnitPrice-error">{errors.refundUnitPrice}</small>
+                  )}
+                </div>
+                <div className="full">
+                  <label>
+                    Lý do bớt
+                    <input
+                      placeholder="Bắt buộc, ví dụ: Nghỉ ốm 2 tuần, 02/11-13/11"
+                      value={line.deductionReason}
+                      onChange={(event) => setLine({ ...line, deductionReason: event.target.value })}
+                      {...invoiceField("deductionReason")}
+                    />
+                  </label>
+                  {scope === "invoice" && errors.deductionReason && (
+                    <small id="invoice-invoice-deductionReason-error">{errors.deductionReason}</small>
+                  )}
+                </div>
+                <p className="muted full">
+                  Dòng Thu 0 chỉ trả lại tiền, không thu khoản này trong tháng. Dùng khi tháng này không có dòng của khoản thu,
+                  ví dụ học sinh nghỉ dài trong tháng thuộc gói nộp trước.
+                </p>
+                  </>
+                ) : (
+                  <>
                 <div>
                   <label>
                     Số lượng
@@ -6226,6 +6669,8 @@ export function FinanceWorkspace({
                     <small id="invoice-invoice-overrideReason-error">{errors.overrideReason}</small>
                   )}
                 </div>
+                  </>
+                )}
                   </>
                 )}
                 <details

@@ -6,7 +6,7 @@ const schoolAccount = { id: "bank-school", kind: "SCHOOL" as const, bankCode: "V
 const personalAccount = { id: "bank-an", kind: "PERSONAL" as const, bankCode: "ABB", accountHolderName: "NGUYEN VAN AN", accountNumber: "215000002088" };
 const row = { id: "invoice-a", channel: "SCHOOL" as const, obligationCode: "OBL-202609-000123", account: schoolAccount, student: { code: "HS001", name: "Bé An" }, class: { id: "class-a", name: "Lá 1" }, schoolYearId: "year-a", billingMonth: "2026-09", issuedAt: "2026-09-01T00:00:00.000Z", outstanding: "120000", status: "ISSUED" as const };
 const queue = { invoices: [row], filters: { schoolYearId: null, billingMonth: "2026-09", classIdSnapshot: null, student: null }, meta: { nextCursor: null } };
-const detail = { id: "invoice-a", channel: "SCHOOL", obligationCode: "OBL-202609-000123", account: schoolAccount, status: "ISSUED", outstanding: "120000", student: { code: "HS001", name: "Bé An" } };
+const detail = { id: "invoice-a", channel: "SCHOOL", obligationCode: "OBL-202609-000123", account: schoolAccount, status: "ISSUED", outstanding: "120000", student: { code: "HS001", name: "Bé An" }, className: "Lá 1", periodLabel: "Tháng 09/2026", issuedTotal: "120000", lines: [{ id: "line-a", receivableName: "Học phí", unitLabel: "tháng", quantity: 1, amount: "120000" }] };
 const response = (data: unknown, status = 200) => new Response(JSON.stringify({ data }), { status });
 
 const openReceiptMenu = async () => {
@@ -46,7 +46,8 @@ describe("ReceiptQueueWorkspace", () => {
     fireEvent.change(within(dialog).getByLabelText("Hình thức"), { target: { value: "CASH" } });
     fireEvent.change(within(dialog).getByLabelText("Mã giao dịch hoặc ghi chú"), { target: { value: "Phiếu chi 12" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận đã chi" }));
-    await screen.findByRole("heading", { name: "Đã ghi nhận chi hoàn" });
+    expect((await screen.findByRole("heading", { name: /^Đã ghi nhận chi hoàn 448\.000 đ · HS001 \/ Bé An$/ })).textContent).toBeTruthy();
+    expect(screen.getByText("Ngày 12/09/2026 · Tiền mặt · Phiếu chi 12")).toBeTruthy();
     const post = fetch.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "POST")!;
     expect(String(post[0])).toMatch(/\/invoices\/invoice-r\/payout$/);
     expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ paidOn: "2026-09-12", method: "CASH", reference: "Phiếu chi 12" });
@@ -64,19 +65,33 @@ describe("ReceiptQueueWorkspace", () => {
     const receiptAction = screen.getByRole("menuitem", { name: "Ghi thực nhận" });
     expect(receiptAction.closest('[role="menu"]')?.parentElement?.parentElement?.parentElement).toBe(document.body);
     fireEvent.click(receiptAction);
-    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
+    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận · tháng 09/2026 Bé An" });
     expect(document.querySelector(".dialog-backdrop")).toBeTruthy();
-    expect(dialog.textContent).toContain("Hóa đơn OBL-202609-000123 · tài khoản trường VCB - TRUONG MN ANH HOA · 0123456789. Nghĩa vụ do hệ thống xác nhận: 120.000 đ.");
-    expect(dialog.textContent).toContain("hóa đơn của tài khoản kia không thay đổi.");
+    expect(dialog.textContent).toContain("HS001 · Lớp Lá 1 · Hóa đơn OBL-202609-000123");
+    expect(within(dialog).getByRole("region", { name: "Tài khoản nhận" }).textContent).toBe("Tiền vào tài khoảnTài khoản trườngVCB 0123456789TRUONG MN ANH HOA");
+    expect(within(dialog).getByRole("row", { name: "Học phí 1 tháng 120.000" })).toBeTruthy();
+    expect(within(dialog).getByRole("row", { name: /Cần thu.*120\.000 đ/ })).toBeTruthy();
+    expect(dialog.textContent).toContain("hóa đơn của tài khoản kia không đổi.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
-    await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
-    expect(screen.getByText("Thực nhận: 120.000 đ.")).toBeTruthy();
-    expect(screen.getByText("Kết quả máy chủ: Đủ.")).toBeTruthy();
-    expect(screen.getByText("Chênh lệch: 0 đ.")).toBeTruthy();
-    expect(screen.getByText("Trạng thái chuyển kỳ: Máy chủ chưa tạo khoản chuyển kỳ cho hóa đơn này.")).toBeTruthy();
-    expect(screen.getByText("Ưu đãi nộp trước kỳ 10/2026 đã phát hành.")).toBeTruthy();
+    await screen.findByRole("heading", { name: "Đã ghi thực nhận 120.000 đ · HS001 / Bé An" });
+    expect(screen.getByText("Đủ · ưu đãi nộp trước kỳ 10/2026 đã phát hành")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Đóng thông báo" }));
+    expect(screen.queryByRole("heading", { name: /^Đã ghi thực nhận/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hóa đơn tiếp theo" })).toBeNull();
     await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).includes("receipt-queue?")).length).toBeGreaterThan(1));
+  });
+  it("lists settled Invoices with what was received and no actions", async () => {
+    const settledRow = { ...row, status: "CLOSED" as const, settlement: { type: "RECEIPT" as const, amount: "100000", outcome: "SHORTFALL" as const, on: "2026-09-15" } };
+    const fetch = vi.fn((url: string) => Promise.resolve(url.includes("/classes") ? response({ classes: [] }) : url.includes("state=SETTLED") ? response({ ...queue, invoices: [settledRow], filters: { ...queue.filters, state: "SETTLED" } }) : response(queue)));
+    vi.stubGlobal("fetch", fetch);
+    render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+    await screen.findByRole("button", { name: "Tùy chọn cho Bé An · Tài khoản trường" });
+    fireEvent.change(screen.getByLabelText("Trạng thái"), { target: { value: "SETTLED" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lọc" }));
+    const table = await screen.findByRole("table", { name: "Hóa đơn đã thu và phiếu hoàn tiền đã chi" });
+    expect(within(table).getByRole("row", { name: /HS001 \/ Bé An.*100\.000 đ.*Ngày 15\/09\/2026.*Thu thiếu/ })).toBeTruthy();
+    expect(within(table).queryByRole("button")).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/classes?") && String(url).includes("state=SETTLED"))).toBe(true);
   });
   it("clears protected state when Invoice detail is denied", async () => {
     const denied = vi.fn();
@@ -93,7 +108,7 @@ describe("ReceiptQueueWorkspace", () => {
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openReceiptMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
-    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
+    const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận · tháng 09/2026 Bé An" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
     await screen.findByText("Số thực nhận không hợp lệ.");
     expect(screen.getByRole("dialog")).toBeTruthy();
@@ -143,14 +158,14 @@ describe("ReceiptQueueWorkspace", () => {
     const center = render(<ReceiptQueueWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" classRuns denied={vi.fn()} />);
     const table = await screen.findByRole("table", { name: "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi" });
     const cells = within((await within(table).findByText(/HS001/)).closest("tr")!).getAllByRole("cell");
-    expect(within(table).getAllByRole("columnheader")[2]!.textContent).toBe("Kỳ");
+    expect(within(table).getAllByRole("columnheader")[3]!.textContent).toBe("Kỳ");
     expect(cells[2]!.textContent).toBe("Starters A · Unit 3");
     expect(screen.getByLabelText("Tháng thu")).toBeTruthy();
     center.unmount();
     vi.stubGlobal("fetch", fetch());
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     const monthly = await screen.findByRole("table", { name: "Hóa đơn chờ thu và phiếu hoàn tiền chờ chi" });
-    expect(within(monthly).getAllByRole("columnheader")[2]!.textContent).toBe("Tháng");
+    expect(within(monthly).getAllByRole("columnheader")[3]!.textContent).toBe("Tháng");
     expect(within((await within(monthly).findByText(/HS001/)).closest("tr")!).getAllByRole("cell")[2]!.textContent).toBe("09/2026");
   });
   it("names the invoice's own period by the run label in the receipt result for a class-scoped School and keeps the month otherwise", async () => {
@@ -165,20 +180,20 @@ describe("ReceiptQueueWorkspace", () => {
       await screen.findByText("HS001 / Bé An");
       await openReceiptMenu();
       fireEvent.click(screen.getByRole("menuitem", { name: "Ghi thực nhận" }));
-      const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận cho Bé An · VCB - TRUONG MN ANH HOA" });
+      const dialog = await screen.findByRole("dialog", { name: "Ghi thực nhận · tháng 09/2026 Bé An" });
       fireEvent.click(within(dialog).getByRole("button", { name: "Xác nhận ghi thực nhận" }));
-      await screen.findByRole("heading", { name: "Kết quả ghi thực nhận" });
+      await screen.findByRole("heading", { name: /^Đã ghi thực nhận/ });
     };
     vi.stubGlobal("fetch", fetch());
     const center = render(<ReceiptQueueWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" classRuns denied={vi.fn()} />);
     await settle();
     // Only the invoice's own period takes the run label; another covered month stays a month.
-    expect(screen.getByText("Ưu đãi nộp trước kỳ Starters A · Unit 3 đã phát hành. Ưu đãi nộp trước kỳ 10/2026 chưa phát hành.")).toBeTruthy();
+    expect(screen.getByText("Đủ · ưu đãi nộp trước kỳ Starters A · Unit 3 đã phát hành · ưu đãi nộp trước kỳ 10/2026 chưa phát hành")).toBeTruthy();
     center.unmount();
     document.querySelectorAll("[data-base-ui-portal]").forEach((portal) => portal.remove());
     vi.stubGlobal("fetch", fetch());
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await settle();
-    expect(screen.getByText("Ưu đãi nộp trước kỳ 09/2026 đã phát hành. Ưu đãi nộp trước kỳ 10/2026 chưa phát hành.")).toBeTruthy();
+    expect(screen.getByText("Đủ · ưu đãi nộp trước kỳ 09/2026 đã phát hành · ưu đãi nộp trước kỳ 10/2026 chưa phát hành")).toBeTruthy();
   });
 });

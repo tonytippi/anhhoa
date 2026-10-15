@@ -97,16 +97,18 @@ async function readyAndGenerate(page: Page, students: number) {
   await expect(page.getByRole('list', { name: 'Tiến trình đợt thu' }).locator('[aria-current="step"]')).toHaveText('Đã tạo hóa đơn');
 }
 // Issues the invoice on screen; the portal then moves to the next DRAFT of the run, or reports that none is left.
-async function issueCurrentInvoice(page: Page, student: RegExp, runTitle: string) {
+async function issueCurrentInvoice(page: Page, student: RegExp, runTitle: string, next = false) {
   const review = page.getByRole('region', { name: student });
   await expect(review.getByText('Nháp', { exact: true })).toBeVisible();
   await review.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
-  const dialog = page.getByRole('dialog', { name: new RegExp(`^Phát hành hóa đơn cho .* · ${runTitle}$`) });
+  const dialog = page.getByRole('dialog', { name: new RegExp(`^Phát hành hóa đơn · ${runTitle}$`) });
   await expect(dialog).toBeVisible();
   const issued = page.waitForResponse((response) => /\/finance\/invoices\/[^/]+\/issue$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST');
   await dialog.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
   expect((await issued).status()).toBe(201);
   await expect(dialog).toBeHidden();
+  // The issued Invoice stays open for its payment image; Finance moves on explicitly.
+  if (next) await review.getByRole('button', { name: /^Học sinh kế tiếp/ }).click();
 }
 
 test('Admin runs a language center: staggered unit runs per class, a service, a mid-unit student, receipt, close and the next unit with old debt', async ({ page }) => {
@@ -240,12 +242,12 @@ test('Admin runs a language center: staggered unit runs per class, a service, a 
   // 6. Issue the three invoices, record one receipt, leave the others unpaid, close the run.
   await invoiceRow(runInvoices(page), 'TT1 / Học viên An').getByRole('button', { name: 'Rà soát hóa đơn' }).click();
   const anReview = page.getByRole('region', { name: /Rà soát hóa đơn TT1 \/ Học viên An/ });
-  await expect(anReview.getByText(/Đợt thu Starters A · Unit 1 ·/)).toBeVisible();
+  await expect(anReview.getByText('Đợt thu Starters A · Unit 1', { exact: true })).toBeVisible();
   const anLines = anReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' });
   await expect(anLines.getByRole('row').filter({ hasText: 'Học phí unit' }).getByTitle('Nguồn')).toHaveText('Linh hoạt · Cả lớp');
   await expect(anLines.getByRole('row').filter({ hasText: 'Đưa đón' }).getByTitle('Nguồn')).toHaveText('Dịch vụ · Đưa đón');
-  await issueCurrentInvoice(page, /Rà soát hóa đơn TT1 \/ Học viên An/, 'Starters A · Unit 1');
-  await issueCurrentInvoice(page, /Rà soát hóa đơn TT2 \/ Học viên Bình/, 'Starters A · Unit 1');
+  await issueCurrentInvoice(page, /Rà soát hóa đơn TT1 \/ Học viên An/, 'Starters A · Unit 1', true);
+  await issueCurrentInvoice(page, /Rà soát hóa đơn TT2 \/ Học viên Bình/, 'Starters A · Unit 1', true);
   await issueCurrentInvoice(page, /Rà soát hóa đơn TT5 \/ Học viên Em/, 'Starters A · Unit 1');
   await expect(page.getByText('Đã phát hành toàn bộ hóa đơn trong đợt.')).toBeVisible();
 
@@ -266,12 +268,12 @@ test('Admin runs a language center: staggered unit runs per class, a service, a 
   await expect(anQueueRow).toContainText('4.400.000 đ');
   await queue.getByRole('button', { name: /^Tùy chọn cho Học viên An · / }).click();
   await page.getByRole('menuitem', { name: 'Ghi thực nhận' }).click();
-  const receipt = page.getByRole('dialog', { name: /^Ghi thực nhận cho Học viên An · / });
+  const receipt = page.getByRole('dialog', { name: /^Ghi thực nhận · .* Học viên An$/ });
   await expect(receipt.getByLabel('Số thực nhận (đ)')).toHaveValue('4400000');
   const receiptPost = page.waitForResponse((response) => /\/finance\/invoices\/[^/]+\/receipt$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST');
   await receipt.getByRole('button', { name: 'Xác nhận ghi thực nhận' }).click();
   expect((await receiptPost).status()).toBe(201);
-  await expect(page.getByRole('heading', { name: 'Kết quả ghi thực nhận' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Đã ghi thực nhận / })).toBeVisible();
   await expect(queue.locator('tbody tr')).toHaveCount(2);
   await expect(queue).not.toContainText('Học viên An');
   await expect(queue.locator('tbody tr').filter({ hasText: 'TT2 / Học viên Bình' }).getByRole('cell').nth(2)).toHaveText('Starters A · Unit 1');

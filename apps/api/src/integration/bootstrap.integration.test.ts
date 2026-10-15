@@ -147,8 +147,10 @@ describe.skipIf(!databaseUrl)('target database bootstrap', () => {
        expect((await prisma.class.findMany({ where: { schoolId: school.id } })).every((classroom) => classroom.defaultSchoolBankAccountId === bidv.id)).toBe(true);
        const promotions = await prisma.promotionPolicyVersion.findMany({ where: { schoolId: school.id }, include: { policy: true, targets: { include: { receivable: true } } } });
        expect(promotions).toHaveLength(29);
-       expect(promotions.every((version) => version.status === 'ACTIVE' && version.fulfillmentMode === 'DISCOUNT' && version.targets.length > 0)).toBe(true);
-       expect(promotions.find((version) => version.policy.name === 'GÓI ƯU ĐÃI 6 TẶNG 3')).toMatchObject({ discountType: 'FIXED_VND', discountValue: 20700000n, targets: [expect.objectContaining({ receivable: expect.objectContaining({ code: 'KO-37955' }) })] });
+       expect(promotions.every((version) => version.status === 'ACTIVE' && version.targets.length > 0)).toBe(true);
+       expect(promotions.filter((version) => version.fulfillmentMode === 'PREPAID_COVERAGE').map((version) => version.policy.name).sort()).toEqual(['GÓI ƯU ĐÃI 4 TẶNG 2', 'GÓI ƯU ĐÃI 6 TẶNG 3', 'Ưu đãi gói 3 tháng tặng 2 tháng', 'Ưu đãi gói hp 12 tháng', 'ĐÓNG 12 THÁNG GIẢM 37% HỌC PHÍ TIÊU CHUẨN'].sort());
+       expect(promotions.find((version) => version.policy.name === 'GÓI ƯU ĐÃI 6 TẶNG 3')).toMatchObject({ fulfillmentMode: 'PREPAID_COVERAGE', prepaidTermMonths: 9, discountType: 'FIXED_VND', discountValue: 2300000n, targets: [expect.objectContaining({ receivable: expect.objectContaining({ code: 'KO-37955' }) })] });
+       expect(promotions.find((version) => version.policy.name === 'GÓI ĐÓNG 4 THÁNG TẶNG 2,5 THÁNG')).toMatchObject({ fulfillmentMode: 'DISCOUNT', prepaidTermMonths: null, discountValue: 17250000n });
        expect((await prisma.extracurricularClass.findMany({ where: { schoolId: school.id }, include: { receivable: { include: { group: true } } } })).map((item) => [item.name, item.receivable.group.kind]).sort()).toEqual([['Lớp MC', 'EXTRACURRICULAR'], ['Mỹ thuật', 'EXTRACURRICULAR'], ['Nhảy hiện đại', 'EXTRACURRICULAR'], ['Võ thuật', 'EXTRACURRICULAR']]);
        const defaultGroupsAfter = await prisma.receivableGroup.findMany({
          where: { schoolId: school.id },

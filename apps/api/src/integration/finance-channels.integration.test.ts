@@ -256,6 +256,9 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
       { id: personalAccount, kind: "PERSONAL", bankCode: "VCB", accountHolderName: "Chủ 215000002088", accountNumber: "215000002088" },
     ]);
     expect(issued.summary).toMatchObject({ noticeCount: 2, issuedNoticeCount: 2 });
+    // The run list carries the collection figures: owed, received and fully settled notices.
+    const listed: any = (await finance.runs(current.identity.id, current.school.id) as any).runs.find((item: any) => item.id === runId);
+    expect(listed.summary).toMatchObject({ receivableTotal: issued.notices.reduce((sum: bigint, notice: any) => sum + BigInt(notice.total), 0n).toString(), collectedTotal: "1100000", settledNoticeCount: 0, noticeCount: 2 });
 
     // Receipt queue: one row per channel Invoice, a Student's parts adjacent with the School account first.
     const queue: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09" });
@@ -286,6 +289,16 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     expect(schoolOnly.invoices.map((row: any) => row.id)).toEqual([secondSchool.id]);
     const detail: any = await finance.receiptQueueDetail(current.identity.id, current.school.id, secondSchool.id);
     expect(detail).toMatchObject({ obligationCode: expect.stringMatching(/^OBL-/), account: { id: schoolAccount, kind: "SCHOOL", bankCode: "VCB" } });
+    expect(detail.className).toEqual(expect.any(String)); expect(detail.periodLabel).toBe("Tháng 09/2026");
+    expect(detail.lines.length).toBeGreaterThan(0); expect(detail.lines.reduce((sum: bigint, line: any) => sum + BigInt(line.amount), 0n).toString()).toBe(detail.issuedTotal);
+    // The settled view lists Invoices closed by a receipt, with what was recorded; the open view no longer does.
+    const settled: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", state: "SETTLED", limit: 1 });
+    expect(settled.invoices.map((row: any) => [row.id, row.status, row.settlement?.type, row.settlement?.amount, row.settlement?.outcome])).toEqual([[firstSchool.id, "CLOSED", "RECEIPT", "1100000", "EXACT"]]);
+    const settledStudent: any = await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", state: "SETTLED", student: first.studentCode });
+    expect(settledStudent.invoices.map((row: any) => row.id)).toEqual([firstSchool.id]);
+    expect((await finance.receiptQueueClasses(current.identity.id, current.school.id, { state: "SETTLED" }) as any).months).toEqual(["2026-09"]);
+    expect((await finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09" }) as any).invoices.map((row: any) => row.id)).not.toContain(firstSchool.id);
+    await expect(finance.receiptQueue(current.identity.id, current.school.id, { state: "PAID" })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { state: expect.any(String) } } });
     // An account of another School is refused, not silently ignored.
     await expect(finance.receiptQueue(current.identity.id, current.school.id, { billingMonth: "2026-09", bankAccountId: foreignAccount })).rejects.toMatchObject({ status: 400, response: { fieldErrors: { bankAccountId: expect.any(String) } } });
   });

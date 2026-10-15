@@ -3,6 +3,7 @@ import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, 
 import type { Audience } from './auth.config.js';
 import { audienceConfig, authSecrets, superadminEmail } from './auth.config.js';
 import { PrismaService } from '../identity/prisma.service.js';
+import { Prisma } from '@prisma/client';
 import { ParentsService } from '../parents/parents.service.js';
 
 type IdToken = { iss: string; aud: string | string[]; azp?: string; sub: string; email: string; email_verified: boolean | string; name?: string; picture?: string; nonce: string; exp: number };
@@ -20,10 +21,12 @@ const random = () => randomBytes(32).toString('base64url');
 const refreshAfterMs = 60 * 60 * 1000;
 export const impersonationTtlMs = 60 * 60 * 1000;
 const impersonationTicketTtlMs = 60 * 1000;
+const schoolAccessWriteEveryMs = 15 * 60 * 1000;
 const json = <T>(value: string): T => JSON.parse(Buffer.from(value, 'base64url').toString()) as T;
 
 @Injectable()
 export class AuthService {
+  private readonly schoolAccessWrites = new Map<string, number>();
   constructor(private readonly prisma: PrismaService, private readonly parents?: ParentsService) {}
   private sign(value: string): string { return createHmac('sha256', authSecrets().sessionSecret).update(value).digest('base64url'); }
   private issue(payload: Session): string { const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url'); return `${encoded}.${this.sign(encoded)}`; }
@@ -142,6 +145,17 @@ export class AuthService {
   async impersonationActive(id: string): Promise<boolean> {
     const record = await this.prisma.impersonation.findUnique({ where: { id }, select: { endedAt: true, platformOperatorGrant: { select: { revokedAt: true } } } });
     return Boolean(record && !record.endedAt && !record.platformOperatorGrant.revokedAt);
+  }
+  // Records School-scoped use only when the identity is an active member (staff) or linked parent of that School;
+  // a forged schoolId in the path therefore writes nothing. Writes are throttled per process.
+  async touchSchoolAccess(audience: Audience, userIdentityId: string, schoolId: string): Promise<void> {
+    const key = `${schoolId}:${userIdentityId}`; const now = Date.now();
+    if ((this.schoolAccessWrites.get(key) ?? 0) > now - schoolAccessWriteEveryMs) return;
+    this.schoolAccessWrites.set(key, now);
+    const member = audience === 'parent'
+      ? Prisma.sql`EXISTS (SELECT 1 FROM "StudentParent" sp JOIN "ParentProfile" pp ON pp."id" = sp."parentProfileId" WHERE sp."schoolId" = ${schoolId}::uuid AND sp."status" = 'ACTIVE' AND pp."userIdentityId" = ${userIdentityId}::uuid)`
+      : Prisma.sql`EXISTS (SELECT 1 FROM "SchoolMembership" m WHERE m."schoolId" = ${schoolId}::uuid AND m."userIdentityId" = ${userIdentityId}::uuid AND m."status" = 'ACTIVE')`;
+    await this.prisma.$executeRaw`INSERT INTO "SchoolUserAccess" ("schoolId", "userIdentityId", "lastSeenAt") SELECT ${schoolId}::uuid, ${userIdentityId}::uuid, ${new Date(now)} WHERE ${member} ON CONFLICT ("schoolId", "userIdentityId") DO UPDATE SET "lastSeenAt" = EXCLUDED."lastSeenAt"`.catch(() => { this.schoolAccessWrites.delete(key); });
   }
   async touchLastSeen(userIdentityId: string): Promise<void> { await this.prisma.userIdentity.updateMany({ where: { id: userIdentityId }, data: { lastSeenAt: new Date() } }).catch(() => undefined); }
   async endImpersonation(id: string): Promise<void> { await this.prisma.impersonation.updateMany({ where: { id, endedAt: null }, data: { endedAt: new Date() } }); }

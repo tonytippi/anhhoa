@@ -20,7 +20,7 @@ afterEach(async () => {
   const schools = schoolIds.splice(0); const identities = identityIds.splice(0);
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
-    await tx.auditRecord.deleteMany({ where: { schoolId: { in: schools } } }); await tx.schoolYear.deleteMany({ where: { schoolId: { in: schools } } }); await tx.receivableGroup.deleteMany({ where: { schoolId: { in: schools } } });
+    await tx.schoolUserAccess.deleteMany({ where: { schoolId: { in: schools } } }); await tx.auditRecord.deleteMany({ where: { schoolId: { in: schools } } }); await tx.schoolYear.deleteMany({ where: { schoolId: { in: schools } } }); await tx.receivableGroup.deleteMany({ where: { schoolId: { in: schools } } });
     await tx.operation.deleteMany({ where: { OR: [{ schoolId: { in: schools } }, { actorIdentityId: { in: identities } }] } }); await tx.impersonation.deleteMany({ where: { operatorIdentityId: { in: identities } } });
     await tx.staffProfile.deleteMany({ where: { schoolId: { in: schools } } }); await tx.positionCapabilityGrant.deleteMany({ where: { schoolId: { in: schools } } }); await tx.schoolPosition.deleteMany({ where: { schoolId: { in: schools } } }); await tx.schoolMembership.deleteMany({ where: { schoolId: { in: schools } } }); await tx.school.deleteMany({ where: { id: { in: schools } } });
     await tx.platformOperatorGrant.deleteMany({ where: { userIdentityId: { in: identities } } }); await tx.userIdentity.deleteMany({ where: { id: { in: identities } } });
@@ -63,6 +63,14 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)('Platform Operator
     await prisma.platformOperatorGrant.update({ where: { userIdentityId: actor }, data: { revokedAt: new Date() } });
     await expect(auth.impersonationActive(started.impersonationId)).resolves.toBe(false);
     await expect(ops.identities(actor, owner.emailNormalized)).rejects.toMatchObject({ status: 403 });
+  });
+  it('records School access only for members of that School', async () => {
+    const actor = await operator(); const first = await school(actor); const second = await school(actor);
+    await auth.touchSchoolAccess('app', first.owner.id, first.schoolId);
+    await auth.touchSchoolAccess('app', first.owner.id, second.schoolId);
+    await auth.touchSchoolAccess('parent', first.owner.id, first.schoolId);
+    const rows = await prisma.schoolUserAccess.findMany({ where: { userIdentityId: first.owner.id } });
+    expect(rows).toEqual([expect.objectContaining({ schoolId: first.schoolId, lastSeenAt: expect.any(Date) })]);
   });
   it('searches identities with their School memberships', async () => {
     const actor = await operator(); const { owner } = await school(actor);

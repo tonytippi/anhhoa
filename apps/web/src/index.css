@@ -1586,6 +1586,8 @@ tbody tr:last-child td {
 .staff-list-table th:nth-child(5) { min-width: 200px; }
 .staff-list-table th:nth-child(6) { min-width: 140px; }
 .staff-list-table th:nth-child(7) { min-width: 120px; }
+.staff-list-table th:nth-child(8) { min-width: 150px; }
+.last-seen-empty { color: var(--muted, #6b7280); }
 .staff-email-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 .staff-class-cell { position: relative; }
 .staff-class-more {
@@ -1616,7 +1618,7 @@ tbody tr:last-child td {
 }
 .staff-class-popover li { padding: 3px 0; }
 .staff-contact { display: block; color: #5f746e; font-weight: 400; }
-.parent-list-table table { min-width: 860px; }
+.parent-list-table table { min-width: 1010px; }
 .parent-children { display: grid; gap: 4px; min-width: 210px; margin: 0; padding-left: 18px; }
 .parent-children span { color: #5f746e; }
 .staff-list-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: end; gap: 8px; }
@@ -1744,7 +1746,13 @@ tbody tr:last-child td {
   font-weight: 800;
 }
 .roster-list-filters .roster-filter-search { flex: 2 1 240px; }
-.roster-list-filters .receipt-queue-account-filter { flex: 2 1 260px; }
+/* Receipt queue: short-valued selects stay narrow so the whole filter row fits one line on a desktop. */
+.receipt-queue-filters .roster-filter-search { flex: 2 1 200px; }
+.roster-list-filters .receipt-queue-account-filter { flex: 1 1 200px; }
+.roster-list-filters .receipt-queue-filter-narrow { flex: 0 1 130px; }
+@media (max-width: 767px) {
+  .roster-list-filters .receipt-queue-filter-narrow { flex-basis: 100%; }
+}
 .roster-list-filters input,
 .roster-list-filters select { width: 100%; min-width: 0; }
 .roster-list-filters button { min-height: 42px; }
@@ -1782,8 +1790,66 @@ tbody tr:last-child td {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+/* Run list: the month (or run name) opens the run in one click; the row menu keeps the same action. */
+.school-context-workspace .finance-row-link {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #185d3d;
+  font-size: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: #b7d9c5;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.school-context-workspace .finance-row-link:hover:not(:disabled) { border: 0; background: transparent; text-decoration-color: currentColor; }
+.school-context-workspace .finance-row-link:disabled { border: 0; background: transparent; color: #66746f; text-decoration: none; }
+.finance-notice-class-filter { display: grid; gap: 6px; width: min(280px, 100%); color: #4f5249; font-size: 14px; font-weight: 600; }
+.finance-actions:empty { display: none; }
+.finance-revision-entry { margin: 4px 0 0; padding-top: 12px; border-top: 1px solid #e2e1d8; color: #66746f; font-size: 13px; }
+.school-context-workspace .finance-revision-entry .finance-row-link { font-size: 13px; font-weight: 600; }
+.receipt-queue-table { margin-top: 16px; }
+.receipt-queue-table table { min-width: 960px; }
+.receipt-queue-table tbody th { font-weight: 600; }
+.receipt-queue-table td.finance-money small { display: block; }
+.finance-run-year { display: block; margin-top: 2px; color: #66746f; font-size: 12px; }
+.finance-run-collection { white-space: nowrap; font-variant-numeric: tabular-nums; color: #4f5249; }
+.finance-run-collection b { color: #185d3d; }
+.finance-run-paid { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; color: #24261f; }
+.finance-run-paid svg { width: 14px; height: 14px; color: #2f6fb0; }
+.finance-run-paid-done svg { color: #247a51; }
+.school-context-workspace th.finance-money, .school-context-workspace td.finance-money { text-align: right; }
+.receipt-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #b7d9c5;
+  border-radius: 10px;
+  background: #eef6f1;
+}
+.receipt-result > div { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.receipt-result h3 { margin: 0; color: #185d3d; font-size: 15px; font-weight: 700; }
+.receipt-result h3:focus { outline: none; }
+.receipt-result p { margin: 0; color: #4f5249; font-size: 13px; }
+.receipt-result p:empty { display: none; }
+.receipt-result-icon { display: grid; flex: 0 0 24px; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #247a51; color: #fff; font-size: 13px; font-weight: 800; }
+.school-context-workspace .receipt-result-close { min-height: 28px; border: 0; background: transparent; color: #4f5249; padding: 0 6px; font-size: 18px; line-height: 1; }
+.finance-review-student { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 2px; }
+.finance-review-student strong { color: #24261f; font-size: 20px; }
+.finance-review-student span { color: #5f746e; font-size: 15px; font-weight: 600; }
 .finance-card-heading { display: grid; gap: 4px; }
 .finance-card-heading p { margin: 0; color: #5f746e; font-size: 14px; line-height: 1.5; }
+.finance-card-heading.finance-catalog-heading { display: flex; flex-wrap: nowrap; align-items: flex-end; }
+.finance-card-heading.finance-catalog-heading > div { display: grid; flex: 1 1 auto; gap: 4px; min-width: 0; }
+.finance-card-heading.finance-catalog-heading > button { flex: none; }
+@media (max-width: 720px) {
+  .finance-card-heading.finance-catalog-heading { flex-wrap: wrap; }
+}
 .finance-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1875,6 +1941,10 @@ tbody tr:last-child td {
 .finance-metrics > div { border-radius: 14px; background: #eef6f1; padding: 16px 18px; }
 .finance-metrics dt { color: #5f746e; font-size: 13px; font-weight: 700; }
 .finance-metrics dd { margin: 4px 0 0; color: #18332d; font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.finance-metrics dd small { color: #5f746e; font-size: 13px; font-weight: 600; }
+.finance-metrics .finance-metric-collected { color: #247a51; }
+.finance-metrics .finance-run-paid { gap: 6px; font-weight: inherit; }
+.finance-metrics .finance-run-paid svg { width: 18px; height: 18px; }
 .school-context-workspace .finance-workspace > section.finance-notice {
   gap: 6px;
   border-color: #c9e4d3;
@@ -1990,6 +2060,43 @@ tbody tr:last-child td {
   background: #247a51;
   color: #fff;
 }
+.finance-issue-dialog { width: min(600px, calc(100vw - 32px)); }
+.finance-issue-student {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #e2e1d8;
+  border-radius: 9px;
+  background: #f7f7f2;
+}
+.finance-issue-student strong { font-size: 17px; color: #24261f; }
+.finance-issue-student span { color: #5f6258; font-size: 14px; }
+.finance-issue-lines, .dialog table.finance-issue-lines { width: 100%; min-width: 0; border-collapse: collapse; font-size: 14px; }
+.finance-issue-lines tfoot td.finance-money { font-size: 17px; }
+.finance-issue-dialog .dialog-actions { width: 100%; margin-top: 4px; }
+.finance-issue-dialog .dialog-actions .primary-action { border-color: #247a51; background: #247a51; color: #fff; }
+.finance-issue-dialog .dialog-actions .primary-action:hover:not(:disabled) { border-color: #1d6538; background: #1d6538; }
+.finance-issue-dialog .dialog-actions .primary-action:disabled { border-color: #dce4e0; background: #e8ecea; color: #66746f; }
+.finance-receiving-account {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 2px solid #247a51;
+  border-radius: 10px;
+  background: #eef6f1;
+}
+.finance-receiving-account header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: #247a51; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.finance-receiving-account p { margin: 0; color: #24261f; font-size: 15px; font-weight: 600; }
+.finance-receiving-account .finance-receiving-account-number { font-size: 22px; font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.finance-receiving-account .finance-receiving-account-number b { margin-right: 6px; color: #247a51; }
+.finance-issue-dialog .muted { color: #66695f; font-size: 13px; }
+.finance-issue-lines th, .finance-issue-lines td { padding: 6px 8px; border-bottom: 1px solid #e2e1d8; text-align: left; vertical-align: top; }
+.finance-issue-lines thead th { color: #5f6258; font-weight: 600; }
+.finance-issue-lines .finance-money { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.finance-issue-lines .finance-issue-part th { padding-top: 10px; font-weight: 600; color: #4f5249; }
+.finance-issue-lines .finance-issue-subtotal td { color: #5f6258; }
+.finance-issue-lines tfoot th, .finance-issue-lines tfoot td { border-bottom: 0; font-weight: 700; color: #24261f; }
+.finance-issue-lines tfoot small { margin-left: 4px; color: #5f6258; font-weight: 400; }
 @media (max-width: 767px) {
   .finance-metrics { grid-template-columns: 1fr; }
   .finance-run-header { flex-direction: column; align-items: stretch; }
@@ -2507,3 +2614,14 @@ tbody tr:last-child td {
 .page-guides-menu .finance-anchored-action-menu-item { padding-block: 7px; white-space: normal; line-height: 1.35; cursor: pointer; }
 .page-guides-menu-title { margin: 0; padding: 6px 8px 4px; color: #5f746e; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
 .page-guides-menu-separator { height: 1px; margin: 4px 0; background: #e4ece8; }
+/* Sprint change 2026-10-14: prepaid package card under the invoice lines, and its preview dialog. */
+.finance-package { display: grid; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e1d8; }
+.finance-package h3 { margin: 0; font-size: 16px; }
+.finance-package p { margin: 0; }
+.finance-package .finance-actions { justify-content: flex-start; }
+.finance-package-months { width: 100%; min-width: 0; border-collapse: collapse; font-size: 14px; }
+.finance-package-months th, .finance-package-months td { padding: 6px 8px; border-bottom: 1px solid #e2e1d8; text-align: left; vertical-align: top; }
+.finance-package-months thead th { color: #5f6258; font-weight: 600; }
+.finance-package-months .finance-money { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.finance-package-months td small { display: block; color: #5f6258; font-weight: 400; white-space: normal; }
+.finance-badge-note { display: block; margin-top: 4px; color: #5f6258; font-size: 12px; }

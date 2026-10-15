@@ -4,7 +4,9 @@ summary: Mở đợt thu của tháng, thêm khoản linh hoạt, xem trước d
 order: 8
 requires: collection-runs
 ---
-Mở `Tài chính › Đợt thu`. Một đợt thu đi qua 4 bước: **Nháp → Sẵn sàng tạo hóa đơn → Đã tạo hóa đơn → Đã đóng**.
+Mở `Tài chính › Đợt thu`. Danh sách đợt thu có cột `Đã thu / Phải thu (đ)` và `Đã thanh toán` (số học sinh đã thanh toán đủ / số học sinh có hóa đơn); bấm vào tháng để mở đợt. Đầu trang chi tiết đợt thu cũng hiện ba số này: `Đã phát hành`, `Đã thu / Phải thu`, `Đã thanh toán`.
+
+Một đợt thu đi qua 4 bước: **Nháp → Sẵn sàng tạo hóa đơn → Đã tạo hóa đơn → Đã đóng**.
 
 ## 1. Tạo đợt thu
 

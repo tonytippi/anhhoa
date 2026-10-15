@@ -10,7 +10,7 @@ requires: collection-runs
 
 Đóng đợt thu cũng là **khóa đợt thu**: phải đóng đợt tháng trước thì mới phát hành được hóa đơn của tháng sau. Nếu đợt tháng trước chưa đóng, trang chi tiết đợt tháng sau báo "Đợt thu tháng MM/YYYY chưa đóng", kèm nút `Mở đợt thu MM/YYYY` để sang đóng đợt đó, và nút phát hành hóa đơn bị khóa.
 
-![Đợt tháng 11 báo đợt tháng 09 chưa đóng](dot-thu-khoa-dot-truoc.jpg)
+![Đợt tháng 11 báo đợt tháng 10 chưa đóng](dot-thu-khoa-dot-truoc.jpg)
 
 ![Nút phát hành bị khóa trên trang rà soát hóa đơn](hoa-don-khoa-phat-hanh.jpg)
 

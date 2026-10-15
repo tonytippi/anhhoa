@@ -54,7 +54,7 @@ describe('Finance Story 6.6 release evidence', () => {
     expect(e2e).toMatch(/finance\/invoices\/\*\/receipt/);
     expect(e2e).toMatch(/Xác nhận ghi thực nhận/);
     expect(e2e).toMatch(/status: 504/);
-    expect(e2e).toMatch(/Kết quả ghi thực nhận/);
+    expect(e2e).toMatch(/Đã ghi thực nhận/);
     expect(e2e).toMatch(/Hóa đơn tiếp theo/);
     expect(e2e).toMatch(/expect\(receiptPosts\)\.toBe\(1\)/);
     expect(e2e).toMatch(/Release Gate B/);
