@@ -35,6 +35,16 @@ const anhNhat: PreschoolSeedProfile = {
   financeFixtures: false,
 };
 
+// Ánh Hoa only has a student list so far (name, class, date of birth): no gender, parents or staff file.
+const anhHoa: PreschoolSeedProfile = {
+  name: 'Mầm Non Ánh Hoa',
+  slug: 'ah',
+  studentCodePrefix: 'AH',
+  ownerEmail: 'sonnh273@gmail.com',
+  classNames: ['MICKEY', 'DONALD', 'LITTLESEED', 'DUMBO 4', 'DUMBO 5', 'REGGIO 03', 'REGGIO 36'],
+  financeFixtures: false,
+};
+
 const positions = [
   ['HIEU_TRUONG', 'Hiệu trưởng'],
   ['QUAN_LY_TRUONG', 'Quản lý trường'],
@@ -50,6 +60,13 @@ const rosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/hocs
 const staffCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/nhanvien-peakland.csv', import.meta.url)));
 const anhNhatRosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/anhnhat/anhnhat-hocsinh.csv', import.meta.url)));
 const anhNhatStaffCsvPath = resolve(fileURLToPath(new URL('../../../docs/anhnhat/anhnhat-nhanvien.csv', import.meta.url)));
+const anhHoaRosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/anhhoa/anhhoa-hocsinh.csv', import.meta.url)));
+// Some Ánh Hoa students have no date of birth yet; the column is required, so they get the "Chưa cập nhật" placeholder.
+const unknownDateOfBirth = new Date('1900-01-01T00:00:00.000Z');
+// No staff file yet: the school manager is seeded by hand with placeholder date of birth, like Ops provisioning does.
+const anhHoaStaff: PeakLandStaffRecord[] = [
+  { staffCode: 'AH-QLT-01', fullName: 'Nguyễn Thị Thùy Dung', dateOfBirth: unknownDateOfBirth, email: 'nttdung2402@gmail.com', phone: null, classNames: [], primaryPositionCode: 'QUAN_LY_TRUONG' },
+];
 const rosterEffectiveFrom = new Date('2026-08-01T00:00:00.000Z');
 const staffAssignmentReason = 'PeakLand development seed';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -61,7 +78,7 @@ type PeakLandRosterRecord = {
   className: string | null;
   lifecycle: 'ENROLLED' | 'WAITING_FOR_CLASS';
   dateOfBirth: Date;
-  gender: 'NAM' | 'NU';
+  gender: 'NAM' | 'NU' | null;
   address: string | null;
   mother: PeakLandParentContact | null;
   father: PeakLandParentContact | null;
@@ -74,6 +91,7 @@ type PeakLandParentContact = {
   address: string | null;
 };
 
+const anhHoaRosterHeaders = ['Học sinh', 'Lớp', 'Trạng thái', 'Ngày sinh'] as const;
 const rosterHeaders = ['STT', 'Học sinh', 'Tên thường gọi', 'Lớp', 'Trạng thái', 'Ngày sinh', 'Giới tính', 'Địa chỉ', 'Họ và tên mẹ', 'SĐT mẹ', 'Email mẹ', 'Địa chỉ mẹ', 'Họ và tên bố', 'SĐT bố', 'Email bố', 'Địa chỉ bố'] as const;
 const staffHeaders = ['STT', 'Mã nhân viên', 'Họ tên', 'Ngày sinh', 'Email', 'Số điện thoại', 'Lớp', 'Chức vụ'] as const;
 
@@ -165,9 +183,9 @@ function parseCsv(csv: string): { line: number; values: string[] }[] {
 }
 
 function parseDate(value: string, line: number): Date {
-  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value);
+  const match = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(value);
   if (!match) throw new Error(`CSV dòng ${line}, trường Ngày sinh không hợp lệ.`);
-  const [, day, month, year] = match;
+  const [, day, month, year] = match.map((part) => part.padStart(2, '0'));
   const date = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
   if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() !== Number(month) - 1 || date.getUTCDate() !== Number(day)) {
     throw new Error(`CSV dòng ${line}, trường Ngày sinh không hợp lệ.`);
@@ -191,6 +209,30 @@ export function parsePeakLandRosterCsv(csv: string): PeakLandRosterRecord[] {
 
 export function parseAnhNhatRosterCsv(csv: string): PeakLandRosterRecord[] {
   return parseRosterCsv(csv, { classNames: anhNhat.classNames, studentCodePrefix: anhNhat.studentCodePrefix, rows: 52, waitingForClass: 0, ignoredStatuses: ['Nghỉ học'] });
+}
+
+export function parseAnhHoaRosterCsv(csv: string): PeakLandRosterRecord[] {
+  const rows = parseCsv(csv);
+  const header = rows.shift();
+  if (!header) throw new Error('CSV thiếu hàng tiêu đề.');
+  const normalizedHeaders = header.values.map((value) => value.trim());
+  if (new Set(normalizedHeaders).size !== normalizedHeaders.length) throw new Error('CSV cấu trúc cột không hợp lệ.');
+  const indexes = new Map(normalizedHeaders.map((value, index) => [value, index]));
+  for (const name of anhHoaRosterHeaders) if (!indexes.has(name)) throw new Error(`CSV thiếu cột bắt buộc ${name}.`);
+  const records = rows.map<PeakLandRosterRecord>(({ line, values }, index) => {
+    if (values.length !== header.values.length) throw new Error(`CSV dòng ${line}, cấu trúc cột không hợp lệ.`);
+    const field = (name: (typeof anhHoaRosterHeaders)[number]) => values[indexes.get(name)!]!.trim();
+    // The STT column has gaps (one row has none), so Student codes follow row order instead.
+    const fullName = field('Học sinh');
+    if (!fullName) throw new Error(`CSV dòng ${line}, trường Học sinh là bắt buộc.`);
+    if (field('Trạng thái') !== 'Trong lớp') throw new Error(`CSV dòng ${line}, trường Trạng thái không được hỗ trợ.`);
+    const className = field('Lớp');
+    if (!anhHoa.classNames.includes(className)) throw new Error(`CSV dòng ${line}, trường Lớp không được hỗ trợ.`);
+    return { studentCode: `${anhHoa.studentCodePrefix}${index + 1}`, fullName, preferredName: null, className, lifecycle: 'ENROLLED', dateOfBirth: field('Ngày sinh') ? parseDate(field('Ngày sinh'), line) : unknownDateOfBirth, gender: null, address: null, mother: null, father: null };
+  });
+  if (records.length !== 134) throw new Error(`CSV phải có đúng 134 học sinh, nhận được ${records.length}.`);
+  for (const className of anhHoa.classNames) if (!records.some((record) => record.className === className)) throw new Error(`CSV thiếu lớp ${className}.`);
+  return records;
 }
 
 function parseRosterCsv(csv: string, options: RosterCsvOptions): PeakLandRosterRecord[] {
@@ -309,6 +351,7 @@ export async function seed(): Promise<void> {
   const staff = parsePeakLandStaffCsv(await readFile(staffCsvPath, 'utf8'));
   const anhNhatRoster = parseAnhNhatRosterCsv(await readFile(anhNhatRosterCsvPath, 'utf8'));
   const anhNhatStaff = parseAnhNhatStaffCsv(await readFile(anhNhatStaffCsvPath, 'utf8'));
+  const anhHoaRoster = parseAnhHoaRosterCsv(await readFile(anhHoaRosterCsvPath, 'utf8'));
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required to seed the database.');
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString, options: '-c TimeZone=UTC' }) });
@@ -316,6 +359,7 @@ export async function seed(): Promise<void> {
     await prisma.$transaction((tx) => seedPreschool(tx, peakLand, roster, staff), { timeout: 30000 });
     await prisma.$transaction((tx) => seedCenter(tx, roster, staff), { timeout: 30000 });
     await prisma.$transaction((tx) => seedPreschool(tx, anhNhat, anhNhatRoster, anhNhatStaff), { timeout: 30000 });
+    await prisma.$transaction((tx) => seedPreschool(tx, anhHoa, anhHoaRoster, anhHoaStaff), { timeout: 30000 });
   } finally {
     await prisma.$disconnect();
   }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { assertDevelopmentEnvironment, parseAnhNhatRosterCsv, parseAnhNhatStaffCsv, parsePeakLandRosterCsv, parsePeakLandStaffCsv, seed } from './seed.js';
+import { assertDevelopmentEnvironment, parseAnhHoaRosterCsv, parseAnhNhatRosterCsv, parseAnhNhatStaffCsv, parsePeakLandRosterCsv, parsePeakLandStaffCsv, seed } from './seed.js';
 
 describe('development fixture seed', () => {
   it('refuses to seed outside development before opening a database connection', async () => {
@@ -85,5 +85,20 @@ describe('development fixture seed', () => {
     expect(staff[3]).toMatchObject({ fullName: 'Nguyễn Thị Hoa', primaryPositionCode: 'KE_TOAN', email: null });
     expect(staff[4]).toMatchObject({ fullName: 'Phí Thanh Thuý', primaryPositionCode: 'GIAO_VIEN', classNames: ['KOALA'] });
     expect(staff[6]).toMatchObject({ fullName: 'Lê Thị Thỏa', classNames: [] });
+  });
+
+  it('parses the Ánh Hoa student list without gender or parents', async () => {
+    const csvPath = resolve(fileURLToPath(new URL('../../../docs/anhhoa/anhhoa-hocsinh.csv', import.meta.url)));
+    const csv = await readFile(csvPath, 'utf8');
+    const roster = parseAnhHoaRosterCsv(csv);
+    expect(roster).toHaveLength(134);
+    expect(roster[0]).toMatchObject({ studentCode: 'AH1', fullName: 'Lương Trúc Nhi', className: 'MICKEY', lifecycle: 'ENROLLED', dateOfBirth: new Date('2024-12-15T00:00:00.000Z'), gender: null, mother: null, father: null });
+    expect(new Set(roster.map((record) => record.className))).toEqual(new Set(['MICKEY', 'DONALD', 'LITTLESEED', 'DUMBO 4', 'DUMBO 5', 'REGGIO 03', 'REGGIO 36']));
+    expect(roster.map((record) => record.studentCode)).toEqual(Array.from({ length: 134 }, (_, index) => `AH${index + 1}`));
+    expect(roster[34]).toMatchObject({ studentCode: 'AH35', fullName: 'Nguyễn Ngọc Bảo Anh', className: 'LITTLESEED' });
+    expect(roster[11]).toMatchObject({ fullName: 'Nguyễn Ngọc Minh Châu', dateOfBirth: new Date('1900-01-01T00:00:00.000Z') });
+    expect(roster[50]).toMatchObject({ fullName: 'Nguyễn Thục Khánh An', dateOfBirth: new Date('2022-09-27T00:00:00.000Z') });
+    expect(() => parseAnhHoaRosterCsv(csv.replace('15/12/2024', '31/02/2024'))).toThrow('Ngày sinh');
+    expect(() => parseAnhHoaRosterCsv(csv.replace('MICKEY,Trong lớp', 'MICKEY,Nghỉ học'))).toThrow('Trạng thái');
   });
 });
