@@ -1416,6 +1416,8 @@ export function FinanceWorkspace({
   }>();
   const [catalogFilter, setCatalogFilter] = useState({ search: "", kind: "", status: "" });
   const [catalogFilterApplied, setCatalogFilterApplied] = useState({ search: "", kind: "", status: "" });
+  const [promotionFilter, setPromotionFilter] = useState({ search: "", status: "" });
+  const [promotionFilterApplied, setPromotionFilterApplied] = useState({ search: "", status: "" });
   const [promotionDialog, setPromotionDialog] = useState<"policy" | "assignment">();
   const [promotionTransition, setPromotionTransition] = useState<{
     id: string;
@@ -3113,6 +3115,17 @@ export function FinanceWorkspace({
     if (catalogFilterApplied.status && (catalogFilterApplied.status === "ACTIVE") !== item.available) return false;
     return true;
   });
+  const promotionSearch = promotionFilterApplied.search.trim().toLocaleLowerCase("vi");
+  const promotionRows = promotionVersions.filter(({ policy, version }) => {
+    if (promotionSearch && !policy.name.toLocaleLowerCase("vi").includes(promotionSearch)) return false;
+    if (promotionFilterApplied.status && version.status !== promotionFilterApplied.status) return false;
+    return true;
+  });
+  const assignmentRows = currentAssignments.filter(
+    ({ policy, item }) =>
+      !promotionSearch ||
+      `${policy.name} ${item.studentCode} ${item.studentName}`.toLocaleLowerCase("vi").includes(promotionSearch),
+  );
 
   return (
     <section
@@ -3154,12 +3167,8 @@ export function FinanceWorkspace({
       )}
       {page === "promotions" && (
         <section>
-          <p>Thay đổi cấu hình tạo phiên bản mới. Giá trị áp dụng do hệ thống đánh giá ở bước sau.</p>
-          <form
-            className="finance-list-toolbar"
-            aria-label="Điều khiển danh sách ưu đãi"
-            onSubmit={(event) => event.preventDefault()}
-          >
+          <div className="finance-catalog-heading">
+            <p className="muted">Thay đổi cấu hình tạo phiên bản mới. Giá trị áp dụng do hệ thống đánh giá ở bước sau.</p>
             <button
               className="primary-action"
               type="button"
@@ -3172,6 +3181,36 @@ export function FinanceWorkspace({
             >
               Thêm chính sách
             </button>
+          </div>
+          <form
+            className="finance-list-toolbar"
+            aria-label="Điều khiển danh sách ưu đãi"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setPromotionFilterApplied(promotionFilter);
+            }}
+          >
+            <label>
+              Tìm kiếm
+              <input
+                placeholder="Tên chính sách hoặc học sinh"
+                value={promotionFilter.search}
+                onChange={(event) => setPromotionFilter({ ...promotionFilter, search: event.target.value })}
+              />
+            </label>
+            <label>
+              Trạng thái
+              <select
+                value={promotionFilter.status}
+                onChange={(event) => setPromotionFilter({ ...promotionFilter, status: event.target.value })}
+              >
+                <option value="">Tất cả trạng thái</option>
+                <option value="DRAFT">Nháp</option>
+                <option value="ACTIVE">Đang áp dụng</option>
+                <option value="RETIRED">Đã ngừng</option>
+              </select>
+            </label>
+            <button type="submit">Lọc</button>
           </form>
           <table>
             <caption>Chính sách ưu đãi theo Trường</caption>
@@ -3187,78 +3226,82 @@ export function FinanceWorkspace({
               </tr>
             </thead>
             <tbody>
-              {promotionVersions.length ? (
-                promotionPolicies.flatMap((policy) =>
-                  (policy.versions ?? []).map((version) => (
-                    <tr key={version.id}>
-                      <td>
-                        {policy.name} / Phiên bản {version.version}
-                      </td>
-                      <td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td>
-                      <td>
-                        {version.discountType === "PERCENTAGE"
-                          ? `${version.discountValue}%`
-                          : `${vnd(version.discountValue)} đ`}
-                      </td>
-                      <td>
-                        {displayDate(version.effectiveFrom)} -{" "}
-                        {version.effectiveTo ? displayDate(version.effectiveTo) : "không xác định"}
-                      </td>
-                      <td>{promotionStatusLabel(version.status)}</td>
-                      <td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td>
-                      <td>
-                        <AnchoredActionMenu
-                          label={`Tùy chọn cho ${policy.name} phiên bản ${version.version}`}
-                          disabled={Boolean(pending)}
-                          onTriggerOpen={(trigger) => {
-                            rowMenuTrigger.current = trigger;
-                          }}
-                        >
-                          {version.status === "DRAFT" && (
+              {promotionRows.length ? (
+                promotionRows.map(({ policy, version }) => (
+                  <tr key={version.id}>
+                    <td>
+                      {policy.name} / Phiên bản {version.version}
+                    </td>
+                    <td>{(version.targets ?? []).map((target) => target.receivableName).join(", ")}</td>
+                    <td>
+                      {version.discountType === "PERCENTAGE"
+                        ? `${version.discountValue}%`
+                        : `${vnd(version.discountValue)} đ`}
+                    </td>
+                    <td>
+                      {displayDate(version.effectiveFrom)} -{" "}
+                      {version.effectiveTo ? displayDate(version.effectiveTo) : "không xác định"}
+                    </td>
+                    <td>{promotionStatusLabel(version.status)}</td>
+                    <td>{(version.assignments ?? []).filter(activeAssignment).length} đang áp dụng</td>
+                    <td>
+                      <AnchoredActionMenu
+                        label={`Tùy chọn cho ${policy.name} phiên bản ${version.version}`}
+                        disabled={Boolean(pending)}
+                        onTriggerOpen={(trigger) => {
+                          rowMenuTrigger.current = trigger;
+                        }}
+                      >
+                        {version.status === "DRAFT" && (
+                          <AnchoredActionMenuItem
+                            onClick={() => void transitionPromotionVersion(version.id, "activate")}
+                          >
+                            Kích hoạt phiên bản
+                          </AnchoredActionMenuItem>
+                        )}
+                        {version.status === "ACTIVE" && (
+                          <>
                             <AnchoredActionMenuItem
-                              onClick={() => void transitionPromotionVersion(version.id, "activate")}
+                              onClick={() => {
+                                dialogTrigger.current = rowMenuTrigger.current;
+                                setAssignment({
+                                  versionId: version.id,
+                                  studentIds: [],
+                                  effectiveFrom: "",
+                                  effectiveTo: "",
+                                  reason: "",
+                                });
+                                setAssignmentFilter({ q: "", officialClassId: "" });
+                                setPromotionDialog("assignment");
+                              }}
                             >
-                              Kích hoạt phiên bản
+                              Gán học sinh
                             </AnchoredActionMenuItem>
-                          )}
-                          {version.status === "ACTIVE" && (
-                            <>
-                              <AnchoredActionMenuItem
-                                onClick={() => {
-                                  dialogTrigger.current = rowMenuTrigger.current;
-                                  setAssignment({
-                                    versionId: version.id,
-                                    studentIds: [],
-                                    effectiveFrom: "",
-                                    effectiveTo: "",
-                                    reason: "",
-                                  });
-                                  setAssignmentFilter({ q: "", officialClassId: "" });
-                                  setPromotionDialog("assignment");
-                                }}
-                              >
-                                Gán học sinh
-                              </AnchoredActionMenuItem>
-                              <AnchoredActionMenuItem
-                                onClick={() => void transitionPromotionVersion(version.id, "retire")}
-                              >
-                                Ngừng phiên bản
-                              </AnchoredActionMenuItem>
-                            </>
-                          )}
-                        </AnchoredActionMenu>
-                      </td>
-                    </tr>
-                  )),
-                )
+                            <AnchoredActionMenuItem
+                              onClick={() => void transitionPromotionVersion(version.id, "retire")}
+                            >
+                              Ngừng phiên bản
+                            </AnchoredActionMenuItem>
+                          </>
+                        )}
+                      </AnchoredActionMenu>
+                    </td>
+                  </tr>
+                ))
               ) : (
                 <tr>
-                  <td colSpan={7}>{catalog ? "Chưa có chính sách ưu đãi." : "Đang tải ưu đãi."}</td>
+                  <td colSpan={7}>
+                    {!catalog
+                      ? "Đang tải ưu đãi."
+                      : promotionVersions.length
+                        ? "Không có chính sách phù hợp."
+                        : "Chưa có chính sách ưu đãi."}
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
-          {currentAssignments.length > 0 && (
+          {assignmentRows.length > 0 && (
             <table>
               <caption>Học sinh đang áp dụng ưu đãi</caption>
               <thead>
@@ -3271,7 +3314,7 @@ export function FinanceWorkspace({
                 </tr>
               </thead>
               <tbody>
-                {currentAssignments.map(({ policy, version, item }) => (
+                {assignmentRows.map(({ policy, version, item }) => (
                   <tr key={item.id}>
                     <td>
                       {item.studentCode} / {item.studentName}

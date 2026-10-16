@@ -272,6 +272,7 @@ describe("FinanceWorkspace", () => {
     view.rerender(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
     const promotionsToolbar = await screen.findByRole("form", { name: "Điều khiển danh sách ưu đãi" });
     expect(promotionsToolbar.querySelectorAll("button")).toHaveLength(1);
+    expect(promotionsToolbar.contains(screen.getByRole("button", { name: "Thêm chính sách" }))).toBe(false);
     expect(screen.getByRole("button", { name: "Thêm chính sách" }).classList.contains("primary-action")).toBe(true);
     view.rerender(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     const runsToolbar = await screen.findByRole("form", { name: "Điều khiển danh sách đợt thu" });
@@ -1017,6 +1018,27 @@ describe("FinanceWorkspace", () => {
     expect(await screen.findByText("1 đang áp dụng")).toBeTruthy(); expect(screen.queryByText(/HS002 \/ Bé Bình:/)).toBeNull();
     view.rerender(<FinanceWorkspace schoolId="school-b" schoolName="Trường B" page="promotions" denied={vi.fn()} />);
     expect(screen.queryByText("Ưu đãi Trường A / Phiên bản 1")).toBeNull(); expect(screen.queryByText(/HS001 \/ Bé An:/)).toBeNull();
+  });
+  it("filters promotion policies by name and status and current assignments by policy or Student", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const version = (id: string, status: string, assignments: unknown[] = []) => ({ id, version: 1, status, discountType: "PERCENTAGE", discountValue: "10", priority: 1, stackingMode: "STACKABLE", effectiveFrom: today, effectiveTo: null, targets: [], assignments });
+    const policies = [
+      { id: "p1", name: "Anh chị em", versions: [version("v1", "ACTIVE", [{ id: "a1", studentId: "s1", studentCode: "HS001", studentName: "Bé An", effectiveFrom: today, effectiveTo: null, isCurrent: true, reason: "A", endReason: null }])] },
+      { id: "p2", name: "Nộp trước năm", versions: [version("v2", "DRAFT")] },
+    ];
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("promotion-students") ? response({ students: [] }) : url.includes("promotion-policies") ? response({ policies }) : response(catalog))));
+    render(<FinanceWorkspaceBase schoolId="school-a" schoolName="Trường A" page="promotions" denied={vi.fn()} />);
+    expect(await screen.findByText("Nộp trước năm / Phiên bản 1")).toBeTruthy();
+    const toolbar = screen.getByRole("form", { name: "Điều khiển danh sách ưu đãi" });
+    fireEvent.change(within(toolbar).getByLabelText("Tìm kiếm"), { target: { value: "anh CHỊ" } });
+    fireEvent.submit(toolbar);
+    expect(screen.getAllByText("Anh chị em / Phiên bản 1")).toHaveLength(2);
+    expect(screen.queryByText("Nộp trước năm / Phiên bản 1")).toBeNull();
+    expect(screen.getByText("HS001 / Bé An")).toBeTruthy();
+    fireEvent.change(within(toolbar).getByLabelText("Tìm kiếm"), { target: { value: "" } });
+    fireEvent.change(within(toolbar).getByLabelText("Trạng thái"), { target: { value: "RETIRED" } });
+    fireEvent.submit(toolbar);
+    expect(screen.getByText("Không có chính sách phù hợp.")).toBeTruthy();
   });
   it("keeps promotion validation in the promotion field-error scope", async () => {
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(
