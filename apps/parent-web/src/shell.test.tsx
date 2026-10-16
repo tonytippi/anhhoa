@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ParentShell } from './main';
 
@@ -10,6 +10,10 @@ function parentResponse(session: object, input: RequestInfo | URL) {
   if (path.includes('/inbox')) return Promise.resolve(new Response(JSON.stringify({ data: [], meta: { unreadCount: 0 } })));
   if (path.includes('/attendance?')) return Promise.resolve(new Response(JSON.stringify({ data: [{ studentId: 'student-a', studentDisplayName: 'Bé An', date: '2026-09-27', status: 'NOT_RECORDED', updatedAt: null }] })));
   if (path.includes('/daily-journal?')) return Promise.resolve(new Response(JSON.stringify({ data: null })));
+  if (path.includes('/class-note?')) return Promise.resolve(new Response(JSON.stringify({ data: null })));
+  if (path.endsWith('/messages/summary')) return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+  if (path.endsWith('/messages/read')) return Promise.resolve(new Response(JSON.stringify({ data: { ok: true } })));
+  if (path.endsWith('/messages')) return Promise.resolve(new Response(JSON.stringify({ data: { studentId: 'student-a', canSend: true, className: 'Mầm', messages: [] } })));
   return Promise.resolve(new Response(JSON.stringify({ data: session })));
 }
 function deferred<T>() { let resolve!: (value: T) => void; return { promise: new Promise<T>((done) => { resolve = done; }), resolve }; }
@@ -57,16 +61,134 @@ describe('ParentShell', () => {
     expect(fetch.mock.calls.some(([input]) => String(input).includes('/daily-journal-media/'))).toBe(false);
   });
 
-  it('renders the reviewed four-item mobile navigation and opens only the existing contact sheet', async () => {
+  it('renders the five-item mobile navigation including messages and opens only the existing contact sheet', async () => {
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
     vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => parentResponse(session, input)));
     render(<ParentShell />);
     const navigation = await screen.findByRole('navigation', { name: 'Điều hướng phụ huynh' });
-    expect(navigation.querySelectorAll('button')).toHaveLength(4);
+    expect(navigation.querySelectorAll('button')).toHaveLength(5);
+    expect(navigation.textContent).toContain('Tin nhắn');
     expect(screen.getAllByRole('button', { name: 'Hôm nay' }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole('button', { name: 'Liên hệ' }).at(-1)!);
     expect(await screen.findByRole('heading', { name: 'Thông tin liên hệ' })).toBeTruthy();
+  });
+
+  it('shows the class daily note for the selected child and day, loading its image only on request', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    const note = { className: 'Mầm', noteDate: '2026-09-27', text: 'Hôm nay lớp đi dã ngoại.\nNhớ mang mũ cho bé.', updatedAt: '2026-09-27T09:00:00.000Z', media: [{ id: 'note-media', contentType: 'image/jpeg' }] };
+    const fetch = vi.fn().mockImplementation((input) => {
+      const path = String(input);
+      if (path.includes('/class-note?')) return Promise.resolve(new Response(JSON.stringify({ data: note })));
+      if (path.includes('/class-note-media/')) return Promise.resolve(new Response(new Blob(['image'], { type: 'image/jpeg' })));
+      return parentResponse(session, input);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:note'); const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    render(<ParentShell />);
+    fireEvent.click(await screen.findByRole('button', { name: /Bé An/ }));
+    const heading = await screen.findByRole('heading', { name: 'Bản tin lớp Mầm' });
+    const text = heading.parentElement!.querySelector('.class-note-text')!;
+    expect(text.textContent).toBe('Hôm nay lớp đi dã ngoại.\nNhớ mang mũ cho bé.');
+    expect(fetch.mock.calls.some(([input]) => /students\/student-a\/class-note\?noteDate=\d{4}-\d{2}-\d{2}$/.test(String(input)))).toBe(true);
+    expect(fetch.mock.calls.some(([input]) => String(input).includes('/class-note-media/'))).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Xem ảnh bản tin lớp' }));
+    expect(((await screen.findByAltText('Ảnh bản tin lớp trong ngày')) as HTMLImageElement).src).toBe('blob:note');
+    expect(fetch.mock.calls.some(([input]) => String(input).endsWith('/school-a/class-note-media/note-media'))).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Quay lại Hôm nay' }));
+    expect(revoke).toHaveBeenCalledWith('blob:note');
+    create.mockRestore(); revoke.mockRestore();
+  });
+
+  it('hides the class note card when the class has no note for the day', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => parentResponse(session, input)));
+    render(<ParentShell />);
+    fireEvent.click(await screen.findByRole('button', { name: /Bé An/ }));
+    await screen.findByText('Chưa có nhận xét trong ngày này.');
+    expect(screen.queryByRole('heading', { name: /Bản tin lớp/ })).toBeNull();
+  });
+
+  it('shows the message unread badge, renders the thread, marks it read and sends with idempotency headers', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    document.cookie = 'parent_csrf=csrf';
+    let unreadCount = 2;
+    const messages = [
+      { id: 'm1', senderType: 'TEACHER', senderLabel: 'Giáo viên lớp Mầm', mine: false, body: 'Hôm nay bé ăn ngoan.', createdAt: '2026-09-27T02:00:00.000Z' },
+      { id: 'm2', senderType: 'PARENT', senderLabel: 'Mẹ', mine: true, body: 'Cảm ơn cô.', createdAt: '2026-09-27T03:00:00.000Z' },
+    ];
+    const fetch = vi.fn().mockImplementation((input, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/messages/summary')) return Promise.resolve(new Response(JSON.stringify({ data: [{ studentId: 'student-a', unreadCount }] })));
+      if (path.endsWith('/messages/read')) { unreadCount = 0; return Promise.resolve(new Response(JSON.stringify({ data: { ok: true } }))); }
+      if (path.endsWith('/students/student-a/messages') && init?.method === 'POST') {
+        messages.push({ id: 'm3', senderType: 'PARENT', senderLabel: 'Mẹ', mine: true, body: JSON.parse(String(init.body)).body, createdAt: '2026-09-27T04:00:00.000Z' });
+        return Promise.resolve(new Response(JSON.stringify({ data: { id: 'operation', status: 'COMPLETED', outcome: { id: 'm3' } } })));
+      }
+      if (path.endsWith('/students/student-a/messages')) return Promise.resolve(new Response(JSON.stringify({ data: { studentId: 'student-a', canSend: true, className: 'Mầm', messages: [...messages] } })));
+      return parentResponse(session, input);
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<ParentShell />);
+    const link = await screen.findByRole('button', { name: /^Tin nhắn/ });
+    await waitFor(() => expect(link.textContent).toContain('2'));
+    fireEvent.click(link);
+    expect(await screen.findByRole('heading', { name: 'Tin nhắn' })).toBeTruthy();
+    expect(window.location.pathname).toBe('/messages');
+    expect(await screen.findByText('Hôm nay bé ăn ngoan.')).toBeTruthy();
+    expect(screen.getByText(/Giáo viên lớp Mầm ·/)).toBeTruthy();
+    expect(screen.getByText('Cảm ơn cô.').closest('.chat-message')!.className).toContain('mine');
+    expect(screen.getByText('Hôm nay bé ăn ngoan.').closest('.chat-message')!.className).not.toContain('mine');
+    await waitFor(() => expect(fetch.mock.calls.some(([input, init]) => String(input).endsWith('/students/student-a/messages/read') && (init as RequestInit).method === 'POST')).toBe(true));
+    await waitFor(() => expect(link.textContent).not.toContain('2'));
+    const draft = screen.getByLabelText('Tin nhắn gửi giáo viên');
+    fireEvent.change(draft, { target: { value: 'Chiều nay bố đón bé.' } });
+    fireEvent.keyDown(draft, { key: 'Enter' });
+    expect(await screen.findByText('Chiều nay bố đón bé.')).toBeTruthy();
+    const send = fetch.mock.calls.find(([input, init]) => String(input).endsWith('/students/student-a/messages') && (init as RequestInit | undefined)?.method === 'POST')!;
+    const headers = (send[1] as RequestInit).headers as Record<string, string>;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    expect(headers['idempotency-key']).toMatch(uuid);
+    expect(headers['x-operation-id']).toMatch(uuid);
+    expect(headers['x-csrf-token']).toBe('csrf');
+    expect(headers['content-type']).toBe('application/json');
+    expect(JSON.parse(String((send[1] as RequestInit).body))).toEqual({ body: 'Chiều nay bố đón bé.' });
+    await waitFor(() => expect((draft as HTMLTextAreaElement).value).toBe(''));
+  });
+
+  it('keeps an uncertain message send locked while reconciling its Operation before allowing another send', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    document.cookie = 'parent_csrf=csrf';
+    window.history.replaceState(null, '', '/messages');
+    let sends = 0; let completed = false; let reconciledOperation = '';
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith('/students/student-a/messages') && init?.method === 'POST') { sends += 1; reconciledOperation = (init.headers as Record<string, string>)['x-operation-id']!; return Promise.resolve(new Response(null, { status: 504 })); }
+      if (path.includes('/operations/')) { expect(path.endsWith(`/operations/${reconciledOperation}`)).toBe(true); return Promise.resolve(new Response(JSON.stringify({ data: { id: reconciledOperation, status: completed ? 'COMPLETED' : 'PENDING', outcome: null } }))); }
+      return parentResponse(session, input);
+    }));
+    render(<ParentShell />);
+    const draft = await screen.findByLabelText('Tin nhắn gửi giáo viên');
+    await screen.findByText(/Chưa có tin nhắn/);
+    fireEvent.change(draft, { target: { value: 'Bé hơi sốt nhẹ.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi' }));
+    expect(await screen.findByText('Đang kiểm tra kết quả với hệ thống...')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Gửi' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(draft, { key: 'Enter' });
+    expect(sends).toBe(1);
+    completed = true;
+    await waitFor(() => expect(screen.queryByText('Đang kiểm tra kết quả với hệ thống...')).toBeNull(), { timeout: 3000 });
+    expect((draft as HTMLTextAreaElement).value).toBe('');
+    expect(sends).toBe(1);
+  });
+
+  it('shows a quiet note instead of the composer when the child cannot message a class', async () => {
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    window.history.replaceState(null, '', '/messages');
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input) => String(input).endsWith('/students/student-a/messages') ? Promise.resolve(new Response(JSON.stringify({ data: { studentId: 'student-a', canSend: false, className: null, messages: [] } }))) : parentResponse(session, input)));
+    render(<ParentShell />);
+    expect(await screen.findByText(/chưa thể gửi tin nhắn mới/)).toBeTruthy();
+    expect(screen.queryByLabelText('Tin nhắn gửi giáo viên')).toBeNull();
   });
 
   it('shows the read-only obligation snapshot with distinct issued and outstanding values', async () => {

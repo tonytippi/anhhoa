@@ -64,6 +64,60 @@ type LeaveRequest = {
   operatingDates: string[];
   createdAt: string;
 };
+type ClassNote = {
+  className: string;
+  noteDate: string;
+  text: string;
+  updatedAt: string;
+  media: Array<{ id: string; contentType: string }>;
+};
+type ThreadMessage = {
+  id: string;
+  senderType: "TEACHER" | "PARENT";
+  senderLabel: string;
+  mine: boolean;
+  body: string;
+  createdAt: string;
+};
+type MessageThread = {
+  studentId: string;
+  canSend: boolean;
+  className: string | null;
+  messages: ThreadMessage[];
+};
+type MessageSummary = Array<{ studentId: string; unreadCount: number }>;
+type PendingMessage = {
+  studentId: string;
+  body: string;
+  operationId: string;
+  idempotencyKey: string;
+  state: "sending" | "reconciling" | "retry";
+};
+type View = "today" | "inbox" | "obligations" | "messages";
+const maxMessageLength = 2000;
+const isClassNote = (value: unknown): value is ClassNote =>
+  Boolean(value) &&
+  typeof (value as ClassNote).text === "string" &&
+  Array.isArray((value as ClassNote).media);
+const isThread = (value: unknown): value is MessageThread =>
+  Boolean(value) && Array.isArray((value as MessageThread).messages);
+const pathView = (): View =>
+  window.location.pathname === "/inbox"
+    ? "inbox"
+    : window.location.pathname === "/obligations"
+      ? "obligations"
+      : window.location.pathname === "/messages"
+        ? "messages"
+        : "today";
+const viewPath = (view: View) =>
+  view === "today" ? "/" : `/${view}`;
+const messageTime = (value: string) =>
+  new Date(value).toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+  });
 type PhoneOperation = { id: string; status: string; outcome: { phone: string } };
 type Obligation = { id: string; studentId: string; channel?: "SCHOOL" | "PERSONAL"; obligationCode: string; period: string; periodLabel?: string; issuedTotal: string; vatTotal?: string; deductionTotal?: string; carriedCredit?: string; actualReceipt: string; outcome: string | null; outstanding: string; state: "ISSUED" | "CLOSED"; effectiveAt: string; paymentInstruction: { receivingBank: string; accountNumber: string; accountHolderName: string; transferContent: string } };
 const vnd = (value: string) => new Intl.NumberFormat("vi-VN").format(BigInt(value)) + " đ";
@@ -192,7 +246,7 @@ function ParentWorkspace({
   const [journal, setJournal] = useState<Journal | null | undefined>();
   const [inbox, setInbox] = useState<InboxEvent[]>([]);
   const [unread, setUnread] = useState(0);
-  const [view, setView] = useState<"today" | "inbox" | "obligations">("today");
+  const [view, setView] = useState<View>("today");
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [obligation, setObligation] = useState<Obligation>();
   const [obligationLoading, setObligationLoading] = useState(false);
@@ -214,6 +268,15 @@ function ParentWorkspace({
   const [phoneErrors, setPhoneErrors] = useState<Record<string, string>>({});
   const [phoneOperation, setPhoneOperation] = useState<string>();
   const [contactOpen, setContactOpen] = useState(false);
+  const [classNote, setClassNote] = useState<ClassNote | null | undefined>();
+  const [classImageUrl, setClassImageUrl] = useState<string>();
+  const [messageSummary, setMessageSummary] = useState<MessageSummary>([]);
+  const [messageChild, setMessageChild] = useState<string>();
+  const [thread, setThread] = useState<MessageThread>();
+  const [threadError, setThreadError] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [pendingMessage, setPendingMessage] = useState<PendingMessage>();
+  const [sendError, setSendError] = useState<string>();
   const [mobileNavigation, setMobileNavigation] = useState(
     () => window.matchMedia?.("(max-width: 920px)").matches ?? false,
   );
@@ -232,6 +295,14 @@ function ParentWorkspace({
   const generation = useRef(0);
   const resolverGeneration = useRef(0);
   const image = useRef<string | undefined>(undefined);
+  const classNoteRequest = useRef<AbortController | undefined>(undefined);
+  const classMedia = useRef<AbortController | undefined>(undefined);
+  const classImage = useRef<string | undefined>(undefined);
+  const summaryRequest = useRef<AbortController | undefined>(undefined);
+  const threadRequest = useRef<AbortController | undefined>(undefined);
+  const threadGeneration = useRef(0);
+  const lastRead = useRef<string | undefined>(undefined);
+  const threadEnd = useRef<HTMLDivElement>(null);
   const inboxReady = useRef(false);
   const pendingSelector = useRef<{ studentId: string; date: string } | null>(
     null,
@@ -242,14 +313,31 @@ function ParentWorkspace({
     image.current = undefined;
     setImageUrl(undefined);
   };
+  const clearClassImage = () => {
+    classMedia.current?.abort();
+    if (classImage.current) URL.revokeObjectURL(classImage.current);
+    classImage.current = undefined;
+    setClassImageUrl(undefined);
+  };
+  const clearThread = () => {
+    threadRequest.current?.abort();
+    summaryRequest.current?.abort();
+    threadGeneration.current += 1;
+    lastRead.current = undefined;
+    setThread(undefined);
+    setThreadError(false);
+  };
   const clearDetail = () => {
     resolver.current?.abort();
     attendanceRequest.current?.abort();
     journalRequest.current?.abort();
+    classNoteRequest.current?.abort();
     media.current?.abort();
     generation.current += 1;
     resolverGeneration.current += 1;
     clearImage();
+    clearClassImage();
+    setClassNote(undefined);
     setDetailLoading(false);
     setSelected(undefined);
     setSelectedDate(undefined);
@@ -273,6 +361,12 @@ function ParentWorkspace({
     setObligation(undefined);
     setObligationLoading(false);
     setUnread(0);
+    clearThread();
+    setMessageSummary([]);
+    setMessageChild(undefined);
+    setDraft("");
+    setPendingMessage(undefined);
+    setSendError(undefined);
     onDenied();
   };
   const resolve = async (event: InboxEvent, push: boolean) => {
@@ -343,7 +437,7 @@ function ParentWorkspace({
     if (!requested) {
       pendingSelector.current = null;
       clearDetail();
-       setView(window.location.pathname === "/inbox" ? "inbox" : window.location.pathname === "/obligations" ? "obligations" : "today");
+      setView(pathView());
       return;
     }
     pendingSelector.current = requested;
@@ -395,7 +489,7 @@ function ParentWorkspace({
     workspaceLoad.current = controller;
     const id = ++workspaceGeneration.current;
     const requested = pendingSelector.current;
-    setView(window.location.pathname === "/inbox" ? "inbox" : window.location.pathname === "/obligations" ? "obligations" : "today");
+    setView(pathView());
     let pending = requested ? 1 : school.children.length + 1;
     setLoading(true);
     setError(false);
@@ -479,8 +573,10 @@ function ParentWorkspace({
       if (result.kind === "ok" && Array.isArray(result.data)) setObligations(result.data);
       else if (result.kind === "error") setError(true);
     });
+    refreshSummary();
     return () => {
       controller.abort();
+      summaryRequest.current?.abort();
       clearDetail();
     };
   }, [school.schoolId, school.children.map((child) => child.id).join(",")]);
@@ -512,6 +608,22 @@ function ParentWorkspace({
       if (result.kind === "ok") setJournal(result.data);
       else if (result.kind === "error") setError(true);
       setDetailLoading(false);
+    });
+    return () => controller.abort();
+  }, [selected, selectedDate, school.schoolId]);
+  useEffect(() => {
+    if (!selected || !selectedDate) return;
+    const controller = new AbortController();
+    classNoteRequest.current = controller;
+    clearClassImage();
+    setClassNote(undefined);
+    void parentGet<ClassNote | null>(
+      `/api/parent/schools/${school.schoolId}/students/${selected}/class-note?noteDate=${selectedDate}`,
+      controller.signal,
+    ).then((result) => {
+      if (controller.signal.aborted || result.kind === "aborted") return;
+      if (result.kind === "auth") return fallback("/");
+      setClassNote(result.kind === "ok" && isClassNote(result.data) ? result.data : null);
     });
     return () => controller.abort();
   }, [selected, selectedDate, school.schoolId]);
@@ -693,6 +805,186 @@ function ParentWorkspace({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [phoneOperation, school.schoolId]);
+  const refreshSummary = () => {
+    summaryRequest.current?.abort();
+    const controller = new AbortController();
+    summaryRequest.current = controller;
+    void parentGet<MessageSummary>(
+      `/api/parent/schools/${school.schoolId}/messages/summary`,
+      controller.signal,
+    ).then((result) => {
+      if (controller.signal.aborted || result.kind === "aborted") return;
+      if (result.kind === "auth") return fallback("/");
+      if (result.kind === "ok" && Array.isArray(result.data))
+        setMessageSummary(result.data);
+    });
+  };
+  const messageStudent =
+    messageChild && school.children.some((child) => child.id === messageChild)
+      ? messageChild
+      : school.children[0]?.id;
+  const messageTarget = useRef<string | undefined>(undefined);
+  messageTarget.current = view === "messages" ? messageStudent : undefined;
+  const unreadMessages = (studentId: string) =>
+    messageSummary.find((item) => item.studentId === studentId)?.unreadCount ?? 0;
+  const messageUnread = school.children.reduce(
+    (total, child) => total + unreadMessages(child.id),
+    0,
+  );
+  const loadThread = (studentId: string, quiet: boolean) => {
+    threadRequest.current?.abort();
+    const controller = new AbortController();
+    threadRequest.current = controller;
+    const id = ++threadGeneration.current;
+    if (!quiet) {
+      setThread(undefined);
+      setThreadError(false);
+    }
+    void parentGet<MessageThread>(
+      `/api/parent/schools/${school.schoolId}/students/${studentId}/messages`,
+      controller.signal,
+    ).then((result) => {
+      if (
+        controller.signal.aborted ||
+        id !== threadGeneration.current ||
+        result.kind === "aborted"
+      )
+        return;
+      if (result.kind === "auth" || result.kind === "denied")
+        return fallback("/");
+      if (result.kind !== "ok" || !isThread(result.data)) {
+        if (!quiet) setThreadError(true);
+        return;
+      }
+      setThread(result.data);
+      setThreadError(false);
+      const marker = `${studentId}:${result.data.messages.at(-1)?.id ?? ""}`;
+      if (lastRead.current === marker) return;
+      lastRead.current = marker;
+      void parentPost(
+        `/api/parent/schools/${school.schoolId}/students/${studentId}/messages/read`,
+        controller.signal,
+      ).then((read) => {
+        if (controller.signal.aborted || read.kind === "aborted") return;
+        if (read.kind === "auth") return fallback("/");
+        refreshSummary();
+      });
+    });
+  };
+  useEffect(() => {
+    if (view !== "messages" || !messageStudent) return;
+    loadThread(messageStudent, false);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadThread(messageStudent, true);
+    }, 30000);
+    return () => {
+      window.clearInterval(timer);
+      threadRequest.current?.abort();
+      threadGeneration.current += 1;
+    };
+  }, [view, messageStudent, school.schoolId]);
+  useEffect(() => {
+    if (view === "messages") return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshSummary();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [view, school.schoolId]);
+  const lastMessageId = thread?.messages.at(-1)?.id;
+  useLayoutEffect(() => {
+    threadEnd.current?.scrollIntoView?.({ block: "end" });
+  }, [lastMessageId, thread?.studentId]);
+  const finishMessage = (studentId: string) => {
+    setPendingMessage(undefined);
+    setDraft("");
+    setSendError(undefined);
+    if (messageTarget.current === studentId) loadThread(studentId, true);
+  };
+  const sendMessage = async () => {
+    if (!messageStudent || !thread?.canSend) return;
+    if (pendingMessage && pendingMessage.state !== "retry") return;
+    const body = pendingMessage?.body ?? draft.trim();
+    if (!body) return;
+    if (body.length > maxMessageLength) {
+      setSendError(`Tin nhắn tối đa ${maxMessageLength} ký tự.`);
+      return;
+    }
+    // A retry after an unconfirmed send reuses the same Operation so the server can never record it twice.
+    const pending: PendingMessage = pendingMessage
+      ? { ...pendingMessage, state: "sending" }
+      : {
+          studentId: messageStudent,
+          body,
+          operationId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
+          state: "sending",
+        };
+    setPendingMessage(pending);
+    setSendError(undefined);
+    const result = await parentMutation<{ id: string; status: string }>(
+      `/api/parent/schools/${school.schoolId}/students/${pending.studentId}/messages`,
+      "POST",
+      { body: pending.body },
+      pending.idempotencyKey,
+      pending.operationId,
+    );
+    if (result.kind === "auth" || result.kind === "denied")
+      return fallback("/");
+    if (result.kind === "ok") return finishMessage(pending.studentId);
+    if (result.kind === "unknown" || result.kind === "aborted") {
+      setPendingMessage({ ...pending, state: "reconciling" });
+      return;
+    }
+    setPendingMessage(undefined);
+    setSendError(
+      result.kind === "validation"
+        ? (result.fieldErrors.body ??
+            Object.values(result.fieldErrors)[0] ??
+            "Tin nhắn không hợp lệ.")
+        : "Không gửi được tin nhắn. Vui lòng thử lại sau.",
+    );
+    loadThread(pending.studentId, true);
+  };
+  useEffect(() => {
+    if (pendingMessage?.state !== "reconciling") return;
+    const { operationId, studentId } = pendingMessage;
+    const timer = window.setInterval(() => {
+      void parentGet<{ id: string; status: string }>(
+        `/api/parent/schools/${school.schoolId}/operations/${operationId}`,
+      ).then((result) => {
+        if (result.kind === "auth") return fallback("/");
+        if (result.kind === "ok" && result.data.status === "COMPLETED")
+          finishMessage(studentId);
+        else if (result.kind === "denied")
+          setPendingMessage((current) =>
+            current?.operationId === operationId
+              ? { ...current, state: "retry" }
+              : current,
+          );
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [pendingMessage?.operationId, pendingMessage?.state, school.schoolId]);
+  const openClassMedia = async (mediaId: string) => {
+    clearClassImage();
+    const controller = new AbortController();
+    classMedia.current = controller;
+    const id = generation.current;
+    const result = await parentMedia(
+      `/api/parent/schools/${school.schoolId}/class-note-media/${mediaId}`,
+      controller.signal,
+    );
+    if (
+      controller.signal.aborted ||
+      id !== generation.current ||
+      result.kind === "aborted"
+    )
+      return;
+    if (result.kind === "auth" || result.kind === "denied") return fallback();
+    if (result.kind !== "ok") return setError(true);
+    classImage.current = URL.createObjectURL(result.data);
+    setClassImageUrl(classImage.current);
+  };
   const openMedia = async (mediaId: string) => {
     clearImage();
     const controller = new AbortController();
@@ -715,7 +1007,8 @@ function ParentWorkspace({
   };
   const current = selected ? attendance[selected] : undefined;
   useEffect(() => {
-    if (selected || view === "inbox") headingRef.current?.focus();
+    if (selected || view === "inbox" || view === "messages")
+      headingRef.current?.focus();
   }, [selected, view, headingRef]);
   const openObligation = async (id: string) => {
     obligationRequest.current?.abort();
@@ -731,12 +1024,12 @@ function ParentWorkspace({
     setObligationLoading(false);
     setError(true);
   };
-  const navigate = (next: "today" | "inbox" | "obligations") => {
+  const navigate = (next: View) => {
     obligationRequest.current?.abort();
     obligationGeneration.current += 1;
     pendingSelector.current = null;
     clearDetail();
-    window.history.pushState(null, "", next === "inbox" ? "/inbox" : next === "obligations" ? "/obligations" : "/");
+    window.history.pushState(null, "", viewPath(next));
     setView(next);
   };
   const closeObligation = () => {
@@ -746,7 +1039,7 @@ function ParentWorkspace({
     setObligationLoading(false);
   };
   return (
-    <div className="parent-app">
+    <div className={`parent-app ${view === "messages" ? "messages-mode" : ""}`}>
       <aside className="desktop-sidebar" aria-label="Điều hướng phụ huynh">
         <div className="brand">
           <span className="brand-mark">P</span>
@@ -766,6 +1059,13 @@ function ParentWorkspace({
           onClick={() => navigate("inbox")}
         >
           Thông báo {unread > 0 && <span className="unread">{unread}</span>}
+        </button>
+        <button
+          className={`side-link ${view === "messages" ? "active" : ""}`}
+          onClick={() => navigate("messages")}
+        >
+          Tin nhắn{" "}
+          {messageUnread > 0 && <span className="unread" aria-label={`${messageUnread} tin nhắn chưa đọc`}>{messageUnread}</span>}
         </button>
         <button className={`side-link ${view === "obligations" ? "active" : ""}`} onClick={() => navigate("obligations")}>Khoản cần thanh toán</button>
         <div className="sidebar-account">
@@ -791,6 +1091,8 @@ function ParentWorkspace({
             <h1 ref={headingRef} tabIndex={-1}>
               {view === "inbox"
                 ? "Thông báo"
+                : view === "messages"
+                  ? "Tin nhắn"
                 : view === "obligations"
                   ? obligation ? "Khoản cần thanh toán" : "Khoản cần thanh toán"
                 : selected
@@ -801,6 +1103,8 @@ function ParentWorkspace({
             <p>
               {view === "inbox"
                 ? "Sự kiện điểm danh trong 30 ngày gần đây"
+                : view === "messages"
+                  ? "Trao đổi riêng với giáo viên lớp về từng bé."
                 : view === "obligations"
                   ? "Thông tin bản chụp của nghĩa vụ đã phát hành."
                 : selected
@@ -823,7 +1127,130 @@ function ParentWorkspace({
               </form>
             </section>
           )}
-           {view === "obligations" ? (
+           {view === "messages" ? (
+            <>
+              {school.children.length > 1 && (
+                <div className="child-switcher" aria-label="Chọn bé">
+                  {school.children.map((child) => {
+                    const count = unreadMessages(child.id);
+                    return (
+                      <button
+                        key={child.id}
+                        className={`child-chip ${child.id === messageStudent ? "active" : ""}`}
+                        aria-pressed={child.id === messageStudent}
+                        disabled={Boolean(pendingMessage)}
+                        onClick={() => {
+                          if (child.id === messageStudent) return;
+                          setMessageChild(child.id);
+                          setDraft("");
+                          setSendError(undefined);
+                        }}
+                      >
+                        <strong>{child.fullName}</strong>
+                        <small>{count > 0 ? `${count} tin nhắn mới` : "Không có tin nhắn mới"}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <section className="panel chat-panel" aria-label="Cuộc trò chuyện với giáo viên">
+                <div className="panel-header">
+                  <h2>
+                    {thread?.className
+                      ? `Giáo viên lớp ${thread.className}`
+                      : "Giáo viên lớp"}
+                  </h2>
+                  {school.children.length === 1 && (
+                    <span className="muted">{school.children[0]?.fullName}</span>
+                  )}
+                </div>
+                <div className="chat-thread" role="log" aria-label="Tin nhắn">
+                  {threadError ? (
+                    <p role="alert">Không thể tải tin nhắn. Vui lòng thử lại sau.</p>
+                  ) : !thread ? (
+                    <p className="muted">Đang tải tin nhắn...</p>
+                  ) : thread.messages.length === 0 ? (
+                    <p className="empty-state">
+                      Chưa có tin nhắn.
+                      {thread.canSend ? " Phụ huynh có thể gửi lời nhắn đầu tiên cho giáo viên lớp." : ""}
+                    </p>
+                  ) : (
+                    thread.messages.map((message) => (
+                      <article
+                        key={message.id}
+                        className={`chat-message ${message.mine ? "mine" : ""}`}
+                      >
+                        <p className="chat-meta">
+                          {message.mine ? "Bạn" : message.senderLabel} ·{" "}
+                          <time dateTime={message.createdAt}>{messageTime(message.createdAt)}</time>
+                        </p>
+                        <p className="chat-bubble">{message.body}</p>
+                      </article>
+                    ))
+                  )}
+                  <div ref={threadEnd} />
+                </div>
+                {thread && !thread.canSend ? (
+                  <p className="quiet-note chat-note">
+                    Bé hiện chưa thuộc lớp nào nên chưa thể gửi tin nhắn mới. Phụ huynh vẫn xem được các tin nhắn trước đây.
+                  </p>
+                ) : (
+                  <form
+                    className="chat-composer"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void sendMessage();
+                    }}
+                  >
+                    <label className="sr-only" htmlFor="message-draft">Tin nhắn gửi giáo viên</label>
+                    <textarea
+                      id="message-draft"
+                      rows={2}
+                      maxLength={maxMessageLength}
+                      placeholder="Nhập tin nhắn cho giáo viên"
+                      value={pendingMessage?.body ?? draft}
+                      readOnly={Boolean(pendingMessage)}
+                      disabled={!thread}
+                      aria-invalid={Boolean(sendError)}
+                      aria-describedby={sendError ? "message-error" : undefined}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (
+                          !mobileNavigation &&
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault();
+                          void sendMessage();
+                        }
+                      }}
+                    />
+                    <button
+                      className="primary-button"
+                      disabled={
+                        !thread ||
+                        (pendingMessage
+                          ? pendingMessage.state !== "retry"
+                          : !draft.trim())
+                      }
+                    >
+                      {pendingMessage?.state === "retry" ? "Gửi lại" : "Gửi"}
+                    </button>
+                    {sendError && (
+                      <p id="message-error" className="chat-status" role="alert">{sendError}</p>
+                    )}
+                    {pendingMessage?.state === "reconciling" && (
+                      <p className="chat-status" aria-live="polite">Đang kiểm tra kết quả với hệ thống...</p>
+                    )}
+                    {pendingMessage?.state === "retry" && (
+                      <p className="chat-status" aria-live="polite">Hệ thống chưa nhận được tin nhắn này. Bấm Gửi lại để gửi an toàn, không bị trùng.</p>
+                    )}
+                  </form>
+                )}
+              </section>
+            </>
+          ) : view === "obligations" ? (
               obligation || obligationLoading ? <>
                 <button className="text-button" onClick={closeObligation}>Quay lại danh sách</button>
                 {obligation ? <><section className="panel"><h2>{obligation.state === "ISSUED" ? (BigInt(obligation.issuedTotal) < 0n ? "Trường hoàn lại cho phụ huynh" : "Đang chờ thanh toán") : "Đã hoàn tất"}</h2><dl className="payment-facts"><div><dt>Mã nghĩa vụ</dt><dd>{obligation.obligationCode}</dd></div><div><dt>Kỳ thu</dt><dd>{obligation.periodLabel || obligation.period}</dd></div><div><dt>{BigInt(obligation.issuedTotal) < 0n ? (obligation.carriedCredit && obligation.carriedCredit !== "0" ? "Tiền thừa trừ vào tháng sau" : "Trường hoàn lại") : "Tổng tiền khi phát hành"}</dt><dd>{vnd((BigInt(obligation.issuedTotal) < 0n ? -BigInt(obligation.issuedTotal) : BigInt(obligation.issuedTotal)).toString())}{obligation.deductionTotal && obligation.deductionTotal !== "0" && <><br /><small>Đã bớt {vnd(obligation.deductionTotal)} cho ngày nghỉ có phép</small></>}{obligation.vatTotal && obligation.vatTotal !== "0" && <><br /><small>Đã gồm thuế GTGT {vnd(obligation.vatTotal)}</small></>}</dd></div><div><dt>Đã nhận thực tế</dt><dd>{vnd(obligation.actualReceipt)}</dd></div>{BigInt(obligation.issuedTotal) >= 0n && <div><dt>Còn phải thanh toán</dt><dd>{vnd(obligation.outstanding)}</dd></div>}<div><dt>Cập nhật</dt><dd>{new Date(obligation.effectiveAt).toLocaleString("vi-VN")}</dd></div></dl></section>{BigInt(obligation.issuedTotal) < 0n ? <section className="panel"><h2>Hoàn tiền</h2><p className="muted">{obligation.state === "ISSUED" ? "Nhà trường sẽ chuyển khoản hoặc trả tiền mặt cho phụ huynh và xác nhận sau khi chi. Phụ huynh không cần chuyển khoản." : "Nhà trường đã chi hoàn khoản này."}</p></section> : <section className="panel"><h2>Thông tin chuyển khoản</h2><dl className="payment-facts"><div><dt>Ngân hàng nhận</dt><dd>{obligation.paymentInstruction.receivingBank}</dd></div><div><dt>Số tài khoản</dt><dd>{obligation.paymentInstruction.accountNumber}</dd></div><div><dt>Chủ tài khoản</dt><dd>{obligation.paymentInstruction.accountHolderName}</dd></div><div><dt>Nội dung</dt><dd>{obligation.paymentInstruction.transferContent}</dd></div></dl>{BigInt(obligation.outstanding) > 0n ? <p className="muted">Vui lòng chuyển đúng số tiền còn phải thanh toán.</p> : <p className="muted">Nghĩa vụ này đã hoàn tất. Không có thao tác thanh toán.</p>}</section>}</> : <p aria-live="polite">Đang tải khoản cần thanh toán...</p>}
@@ -1066,6 +1493,34 @@ function ParentWorkspace({
                   )}
                 </section>
               )}
+              {classNote && (
+                <section className="panel journal-card">
+                  <h2>Bản tin lớp {classNote.className}</h2>
+                  <p className="class-note-text">{classNote.text}</p>
+                  {classNote.media.length > 0 && (
+                    <div className="journal-media">
+                      {classNote.media.map((item, index) => (
+                        <button
+                          className="text-button"
+                          key={item.id}
+                          onClick={() => void openClassMedia(item.id)}
+                        >
+                          {classNote.media.length > 1
+                            ? `Xem ảnh bản tin lớp ${index + 1}`
+                            : "Xem ảnh bản tin lớp"}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {classImageUrl && (
+                    <img
+                      className="journal-image"
+                      src={classImageUrl}
+                      alt="Ảnh bản tin lớp trong ngày"
+                    />
+                  )}
+                </section>
+              )}
             </>
           ) : (
             <>
@@ -1094,6 +1549,7 @@ function ParentWorkspace({
       {mobileNavigation && <nav className="mobile-nav" aria-label="Điều hướng phụ huynh">
         <button className={view === "today" ? "active" : ""} onClick={() => navigate("today")}>Hôm nay</button>
         <button className={view === "inbox" ? "active" : ""} onClick={() => navigate("inbox")}>Thông báo{unread > 0 ? ` (${unread})` : ""}</button>
+        <button className={view === "messages" ? "active" : ""} onClick={() => navigate("messages")}>Tin nhắn{messageUnread > 0 ? ` (${messageUnread})` : ""}</button>
         <button className={view === "obligations" ? "active" : ""} onClick={() => navigate("obligations")}>Khoản cần thanh toán</button>
         <button className={contactOpen ? "active" : ""} onClick={() => setContactOpen(true)}>Liên hệ</button>
       </nav>}
