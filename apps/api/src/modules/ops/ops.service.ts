@@ -44,6 +44,8 @@ export class OpsService {
       // A School that does not use school years gets its only SchoolYear here; roster refuses to create another.
       if (!schoolFeatures(kind).usesSchoolYears) await tx.schoolYear.create({ data: { schoolId: school.id, name: 'Toàn thời gian', startsOn: new Date('2000-01-01T00:00:00.000Z'), endsOn: null } });
        const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: owner.id } });
+       // The default calendar (Monday to Saturday, no holidays) applies from the start so every month has a calendar snapshot.
+       await tx.schoolCalendarVersion.create({ data: { schoolId: school.id, effectiveFrom: new Date('2000-01-01T00:00:00.000Z'), actorIdentityId: owner.id, membershipId: membership.id } });
        const positions = await Promise.all([
          ['HIEU_TRUONG', 'Hiệu trưởng'], ['QUAN_LY_TRUONG', 'Quản lý trường'], ['KE_TOAN', 'Kế toán'], ['GIAO_VIEN', 'Giáo viên'], ['TUYEN_SINH', 'Nhân viên tuyển sinh'], ['BEP', 'Bếp'], ['Y_TE', 'Y tế'],
        ].map(([code, positionName]) => tx.schoolPosition.create({ data: { schoolId: school.id, code, name: positionName } })));

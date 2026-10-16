@@ -399,6 +399,8 @@ async function seedPreschool(tx: Prisma.TransactionClient, tenant: PreschoolSeed
     create: { schoolId: school.id, userIdentityId: owner.id },
     update: { status: 'ACTIVE' },
   });
+  if (!await tx.schoolCalendarVersion.findFirst({ where: { schoolId: school.id } }))
+    await tx.schoolCalendarVersion.create({ data: { schoolId: school.id, effectiveFrom: new Date('2000-01-01T00:00:00.000Z'), actorIdentityId: owner.id, membershipId: membership.id } });
   const seededPositions = await Promise.all(positions.map(async ([code, name]) => [code, await tx.schoolPosition.upsert({
     where: { schoolId_code: { schoolId: school.id, code } },
     create: { schoolId: school.id, code, name, status: 'ACTIVE' },
@@ -610,6 +612,8 @@ async function seedCenter(tx: any, roster: PeakLandRosterRecord[], staff: PeakLa
     create: { schoolId, userIdentityId: owner.id },
     update: { status: 'ACTIVE' },
   });
+  if (!await tx.schoolCalendarVersion.findFirst({ where: { schoolId } }))
+    await tx.schoolCalendarVersion.create({ data: { schoolId, effectiveFrom: new Date('2000-01-01T00:00:00.000Z'), actorIdentityId: owner.id, membershipId: membership.id } });
   const positionByCode = new Map<string, { id: string }>();
   for (const [code, name] of positions) {
     positionByCode.set(code, await tx.schoolPosition.upsert({ where: { schoolId_code: { schoolId, code } }, create: { schoolId, code, name, status: 'ACTIVE' }, update: {} }));
