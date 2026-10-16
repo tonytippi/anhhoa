@@ -43,6 +43,10 @@ model School {
   leaveRequests                     LeaveRequest[]
   leaveDaySources                   LeaveDaySource[]
   leaveDaySourceExclusions          LeaveDaySourceExclusion[]
+  classDailyNotes                   ClassDailyNote[]
+  classDailyNoteMedia               ClassDailyNoteMedia[]
+  studentMessages                   StudentMessage[]
+  studentMessageReads               StudentMessageRead[]
   attendanceRecords                 AttendanceRecord[]
   handoverRecords                   HandoverRecord[]
   evidenceReferences                EvidenceReference[]
@@ -158,6 +162,8 @@ model Class {
   uploadedEvidenceReferences EvidenceReference[]               @relation("EvidenceUploadedClass")
   dailyJournals              DailyJournal[]
   dailyJournalMedia          DailyJournalMedia[]
+  classDailyNotes            ClassDailyNote[]
+  classDailyNoteMedia        ClassDailyNoteMedia[]
   templateScopeClasses       CollectionRunTemplateScopeClass[]
   collectionRuns             CollectionRun[]
   receivableClasses          ReceivableClass[]
@@ -168,36 +174,38 @@ model Class {
 }
 
 model StaffProfile {
-  id                         String                 @id @default(uuid()) @db.Uuid
-  schoolId                   String                 @db.Uuid
-  fullName                   String
-  email                      String?
-  phone                      String?
-  dateOfBirth                DateTime               @db.Date
-  gender                     String?
-  address                    String?
-  staffCode                  String?
-  personalIdentifier         String?
-  employmentStatus           StaffEmploymentStatus  @default(ACTIVE)
-  primaryPositionId          String                 @db.Uuid
-  schoolMembershipId         String?                @unique @db.Uuid
-  boundAt                    DateTime?              @db.Timestamptz(3)
-  boundByMembershipId        String?                @db.Uuid
-  createdAt                  DateTime               @default(now()) @db.Timestamptz(3)
-  updatedAt                  DateTime               @updatedAt @db.Timestamptz(3)
-  school                     School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  primaryPosition            SchoolPosition         @relation(fields: [schoolId, primaryPositionId], references: [schoolId, id], onDelete: Restrict)
-  schoolMembership           SchoolMembership?      @relation("StaffProfileLoginBinding", fields: [schoolId, schoolMembershipId], references: [schoolId, id], onDelete: Restrict)
-  boundByMembership          SchoolMembership?      @relation("StaffProfileBindingAuditor", fields: [schoolId, boundByMembershipId], references: [schoolId, id], onDelete: Restrict)
-  assignments                StaffClassAssignment[]
-  attendanceRecords          AttendanceRecord[]
-  handoverRecords            HandoverRecord[]
-  uploadedEvidenceReferences EvidenceReference[]    @relation("EvidenceUploadedStaffProfile")
-  dailyJournals              DailyJournal[]
-  dailyJournalVersions       DailyJournalVersion[]
-  uploadedDailyJournalMedia  DailyJournalMedia[]    @relation("DailyJournalMediaUploader")
-  photo                      StaffPhoto?
-  issuedCodes                StaffCodeRegistry[]
+  id                          String                 @id @default(uuid()) @db.Uuid
+  schoolId                    String                 @db.Uuid
+  fullName                    String
+  email                       String?
+  phone                       String?
+  dateOfBirth                 DateTime               @db.Date
+  gender                      String?
+  address                     String?
+  staffCode                   String?
+  personalIdentifier          String?
+  employmentStatus            StaffEmploymentStatus  @default(ACTIVE)
+  primaryPositionId           String                 @db.Uuid
+  schoolMembershipId          String?                @unique @db.Uuid
+  boundAt                     DateTime?              @db.Timestamptz(3)
+  boundByMembershipId         String?                @db.Uuid
+  createdAt                   DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime               @updatedAt @db.Timestamptz(3)
+  school                      School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  primaryPosition             SchoolPosition         @relation(fields: [schoolId, primaryPositionId], references: [schoolId, id], onDelete: Restrict)
+  schoolMembership            SchoolMembership?      @relation("StaffProfileLoginBinding", fields: [schoolId, schoolMembershipId], references: [schoolId, id], onDelete: Restrict)
+  boundByMembership           SchoolMembership?      @relation("StaffProfileBindingAuditor", fields: [schoolId, boundByMembershipId], references: [schoolId, id], onDelete: Restrict)
+  assignments                 StaffClassAssignment[]
+  attendanceRecords           AttendanceRecord[]
+  handoverRecords             HandoverRecord[]
+  uploadedEvidenceReferences  EvidenceReference[]    @relation("EvidenceUploadedStaffProfile")
+  dailyJournals               DailyJournal[]
+  dailyJournalVersions        DailyJournalVersion[]
+  uploadedDailyJournalMedia   DailyJournalMedia[]    @relation("DailyJournalMediaUploader")
+  classDailyNotes             ClassDailyNote[]
+  uploadedClassDailyNoteMedia ClassDailyNoteMedia[]  @relation("ClassDailyNoteMediaUploader")
+  photo                       StaffPhoto?
+  issuedCodes                 StaffCodeRegistry[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, primaryPositionId, id])
@@ -422,6 +430,8 @@ model Student {
   handoverRecords                 HandoverRecord[]
   dailyJournals                   DailyJournal[]
   dailyJournalMedia               DailyJournalMedia[]
+  studentMessages                 StudentMessage[]
+  studentMessageReads             StudentMessageRead[]
   notificationSourceEvents        NotificationSourceEvent[]
   collectionRunSelections         CollectionRunSelection[]
   invoices                        Invoice[]
@@ -2321,4 +2331,83 @@ model CollectionRunExtracurricularExclusion {
 
   @@unique([schoolId, collectionRunId, extracurricularClassId])
   @@index([schoolId, extracurricularClassId])
+}
+
+// Sprint change 2026-10-16: a Class-wide note for one day that every Parent of the Class sees beside the per-Student journal.
+model ClassDailyNote {
+  id              String       @id @default(uuid()) @db.Uuid
+  schoolId        String       @db.Uuid
+  classId         String       @db.Uuid
+  noteDate        DateTime     @db.Date
+  text            String
+  mediaIds        String[]     @db.Uuid
+  currentVersion  Int          @default(1)
+  actorIdentityId String       @db.Uuid
+  membershipId    String       @db.Uuid
+  staffProfileId  String       @db.Uuid
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @db.Timestamptz(3)
+  school          School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classroom       Class        @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
+  staffProfile    StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, classId, noteDate])
+}
+
+model ClassDailyNoteMedia {
+  id                       String       @id @default(uuid()) @db.Uuid
+  schoolId                 String       @db.Uuid
+  classId                  String       @db.Uuid
+  noteDate                 DateTime     @db.Date
+  contentType              String
+  blob                     Bytes
+  uploadedByMembershipId   String       @db.Uuid
+  uploadedByStaffProfileId String       @db.Uuid
+  attachedNoteId           String?      @db.Uuid
+  createdAt                DateTime     @default(now()) @db.Timestamptz(3)
+  school                   School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  classroom                Class        @relation(fields: [schoolId, classId], references: [schoolId, id], onDelete: Restrict)
+  uploadedByStaffProfile   StaffProfile @relation("ClassDailyNoteMediaUploader", fields: [schoolId, uploadedByStaffProfileId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, classId, noteDate])
+}
+
+enum StudentMessageParty {
+  TEACHER
+  PARENT
+}
+
+// Sprint change 2026-10-16: one conversation per Student between the Class teachers and the Student's linked Parents.
+model StudentMessage {
+  id               String              @id @default(uuid()) @db.Uuid
+  schoolId         String              @db.Uuid
+  studentId        String              @db.Uuid
+  senderType       StudentMessageParty
+  senderIdentityId String              @db.Uuid
+  senderReference  String              @db.Uuid
+  senderName       String
+  senderLabel      String
+  body             String
+  operationId      String              @db.Uuid
+  createdAt        DateTime            @default(now()) @db.Timestamptz(3)
+  school           School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student          Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, studentId, createdAt])
+}
+
+model StudentMessageRead {
+  id              String              @id @default(uuid()) @db.Uuid
+  schoolId        String              @db.Uuid
+  studentId       String              @db.Uuid
+  readerType      StudentMessageParty
+  readerReference String              @db.Uuid
+  lastReadAt      DateTime            @db.Timestamptz(3)
+  school          School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, studentId, readerType, readerReference])
 }

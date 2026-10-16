@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from "@nestjs/common";
 import { auditData } from "../common/audit.js";
@@ -11,6 +12,13 @@ import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
 import { schoolFeatures, type SchoolKind } from "../common/school-features.js";
 import { PrismaService } from "../identity/prisma.service.js";
+import {
+  classNoteMediaUploadRoute,
+  classNoteSaveRoute,
+  CommunicationsService,
+  parentMessageRoute,
+  teacherMessageRoute,
+} from "../communications/communications.service.js";
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -47,7 +55,10 @@ type LeaveFacts = {
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly communications?: CommunicationsService,
+  ) {}
 
   private date(value: unknown, field: string) {
     if (
@@ -909,7 +920,7 @@ export class AttendanceService {
         schoolId,
         actorType: "PARENT_PROFILE",
         actorReference: parent.id,
-        route: { in: [parentRoute, parentEditRoute, parentCancelRoute, parentPhoneRoute] },
+        route: { in: [parentRoute, parentEditRoute, parentCancelRoute, parentPhoneRoute, parentMessageRoute] },
       },
     });
     const outcome = operation?.outcome as { studentId?: string } | null;
@@ -1424,7 +1435,7 @@ export class AttendanceService {
         },
       },
       include: {
-        student: { select: { id: true, fullName: true } },
+        student: { select: { id: true, fullName: true, studentCode: true } },
         classAssignments: {
           where: {
             classId,
@@ -1468,6 +1479,7 @@ export class AttendanceService {
         return {
           studentId: row.studentId,
           fullName: row.student.fullName,
+          studentCode: row.student.studentCode,
           state:
             record?.state ??
             (onLeave.has(row.studentId) ? "ON_LEAVE" : "NOT_RECORDED"),
@@ -1701,6 +1713,41 @@ export class AttendanceService {
         code: "OPERATION_NOT_FOUND",
         message: "Không tìm thấy thao tác.",
       });
+    // Class notes and messages live in CommunicationsService, which re-authorizes against the Class the Operation touched.
+    const membership = await this.prisma.schoolMembership.findFirst({
+      where: { schoolId, userIdentityId: identityId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    const communication = membership
+      ? await this.prisma.operation.findFirst({
+          where: {
+            id: operationId,
+            schoolId,
+            actorType: "SCHOOL_MEMBERSHIP",
+            actorReference: membership.id,
+            route: { in: [classNoteSaveRoute, classNoteMediaUploadRoute, teacherMessageRoute] },
+          },
+        })
+      : null;
+    if (communication) {
+      if (
+        !(await this.communications?.authorizeTeacherOperation(
+          identityId,
+          schoolId,
+          communication.route,
+          communication.outcome,
+        ))
+      )
+        throw new NotFoundException({
+          code: "OPERATION_NOT_FOUND",
+          message: "Không tìm thấy thao tác.",
+        });
+      return {
+        id: communication.id,
+        status: communication.status,
+        outcome: communication.outcome,
+      };
+    }
     const actor = await this.teacher(identityId, schoolId);
     const operation = await this.prisma.operation.findFirst({
       where: {
@@ -2271,7 +2318,7 @@ export class AttendanceService {
         effectiveFrom: { lte: on },
         OR: [{ endedOn: null }, { endedOn: { gt: on } }],
       },
-      include: { student: { select: { id: true, fullName: true } } },
+      include: { student: { select: { id: true, fullName: true, studentCode: true } } },
       orderBy: [{ student: { fullName: "asc" } }, { studentId: "asc" }],
     });
     const records = await this.prisma.handoverRecord.findMany({
@@ -2289,6 +2336,7 @@ export class AttendanceService {
         return {
           studentId: student.id,
           fullName: student.fullName,
+          studentCode: student.studentCode,
           pickedUpAt: record?.pickedUpAt.toISOString() ?? null,
           evidenceId: record?.evidenceId ?? null,
           evidenceAvailability: record?.evidenceId

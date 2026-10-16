@@ -91,6 +91,7 @@ const positionCapabilityGroups = [
       { code: "DAILY_JOURNAL_WRITE", label: "Nhận xét trong ngày" },
       { code: "HANDOVER_WRITE", label: "Bàn giao" },
       { code: "OPERATIONAL_QUEUE_READ", label: "Xem việc cần xử lý" },
+      { code: "PARENT_MESSAGE_WRITE", label: "Nhắn tin phụ huynh" },
     ],
   },
   {
@@ -2826,6 +2827,7 @@ export class RosterService {
                   "CLASS_LEAVE_READ",
                   "ATTENDANCE_WRITE",
                   "DAILY_JOURNAL_WRITE",
+                  "PARENT_MESSAGE_WRITE",
                 ],
               },
             },

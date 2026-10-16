@@ -4,7 +4,7 @@ import { schoolFeatures, type SchoolFeatures, type SchoolKind } from '../common/
 
 export const capabilityCatalog = [
   'SCHOOL_CONTEXT_READ', 'ACCESS_MANAGE', 'ROSTER_MANAGE', 'SETTINGS_MANAGE', 'FINANCE_MANAGE',
-  'CLASS_LEAVE_READ', 'LEAVE_REQUEST_DECIDE', 'ATTENDANCE_WRITE', 'DAILY_JOURNAL_WRITE', 'HANDOVER_WRITE', 'OPERATIONAL_QUEUE_READ',
+  'CLASS_LEAVE_READ', 'LEAVE_REQUEST_DECIDE', 'ATTENDANCE_WRITE', 'DAILY_JOURNAL_WRITE', 'HANDOVER_WRITE', 'OPERATIONAL_QUEUE_READ', 'PARENT_MESSAGE_WRITE',
   'WORKFORCE_MANAGE', 'TIMEKEEPING_IMPORT', 'TIMEKEEPING_REVIEW', 'LATE_CARE_MANAGE',
   'PAYROLL_PREPARE', 'PAYROLL_RECONCILE', 'PAYROLL_APPROVE', 'PAYROLL_REOPEN',
   'PAYROLL_PAYOUT_CONFIRM', 'PAYROLL_REPORT_READ',
@@ -20,7 +20,7 @@ export class AuthorizationService {
   private capabilities(grants: Array<{ capability: string }>, audience: SchoolAudience): Capability[] {
     const allowed = new Set(capabilityCatalog);
     const values = grants.map((grant) => grant.capability).filter((value): value is Capability => allowed.has(value as Capability));
-    if (audience === 'teacher') return values.filter((value) => ['SCHOOL_CONTEXT_READ', 'CLASS_LEAVE_READ', 'ATTENDANCE_WRITE', 'DAILY_JOURNAL_WRITE', 'HANDOVER_WRITE', 'OPERATIONAL_QUEUE_READ'].includes(value));
+    if (audience === 'teacher') return values.filter((value) => ['SCHOOL_CONTEXT_READ', 'CLASS_LEAVE_READ', 'ATTENDANCE_WRITE', 'DAILY_JOURNAL_WRITE', 'HANDOVER_WRITE', 'OPERATIONAL_QUEUE_READ', 'PARENT_MESSAGE_WRITE'].includes(value));
     return values;
   }
 
@@ -29,6 +29,7 @@ export class AuthorizationService {
     if (capabilities.includes('ATTENDANCE_WRITE')) navigation.push({ id: 'attendance', label: 'Điểm danh' });
     if (capabilities.includes('DAILY_JOURNAL_WRITE')) navigation.push({ id: 'daily-journal', label: 'Nhận xét trong ngày' });
     if (capabilities.includes('HANDOVER_WRITE')) navigation.push({ id: 'handover', label: 'Bàn giao' });
+    if (audience === 'teacher' && capabilities.includes('PARENT_MESSAGE_WRITE')) navigation.push({ id: 'messages', label: 'Tin nhắn phụ huynh' });
     if (capabilities.includes('LEAVE_REQUEST_DECIDE')) navigation.push({ id: 'leave-review', label: 'Duyệt đơn nghỉ' });
     if (capabilities.includes('ACCESS_MANAGE')) navigation.push({ id: 'access', label: 'Quản lý truy cập' });
     if (capabilities.includes('ROSTER_MANAGE')) navigation.push({ id: 'roster', label: 'Danh bộ' });
