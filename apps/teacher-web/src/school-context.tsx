@@ -1,103 +1,223 @@
-import { useEffect, useRef, useState } from 'react';
-import { AttendanceWorkspace } from './attendance/attendance-workspace';
-import { HandoverWorkspace } from './handover/handover-workspace';
-import { DailyJournalWorkspace } from './daily-journal/daily-journal-workspace';
-import { OperationalQueueWorkspace } from './attendance/operational-queue-workspace';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiGet, hcmToday } from './api';
+import type { Session } from './auth-session';
+import { ClassDayWorkspace } from './class-day/class-day-workspace';
+import { JournalsWorkspace } from './journals/journals-workspace';
+import { MessagesWorkspace } from './messages/messages-workspace';
+import { QueueWorkspace } from './queue/queue-workspace';
 
 type School = { schoolId: string; schoolSlug: string; schoolName: string };
-type Context = School & { navigation: Array<{ id: string; label: string }>; features?: { dailyJournal?: boolean; handover?: boolean } };
-// Sprint change 2026-10-12: a School whose kind turns a feature off hides its entry; the API refuses it with 409 SCHOOL_FEATURE_DISABLED anyway.
-const featureOf: Record<string, 'dailyJournal' | 'handover'> = { 'daily-journal': 'dailyJournal', handover: 'handover' };
-const visibleNavigation = (context: Context) => context.navigation.filter((item) => item.id !== 'access' && !(featureOf[item.id] && context.features?.[featureOf[item.id]!] === false));
-type Destination = { schoolSlug: string };
-type WorkspaceStatus = { dirty: boolean; pending: boolean; reconcile: () => Promise<void> };
-const apiUrl = typeof __API_URL__ === 'undefined' ? '' : __API_URL__;
-const denied = (status: number) => [401, 403, 404].includes(status);
-const destinationFromPath = (pathname: string): Destination | undefined => {
-  const match = /^\/schools\/([^/]+)$/.exec(pathname);
-  return match ? { schoolSlug: match[1]! } : undefined;
-};
-const pathFor = (destination: Destination) => `/schools/${destination.schoolSlug}`;
+type Features = { dailyJournal?: boolean; handover?: boolean };
+type Context = School & { navigation: Array<{ id: string; label: string }>; features?: Features };
+export type TeacherClass = { classId: string; className: string; schoolYearName: string };
+type RouteId = 'class-day' | 'queue' | 'journals' | 'messages';
+export type Guard = { dirty: boolean; message?: string };
+export type WorkspaceProps = { schoolId: string; classes: TeacherClass[]; classId: string; chooseClass: (classId: string) => void; features: Required<Features>; setGuard: (guard: Guard) => void; navigate: (path: string) => void; base: string };
+
+const routes: Array<{ id: RouteId; path: string; label: string; navigation: string[] }> = [
+  { id: 'class-day', path: '', label: 'Lớp hôm nay', navigation: ['attendance'] },
+  { id: 'queue', path: '/queue', label: 'Hàng đợi lớp', navigation: ['overview'] },
+  { id: 'journals', path: '/journals', label: 'Nhận xét trong ngày', navigation: ['daily-journal'] },
+  { id: 'messages', path: '/messages', label: 'Tin nhắn phụ huynh', navigation: ['messages'] },
+];
 const isSchool = (value: unknown): value is School => Boolean(value && typeof value === 'object' && typeof (value as School).schoolId === 'string' && typeof (value as School).schoolSlug === 'string' && typeof (value as School).schoolName === 'string');
 const isContext = (value: unknown): value is Context => isSchool(value) && Array.isArray((value as Context).navigation) && (value as Context).navigation.every((item) => item && typeof item.id === 'string' && typeof item.label === 'string');
+const parsePath = (pathname: string) => {
+  const match = /^\/schools\/([^/]+)(\/queue|\/journals|\/messages)?\/?$/.exec(pathname);
+  if (!match) return undefined;
+  return { schoolSlug: match[1]!, route: (routes.find((route) => route.path === (match[2] ?? ''))?.id ?? 'class-day') as RouteId };
+};
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]!.toLocaleUpperCase('vi')).join('');
+const classKey = (schoolId: string) => `passionedu.teacher.class.${schoolId}`;
 
-export function SchoolContext({ clear }: { clear: () => void }) {
+export function SchoolContext({ clear, session, onLogout }: { clear: () => void; session?: Session; onLogout?: () => void }) {
   const [schools, setSchools] = useState<School[]>();
   const [context, setContext] = useState<Context>();
-  const [attendanceStatus, setAttendanceStatus] = useState<WorkspaceStatus>();
-  const [handoverStatus, setHandoverStatus] = useState<WorkspaceStatus>();
-  const [journalStatus, setJournalStatus] = useState<WorkspaceStatus>();
-  const [leaveTo, setLeaveTo] = useState<string>();
+  const [classes, setClasses] = useState<TeacherClass[]>();
+  const [teacherName, setTeacherName] = useState('');
+  const [classId, setClassId] = useState('');
+  const [route, setRoute] = useState<RouteId>('class-day');
   const [error, setError] = useState('');
+  const [leaveTo, setLeaveTo] = useState<string>();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [, setPathVersion] = useState(0);
+  const guard = useRef<Guard>({ dirty: false });
+  const committed = useRef('/');
   const heading = useRef<HTMLHeadingElement>(null);
-  const mounted = useRef(true);
   const loadVersion = useRef(0);
-  const committed = useRef<string | undefined>(undefined);
 
-  const clearContext = () => {
+  const visible = context ? routes.filter((item) => item.navigation.some((id) => context.navigation.some((entry) => entry.id === id)) && !(item.id === 'journals' && context.features?.dailyJournal === false)) : [];
+  const features: Required<Features> = { dailyJournal: context?.features?.dailyJournal !== false, handover: context?.features?.handover !== false && Boolean(context?.navigation.some((item) => item.id === 'handover')) };
+  const setGuard = useCallback((next: Guard) => { guard.current = next; }, []);
+
+  const loadSchools = async () => {
+    const result = await apiGet<unknown>('/api/teacher/schools', 'Không thể tải danh sách trường.');
+    if (!result.ok) { if (result.error.status === 401) clear(); else setError(result.error.message); return; }
+    if (!Array.isArray(result.data) || !result.data.every(isSchool)) { setError('Không thể tải danh sách trường.'); return; }
+    setSchools(result.data);
+  };
+  const goHome = (replace = true) => {
     loadVersion.current += 1;
-    committed.current = undefined;
-    if (mounted.current) { setContext(undefined); setAttendanceStatus(undefined); setHandoverStatus(undefined); setJournalStatus(undefined); setLeaveTo(undefined); }
+    guard.current = { dirty: false };
+    setContext(undefined); setClasses(undefined); setClassId('');
+    committed.current = '/';
+    window.history[replace ? 'replaceState' : 'pushState'](null, '', '/');
+    setPathVersion((value) => value + 1);
   };
-  const chooser = async () => {
-    const response = await fetch(`${apiUrl}/api/teacher/schools`, { credentials: 'include' });
-    if (response.status === 401) { clearContext(); clear(); return; }
-    if (!response.ok) throw new Error('Không thể tải danh sách trường.');
-    const payload: unknown = await response.json();
-    if (!payload || typeof payload !== 'object' || !('data' in payload) || !Array.isArray(payload.data) || !payload.data.every(isSchool)) throw new Error('Không thể tải danh sách trường.');
-    if (mounted.current) setSchools(payload.data);
-  };
-  const safeHome = () => { clearContext(); window.history.replaceState(null, '', '/'); void chooser().catch((cause: Error) => setError(cause.message)); };
-  const load = async (destination: Destination, school: School) => {
-    clearContext();
+  const loadSchool = async (school: School) => {
     const version = ++loadVersion.current;
-    const response = await fetch(`${apiUrl}/api/teacher/schools/${school.schoolId}`, { credentials: 'include' });
-    if (!mounted.current || version !== loadVersion.current) return;
-    if (response.status === 401) { clearContext(); clear(); return; }
-    if (denied(response.status)) { safeHome(); return; }
-    if (!response.ok) throw new Error('Không thể tải ngữ cảnh trường.');
-    const payload: unknown = await response.json();
-    if (!payload || typeof payload !== 'object' || !('data' in payload) || !isContext(payload.data)) { safeHome(); return; }
-    const next = payload.data;
-    if (next.schoolId !== school.schoolId || next.schoolSlug !== school.schoolSlug) { safeHome(); return; }
+    setContext(undefined); setClasses(undefined); setError('');
+    const result = await apiGet<unknown>(`/api/teacher/schools/${school.schoolId}`, 'Không thể tải ngữ cảnh trường.');
+    if (version !== loadVersion.current) return;
+    if (!result.ok) { if (result.error.status === 401) { clear(); return; } if ([403, 404].includes(result.error.status)) { goHome(); return; } setError(result.error.message); return; }
+    if (!isContext(result.data) || result.data.schoolId !== school.schoolId || result.data.schoolSlug !== school.schoolSlug) { goHome(); return; }
+    const next = result.data;
+    const assigned = await apiGet<{ teacherName: string; classes: TeacherClass[] }>(`/api/teacher/schools/${school.schoolId}/classes?date=${hcmToday()}`, 'Không thể tải lớp được phân công.');
+    if (version !== loadVersion.current) return;
+    const list = assigned.ok ? assigned.data.classes : [];
+    const remembered = localStorage.getItem(classKey(school.schoolId));
+    const requested = new URLSearchParams(window.location.search).get('classId');
     setContext(next);
-    committed.current = pathFor(destination);
-    if (window.location.pathname !== pathFor(destination)) window.history.replaceState(null, '', pathFor(destination));
+    setClasses(list);
+    setTeacherName(assigned.ok ? assigned.data.teacherName : '');
+    setClassId(list.find((item) => item.classId === requested)?.classId ?? list.find((item) => item.classId === remembered)?.classId ?? list[0]?.classId ?? '');
   };
-  const requestPath = (path: string) => {
-    if (context && (attendanceStatus?.dirty || attendanceStatus?.pending || handoverStatus?.dirty || handoverStatus?.pending || journalStatus?.dirty || journalStatus?.pending)) { setLeaveTo(path); return; }
-    window.history.pushState(null, '', path);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  };
-
-  useEffect(() => {
-    mounted.current = true;
-    void chooser().catch((cause: Error) => setError(cause.message));
-    return () => { mounted.current = false; };
-  }, []);
-  useEffect(() => {
+  const route_ = () => {
     if (!schools) return;
-    const route = () => {
-      const destination = destinationFromPath(window.location.pathname);
-      if (!destination) { if (context && (attendanceStatus?.dirty || attendanceStatus?.pending || handoverStatus?.dirty || handoverStatus?.pending || journalStatus?.dirty || journalStatus?.pending)) { setLeaveTo(window.location.pathname); return; } clearContext(); return; }
-      const school = schools.find((item) => item.schoolSlug === destination.schoolSlug || item.schoolId === destination.schoolSlug);
-      if (!school) { safeHome(); return; }
-      if (school.schoolId === context?.schoolId) return;
-      if (context && (attendanceStatus?.dirty || attendanceStatus?.pending || handoverStatus?.dirty || handoverStatus?.pending || journalStatus?.dirty || journalStatus?.pending)) { setLeaveTo(window.location.pathname); return; }
-      if (school.schoolId !== destination.schoolSlug) window.history.replaceState(null, '', pathFor({ schoolSlug: school.schoolSlug }));
-      void load({ schoolSlug: school.schoolSlug }, school).catch((cause: Error) => setError(cause.message));
-    };
-    route();
-    window.addEventListener('popstate', route);
-    return () => window.removeEventListener('popstate', route);
-  }, [schools, context?.schoolId, attendanceStatus, handoverStatus, journalStatus]);
-  useEffect(() => { heading.current?.focus(); }, [context?.schoolId]);
+    const target = parsePath(window.location.pathname);
+    if (!target) { if (context) goHome(); return; }
+    const school = schools.find((item) => item.schoolSlug === target.schoolSlug || item.schoolId === target.schoolSlug);
+    if (!school) { goHome(); return; }
+    setRoute(target.route);
+    committed.current = `${window.location.pathname}${window.location.search}`;
+    setMenuOpen(false);
+    if (school.schoolId !== context?.schoolId) void loadSchool(school);
+  };
+  const navigate = (path: string) => {
+    if (guard.current.dirty) { setLeaveTo(path); return; }
+    window.history.pushState(null, '', path);
+    route_();
+  };
 
-  if (!schools) return <p role={error ? 'alert' : undefined}>{error || 'Đang tải ngữ cảnh trường...'}</p>;
-  if (!schools.length) return <section><h1>Chưa có trường được cấp quyền</h1><p>Không có trường nào đang cấp quyền cho tài khoản này.</p></section>;
-  return <section>
-    {!context && <label>Chọn trường <select aria-label="Chọn trường" value="" onChange={(event) => { const school = schools.find((item) => item.schoolId === event.target.value); if (school) requestPath(pathFor({ schoolSlug: school.schoolSlug })); }}><option value="" disabled>Chọn trường</option>{schools.map((school) => <option key={school.schoolId} value={school.schoolId}>{school.schoolName}</option>)}</select></label>}
-    {context && <><header><p>Trường đang làm việc: <strong>{context.schoolName}</strong></p><button type="button" onClick={() => requestPath('/')}>Về trang chủ</button></header><h1 ref={heading} tabIndex={-1}>PassionEdu - Giáo viên - {context.schoolName}</h1><nav aria-label="Điều hướng trường">{visibleNavigation(context).map((item) => <span key={item.id}>{item.label} </span>)}</nav>{visibleNavigation(context).some((item) => item.id === 'overview') && <OperationalQueueWorkspace schoolId={context.schoolId} denied={safeHome} />}{visibleNavigation(context).some((item) => item.id === 'attendance') && <AttendanceWorkspace schoolId={context.schoolId} onStatusChange={setAttendanceStatus} />}{visibleNavigation(context).some((item) => item.id === 'handover') && <HandoverWorkspace schoolId={context.schoolId} onStatusChange={setHandoverStatus} />}{visibleNavigation(context).some((item) => item.id === 'daily-journal') && <DailyJournalWorkspace schoolId={context.schoolId} onStatusChange={setJournalStatus} />}</>}
-    {leaveTo && <><div className="dialog-backdrop" /><div className="dialog" role="dialog" aria-modal="true" aria-labelledby="teacher-leave-title"><h2 id="teacher-leave-title">Rời không gian làm việc?</h2><p>Thay đổi chưa gửi sẽ không được tự lưu.</p><div className="dialog-actions"><button onClick={() => { setLeaveTo(undefined); if (committed.current) window.history.replaceState(null, '', committed.current); }}>Ở lại</button>{attendanceStatus?.pending || handoverStatus?.pending || journalStatus?.pending ? <button onClick={() => void Promise.all([attendanceStatus, handoverStatus, journalStatus].filter((status): status is WorkspaceStatus => Boolean(status?.pending)).map((status) => status.reconcile()))}>Đối soát thao tác</button> : <button className="danger-action" onClick={() => { const next = leaveTo; clearContext(); window.history.pushState(null, '', next); window.dispatchEvent(new PopStateEvent('popstate')); }}>Bỏ thay đổi</button>}</div></div></>}
-  </section>;
+  useEffect(() => { void loadSchools(); }, []);
+  useEffect(() => {
+    route_();
+    const onPop = () => {
+      if (guard.current.dirty) { setLeaveTo(`${window.location.pathname}${window.location.search}`); window.history.pushState(null, '', committed.current); return; }
+      route_();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [schools, context?.schoolId]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (guard.current.dirty) event.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
+  useEffect(() => { heading.current?.focus(); }, [context?.schoolId]);
+  useEffect(() => { if (context && visible.length && !visible.some((item) => item.id === route)) navigate(`/schools/${context.schoolSlug}${visible[0]!.path}`); }, [context, route]);
+
+  const chooseClass = (next: string) => {
+    if (!context || next === classId) return;
+    if (guard.current.dirty && !window.confirm(`${guard.current.message ?? 'Thay đổi chưa lưu.'} Vẫn đổi lớp?`)) return;
+    guard.current = { dirty: false };
+    setClassId(next);
+    localStorage.setItem(classKey(context.schoolId), next);
+  };
+
+  if (!schools) return <div className="teacher-loading" role={error ? 'alert' : 'status'}>{error || 'Đang tải ngữ cảnh trường...'}</div>;
+  if (!context) {
+    const target = parsePath(window.location.pathname);
+    if (target && !error) return <div className="teacher-loading" role="status">Đang tải ngữ cảnh trường...</div>;
+    return (
+      <main className="teacher-home" id="main">
+        <section className="teacher-home-card">
+          <p className="teacher-brand"><b>P</b> PassionEdu</p>
+          <p className="teacher-role">CỔNG GIÁO VIÊN</p>
+          {error && <p className="notice warning" role="alert">{error}</p>}
+          {schools.length ? (
+            <>
+              <h1>Chọn trường làm việc</h1>
+              <p className="muted">Chỉ hiển thị các trường đã cấp quyền cho tài khoản này.</p>
+              <ul className="school-choices" aria-label="Chọn trường">
+                {schools.map((school) => (
+                  <li key={school.schoolId}>
+                    <button type="button" onClick={() => navigate(`/schools/${school.schoolSlug}`)}>
+                      <span>{school.schoolName}</span>
+                      <span aria-hidden="true">›</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <>
+              <h1>Chưa có trường được cấp quyền</h1>
+              <p className="muted">Không có trường nào đang cấp quyền cho tài khoản này. Liên hệ quản trị viên của trường.</p>
+            </>
+          )}
+          {onLogout && <button type="button" className="button secondary" onClick={onLogout}>Đăng xuất</button>}
+        </section>
+      </main>
+    );
+  }
+
+  const base = `/schools/${context.schoolSlug}`;
+  const name = session?.displayName || teacherName || session?.email || '';
+  const props: WorkspaceProps = { schoolId: context.schoolId, classes: classes ?? [], classId, chooseClass, features, setGuard, navigate, base };
+  return (
+    <div className="teacher-shell">
+      <aside className="teacher-sidebar" id="teacher-navigation" aria-label="Điều hướng giáo viên" data-open={menuOpen}>
+        <p className="teacher-brand"><b>P</b> PassionEdu</p>
+        <p className="teacher-role">CỔNG GIÁO VIÊN</p>
+        <nav aria-label="Điều hướng trường">
+          <p className="teacher-nav-label">CÔNG VIỆC HÔM NAY</p>
+          {visible.map((item) => (
+            <a key={item.id} className={`teacher-link${item.id === route ? ' active' : ''}`} aria-current={item.id === route ? 'page' : undefined} href={`${base}${item.path}`} onClick={(event) => { event.preventDefault(); navigate(`${base}${item.path}`); }}>{item.label}</a>
+          ))}
+        </nav>
+        {onLogout && <button type="button" className="teacher-link teacher-logout" onClick={onLogout}>Đăng xuất</button>}
+      </aside>
+      {menuOpen && <div className="teacher-scrim" aria-hidden="true" onClick={() => setMenuOpen(false)} />}
+      <main className="teacher-workspace" id="main">
+        <header className="teacher-topbar">
+          <button className="button secondary teacher-menu" type="button" aria-controls="teacher-navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>Menu</button>
+          <a className="teacher-context" href="/" onClick={(event) => { event.preventDefault(); navigate('/'); }}>{context.schoolName}{classes?.[0] ? ` · Năm học ${classes[0].schoolYearName.replace(/^Năm học\s*/i, '')}` : ''} · Về trang chủ</a>
+          <div className="teacher-avatar"><span>{name}</span><i>{session?.pictureUrl ? <img src={session.pictureUrl} alt="" referrerPolicy="no-referrer" /> : initials(name)}</i></div>
+        </header>
+        <h1 className="sr-only" ref={heading} tabIndex={-1}>PassionEdu - Giáo viên - {context.schoolName}</h1>
+        {!classes ? <p className="teacher-loading" role="status">Đang tải lớp được phân công...</p>
+          : !classes.length ? <div className="empty"><h2>Chưa được phân công lớp</h2><p className="muted">Hôm nay bạn chưa có lớp được phân công hiệu lực. Liên hệ quản trị viên của trường nếu cần thay đổi.</p></div>
+            : route === 'class-day' ? <ClassDayWorkspace key={context.schoolId} {...props} />
+              : route === 'queue' ? <QueueWorkspace key={context.schoolId} {...props} />
+                : route === 'journals' ? <JournalsWorkspace key={`${context.schoolId}-${classId}`} {...props} />
+                  : <MessagesWorkspace key={`${context.schoolId}-${classId}`} {...props} />}
+      </main>
+      {leaveTo && (
+        <div className="dialog-backdrop">
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="teacher-leave-title">
+            <h2 id="teacher-leave-title">Rời không gian làm việc?</h2>
+            <p>{guard.current.message ?? 'Thay đổi chưa lưu sẽ không được tự lưu.'}</p>
+            <div className="dialog-actions">
+              <button type="button" className="button secondary" onClick={() => setLeaveTo(undefined)}>Ở lại</button>
+              <button type="button" className="button danger" onClick={() => { const next = leaveTo; setLeaveTo(undefined); guard.current = { dirty: false }; window.history.pushState(null, '', next); if (next === '/') goHome(false); else route_(); }}>Bỏ thay đổi</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Shared Class picker: one assigned Class shows as text, several as a select kept per School.
+export function ClassPicker({ classes, classId, chooseClass }: Pick<WorkspaceProps, 'classes' | 'classId' | 'chooseClass'>) {
+  if (classes.length < 2) return null;
+  return (
+    <label className="class-picker">
+      <span>Lớp</span>
+      <select value={classId} onChange={(event) => chooseClass(event.target.value)}>
+        {classes.map((item) => <option key={item.classId} value={item.classId}>{item.className}</option>)}
+      </select>
+    </label>
+  );
 }

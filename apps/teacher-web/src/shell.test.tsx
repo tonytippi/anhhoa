@@ -17,9 +17,9 @@ describe('TeacherShell', () => {
     document.cookie = 'teacher_csrf=csrf-value';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ data: { audience: 'teacher', userIdentityId: 'id', email: 'a@example.com' } }))).mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }))).mockImplementationOnce(() => new Promise<void>((resolve) => { settleLogout = resolve; })));
     render(<TeacherShell />);
-    await screen.findByText('Đang tải ngữ cảnh trường...');
+    await screen.findByText('Chưa có trường được cấp quyền');
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất' }));
-    expect(screen.queryByText('Đang tải ngữ cảnh trường...')).toBeNull();
+    expect(screen.queryByText('Chưa có trường được cấp quyền')).toBeNull();
     expect(screen.getByRole('link', { name: 'Tiếp tục với a@example.com' }).getAttribute('href')).toBe('/api/teacher/auth/google/start?login_hint=a%40example.com');
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith('/api/teacher/auth/logout', expect.objectContaining({ headers: { 'x-csrf-token': 'csrf-value' } })));
     settleLogout();
