@@ -37,7 +37,10 @@
     var current = link[1] === route;
     if (link[0]) navigation += '<p class="nav-group">' + link[0] + '</p>';
     var href = isWorkspace && ['overview'].indexOf(link[1]) !== -1 ? '#' + link[1] : link[3];
-    navigation += '<a class="side-link' + (current ? ' active' : '') + '" href="' + href + '"' + (current ? ' aria-current="page"' : '') + '>' + link[2] + '</a>';
+    // Approvers see how many Invoices wait for approval next to Đợt thu.
+    var pending = link[1] === 'runs' ? host.getAttribute('data-runs-pending') : null;
+    var count = pending ? ' <span class="badge warning" aria-label="' + pending + ' hóa đơn chờ duyệt">' + pending + '</span>' : '';
+    navigation += '<a class="side-link' + (current ? ' active' : '') + '" href="' + href + '"' + (current ? ' aria-current="page"' : '') + '>' + link[2] + count + '</a>';
   });
 
   var content = host.innerHTML;
