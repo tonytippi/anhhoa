@@ -181,6 +181,7 @@ type RunExtracurricularClass = {
   receivableName: string;
   unitLabel: string;
   defaultUnitPrice: string;
+  quantity: number;
   memberCount: number;
   transferredCount: number;
   excluded: boolean;
@@ -1380,6 +1381,7 @@ export function FinanceWorkspace({
     reason: string;
   }>();
   const classExclusionRef = useRef<HTMLDivElement>(null);
+  const [classQuantity, setClassQuantity] = useState<{ id: string; name: string; unitLabel: string; quantity: string }>();
   const templateDialogRef = useRef<HTMLDivElement>(null);
   // Scope-picker requests: a response is applied only for the latest request of the current dialog instance, run and School.
   const scopeRequest = useRef({ token: 0, instance: 0 });
@@ -1777,6 +1779,7 @@ export function FinanceWorkspace({
     setTemplateDialog(undefined);
     setTemplateRemoval(undefined);
     setClassExclusion(undefined);
+    setClassQuantity(undefined);
     setRunClasses(undefined);
     resetReceivable();
     setReceivableEdit(undefined);
@@ -2267,6 +2270,28 @@ export function FinanceWorkspace({
     if (outcome) {
       completion.current = undefined;
       await completeClassExclusion(outcome);
+    }
+  };
+  const completeClassQuantity = async (outcome: unknown) => {
+    closeManagedDialog(() => setClassQuantity(undefined));
+    chooseRun(outcome as Run);
+    setPreview(undefined);
+    await loadRunClasses((outcome as Run).id);
+    await load();
+  };
+  const saveClassQuantity = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!run || !classQuantity) return;
+    completion.current = completeClassQuantity;
+    const outcome = await command(
+      `${templateBase()}/extracurricular-classes/${classQuantity.id}/quantity`,
+      "PUT",
+      { quantity: classQuantity.quantity.trim(), expectedVersion: run.version },
+      "run",
+    );
+    if (outcome) {
+      completion.current = undefined;
+      await completeClassQuantity(outcome);
     }
   };
   const loadPreview = async () => {
@@ -4147,6 +4172,7 @@ export function FinanceWorkspace({
                     <tr>
                       <th>{isClassRun(run) ? "Dịch vụ" : "Lớp ngoại khóa"}</th>
                       <th>Khoản thu</th>
+                      <th className="finance-money">Số lượng / HS</th>
                       <th className="finance-money">{isClassRun(run) ? "Số HS trong kỳ" : "Số HS trong tháng"}</th>
                       <th className="finance-money">Tạm tính</th>
                       <th>Trạng thái trong đợt</th>
@@ -4176,6 +4202,9 @@ export function FinanceWorkspace({
                                 <small className="muted">
                                   {vnd(item.defaultUnitPrice)} đ/{item.unitLabel}
                                 </small>
+                              </td>
+                              <td className="finance-money">
+                                {item.quantity} {item.unitLabel}
                               </td>
                               <td className="finance-money">
                                 {item.memberCount}
@@ -4209,6 +4238,26 @@ export function FinanceWorkspace({
                                 </span>
                               </td>
                               <td>
+                                {billable && (
+                                  <>
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(pending)}
+                                    aria-label={`Sửa số lượng ${item.name}`}
+                                    onClick={(event) => {
+                                      dialogTrigger.current = event.currentTarget;
+                                      setClassQuantity({
+                                        id: item.id,
+                                        name: item.name,
+                                        unitLabel: item.unitLabel,
+                                        quantity: String(item.quantity),
+                                      });
+                                    }}
+                                  >
+                                    Sửa số lượng
+                                  </button>{" "}
+                                  </>
+                                )}
                                 {item.receivableActive || item.excluded ? (
                                   <button
                                     type="button"
@@ -4233,7 +4282,7 @@ export function FinanceWorkspace({
                         })
                       ) : (
                         <tr>
-                          <td colSpan={6}>
+                          <td colSpan={7}>
                             {isClassRun(run)
                               ? "Chưa có dịch vụ đang hoạt động."
                               : "Chưa có lớp ngoại khóa đang hoạt động trong năm học này."}
@@ -4242,7 +4291,7 @@ export function FinanceWorkspace({
                       )
                     ) : (
                       <tr>
-                        <td colSpan={6}>{isClassRun(run) ? "Đang tải dịch vụ." : "Đang tải lớp ngoại khóa."}</td>
+                        <td colSpan={7}>{isClassRun(run) ? "Đang tải dịch vụ." : "Đang tải lớp ngoại khóa."}</td>
                       </tr>
                     )}
                   </tbody>
@@ -6506,6 +6555,61 @@ export function FinanceWorkspace({
                 Bỏ khoản thu
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {classQuantity && (
+        <div className="dialog-backdrop">
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="finance-class-quantity-title"
+            onKeyDown={(event) => handleManagedDialogKeyDown(event, () => setClassQuantity(undefined))}
+          >
+            <form onSubmit={saveClassQuantity}>
+              <h3 id="finance-class-quantity-title">Sửa số lượng · {classQuantity.name}</h3>
+              <p className="muted">
+                Mỗi học sinh của {isClassRun(run) ? "dịch vụ" : "lớp"} được tính số lượng này nhân đơn giá trong đợt này;
+                cần xem trước lại. Học sinh nghỉ hoặc vào giữa {isClassRun(run) ? "kỳ" : "tháng"} sửa riêng trên phiếu khi rà soát.
+              </p>
+              <label>
+                Số lượng ({classQuantity.unitLabel})
+                <input
+                  autoFocus
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
+                  inputMode="numeric"
+                  value={classQuantity.quantity}
+                  onChange={(event) => setClassQuantity({ ...classQuantity, quantity: event.target.value })}
+                />
+              </label>
+              {scope === "run" &&
+                Object.entries(errors).map(([name, error]) => (
+                  <small key={name} role="alert">
+                    {error}
+                  </small>
+                ))}
+              <div className="dialog-actions">
+                <button
+                  type="button"
+                  disabled={Boolean(pending)}
+                  onClick={() =>
+                    closeNewDialog(
+                      () => setClassQuantity(undefined),
+                      () => {},
+                    )
+                  }
+                >
+                  Hủy
+                </button>
+                <button className="primary-action" disabled={Boolean(pending)}>
+                  Lưu số lượng
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

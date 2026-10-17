@@ -38,7 +38,7 @@ Muốn tạm dừng cả dịch vụ (ví dụ dừng một tuyến xe), bấm `
 ## Cách tính tiền
 
 - Học sinh được tính nếu dùng dịch vụ **ít nhất một ngày trong kỳ** của đợt thu, và chỉ trong đợt thu **của lớp em đang học**.
-- Mỗi kỳ tính **trọn giá** (số lượng 1); hệ thống không tự chia theo ngày. Học sinh vào hoặc thôi dùng giữa kỳ được đánh dấu `Vào/nghỉ giữa kỳ` trên hóa đơn nháp. Nếu cần thu ít hơn, kế toán sửa số lượng hoặc dùng `Bớt` trên hóa đơn kèm lý do.
+- Mỗi kỳ mặc định tính **số lượng 1**; dịch vụ tính theo buổi thì nhập số buổi của kỳ bằng `Sửa số lượng` trong trang đợt thu. Hệ thống không tự chia theo ngày. Học sinh vào hoặc thôi dùng giữa kỳ được đánh dấu `Vào/nghỉ giữa kỳ` trên hóa đơn nháp. Nếu cần thu ít hơn, kế toán sửa số lượng hoặc dùng `Bớt` trên hóa đơn kèm lý do.
 - Có thể bỏ một dịch vụ khỏi một đợt thu riêng lẻ bằng `Loại khỏi đợt này` trong trang đợt thu (xem [Mở đợt thu theo lớp](guide:mo-dot-thu)).
 
 > Trang chi tiết dịch vụ thống kê theo tháng (`Tính trong tháng`, `Vào giữa tháng`…). Số tính tiền thật sự là số trong bảng **Dịch vụ trong đợt** của từng đợt thu.

@@ -30,7 +30,9 @@ Các **khoản cố định** được tự thêm khi mở đợt: khoản `Toà
 
 Dùng `Sửa` để đổi số lượng/phạm vi, `Bỏ` để bỏ khoản khỏi đợt này (không ảnh hưởng danh mục khoản thu). Khoản cố định chỉ sửa được số lượng: phạm vi của nó đặt ở trang `Khoản thu` và chỉ áp dụng cho đợt mở sau khi sửa.
 
-Bảng **Lớp ngoại khóa trong đợt** liệt kê các lớp ngoại khóa đang hoạt động và số học sinh tính trong tháng. Bấm `Loại khỏi đợt này` nếu tháng này không thu lớp đó (ví dụ lớp nghỉ cả tháng); `Khôi phục` để tính lại.
+Bảng **Lớp ngoại khóa trong đợt** liệt kê các lớp ngoại khóa đang hoạt động, số lượng tính cho mỗi học sinh và số học sinh tính trong tháng. Khoản thu tính theo buổi (ví dụ 100.000 đ/buổi) thì bấm `Sửa số lượng` và nhập số buổi của tháng (ví dụ 8); mặc định là 1. Số lượng chỉ áp dụng cho đợt này. Bấm `Loại khỏi đợt này` nếu tháng này không thu lớp đó (ví dụ lớp nghỉ cả tháng); `Khôi phục` để tính lại.
+
+> Mọi học sinh của lớp được tính cùng một số buổi. Học sinh vào, nghỉ giữa tháng hoặc nghỉ một số buổi thì kế toán sửa số lượng trên hóa đơn nháp của em đó. Học sinh chuyển giữa hai lớp dùng chung khoản thu được tính theo số buổi của lớp em học trước.
 
 ![Lớp ngoại khóa trong đợt](dot-thu-ngoai-khoa-trong-dot.jpg)
 

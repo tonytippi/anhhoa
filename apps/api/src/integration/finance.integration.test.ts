@@ -1341,6 +1341,51 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)(
       expect(await prisma.invoice.count({ where: { schoolId: x.current.school.id, collectionRunId: runId, studentId: late.student.id } })).toBe(1);
     });
 
+    it("bills each member the run's quantity for the class (the earliest class for a merged line), goes stale, and freezes it at generation", async () => {
+      const x = await extraFixture();
+      const s1 = await enrolled(x.current); const s3 = await enrolled(x.current);
+      await x.join(x.a1, [s1.enrollment.id]);
+      await x.join(x.a1, [s3.enrollment.id], "2026-09-01", "2026-09-15");
+      await x.join(x.a2, [s3.enrollment.id], "2026-09-16");
+      const runId = await x.openFreshRun(true);
+      const setQuantity = async (classId: string, quantity: string, key = uuid()) => finance.setRunExtracurricularQuantity(x.current.identity.id, x.current.school.id, runId, classId, key, uuid(), { quantity, expectedVersion: await runVersion(x, runId) });
+      const stale: any = await previewOf(x, runId);
+      const key = uuid();
+      const saved = await setQuantity(x.a1, "8", key);
+      expect(await finance.setRunExtracurricularQuantity(x.current.identity.id, x.current.school.id, runId, x.a1, key, uuid(), { quantity: "8", expectedVersion: (saved.outcome as any).version - 1 })).toEqual(saved);
+      await setQuantity(x.a2, "6");
+      expect(await prisma.auditRecord.findFirstOrThrow({ where: { schoolId: x.current.school.id, action: "COLLECTION_RUN_EXTRACURRICULAR_QUANTITY_SET" }, orderBy: { createdAt: "asc" } })).toMatchObject({ provenance: { oldValue: { classId: x.a1, quantity: 1 }, newValue: { classId: x.a1, className: "Tiếng Anh A1", quantity: 8 } } });
+      await expect(finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: stale.fingerprint })).rejects.toMatchObject({ status: 409, response: { code: "PREVIEW_STALE" } });
+      const list: any = await finance.runExtracurricularClasses(x.current.identity.id, x.current.school.id, runId);
+      expect(Object.fromEntries(list.classes.map((item: any) => [item.name, item.quantity]))).toEqual({ "Tiếng Anh A1": 8, "Tiếng Anh A2": 6, "Vẽ thiếu nhi": 1 });
+      const preview: any = await previewOf(x, runId);
+      expect(linesByStudent(preview, s1.student.id).find((line) => line.kind === "EXTRACURRICULAR")).toMatchObject({ grossAmount: "4800" });
+      // s3 moved from A1 to A2 and is billed once, through A1.
+      expect(linesByStudent(preview, s3.student.id).find((line) => line.kind === "EXTRACURRICULAR")).toMatchObject({ grossAmount: "4800" });
+      expect(Object.fromEntries(preview.extracurricularClasses.map((item: any) => [item.id, item.subtotal]))).toMatchObject({ [x.a1]: "9600", [x.a2]: "0" });
+      await expect(setQuantity(x.a1, "8")).rejects.toMatchObject({ status: 400, response: { fieldErrors: { quantity: expect.any(String) } } });
+      await expect(setQuantity(x.a1, "0")).rejects.toMatchObject({ status: 400 });
+      await expect(setQuantity(x.a1, "1.5")).rejects.toMatchObject({ status: 400 });
+      // Back to 1 removes the setting.
+      await setQuantity(x.a2, "1");
+      expect(await prisma.collectionRunExtracurricularQuantity.count({ where: { collectionRunId: runId } })).toBe(1);
+      const final: any = await previewOf(x, runId);
+      await finance.readyRun(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { previewFingerprint: final.fingerprint });
+      await expect(setQuantity(x.a1, "4")).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_NOT_DRAFT" } });
+      expect((await generate(x.current, runId)).status).toBe("COMPLETED");
+      const line = await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: x.current.school.id, sourceKind: "EXTRACURRICULAR", invoice: { collectionRunId: runId, studentId: s1.student.id } } });
+      expect(line).toMatchObject({ quantity: 8, unitPrice: 600n, grossAmount: 4800n });
+      const snapshot: any = (await prisma.collectionRun.findUniqueOrThrow({ where: { id: runId } })).extracurricularSnapshot;
+      expect(snapshot.classes.find((item: any) => item.id === x.a1).quantity).toBe(8);
+      // A Student added after generation takes the snapshotted quantity.
+      const late = await enrolled(x.current);
+      await x.join(x.a1, [late.enrollment.id]);
+      await finance.addGeneratedStudent(x.current.identity.id, x.current.school.id, runId, uuid(), uuid(), { studentId: late.student.id });
+      expect(await prisma.invoiceLine.findFirstOrThrow({ where: { schoolId: x.current.school.id, sourceKind: "EXTRACURRICULAR", invoice: { collectionRunId: runId, studentId: late.student.id } } })).toMatchObject({ quantity: 8, grossAmount: 4800n });
+      // Quantities change only while the run is DRAFT, also through direct writes.
+      await expect(prisma.collectionRunExtracurricularQuantity.updateMany({ where: { collectionRunId: runId }, data: { quantity: 2 } })).rejects.toThrow(/DRAFT/);
+    });
+
     it("makes READY wait for an in-flight membership change and then sees it", async () => {
       const x = await extraFixture();
       const s1 = await enrolled(x.current); const s2 = await enrolled(x.current);

@@ -919,6 +919,7 @@ model CollectionRun {
   extracurricularSnapshot   Json?
   readyPreviewFingerprint   String?
   extracurricularExclusions CollectionRunExtracurricularExclusion[]
+  extracurricularQuantities CollectionRunExtracurricularQuantity[]
 
   // SQL-only: partial unique (schoolId, schoolYearId, billingMonth) for SCHOOL scope; no overlapping periods per Class.
   @@unique([schoolId, id])
@@ -2212,6 +2213,7 @@ model ExtracurricularClass {
   lifecycleTransitions ExtracurricularClassLifecycleTransition[]
   memberships          ExtracurricularMembership[]
   runExclusions        CollectionRunExtracurricularExclusion[]
+  runQuantities        CollectionRunExtracurricularQuantity[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, schoolYearId, id])
@@ -2328,6 +2330,22 @@ model CollectionRunExtracurricularExclusion {
   actorIdentity          UserIdentity         @relation(fields: [actorIdentityId], references: [id], onDelete: Restrict)
   membership             SchoolMembership     @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
   operation              Operation            @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, collectionRunId, extracurricularClassId])
+  @@index([schoolId, extracurricularClassId])
+}
+
+// Sprint change 2026-10-17: Finance sets how many units (e.g. sessions) each member of an extracurricular class is billed in one DRAFT run.
+// No row = quantity 1. The value is frozen into the run's extracurricularSnapshot at generation.
+model CollectionRunExtracurricularQuantity {
+  id                     String               @id @default(uuid()) @db.Uuid
+  schoolId               String               @db.Uuid
+  collectionRunId        String               @db.Uuid
+  extracurricularClassId String               @db.Uuid
+  quantity               Int
+  updatedAt              DateTime             @updatedAt @db.Timestamptz(3)
+  collectionRun          CollectionRun        @relation(fields: [schoolId, collectionRunId], references: [schoolId, id], onDelete: Restrict)
+  extracurricularClass   ExtracurricularClass @relation(fields: [schoolId, extracurricularClassId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, collectionRunId, extracurricularClassId])
   @@index([schoolId, extracurricularClassId])

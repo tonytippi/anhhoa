@@ -132,7 +132,7 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
         url.includes("/scope-options")
           ? response({ classes: [{ id: "class-movers", name: "Movers B" }], students: [{ id: "student-a", studentCode: "SM-031", fullName: "Nguyễn Gia Huy", className: "Movers B" }] })
           : url.includes("/extracurricular-classes")
-            ? response({ billingMonth: "2026-11", classes: [{ id: "bus", name: "Đưa đón", receivableId: "bus-fee", receivableName: "Đưa đón", unitLabel: "unit", defaultUnitPrice: "800000", memberCount: 4, transferredCount: 0, excluded: false, receivableActive: true }] })
+            ? response({ billingMonth: "2026-11", classes: [{ id: "bus", name: "Đưa đón", receivableId: "bus-fee", receivableName: "Đưa đón", unitLabel: "unit", defaultUnitPrice: "800000", quantity: 1, memberCount: 4, transferredCount: 0, excluded: false, receivableActive: true }] })
             : url.includes("promotion-policies")
               ? response({ policies: [] })
               : url.includes("collection-runs")
@@ -149,7 +149,7 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
     expect(within(screen.getByRole("table", { name: "Khoản thu mẫu của đợt" })).getByText("Cả lớp")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Dịch vụ trong đợt" })).toBeTruthy();
     const services = await screen.findByRole("table", { name: "Dịch vụ tính vào đợt thu Movers B · Unit 6" });
-    expect(within(services).getAllByRole("columnheader").map((cell) => cell.textContent).slice(0, 3)).toEqual(["Dịch vụ", "Khoản thu", "Số HS trong kỳ"]);
+    expect(within(services).getAllByRole("columnheader").map((cell) => cell.textContent).slice(0, 4)).toEqual(["Dịch vụ", "Khoản thu", "Số lượng / HS", "Số HS trong kỳ"]);
     expect(await within(services).findByText("Chỉ tính học sinh của lớp Movers B")).toBeTruthy();
     expect(screen.queryByText(/Lớp ngoại khóa/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Thêm khoản thu" }));

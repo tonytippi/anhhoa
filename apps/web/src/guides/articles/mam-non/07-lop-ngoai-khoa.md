@@ -37,7 +37,8 @@ Lớp ngoại khóa nằm ở `Danh bộ › Lớp ngoại khóa`. Mỗi lớp g
 
 - Học sinh tham gia **ít nhất một ngày** trong tháng được tính **trọn giá** tháng đó; hệ thống không tự chia theo ngày.
 - Học sinh vào hoặc nghỉ giữa tháng, hoặc chuyển giữa các lớp dùng chung khoản thu, được đánh dấu trên hóa đơn nháp (chuyển lớp chỉ tính một lần). Nếu cần thu ít hơn, kế toán sửa số lượng hoặc đơn giá trên hóa đơn kèm lý do.
-- Có thể loại cả lớp khỏi một đợt thu riêng lẻ bằng `Loại khỏi đợt này` trong trang đợt thu (xem [Tạo đợt thu](guide:tao-dot-thu)).
+- Khoản thu tính theo buổi: nhập số buổi của tháng bằng `Sửa số lượng` trong trang đợt thu; mặc định 1 (xem [Tạo đợt thu](guide:tao-dot-thu)).
+- Có thể loại cả lớp khỏi một đợt thu riêng lẻ bằng `Loại khỏi đợt này` trong trang đợt thu.
 
 ## Học sinh "Chỉ ngoại khóa"
 

@@ -39,7 +39,7 @@ Khi đợt còn `Nháp`, dùng `Sửa` để đổi số lượng/phạm vi, `B�
 
 ## 3. Dịch vụ trong đợt
 
-Bảng **Dịch vụ trong đợt** liệt kê các dịch vụ đang hoạt động, số học sinh **của lớp này** dùng dịch vụ trong kỳ và số tạm tính. Bấm `Loại khỏi đợt này` nếu kỳ này không thu dịch vụ đó cho lớp (ví dụ lớp không dùng xe trong unit này); `Khôi phục` để tính lại. Xem [Dịch vụ](guide:dich-vu).
+Bảng **Dịch vụ trong đợt** liệt kê các dịch vụ đang hoạt động, số học sinh **của lớp này** dùng dịch vụ trong kỳ và số tạm tính. Dịch vụ tính theo buổi thì bấm `Sửa số lượng` và nhập số buổi của kỳ (mặc định 1; học sinh nghỉ bớt buổi thì sửa trên hóa đơn nháp của em đó). Bấm `Loại khỏi đợt này` nếu kỳ này không thu dịch vụ đó cho lớp (ví dụ lớp không dùng xe trong unit này); `Khôi phục` để tính lại. Xem [Dịch vụ](guide:dich-vu).
 
 ![Dịch vụ trong đợt chỉ tính học sinh của lớp](tt-dot-thu-dich-vu-trong-dot.jpg)
 

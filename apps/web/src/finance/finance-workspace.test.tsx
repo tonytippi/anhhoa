@@ -2644,10 +2644,10 @@ describe("FinanceWorkspace", () => {
   describe("extracurricular classes in the run (Story 5.36)", () => {
     const draftRun = { ...run, templateLines: [] };
     const classes = [
-      { id: "a1", name: "Tiếng Anh A1 (T2-T4)", receivableId: "english", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", memberCount: 18, transferredCount: 0, excluded: false, receivableActive: true },
-      { id: "a2", name: "Tiếng Anh A2 (T3-T5)", receivableId: "english", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", memberCount: 15, transferredCount: 1, excluded: false, receivableActive: true },
-      { id: "vo", name: "Võ thuật", receivableId: "martial", receivableName: "Võ thuật", unitLabel: "tháng", defaultUnitPrice: "450000", memberCount: 10, transferredCount: 0, excluded: true, receivableActive: true },
-      { id: "ve", name: "Vẽ cũ", receivableId: "drawing", receivableName: "Năng khiếu vẽ", unitLabel: "tháng", defaultUnitPrice: "400000", memberCount: 3, transferredCount: 0, excluded: false, receivableActive: false },
+      { id: "a1", name: "Tiếng Anh A1 (T2-T4)", receivableId: "english", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", quantity: 1, memberCount: 18, transferredCount: 0, excluded: false, receivableActive: true },
+      { id: "a2", name: "Tiếng Anh A2 (T3-T5)", receivableId: "english", receivableName: "Tiếng Anh bản ngữ", unitLabel: "tháng", defaultUnitPrice: "600000", quantity: 1, memberCount: 15, transferredCount: 1, excluded: false, receivableActive: true },
+      { id: "vo", name: "Võ thuật", receivableId: "martial", receivableName: "Võ thuật", unitLabel: "tháng", defaultUnitPrice: "450000", quantity: 1, memberCount: 10, transferredCount: 0, excluded: true, receivableActive: true },
+      { id: "ve", name: "Vẽ cũ", receivableId: "drawing", receivableName: "Năng khiếu vẽ", unitLabel: "tháng", defaultUnitPrice: "400000", quantity: 1, memberCount: 3, transferredCount: 0, excluded: false, receivableActive: false },
     ];
     // Three eligible Students billed for English; the one who moved from A1 to A2 is merged into one line and attributed to A1.
     const englishRow = (studentId: string, studentCode: string, fullName: string, classesOfLine: string[]) => ({ studentId, studentCode, fullName, className: "Lá 5A", lines: [{ receivableId: "english", receivableName: "Tiếng Anh bản ngữ", templateLineId: null, kind: "EXTRACURRICULAR", extracurricular: { flags: classesOfLine.length > 1 ? ["CLASS_CHANGE"] : [], classes: classesOfLine.map((id) => ({ id })) }, grossAmount: "600000", discountAmount: "0", netAmount: "600000", deductionAmount: "0", promotionEvaluation: { version: "PROMOTION_EVALUATION_V1", applications: [] } }] });
@@ -2667,20 +2667,20 @@ describe("FinanceWorkspace", () => {
       const open = vi.fn();
       await renderRun(route(), { onOpenExtracurricularClasses: open });
       const table = screen.getByRole("table", { name: /Lớp ngoại khóa tính vào đợt thu tháng 09\/2026/ });
-      expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Lớp ngoại khóa", "Khoản thu", "Số HS trong tháng", "Tạm tính", "Trạng thái trong đợt", "Tùy chọn"]);
+      expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Lớp ngoại khóa", "Khoản thu", "Số lượng / HS", "Số HS trong tháng", "Tạm tính", "Trạng thái trong đợt", "Tùy chọn"]);
       const cells = (name: string) => within(within(table).getAllByRole("row").find((row) => within(row).queryAllByRole("cell")[0]?.textContent === name)!).getAllByRole("cell").map((cell) => cell.textContent);
-      expect(cells("Tiếng Anh A1 (T2-T4)")).toEqual(["Tiếng Anh A1 (T2-T4)", "Tiếng Anh bản ngữ600.000 đ/tháng", "18", "—", "Tính trong đợt", "Loại khỏi đợt này"]);
-      expect(cells("Tiếng Anh A2 (T3-T5)")[2]).toBe("151 HS chuyển từ lớp khác, tính một lần");
-      expect(cells("Võ thuật")).toEqual(["Võ thuật", "Võ thuật450.000 đ/tháng", "10", "—", "Loại khỏi đợt này", "Khôi phục"]);
-      expect(cells("Vẽ cũ")[4]).toBe("Khoản thu ngừng áp dụng");
-      expect(cells("Vẽ cũ")[5]).toBe("");
+      expect(cells("Tiếng Anh A1 (T2-T4)")).toEqual(["Tiếng Anh A1 (T2-T4)", "Tiếng Anh bản ngữ600.000 đ/tháng", "1 tháng", "18", "—", "Tính trong đợt", "Sửa số lượng Loại khỏi đợt này"]);
+      expect(cells("Tiếng Anh A2 (T3-T5)")[3]).toBe("151 HS chuyển từ lớp khác, tính một lần");
+      expect(cells("Võ thuật")).toEqual(["Võ thuật", "Võ thuật450.000 đ/tháng", "1 tháng", "10", "—", "Loại khỏi đợt này", "Khôi phục"]);
+      expect(cells("Vẽ cũ")[5]).toBe("Khoản thu ngừng áp dụng");
+      expect(cells("Vẽ cũ")[6]).toBe("");
       fireEvent.click(within(table).getByRole("button", { name: "Tiếng Anh A1 (T2-T4)" }));
       expect(open).toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
       await screen.findByRole("table", { name: "Tạm tính theo dòng khoản thu" });
-      expect(cells("Tiếng Anh A1 (T2-T4)")[3]).toBe("1.800.000 đ");
-      expect(cells("Tiếng Anh A2 (T3-T5)")[3]).toBe("0 đ");
-      expect(cells("Võ thuật")[3]).toBe("—");
+      expect(cells("Tiếng Anh A1 (T2-T4)")[4]).toBe("1.800.000 đ");
+      expect(cells("Tiếng Anh A2 (T3-T5)")[4]).toBe("0 đ");
+      expect(cells("Võ thuật")[4]).toBe("—");
       const perLine = screen.getByRole("table", { name: "Tạm tính theo dòng khoản thu" });
       const row = within(perLine).getByText("Tiếng Anh bản ngữ").closest("tr")!;
       expect(within(row).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Tiếng Anh bản ngữ", "Ngoại khóa", "Tiếng Anh A1 (T2-T4), Tiếng Anh A2 (T3-T5)", "31 HS chuyển lớp tính một lần", "1.800.000 đ", "0 đ", "0 đ", "0 đ", "1.800.000 đ"]);
@@ -2714,6 +2714,25 @@ describe("FinanceWorkspace", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       put = fetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT")[1]!;
       expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({ excluded: false, expectedVersion: 3 });
+    });
+
+    it("edits how many units each member of a class is billed in the run, with the run version and a cleared preview", async () => {
+      const fetch = route((_url, init) => (init?.method === "PUT" ? response({ status: "COMPLETED", outcome: { ...draftRun, version: 3 } }) : undefined));
+      await renderRun(fetch);
+      expect(screen.queryByRole("button", { name: "Sửa số lượng Võ thuật" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Xem trước từ máy chủ" }));
+      await screen.findByRole("table", { name: "Tạm tính theo dòng khoản thu" });
+      fireEvent.click(screen.getByRole("button", { name: "Sửa số lượng Tiếng Anh A1 (T2-T4)" }));
+      const dialog = screen.getByRole("dialog", { name: "Sửa số lượng · Tiếng Anh A1 (T2-T4)" });
+      const input = within(dialog).getByLabelText("Số lượng (tháng)") as HTMLInputElement;
+      expect(input.value).toBe("1");
+      fireEvent.change(input, { target: { value: "8" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Lưu số lượng" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      const put = fetch.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")!;
+      expect(String(put[0]).endsWith("/collection-runs/" + run.id + "/extracurricular-classes/a1/quantity")).toBe(true);
+      expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({ quantity: "8", expectedVersion: 2 });
+      expect(screen.queryByRole("table", { name: "Tạm tính theo dòng khoản thu" })).toBeNull();
     });
 
     it("keeps the run-class table of the run that is open when responses arrive out of order", async () => {

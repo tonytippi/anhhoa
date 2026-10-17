@@ -44,6 +44,7 @@ const routes = {
   classFixedReceivables: "PUT /api/app/schools/:schoolId/finance/classes/:classId/fixed-receivables",
   extracurricularClass: "POST /api/app/schools/:schoolId/finance/extracurricular-classes",
   runExtracurricularExclusion: "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/extracurricular-classes/:classId/exclusion",
+  runExtracurricularQuantity: "PUT /api/app/schools/:schoolId/finance/collection-runs/:runId/extracurricular-classes/:classId/quantity",
   extracurricularEdit: "PUT /api/app/schools/:schoolId/finance/extracurricular-classes/:classId",
   extracurricularLifecycle: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/lifecycle",
   extracurricularMembershipAdd: "POST /api/app/schools/:schoolId/finance/extracurricular-classes/:classId/memberships",
@@ -2473,7 +2474,7 @@ export class FinanceService {
           const own = item.members.filter((member: any) => member.enrollmentId === enrollmentId).map((member: any) => member.from).sort()[0]!;
           return resolution.classes.some((other: any) => other.id !== item.id && other.receivableId === item.receivableId && this.extracurricularBillable(other) && other.members.some((member: any) => member.enrollmentId === enrollmentId && (member.from < own || (member.from === own && other.name.localeCompare(item.name, "vi") < 0))));
         }).length;
-        return { id: item.id, name: item.name, receivableId: item.receivableId, receivableName: item.receivable.name, unitLabel: item.receivable.unitLabel, defaultUnitPrice: item.receivable.defaultUnitPrice, memberCount: students.size, transferredCount: transferred, excluded: item.excluded, receivableActive: item.receivableActive };
+        return { id: item.id, name: item.name, receivableId: item.receivableId, receivableName: item.receivable.name, unitLabel: item.receivable.unitLabel, defaultUnitPrice: item.receivable.defaultUnitPrice, quantity: item.quantity ?? 1, memberCount: students.size, transferredCount: transferred, excluded: item.excluded, receivableActive: item.receivableActive };
       }),
     };
   }
@@ -2500,6 +2501,34 @@ export class FinanceService {
       const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude });
       const outcome = this.runDto(updated);
       await this.audit(tx, schoolId, identityId, actor.membershipId, body.excluded ? "COLLECTION_RUN_EXTRACURRICULAR_CLASS_EXCLUDED" : "COLLECTION_RUN_EXTRACURRICULAR_CLASS_RESTORED", operation, { classId, excluded: !body.excluded }, { classId, className: found.name, excluded: body.excluded, run: outcome }, reason ?? undefined);
+      return outcome;
+    });
+  }
+  // Sprint change 2026-10-17: how many units (e.g. sessions) each member of the class is billed in this DRAFT run; 1 removes the setting.
+  async setRunExtracurricularQuantity(identityId: string, schoolId: string, runId: string, classId: string, key: string, operationId: string, body: any) {
+    schoolId = this.school(schoolId);
+    const actor = await this.actor(identityId, schoolId);
+    this.identifier(runId, "runId"); this.identifier(classId, "classId");
+    const quantity = this.quantity(body?.quantity);
+    const expectedVersion = Number(body?.expectedVersion);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw validation("expectedVersion", "Phiên bản đợt thu không hợp lệ.");
+    return this.mutate(actor, identityId, schoolId, routes.runExtracurricularQuantity, key, operationId, { runId, classId, quantity, expectedVersion }, async (tx, operation) => {
+      const run = await this.lockRun(tx, schoolId, runId);
+      if (run.status !== "DRAFT") throw new ConflictException({ code: "COLLECTION_RUN_NOT_DRAFT", message: "Chỉ được sửa số lượng của lớp ngoại khóa khi đợt thu ở trạng thái nháp." });
+      if (run.version !== expectedVersion) throw new ConflictException({ code: "COLLECTION_RUN_VERSION_CONFLICT", message: "Đợt thu đã thay đổi. Hãy tải lại trước khi thay đổi lớp ngoại khóa." });
+      await tx.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "id" = ${classId}::uuid AND "schoolId" = ${schoolId}::uuid FOR SHARE`;
+      const found = await tx.extracurricularClass.findFirst({ where: { id: classId, schoolId, schoolYearId: run.schoolYearId }, include: { receivable: true, lifecycleTransitions: { orderBy: { sequence: "desc" }, take: 1 } } });
+      if (!found || found.lifecycleTransitions[0]?.status !== "ACTIVE") throw this.classNotFound();
+      this.amount(found.receivable.defaultUnitPrice, quantity);
+      const existing = await tx.collectionRunExtracurricularQuantity.findFirst({ where: { schoolId, collectionRunId: run.id, extracurricularClassId: classId } });
+      const previous = existing?.quantity ?? 1;
+      if (previous === quantity) throw validation("quantity", "Số lượng chưa thay đổi.");
+      if (quantity === 1) await tx.collectionRunExtracurricularQuantity.delete({ where: { id: existing!.id } });
+      else if (existing) await tx.collectionRunExtracurricularQuantity.update({ where: { id: existing.id }, data: { quantity } });
+      else await tx.collectionRunExtracurricularQuantity.create({ data: { schoolId, collectionRunId: run.id, extracurricularClassId: classId, quantity } });
+      const updated = await tx.collectionRun.update({ where: { id: run.id }, data: { version: { increment: 1 } }, include: this.runInclude });
+      const outcome = this.runDto(updated);
+      await this.audit(tx, schoolId, identityId, actor.membershipId, "COLLECTION_RUN_EXTRACURRICULAR_QUANTITY_SET", operation, { classId, quantity: previous }, { classId, className: found.name, quantity, run: outcome });
       return outcome;
     });
   }
@@ -2543,7 +2572,7 @@ export class FinanceService {
       const price = BigInt(item.receivable.defaultUnitPrice);
       // A Student merged across classes of one receivable is attributed to the class that started first.
       const billed = eligible.flatMap((row) => (row.lines ?? []).filter((line: any) => line.kind === "EXTRACURRICULAR" && line.receivableId === item.receivableId && line.extracurricular.classes[0]?.id === item.id).map(() => 1));
-      return { id: item.id, billedStudents: billed.length, subtotal: this.extracurricularBillable(item) ? (price * BigInt(billed.length)).toString() : "0" };
+      return { id: item.id, billedStudents: billed.length, subtotal: this.extracurricularBillable(item) ? (price * BigInt(item.quantity ?? 1) * BigInt(billed.length)).toString() : "0" };
     });
   }
   // Per template line: kind, scope label, how many eligible Students receive it and the server-derived subtotal (before discounts, deductions and VAT).
@@ -2982,15 +3011,16 @@ export class FinanceService {
     // Membership mutations take the class FOR UPDATE; sharing it here gives READY/generate one stable view of the class members.
     if (lock && active.length) await client.$queryRaw`SELECT 1 FROM "ExtracurricularClass" WHERE "schoolId" = ${schoolId}::uuid AND "id" = ANY(${active.map((item: any) => item.id)}::uuid[]) ORDER BY "id" FOR SHARE`;
     const excluded = new Set((await client.collectionRunExtracurricularExclusion.findMany({ where: { schoolId, collectionRunId: run.id }, select: { extracurricularClassId: true } })).map((item: any) => item.extracurricularClassId));
+    const quantities = new Map<string, number>((await client.collectionRunExtracurricularQuantity.findMany({ where: { schoolId, collectionRunId: run.id }, select: { extracurricularClassId: true, quantity: true } })).map((item: any) => [item.extracurricularClassId, item.quantity]));
     const members = await this.memberFacts(client, schoolId, active.map((item: any) => item.id), run);
     return {
-      classes: active.map((item: any) => ({ id: item.id, name: item.name, receivableId: item.receivableId, excluded: excluded.has(item.id), receivableActive: item.receivable.lifecycleTransitions[0]?.status === "ACTIVE", receivable: this.receivableFacts(item.receivable), members: members.filter((member: any) => member.classId === item.id) })),
+      classes: active.map((item: any) => ({ id: item.id, name: item.name, receivableId: item.receivableId, excluded: excluded.has(item.id), quantity: quantities.get(item.id) ?? 1, receivableActive: item.receivable.lifecycleTransitions[0]?.status === "ACTIVE", receivable: this.receivableFacts(item.receivable), members: members.filter((member: any) => member.classId === item.id) })),
     };
   }
   private async snapshotResolution(client: any, schoolId: string, run: any) {
     const stored = ((run.extracurricularSnapshot as any)?.classes ?? []) as any[];
     const members = await this.memberFacts(client, schoolId, stored.map((item) => item.id), run);
-    return { classes: stored.map((item) => ({ ...item, members: members.filter((member: any) => member.classId === item.id) })) };
+    return { classes: stored.map((item) => ({ ...item, quantity: item.quantity ?? 1, members: members.filter((member: any) => member.classId === item.id) })) };
   }
   // The resolution a run uses: live while DRAFT/READY, snapshot-based once generated.
   private async runResolution(client: any, schoolId: string, run: any, lock = false) {
@@ -3002,12 +3032,13 @@ export class FinanceService {
   }
   // Fingerprint facts: the class set with exclusions and receivable facts, and the member intervals of billable classes only.
   private resolutionFacts(resolution: { classes: any[] }) {
-    return resolution.classes.map((item: any) => ({ id: item.id, name: item.name, receivableId: item.receivableId, excluded: item.excluded, receivableActive: item.receivableActive, receivable: item.receivable, members: item.excluded || !item.receivableActive ? [] : item.members.map((member: any) => [member.enrollmentId, member.from, member.to]) }));
+    return resolution.classes.map((item: any) => ({ id: item.id, name: item.name, receivableId: item.receivableId, excluded: item.excluded, quantity: item.quantity ?? 1, receivableActive: item.receivableActive, receivable: item.receivable, members: item.excluded || !item.receivableActive ? [] : item.members.map((member: any) => [member.enrollmentId, member.from, member.to]) }));
   }
   private extracurricularBillable(item: any) {
     return !item.excluded && item.receivableActive;
   }
-  // One merged line per extracurricular Receivable for an enrollment: default price, quantity 1, no proration.
+  // One merged line per extracurricular Receivable for an enrollment: default price, no proration. The quantity is the run's quantity
+  // for the class the Student is billed through (the earliest-starting one, as in the preview); without one it is 1.
   private extracurricularLines(resolution: { classes: any[] }, enrollmentId: string, run: { periodStartsOn: Date; periodEndsOn: Date }) {
     const { startIso, endIso } = this.periodBounds(run);
     const byReceivable = new Map<string, any>();
@@ -3016,7 +3047,7 @@ export class FinanceService {
       for (const member of item.members) {
         if (member.enrollmentId !== enrollmentId) continue;
         const entry = byReceivable.get(item.receivableId) ?? { receivable: item.receivable, receivableId: item.receivableId, intervals: [] };
-        entry.intervals.push({ classId: item.id, className: item.name, from: member.from, to: member.to });
+        entry.intervals.push({ classId: item.id, className: item.name, quantity: item.quantity ?? 1, from: member.from, to: member.to });
         byReceivable.set(item.receivableId, entry);
       }
     }
@@ -3040,7 +3071,8 @@ export class FinanceService {
         if (first > startIso || (lastEnd !== null && lastEnd < endIso)) flags.push("MID_MONTH");
       }
       const price = entry.receivable.defaultUnitPrice as string;
-      return { templateLineId: null, kind: "EXTRACURRICULAR", receivableId: entry.receivableId, receivableCode: entry.receivable.code, receivableName: entry.receivable.name, unitLabel: entry.receivable.unitLabel, defaultUnitPrice: price, quantity: 1, amount: price, taxCategory: entry.receivable.taxCategory, scope: null, extracurricular: { classes, flags } };
+      const quantity = entry.intervals.find((item: any) => item.classId === classes[0]!.id)!.quantity as number;
+      return { templateLineId: null, kind: "EXTRACURRICULAR", receivableId: entry.receivableId, receivableCode: entry.receivable.code, receivableName: entry.receivable.name, unitLabel: entry.receivable.unitLabel, defaultUnitPrice: price, quantity, amount: this.amount(BigInt(price), quantity).toString(), taxCategory: entry.receivable.taxCategory, scope: null, extracurricular: { classes, flags } };
     });
   }
   private async selectionPreview(

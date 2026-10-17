@@ -101,6 +101,7 @@ try {
         where: { schoolId: { in: schoolIds } },
       });
       await tx.collectionRunExtracurricularExclusion.deleteMany({ where: { schoolId: { in: schoolIds } } });
+      await tx.collectionRunExtracurricularQuantity.deleteMany({ where: { schoolId: { in: schoolIds } } });
       await tx.extracurricularMembership.deleteMany({ where: { schoolId: { in: schoolIds } } });
       await tx.extracurricularClassLifecycleTransition.deleteMany({ where: { schoolId: { in: schoolIds } } });
       await tx.extracurricularClass.deleteMany({ where: { schoolId: { in: schoolIds } } });
