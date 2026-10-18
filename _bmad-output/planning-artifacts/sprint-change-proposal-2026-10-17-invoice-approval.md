@@ -37,13 +37,15 @@ Status: requested by the user on 2026-10-17. This changes the Invoice issue flow
 
 ## UI (Admin portal)
 
-- Run detail, "Hóa đơn trong đợt": a checkbox column, plus filters for status (`Nháp`, `Cần sửa`, `Chờ duyệt`, `Đã phát hành hoặc hoàn tất`, with counts), class, and a student search. A bulk bar shows the selection count and total. For a selection of Nháp/Cần sửa it offers "Gửi duyệt". For a selection of Chờ duyệt it offers "Duyệt & gửi phụ huynh" and "Rút lại". For a mixed selection it explains that the Invoices must share a status. Issued rows cannot be selected. "Cần sửa" rows show the return note under the Student name.
+- Run detail, "Hóa đơn trong đợt": a checkbox column, plus filters for class and a student search. Status filtering is done with the progress bar. A bulk bar shows the selection count and total. For a selection of Nháp/Cần sửa it offers "Gửi duyệt". For a selection of Chờ duyệt it offers "Duyệt & gửi phụ huynh" and "Rút lại". For a mixed selection it explains that the Invoices must share a status. Issued rows cannot be selected. "Cần sửa" rows show the return note under the Student name.
 - The "Gửi duyệt" modal lists the selected Invoices and the total. It shows the fallback account select only when needed.
 - The "Duyệt & gửi N hóa đơn" modal shows the count, amounts to collect and refund, totals by class compared with the previous month, and a "Cần chú ý" table. Each row of that table has "Xem hóa đơn" and "Trả lại". "Trả lại" opens a modal with a required note and removes that Invoice from the current approval.
 - Invoice page: a DRAFT has "Gửi duyệt" (or "Gửi duyệt lại" after a return, with the manager's note shown in the review panel). A PENDING_APPROVAL Invoice is read-only, with "Duyệt & gửi phụ huynh", "Trả lại", "Rút lại" and "Hóa đơn chờ duyệt tiếp theo". The settlement page has the same actions.
 - "Tải ảnh hóa đơn (ZIP)" sits next to "Thêm học sinh", with an optional class filter.
 - Navigation: "Đợt thu" shows the count of Invoices waiting for approval.
-- The approval step is not drawn as a run stage. The run steps stay `Nháp → Sẵn sàng tạo hóa đơn → Đã tạo hóa đơn → Đã đóng`.
+- Run stages and Invoice states are separate (decided 2026-10-18). The run step labels become `Thiết lập khoản thu → Sẵn sàng tạo hóa đơn → Duyệt & thu tiền → Đã đóng`, and the page titles and run-list badges change to match. The server statuses `DRAFT/READY/GENERATED/CLOSED` do not change. This avoids using "Nháp" for both a run and an Invoice. It also stops "Đã tạo hóa đơn" from suggesting the work is done, when that stage covers review, approval and collection.
+- In the `Duyệt & thu tiền` stage, a progress bar replaces the metric row. It shows the total to collect and the amount collected, a bar split by Invoice state, and buttons that also filter the table: `Tất cả`, `Nháp`, `Cần sửa`, `Chờ duyệt`, `Đã phát hành`, `Đã thu đủ`, each with its count. The table's status select is removed. The run list shows the stage badge with a small line of counts, for example "4 nháp · 1 cần sửa · 2 chờ duyệt". The close hint lists what is left, for example "còn 4 nháp, 1 cần sửa và 2 chờ duyệt".
+- The run's Invoice summary returns counts per state (`DRAFT`, `RETURNED`, `PENDING_APPROVAL`, `ISSUED` with an unpaid balance, and fully paid) and the collected amount.
 
 ## Mockup
 
