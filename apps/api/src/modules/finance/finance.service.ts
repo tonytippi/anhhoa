@@ -2717,7 +2717,7 @@ export class FinanceService {
     const by = (event: any) => event.membership?.boundStaffProfile?.fullName ?? null;
     const pending = parts.some((part) => part.status === "PENDING_APPROVAL");
     return {
-      submission: pending && latest?.kind === "SUBMITTED" ? { submissionId: latest.operationId, submittedAt: latest.createdAt.toISOString(), submittedBy: by(latest) } : null,
+      submission: pending && latest?.kind === "SUBMITTED" ? { submissionId: latest.operationId, submittedAt: latest.createdAt.toISOString(), submittedBy: by(latest), submittedByMembershipId: latest.membershipId } : null,
       returnNote: !pending && parts.some((part) => part.status === "DRAFT") && latest?.kind === "RETURNED" ? { note: latest.note, returnedAt: latest.createdAt.toISOString(), returnedBy: by(latest) } : null,
     };
   }

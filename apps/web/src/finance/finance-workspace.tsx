@@ -249,7 +249,8 @@ type RunNotice = {
   submission?: ApprovalSubmission | null;
   returnNote?: ApprovalReturnNote | null;
 };
-type ApprovalSubmission = { submissionId: string; submittedAt: string; submittedBy: string | null };
+// submittedByMembershipId lets the page offer "Rút lại" only to whoever submitted; others use "Trả lại" with a note.
+type ApprovalSubmission = { submissionId: string; submittedAt: string; submittedBy: string | null; submittedByMembershipId?: string };
 type ApprovalReturnNote = { note: string; returnedAt: string; returnedBy: string | null };
 type ApprovalPreview = {
   noticeCount: number;
@@ -1477,6 +1478,7 @@ export function FinanceWorkspace({
   onOpenExtracurricularClasses,
   onOpenReceiptQueue,
   canApprove = false,
+  membershipId,
   features = preschoolFeatures,
   service = false,
 }: {
@@ -1502,6 +1504,7 @@ export function FinanceWorkspace({
   onOpenReceiptQueue?: (runId: string, settled?: boolean) => void;
   // Sprint change 2026-10-17: holders of COLLECTION_RUN_APPROVE approve or return submitted Invoices.
   canApprove?: boolean;
+  membershipId?: string;
 }) {
   const classRuns = features.collectionRunScope === "CLASS";
   const receivableText = receivableWording(service);
@@ -3396,6 +3399,9 @@ export function FinanceWorkspace({
   const selectedList = liveNotices.filter(
     (notice) => selection.has(notice.invoiceId) && (notice.status === "DRAFT" || notice.status === "PENDING_APPROVAL") && matchesNoticeFilter(notice),
   );
+  // Option chosen 2026-10-18: only the submitter withdraws; anyone else sends an Invoice back with "Trả lại" and a note.
+  const submittedByMe = (submission?: ApprovalSubmission | null) =>
+    !membershipId || !submission?.submittedByMembershipId || submission.submittedByMembershipId === membershipId;
   const selectedKind = selectedList.every((notice) => notice.status === "DRAFT")
     ? "draft"
     : selectedList.every((notice) => notice.status === "PENDING_APPROVAL")
@@ -5124,6 +5130,7 @@ export function FinanceWorkspace({
                     )}
                     {selectedKind === "pending" && (
                       <>
+                        {selectedList.every((notice) => submittedByMe(notice.submission)) && (
                         <button
                           type="button"
                           disabled={Boolean(pending)}
@@ -5134,6 +5141,7 @@ export function FinanceWorkspace({
                         >
                           Rút lại
                         </button>
+                        )}
                         {canApprove && (
                           <button
                             className="primary-action"
@@ -5748,7 +5756,7 @@ export function FinanceWorkspace({
                         {invoice.status === "DRAFT"
                           ? `Rà soát xong thì gửi duyệt. Hóa đơn được phát hành khi quản lý duyệt; ưu đãi được kiểm tra lại lúc duyệt.${issueParts.length > 1 ? " Hai phần được phát hành cùng lúc." : ""}`
                           : invoice.status === "PENDING_APPROVAL"
-                            ? `${approvalSubmission?.submittedBy ?? "Kế toán"} gửi duyệt lúc ${approvalSubmission ? dateTimeLabel(approvalSubmission.submittedAt) : ""}. Hóa đơn chờ duyệt không sửa được; rút lại nếu cần sửa.`
+                            ? `${approvalSubmission?.submittedBy ?? "Kế toán"} gửi duyệt lúc ${approvalSubmission ? dateTimeLabel(approvalSubmission.submittedAt) : ""}. Hóa đơn chờ duyệt không sửa được; ${submittedByMe(approvalSubmission) ? "rút lại nếu cần sửa" : canApprove ? "trả lại kèm ghi chú nếu cần sửa" : "người gửi duyệt rút lại hoặc quản lý trả lại nếu cần sửa"}.`
                             : "Hóa đơn đã phát hành giữ nguyên snapshot nghĩa vụ và hướng dẫn thanh toán."}
                       </p>
                     </div>
@@ -5860,7 +5868,7 @@ export function FinanceWorkspace({
                         </button>
                       </>
                     )}
-                    {invoice.status === "PENDING_APPROVAL" && (
+                    {invoice.status === "PENDING_APPROVAL" && submittedByMe(approvalSubmission) && (
                       <button type="button" disabled={Boolean(pending)} onClick={() => void withdrawOpenInvoice()}>
                         Rút lại
                       </button>
@@ -5879,6 +5887,17 @@ export function FinanceWorkspace({
                       </button>
                     )}
                   </div>
+                  {/* A one-line key to the buttons on screen, so "Trả lại" and "Rút lại" are not confused. */}
+                  {invoice.status === "PENDING_APPROVAL" && (canApprove || submittedByMe(approvalSubmission)) && (
+                    <small className="finance-submitted-at">
+                      {[
+                        canApprove && "Trả lại: gửi về kế toán sửa, kèm ghi chú điều cần sửa.",
+                        submittedByMe(approvalSubmission) && "Rút lại: tự đưa về Nháp để sửa rồi gửi duyệt lại.",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    </small>
+                  )}
                   {/* Revising an issued Invoice is rare and heavy: a quiet entry under a divider, apart from the payment-image actions. */}
                   {!invoice.revisesInvoiceId && revisionParts.length > 0 && (
                     <p className="finance-revision-entry">

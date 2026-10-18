@@ -57,7 +57,7 @@ Mọi hóa đơn phải được **quản lý duyệt** trước khi đến ph�
 Muốn gửi nhiều hóa đơn một lần: ở bảng hóa đơn của đợt thu, đánh dấu các dòng `Nháp` hoặc `Cần sửa` rồi bấm `Gửi duyệt` trên thanh phía trên bảng. Nếu có hóa đơn chưa gửi được (ví dụ chưa có tài khoản nhận), hộp thoại liệt kê từng hóa đơn và lý do; **không hóa đơn nào được gửi** cho đến khi bạn bỏ chọn hoặc xử lý các hóa đơn đó.
 
 > [!WARNING]
-> Hóa đơn `Chờ duyệt` **không sửa được**. Cần sửa thì bấm `Rút lại` (trên trang hóa đơn hoặc thanh chọn của đợt thu): hóa đơn về `Nháp`, sửa xong gửi duyệt lại. Nút gửi duyệt bị khóa khi còn thay đổi chưa lưu trên dòng hóa đơn.
+> Hóa đơn `Chờ duyệt` **không sửa được**. Cần sửa thì **người gửi duyệt** bấm `Rút lại` (trên trang hóa đơn hoặc thanh chọn của đợt thu): hóa đơn về `Nháp`, sửa xong gửi duyệt lại. Người khác không thấy nút `Rút lại`; quản lý dùng `Trả lại` kèm ghi chú. Nút gửi duyệt bị khóa khi còn thay đổi chưa lưu trên dòng hóa đơn.
 
 ## Duyệt và gửi phụ huynh
 
@@ -72,6 +72,8 @@ Khi duyệt, hóa đơn được **phát hành**: hệ thống kiểm tra lại 
 > Không duyệt được khi đợt trước của cùng lớp chưa đóng (trang báo "Đợt thu … của lớp … chưa đóng"); hóa đơn vẫn ở `Chờ duyệt`. Nếu kế toán vừa sửa hoặc gửi lại hóa đơn trong lúc bạn đang xem, hệ thống từ chối và yêu cầu tải lại để duyệt đúng bản mới.
 
 ## Trả lại hóa đơn cần sửa
+
+> `Trả lại` và `Rút lại` đều đưa hóa đơn về để sửa. `Trả lại` dành cho **quản lý** và bắt buộc ghi chú, hóa đơn hiện `Cần sửa`. `Rút lại` dành cho **người đã gửi duyệt** tự lấy về, không cần ghi chú, hóa đơn về `Nháp`. Dòng chú thích dưới các nút trên trang hóa đơn nhắc lại điều này.
 
 Thấy hóa đơn chưa ổn, quản lý bấm `Trả lại` và **bắt buộc ghi chú** điều cần sửa. Chỉ hóa đơn đó về lại; hóa đơn khác vẫn duyệt bình thường. Hóa đơn bị trả lại có nhãn `Cần sửa` trên bảng của đợt thu, ghi chú hiện ngay dưới dòng và ở khung **Ghi chú của quản lý** trên trang hóa đơn. Kế toán sửa rồi bấm `Gửi duyệt lại phiếu thu`.
 

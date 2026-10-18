@@ -1851,6 +1851,7 @@ describe("FinanceWorkspace", () => {
     expect(screen.getByText(/Lê Thu Hà gửi duyệt lúc 09:12 17\/10/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Thêm dòng" })).toBeNull(); expect(screen.queryByRole("button", { name: "Gửi duyệt hóa đơn" })).toBeNull();
     expect(screen.getByRole("button", { name: "Rút lại" })).toBeTruthy(); expect(screen.queryByRole("button", { name: "Duyệt & gửi phụ huynh" })).toBeNull();
+    expect(screen.getByText("Rút lại: tự đưa về Nháp để sửa rồi gửi duyệt lại.")).toBeTruthy(); expect(screen.queryByRole("button", { name: "Trả lại" })).toBeNull();
     expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/approval-submissions") && (options as RequestInit).method === "POST" && (options as RequestInit).body === JSON.stringify({ invoiceIds: ["invoice-a"], personalBankAccountId: "bank-active" }))).toBe(true);
   });
   it("refreshes the selected run from the server after submitting the last draft for approval", async () => {
@@ -3046,7 +3047,7 @@ describe("FinanceWorkspace", () => {
 
     it("shows the manager's note on a returned Invoice and lets an approver approve a pending one from its page", async () => {
       const line = { id: "line-d", receivableId: "r", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null };
-      const pending = { id: "d", status: "PENDING_APPROVAL", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS004", name: "Bé Dũng", className: "Mầm 4A" }, lines: [line], approval: { submission: { submissionId: "submit-d", submittedAt: "2026-10-17T02:12:00.000Z", submittedBy: "Lê Thu Hà" }, returnNote: null } };
+      const pending = { id: "d", status: "PENDING_APPROVAL", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS004", name: "Bé Dũng", className: "Mầm 4A" }, lines: [line], approval: { submission: { submissionId: "submit-d", submittedAt: "2026-10-17T02:12:00.000Z", submittedBy: "Lê Thu Hà", submittedByMembershipId: "membership-accountant" }, returnNote: null } };
       const returned = { ...pending, id: "b", status: "DRAFT", student: { code: "HS002", name: "Bé Bình", className: "Mầm 4A" }, approval: { submission: null, returnNote: { note: "Tiền ăn sửa còn 20 ngày nhưng chưa ghi lý do.", returnedAt: "2026-10-17T03:05:00.000Z", returnedBy: "Nguyễn Thị Hạnh" } } };
       const fetch = routes((url, options) =>
         options?.method === "POST" && url.endsWith("/approvals") ? response({ outcome: { noticeCount: 1, status: "ISSUED" } })
@@ -3060,9 +3061,13 @@ describe("FinanceWorkspace", () => {
       expect(screen.getByText(/Nguyễn Thị Hạnh · trả lại lúc 10:05 17\/10/)).toBeTruthy();
       expect(screen.getByRole("button", { name: "Gửi duyệt lại hóa đơn" })).toBeTruthy();
       view.unmount();
-      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="d" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} canApprove />);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="d" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} canApprove membershipId="membership-manager" />);
       expect(await screen.findByRole("heading", { name: "Chờ duyệt" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Thêm dòng" })).toBeNull();
+      // Someone else submitted it: the manager sends it back with "Trả lại"; only the submitter withdraws.
+      expect(screen.getByRole("button", { name: "Trả lại" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Rút lại" })).toBeNull();
+      expect(screen.getByText("Trả lại: gửi về kế toán sửa, kèm ghi chú điều cần sửa.")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Duyệt & gửi phụ huynh" }));
       await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/approvals") && (options as RequestInit).body === JSON.stringify({ items: [{ invoiceId: "d", submissionId: "submit-d" }] }))).toBe(true));
       expect(await screen.findByText("Đã duyệt và gửi hóa đơn của HS004 / Bé Dũng tới phụ huynh.")).toBeTruthy();

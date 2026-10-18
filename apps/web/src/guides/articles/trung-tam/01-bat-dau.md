@@ -23,7 +23,7 @@ Trung tâm không thu theo tháng của cả trường. Mỗi lớp có **chuỗ
 
 - **Mọi con số do hệ thống tính.** Đơn giá, ưu đãi, phần bớt, thuế GTGT và tổng phải thu đều do máy chủ xác nhận. Ô nhập trên màn hình chỉ là đề xuất; số in nghiêng là số dự kiến chưa lưu.
 - **Không có thu một phần.** Mỗi hóa đơn được ghi thực nhận một lần. Thu thiếu hoặc thu thừa được hệ thống chuyển sang hóa đơn kỳ sau của học sinh.
-- **Hóa đơn phải được duyệt mới đến phụ huynh.** Kế toán gửi duyệt từng hóa đơn; quản lý `Duyệt & gửi phụ huynh` hoặc `Trả lại` kèm ghi chú. Hóa đơn `Chờ duyệt` không sửa được, cần sửa thì `Rút lại`. Xem [Rà soát, gửi duyệt và phát hành hóa đơn](guide:ra-soat-phat-hanh).
+- **Hóa đơn phải được duyệt mới đến phụ huynh.** Kế toán gửi duyệt từng hóa đơn; quản lý `Duyệt & gửi phụ huynh` hoặc `Trả lại` kèm ghi chú. Hóa đơn `Chờ duyệt` không sửa được, cần sửa thì người gửi duyệt `Rút lại`. Xem [Rà soát, gửi duyệt và phát hành hóa đơn](guide:ra-soat-phat-hanh).
 - **Hóa đơn đã phát hành không sửa trực tiếp.** Muốn đổi phải làm bản điều chỉnh, xem [Điều chỉnh hóa đơn đã phát hành](guide:dieu-chinh-hoa-don).
 - **Hai tài khoản nhận tiền.** Khoản có thuế thu vào *tài khoản trường*; khoản không kê khai thu vào *tài khoản cá nhân*. Vì vậy một phiếu thu có thể gồm hai phần và phụ huynh chuyển khoản hai lần.
 - **Nghỉ buổi không tự trừ tiền.** Muốn giảm cho học sinh, kế toán nhập phần `Bớt` bằng tay trên hóa đơn nháp, kèm lý do.
