@@ -82,6 +82,8 @@ model School {
   staffCodeRegistry                 StaffCodeRegistry[]
   financeLedgerEvents               FinanceLedgerEvent[]
   financeReportExports              FinanceReportExport[]
+  invoiceApprovalEvents             InvoiceApprovalEvent[]
+  invoiceImageExports               InvoiceImageExport[]
   initialOwnerIdentity              UserIdentity?                          @relation("InitialSchoolOwner", fields: [initialOwnerIdentityId], references: [id], onDelete: Restrict)
   invoicePayouts                    InvoicePayout[]
   extracurricularClasses            ExtracurricularClass[]
@@ -781,6 +783,8 @@ model SchoolMembership {
   decidedCoverageReversals            CoverageReversalRequest[]                 @relation("CoverageReversalDecider")
   coverageRefundEligibilities         CoverageRefundEligibility[]
   financeReportExports                FinanceReportExport[]
+  invoiceApprovalEvents               InvoiceApprovalEvent[]
+  invoiceImageExports                 InvoiceImageExport[]
   debtTransfers                       DebtTransfer[]
 
   @@unique([schoolId, userIdentityId])
@@ -840,6 +844,8 @@ model Operation {
   debtTransfers                       DebtTransfer[]
   coverageRefundEligibilities         CoverageRefundEligibility[]
   financeReportExports                FinanceReportExport[]
+  invoiceApprovalEvents               InvoiceApprovalEvent[]
+  invoiceImageExports                 InvoiceImageExport[]
   collectionRunLifecycleTransitions   CollectionRunLifecycleTransition[]
   collectionRunGeneration             CollectionRunGeneration?
 
@@ -1009,6 +1015,8 @@ model CollectionRunGenerationItem {
 
 enum InvoiceStatus {
   DRAFT
+  // Sprint change 2026-10-17: Finance submitted the notice; it is locked until a manager approves (ISSUED) or returns it (DRAFT).
+  PENDING_APPROVAL
   ISSUED
   CLOSED
   CANCELLED
@@ -1068,6 +1076,8 @@ model Invoice {
   dueOn                                DateTime?                      @db.Date
   revisesInvoiceId                     String?                        @db.Uuid
   revisionReason                       String?
+  // Receiving account resolved when Finance submits the notice for approval; approval issues with it.
+  approvalBankAccountId                String?                        @db.Uuid
   createdAt                            DateTime                       @default(now()) @db.Timestamptz(3)
   school                               School                         @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student                              Student                        @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
@@ -1087,6 +1097,7 @@ model Invoice {
   debtTransfersTo                      DebtTransfer[]                 @relation("DebtTransferTarget")
   coverageFacts                        InvoicePromotionCoverageFact[]
   studentPromotionalCoverages          StudentPromotionalCoverage[]
+  approvalEvents                       InvoiceApprovalEvent[]
 
   @@unique([schoolId, id])
   @@unique([schoolId, obligationCodeSnapshot])
@@ -1478,6 +1489,55 @@ model FinanceLedgerEvent {
   @@index([schoolId, postedAt])
   @@index([schoolId, billingMonth, collectionRunId])
   @@index([schoolId, schoolYearId, postedAt])
+}
+
+enum InvoiceApprovalEventKind {
+  SUBMITTED
+  WITHDRAWN
+  RETURNED
+  APPROVED
+}
+
+// Sprint change 2026-10-17: append-only approval history of each Invoice part. The current return note is the
+// latest RETURNED event with no later SUBMITTED event.
+model InvoiceApprovalEvent {
+  id           String                   @id @default(uuid()) @db.Uuid
+  schoolId     String                   @db.Uuid
+  invoiceId    String                   @db.Uuid
+  kind         InvoiceApprovalEventKind
+  membershipId String                   @db.Uuid
+  operationId  String                   @db.Uuid
+  note         String?
+  createdAt    DateTime                 @default(now()) @db.Timestamptz(3)
+  school       School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  invoice      Invoice                  @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict)
+  membership   SchoolMembership         @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation    Operation                @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@index([schoolId, invoiceId, createdAt])
+}
+
+// A ZIP of the payment images of a run, for parents who do not use the app. Short-lived and downloaded once.
+model InvoiceImageExport {
+  id              String           @id @default(uuid()) @db.Uuid
+  schoolId        String           @db.Uuid
+  membershipId    String           @db.Uuid
+  operationId     String           @db.Uuid
+  collectionRunId String           @db.Uuid
+  fileName        String
+  imageCount      Int
+  zip             Bytes
+  expiresAt       DateTime         @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  downloadedAt    DateTime?        @db.Timestamptz(3)
+  school          School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  membership      SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict)
+  operation       Operation        @relation(fields: [schoolId, operationId], references: [schoolId, id], onDelete: Restrict)
+
+  @@unique([schoolId, id])
+  @@unique([schoolId, operationId])
+  @@index([schoolId, expiresAt])
 }
 
 model FinanceReportExport {

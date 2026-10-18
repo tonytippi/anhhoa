@@ -3,6 +3,7 @@ import { AuthorizationService } from "../modules/authorization/authorization.ser
 import { PrismaService } from "../modules/identity/prisma.service.js";
 import { FinanceService } from "../modules/finance/finance.service.js";
 import { SettingsService } from "../modules/settings/settings.service.js";
+import { issueThroughApproval } from './approval-helpers.js';
 
 // Decision 2026-09-30: taxed receivables add VAT and are paid into the School account; NOT_DECLARED
 // receivables are paid into a personal account. One Invoice per payment channel forms a payment notice.
@@ -21,7 +22,7 @@ async function school() {
   const identity = await prisma.userIdentity.create({ data: { emailNormalized: `${uuid()}@example.com` } });
   const membership = await prisma.schoolMembership.create({ data: { schoolId: created.id, userIdentityId: identity.id } });
   const position = await prisma.schoolPosition.create({ data: { schoolId: created.id, code: `FIN_${uuid().slice(0, 8)}`, name: `Finance ${uuid()}` } });
-  await prisma.positionCapabilityGrant.createMany({ data: ["SCHOOL_CONTEXT_READ", "FINANCE_MANAGE", "SETTINGS_MANAGE"].map((capability) => ({ schoolId: created.id, positionId: position.id, capability })) });
+  await prisma.positionCapabilityGrant.createMany({ data: ["SCHOOL_CONTEXT_READ", "FINANCE_MANAGE", "COLLECTION_RUN_APPROVE", "SETTINGS_MANAGE"].map((capability) => ({ schoolId: created.id, positionId: position.id, capability })) });
   await prisma.staffProfile.create({ data: { schoolId: created.id, fullName: "Finance", email: identity.emailNormalized, phone: "0900000000", dateOfBirth: date("1990-01-01"), primaryPositionId: position.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
   const year = await prisma.schoolYear.create({ data: { schoolId: created.id, name: "2026", startsOn: date("2026-01-01"), endsOn: date("2027-01-01") } });
   const classroom = await prisma.class.create({ data: { schoolId: created.id, schoolYearId: year.id, name: "Mầm 4A" } });
@@ -67,7 +68,7 @@ afterEach(async () => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "issuedPromotionApplication", "debtTransfer", "settlementTransfer", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "receivableLifecycleTransition", "receivableGroupLifecycleTransition", "receivable", "receivableGroup", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
+    for (const model of ["auditRecord", "financeLedgerEvent", "invoiceApprovalEvent", "invoiceImageExport", "collectionRunGenerationItem", "collectionRunGeneration", "issuedPromotionApplication", "debtTransfer", "settlementTransfer", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "receivableLifecycleTransition", "receivableGroupLifecycleTransition", "receivable", "receivableGroup", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
       await (tx as any)[model].deleteMany({ where: { schoolId: { in: ids } } });
     await tx.school.deleteMany({ where: { id: { in: ids } } });
   });
@@ -141,16 +142,16 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     const { runId } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "22" }]);
     const [schoolPart, personalPart] = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: runId }, orderBy: { channel: "asc" } });
     // No accounts yet: refused without partial issue.
-    await expect(finance.issueInvoice(current.identity.id, current.school.id, personalPart!.id, uuid(), uuid(), {})).rejects.toMatchObject({ response: { code: "SCHOOL_BANK_ACCOUNT_REQUIRED" } });
+    await expect(issueThroughApproval(finance, current.identity.id, current.school.id, personalPart!.id, uuid(), uuid(), {})).rejects.toMatchObject({ response: { code: "SCHOOL_BANK_ACCOUNT_REQUIRED" } });
     const schoolAccount = await account(current, "SCHOOL", "0123456789");
-    await expect(finance.issueInvoice(current.identity.id, current.school.id, personalPart!.id, uuid(), uuid(), {})).rejects.toMatchObject({ response: { code: "PERSONAL_BANK_ACCOUNT_REQUIRED" } });
+    await expect(issueThroughApproval(finance, current.identity.id, current.school.id, personalPart!.id, uuid(), uuid(), {})).rejects.toMatchObject({ response: { code: "PERSONAL_BANK_ACCOUNT_REQUIRED" } });
     expect(await prisma.invoice.count({ where: { schoolId: current.school.id, collectionRunId: runId, status: "DRAFT" } })).toBe(2);
     // A School account is refused as the personal account and vice versa.
     await expect(finance.setClassDefaultBankAccount(current.identity.id, current.school.id, current.classroom.id, uuid(), uuid(), { bankAccountId: schoolAccount })).rejects.toMatchObject({ response: { fieldErrors: { bankAccountId: expect.any(String) } } });
-    await expect(finance.issueInvoice(current.identity.id, current.school.id, personalPart!.id, uuid(), uuid(), { personalBankAccountId: schoolAccount })).rejects.toMatchObject({ status: 404 });
+    await expect(issueThroughApproval(finance, current.identity.id, current.school.id, personalPart!.id, uuid(), uuid(), { personalBankAccountId: schoolAccount })).rejects.toMatchObject({ status: 404 });
     const personalAccount = await account(current, "PERSONAL", "215000002088");
     await finance.setClassDefaultBankAccount(current.identity.id, current.school.id, current.classroom.id, uuid(), uuid(), { bankAccountId: personalAccount });
-    const issued: any = await finance.issueInvoice(current.identity.id, current.school.id, personalPart!.id, uuid(), uuid(), {});
+    const issued: any = await issueThroughApproval(finance, current.identity.id, current.school.id, personalPart!.id, uuid(), uuid(), {});
     expect(issued.status).toBe("COMPLETED");
     const after = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: runId }, orderBy: { channel: "asc" } });
     expect(after.map((invoice) => [invoice.channel, invoice.status, invoice.bankAccountIdSnapshot, invoice.obligationTotalSnapshot])).toEqual([["SCHOOL", "ISSUED", schoolAccount, 3500000n], ["PERSONAL", "ISSUED", personalAccount, 770000n]]);
@@ -179,7 +180,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     const [first, second] = [await account(current, "SCHOOL", "0123456789"), await account(current, "SCHOOL", "999")];
     const draft = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId } });
     // Two active School accounts and no Class default: Finance must choose.
-    await expect(finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), {})).rejects.toMatchObject({ response: { code: "SCHOOL_BANK_ACCOUNT_CHOICE_REQUIRED" } });
+    await expect(issueThroughApproval(finance, current.identity.id, current.school.id, draft.id, uuid(), uuid(), {})).rejects.toMatchObject({ response: { code: "SCHOOL_BANK_ACCOUNT_CHOICE_REQUIRED" } });
     // A personal account is refused as the Class default School account.
     const personalAccount = await account(current, "PERSONAL", "215000002088");
     await expect(finance.setClassDefaultBankAccount(current.identity.id, current.school.id, current.classroom.id, uuid(), uuid(), { schoolBankAccountId: personalAccount })).rejects.toMatchObject({ response: { fieldErrors: { schoolBankAccountId: expect.any(String) } } });
@@ -190,14 +191,14 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     expect((await prisma.class.findUniqueOrThrow({ where: { id: current.classroom.id } })).defaultSchoolBankAccountId).toBe(second);
     const detail: any = await finance.invoice(current.identity.id, current.school.id, draft.id);
     expect(detail.notice.classDefaultSchoolBankAccountId).toBe(second);
-    await finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), {});
+    await issueThroughApproval(finance, current.identity.id, current.school.id, draft.id, uuid(), uuid(), {});
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).bankAccountIdSnapshot).toBe(second);
-    // An explicit choice wins over the Class default.
+    // Decision 2026-10-17: the Class default always wins; the account chosen at submission only fills a missing default.
     await finance.closeRun(current.identity.id, current.school.id, draft.collectionRunId, uuid(), uuid(), { reason: "Khóa đợt thu" });
     const { runId: october } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }], "2026-10");
     const next = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: october } });
-    await finance.issueInvoice(current.identity.id, current.school.id, next.id, uuid(), uuid(), { schoolBankAccountId: first });
-    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: next.id } })).bankAccountIdSnapshot).toBe(first);
+    await issueThroughApproval(finance, current.identity.id, current.school.id, next.id, uuid(), uuid(), { schoolBankAccountId: first });
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: next.id } })).bankAccountIdSnapshot).toBe(second);
   });
 
   it("keeps carries and prior-debt transfers inside one payment channel", async () => {
@@ -209,7 +210,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     const personalAccount = await account(current, "PERSONAL", "215000002088");
     const september = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "10" }]);
     const [septemberSchool] = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: september.runId }, orderBy: { channel: "asc" } });
-    await finance.issueInvoice(current.identity.id, current.school.id, septemberSchool!.id, uuid(), uuid(), { personalBankAccountId: personalAccount });
+    await issueThroughApproval(finance, current.identity.id, current.school.id, septemberSchool!.id, uuid(), uuid(), { personalBankAccountId: personalAccount });
     // Short by 100.000 on the School part only.
     await finance.closeInvoice(current.identity.id, current.school.id, septemberSchool!.id, uuid(), uuid(), { actualAmount: "1000000" });
     const october = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "10" }], "2026-10");
@@ -243,8 +244,8 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
 
     const firstSchool = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: first.id, channel: "SCHOOL" } });
     const secondSchool = await prisma.invoice.findFirstOrThrow({ where: { schoolId: current.school.id, collectionRunId: runId, studentId: second.id, channel: "SCHOOL" } });
-    await finance.issueInvoice(current.identity.id, current.school.id, firstSchool.id, uuid(), uuid(), { personalBankAccountId: personalAccount });
-    await finance.issueInvoice(current.identity.id, current.school.id, secondSchool.id, uuid(), uuid(), { personalBankAccountId: personalAccount });
+    await issueThroughApproval(finance, current.identity.id, current.school.id, firstSchool.id, uuid(), uuid(), { personalBankAccountId: personalAccount });
+    await issueThroughApproval(finance, current.identity.id, current.school.id, secondSchool.id, uuid(), uuid(), { personalBankAccountId: personalAccount });
     await finance.closeInvoice(current.identity.id, current.school.id, firstSchool.id, uuid(), uuid(), { actualAmount: "1100000" });
     const issued: any = await finance.run(current.identity.id, current.school.id, runId);
     const byStudent = new Map(issued.notices.map((notice: any) => [notice.studentId, notice]));
@@ -311,7 +312,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     await finance.setClassDefaultBankAccount(current.identity.id, current.school.id, current.classroom.id, uuid(), uuid(), { bankAccountId: personalAccount });
     const { runId: august } = await generatedRun(current, [{ receivableId: tuition, quantity: "1" }, { receivableId: meals, quantity: "10" }], "2026-08");
     const augustParts = await prisma.invoice.findMany({ where: { schoolId: current.school.id, collectionRunId: august }, orderBy: [{ studentId: "asc" }, { channel: "asc" }] });
-    for (const studentId of [paid.id, unpaid.id]) await finance.issueInvoice(current.identity.id, current.school.id, augustParts.find((part) => part.studentId === studentId)!.id, uuid(), uuid(), {});
+    for (const studentId of [paid.id, unpaid.id]) await issueThroughApproval(finance, current.identity.id, current.school.id, augustParts.find((part) => part.studentId === studentId)!.id, uuid(), uuid(), {});
     for (const part of augustParts.filter((item) => item.studentId === paid.id)) await finance.closeInvoice(current.identity.id, current.school.id, part.id, uuid(), uuid(), { actualAmount: (await prisma.invoice.findUniqueOrThrow({ where: { id: part.id } })).obligationTotalSnapshot!.toString() });
     // The September run only has the meals part; the School part is created on demand.
     const { runId: september } = await generatedRun(current, [{ receivableId: meals, quantity: "1" }], "2026-09");
@@ -356,7 +357,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("finance payment c
     while (true) {
       const draft = await prisma.invoice.findFirst({ where: { schoolId: current.school.id, collectionRunId: september, status: "DRAFT", total: { gt: 0 } } });
       if (!draft) break;
-      await finance.issueInvoice(current.identity.id, current.school.id, draft.id, uuid(), uuid(), {});
+      await issueThroughApproval(finance, current.identity.id, current.school.id, draft.id, uuid(), uuid(), {});
     }
     await finance.closeRun(current.identity.id, current.school.id, september, uuid(), uuid(), { reason: "Khóa đợt thu" });
     await expect(finance.transferPriorDebts(current.identity.id, current.school.id, september, uuid(), uuid(), { sourceInvoiceIds: [first] })).rejects.toMatchObject({ status: 409, response: { code: "COLLECTION_RUN_CLOSED" } });

@@ -238,13 +238,27 @@ type RunNotice = {
   studentCode: string;
   studentName: string;
   className: string;
+  classId?: string;
   kind: "NORMAL" | "SETTLEMENT";
-  status: "DRAFT" | "ISSUED" | "PARTLY_SETTLED" | "COMPLETED" | "CANCELLED";
+  status: "DRAFT" | "PENDING_APPROVAL" | "ISSUED" | "PARTLY_SETTLED" | "COMPLETED" | "CANCELLED";
   settledParts: number;
   partCount: number;
   total: string;
   parts: Array<{ id: string; channel: PaymentChannel; status: string; total: string; account: ReceivingAccount | null }>;
+  // Sprint change 2026-10-17: the latest submission of a pending notice, or the manager's note on a returned one.
+  submission?: ApprovalSubmission | null;
+  returnNote?: ApprovalReturnNote | null;
 };
+type ApprovalSubmission = { submissionId: string; submittedAt: string; submittedBy: string | null };
+type ApprovalReturnNote = { note: string; returnedAt: string; returnedBy: string | null };
+type ApprovalPreview = {
+  noticeCount: number;
+  collectTotal: string;
+  refundTotal: string;
+  classes: Array<{ className: string; settlement: boolean; noticeCount: number; total: string; average: string | null; previousAverage: string | null }>;
+  notices: Array<{ invoiceId: string; submissionId: string | null; submittedAt: string | null; submittedBy: string | null; studentCode: string; studentName: string; className: string; settlement: boolean; total: string; items: string[] }>;
+};
+type BlockedNotice = { invoiceId: string; studentCode: string | null; studentName: string | null; code: string; message: string };
 type PreviewSummary = {
   eligibleCount: number;
   skippedCount: number;
@@ -264,6 +278,10 @@ type InvoiceSummary = {
   receivableTotal?: string;
   collectedTotal?: string;
   settledNoticeCount?: number;
+  draftNoticeCount?: number;
+  returnedNoticeCount?: number;
+  pendingNoticeCount?: number;
+  openNoticeCount?: number;
 };
 type Preview = {
   run: Run;
@@ -354,6 +372,8 @@ type BankAccount = {
 type Invoice = {
   id: string;
   collectionRunId?: string;
+  // Sprint change 2026-10-17: approval state of the notice this Invoice belongs to.
+  approval?: { submission: ApprovalSubmission | null; returnNote: ApprovalReturnNote | null };
   paymentTotal?: string;
   noticeTotal?: string;
   channel?: PaymentChannel;
@@ -527,9 +547,10 @@ const skipReason = (reason: string) =>
   })[reason] ?? "Không đủ điều kiện theo roster hiện tại.";
 const runStatusLabel = (status: Run["status"]) =>
   ({
-    DRAFT: "Nháp",
+    // Sprint change 2026-10-18: run stages, distinct from the states of its Invoices.
+    DRAFT: "Thiết lập khoản thu",
     READY: "Sẵn sàng tạo hóa đơn",
-    GENERATED: "Đã tạo hóa đơn",
+    GENERATED: "Duyệt & thu tiền",
     CLOSED: "Đã đóng",
   })[status];
 const runSteps = ["DRAFT", "READY", "GENERATED", "CLOSED"] as const;
@@ -599,6 +620,7 @@ const promotionStatusLabel = (status: PromotionPolicy["versions"][number]["statu
 const invoiceStatusLabel = (status: string) =>
   ({
     DRAFT: "Nháp",
+    PENDING_APPROVAL: "Chờ duyệt",
     ISSUED: "Đã phát hành",
     CLOSED: "Đã đóng",
     CANCELLED: "Đã hủy",
@@ -624,7 +646,9 @@ const noticeLineName = (invoice: Invoice, receivableId: string) =>
     .find((line) => line.receivableId === receivableId)?.receivableName ?? "Khoản thu theo hóa đơn";
 const noticeStatus = (notice: RunNotice): [string, "neutral" | "info" | "success" | "warning"] =>
   notice.status === "DRAFT"
-    ? ["Nháp", "neutral"]
+    ? notice.returnNote ? ["Cần sửa", "warning"] : ["Nháp", "neutral"]
+    : notice.status === "PENDING_APPROVAL"
+      ? ["Chờ duyệt", "info"]
     : notice.status === "PARTLY_SETTLED"
       ? [`Đã thu ${notice.settledParts}/${notice.partCount} phần`, "info"]
       : notice.status === "COMPLETED"
@@ -752,6 +776,143 @@ function PreviewEligibleTable({ eligible }: { eligible: Preview["eligible"] }) {
   );
 }
 
+// A modal for the approval flow: focus moves in, Tab stays inside, Escape closes unless an Operation is running.
+function ApprovalModal({ titleId, wide, busy, onClose, children }: { titleId: string; wide?: boolean; busy?: boolean; onClose: () => void; children: ReactNode }) {
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    dialog.current?.querySelector<HTMLElement>("textarea, select, [data-dialog-cancel]")?.focus();
+  }, []);
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && !busy) {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const items = [...(dialog.current?.querySelectorAll<HTMLElement>("input, select, textarea, button") ?? [])].filter((item) => !item.hasAttribute("disabled"));
+    const first = items[0],
+      last = items.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+  return (
+    <>
+      <div className="dialog-backdrop" aria-hidden="true" />
+      <div ref={dialog} className={`dialog finance-confirm-dialog${wide ? " finance-issue-dialog dialog-wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
+        {children}
+      </div>
+    </>
+  );
+}
+function BlockedNoticeList({ blocked }: { blocked?: BlockedNotice[] }) {
+  if (!blocked?.length) return null;
+  return (
+    <div role="alert">
+      <p>Những hóa đơn sau chưa thể xử lý; bỏ chọn hoặc sửa rồi thử lại:</p>
+      <ul className="finance-blocked-list">
+        {blocked.map((item) => (
+          <li key={item.invoiceId}>
+            {item.studentCode && item.studentName ? `${item.studentCode} / ${item.studentName}: ` : ""}
+            {item.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+// "Hà Nội" time of an approval event, e.g. "09:12 17/10".
+const dateTimeLabel = (value: string) => {
+  const parts = new Intl.DateTimeFormat("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", hour12: false }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("hour")}:${part("minute")} ${part("day")}/${part("month")}`;
+};
+type NoticeFilter = "open" | "draft" | "returned" | "pending" | "issued" | "paid";
+// Sprint change 2026-10-18: the "Duyệt & thu tiền" stage shows its Invoices by state. Counts and amounts come from the
+// server summary. Every chip filters the run table; money is recorded in Thu tiền ("Thu tiền đợt này").
+function RunProgress({
+  summary,
+  filter,
+  onFilter,
+  onOpenReceiptQueue,
+}: {
+  summary?: InvoiceSummary;
+  filter?: NoticeFilter;
+  onFilter?: (filter: NoticeFilter) => void;
+  onOpenReceiptQueue?: (settled?: boolean) => void;
+}) {
+  if (!summary) return null;
+  const counts = {
+    draft: summary.draftNoticeCount ?? 0,
+    returned: summary.returnedNoticeCount ?? 0,
+    pending: summary.pendingNoticeCount ?? 0,
+    issued: summary.openNoticeCount ?? 0,
+    paid: summary.settledNoticeCount ?? 0,
+  };
+  const states: Array<[keyof typeof counts, string]> = [
+    ["draft", "Nháp"],
+    ["returned", "Cần sửa"],
+    ["pending", "Chờ duyệt"],
+    ["issued", "Đã phát hành"],
+    ["paid", "Đã thu đủ"],
+  ];
+  const chip = (key: keyof typeof counts, label: string) => (
+    <>
+      <span className={`finance-state-dot finance-state-${key}`} aria-hidden="true" />
+      {label} <b>{counts[key]}</b>
+    </>
+  );
+  return (
+    <section className="finance-run-progress" aria-label="Hóa đơn theo trạng thái">
+      <div className="finance-run-progress-head">
+        <span>Tổng phải thu · đã thu {vnd(summary.collectedTotal ?? "0")} đ</span>
+        <b>{vnd(summary.receivableTotal ?? summary.invoiceTotal)} đ</b>
+      </div>
+      <div className="finance-run-progress-bar" aria-hidden="true">
+        {states.map(([key]) => counts[key] > 0 && <span key={key} className={`finance-state-${key}`} style={{ flexGrow: counts[key] }} />)}
+      </div>
+      <div className="finance-run-progress-legend">
+        {onFilter ? (
+          <>
+            <button type="button" aria-pressed={filter === "open"} onClick={() => onFilter("open")}>
+              Chưa phát hành <b>{counts.draft + counts.returned + counts.pending}</b>
+            </button>
+            {states.map(([key, label]) => (
+              <button key={key} type="button" aria-pressed={filter === key} onClick={() => onFilter(key as NoticeFilter)}>
+                {chip(key, label)}
+              </button>
+            ))}
+          </>
+        ) : (
+          <>
+            {states.slice(0, 3).map(([key, label]) => <span key={key}>{chip(key, label)}</span>)}
+            {onOpenReceiptQueue ? (
+              <>
+                <button type="button" className="finance-run-progress-link" onClick={() => onOpenReceiptQueue(false)}>
+                  {chip("issued", "Đã phát hành")} <span aria-hidden="true">→</span>
+                </button>
+                <button type="button" className="finance-run-progress-link" onClick={() => onOpenReceiptQueue(true)}>
+                  {chip("paid", "Đã thu đủ")} <span aria-hidden="true">→</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <span>{chip("issued", "Đã phát hành")}</span>
+                <span>{chip("paid", "Đã thu đủ")}</span>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function RunNoticeTable({
   notices,
   caption,
@@ -759,6 +920,8 @@ function RunNoticeTable({
   currentInvoiceId,
   onReview,
   overlapInvoiceIds,
+  selected,
+  onSelect,
 }: {
   // Parts the server flagged "Trùng kỳ"; the badge sits on the Student row for Finance to review before issuing.
   overlapInvoiceIds?: Set<string>;
@@ -767,7 +930,13 @@ function RunNoticeTable({
   actionLabel: string;
   currentInvoiceId?: string;
   onReview: (invoiceId: string) => void;
+  // Sprint change 2026-10-17: unissued notices can be selected for bulk submit, withdraw or approve.
+  selected?: Set<string>;
+  onSelect?: (invoiceIds: string[], checked: boolean) => void;
 }) {
+  const selectable = (notice: RunNotice) => notice.status === "DRAFT" || notice.status === "PENDING_APPROVAL";
+  const selectableIds = notices.filter(selectable).map((notice) => notice.invoiceId);
+  const allSelected = Boolean(selected && selectableIds.length && selectableIds.every((id) => selected.has(id)));
   const part = (notice: RunNotice, channel: PaymentChannel) => {
     const item = notice.parts.find((candidate) => candidate.channel === channel);
     if (!item) return "—";
@@ -784,6 +953,17 @@ function RunNoticeTable({
         <caption>{caption}</caption>
         <thead>
           <tr>
+            {onSelect && (
+              <th>
+                <input
+                  type="checkbox"
+                  aria-label="Chọn tất cả hóa đơn đang hiện"
+                  checked={allSelected}
+                  disabled={!selectableIds.length}
+                  onChange={(event) => onSelect(selectableIds, event.target.checked)}
+                />
+              </th>
+            )}
             <th>Học sinh</th>
             <th>Lớp</th>
             <th className="finance-money">Tài khoản trường</th>
@@ -804,6 +984,17 @@ function RunNoticeTable({
                     currentInvoiceId && notice.parts.some((item) => item.id === currentInvoiceId) ? "true" : undefined
                   }
                 >
+                  {onSelect && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Chọn ${notice.studentCode} / ${notice.studentName}`}
+                        checked={Boolean(selected?.has(notice.invoiceId))}
+                        disabled={!selectable(notice)}
+                        onChange={(event) => onSelect([notice.invoiceId], event.target.checked)}
+                      />
+                    </td>
+                  )}
                   <td>
                     {notice.studentCode} / {notice.studentName}
                     {notice.kind === "SETTLEMENT" && <small> · Quyết toán</small>}
@@ -813,6 +1004,7 @@ function RunNoticeTable({
                         <span className="badge warning">Trùng kỳ</span>
                       </>
                     )}
+                    {notice.returnNote && <small className="finance-return-note">Ghi chú: {notice.returnNote.note}</small>}
                   </td>
                   <td>{notice.className}</td>
                   <td className="finance-money">{part(notice, "SCHOOL")}</td>
@@ -822,6 +1014,9 @@ function RunNoticeTable({
                   </td>
                   <td>
                     <span className={`finance-badge finance-badge-${tone}`}>{label}</span>
+                    {notice.submission && (
+                      <small className="finance-submitted-at">Gửi {dateTimeLabel(notice.submission.submittedAt)}</small>
+                    )}
                   </td>
                   <td>
                     <button type="button" onClick={() => onReview(notice.invoiceId)}>
@@ -833,7 +1028,7 @@ function RunNoticeTable({
             })
           ) : (
             <tr>
-              <td colSpan={7}>Chưa có hóa đơn trong đợt thu.</td>
+              <td colSpan={onSelect ? 8 : 7}>Chưa có hóa đơn trong đợt thu.</td>
             </tr>
           )}
         </tbody>
@@ -932,6 +1127,15 @@ const PaidIcon = () => (
     <path d="M3 14c0-3 2.2-5 5-5s5 2 5 5H3Z" fill="currentColor" />
   </svg>
 );
+// Run list: what is still unissued in a run, e.g. "4 nháp · 1 cần sửa · 2 chờ duyệt" (sprint change 2026-10-18).
+function RunApprovalCounts({ summary }: { summary?: InvoiceSummary }) {
+  const parts = [
+    [summary?.draftNoticeCount ?? 0, "nháp"],
+    [summary?.returnedNoticeCount ?? 0, "cần sửa"],
+    [summary?.pendingNoticeCount ?? 0, "chờ duyệt"],
+  ].filter(([count]) => Number(count) > 0);
+  return parts.length ? <small className="finance-submitted-at">{parts.map(([count, label]) => `${count} ${label}`).join(" · ")}</small> : null;
+}
 // Run list collection figures, all from the server summary: received over owed, and fully settled notices over all notices.
 function RunCollectionCells({ summary }: { summary?: InvoiceSummary }) {
   if (!summary?.receivableTotal)
@@ -1271,6 +1475,8 @@ export function FinanceWorkspace({
   onDetailUnavailable,
   onListSearchChange,
   onOpenExtracurricularClasses,
+  onOpenReceiptQueue,
+  canApprove = false,
   features = preschoolFeatures,
   service = false,
 }: {
@@ -1292,6 +1498,10 @@ export function FinanceWorkspace({
   onDetailUnavailable?: (message: string) => void;
   onListSearchChange?: (search: string) => void;
   onOpenExtracurricularClasses?: () => void;
+  // Sprint change 2026-10-18: "Thu tiền đợt này" opens Thu tiền filtered to the run.
+  onOpenReceiptQueue?: (runId: string, settled?: boolean) => void;
+  // Sprint change 2026-10-17: holders of COLLECTION_RUN_APPROVE approve or return submitted Invoices.
+  canApprove?: boolean;
 }) {
   const classRuns = features.collectionRunScope === "CLASS";
   const receivableText = receivableWording(service);
@@ -1431,6 +1641,17 @@ export function FinanceWorkspace({
   const [notice, setNotice] = useState("");
   // After issuing, the issued Invoice stays open for its payment image; this is where "Học sinh kế tiếp" goes.
   const [afterIssue, setAfterIssue] = useState<{ invoiceIds: string[]; nextId?: string; nextClassName?: string }>();
+  const [noticeFilter, setNoticeFilter] = useState<{ runId: string; value: NoticeFilter }>();
+  const [selectedNotices, setSelectedNotices] = useState<{ runId: string; ids: Set<string> }>();
+  const [approvalDialog, setApprovalDialog] = useState<"submit" | "withdraw" | "approve" | "zip">();
+  const [approvalPreview, setApprovalPreview] = useState<ApprovalPreview>();
+  const [blockedNotices, setBlockedNotices] = useState<BlockedNotice[]>();
+  const [needsFallbackAccount, setNeedsFallbackAccount] = useState(false);
+  const [fallbackPersonalId, setFallbackPersonalId] = useState("");
+  const [fallbackSchoolId, setFallbackSchoolId] = useState("");
+  const [returnTarget, setReturnTarget] = useState<{ invoiceId: string; label: string; fromInvoicePage?: boolean }>();
+  const [returnNote, setReturnNote] = useState("");
+  const [zipClassId, setZipClassId] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [scope, setScope] = useState<"receivable" | "invoice" | "lifecycle" | "promotion" | "run">("receivable");
   const [pending, setPending] = useState<Pending>();
@@ -1464,6 +1685,8 @@ export function FinanceWorkspace({
   const addStudentsDialog = useRef<HTMLDivElement>(null);
   const status = useRef(onStatusChange);
   const submitting = useRef(false);
+  // The refusal of the last command, kept for dialogs that list blocked notices (sprint change 2026-10-17).
+  const lastError = useRef<{ code?: string; message?: string; invoices?: BlockedNotice[] } | undefined>(undefined);
   const request = useRef(0);
   const invoiceRequest = useRef(0);
   const reconciliationTimer = useRef<number | undefined>(undefined);
@@ -2020,6 +2243,7 @@ export function FinanceWorkspace({
     setInvoiceQueue(undefined);
     submitting.current = true;
     const operation = { id: crypto.randomUUID(), schoolId };
+    lastError.current = undefined;
     setMessage("");
     setErrors({});
     if (nextScope) setScope(nextScope);
@@ -2052,15 +2276,17 @@ export function FinanceWorkspace({
         completion.current = undefined;
         const error = (
           (await response.json()) as {
-            error?: { code?: string; message?: string; fieldErrors?: Record<string, string> };
+            error?: { code?: string; message?: string; fieldErrors?: Record<string, string>; invoices?: BlockedNotice[] };
           }
         ).error;
+        lastError.current = error;
         if (activeSchool.current === schoolId && token === request.current) {
           setErrors(error?.fieldErrors ?? {});
           if (error?.code === "PROMOTION_REVIEW_REQUIRED") {
             setIssueConfirmation(false);
             setIssueBankAccountId("");
-            void openInvoice(path.match(/\/invoices\/([^/]+)/)?.[1] ?? "");
+            const reviewed = path.match(/\/invoices\/([0-9a-f-]{36})/)?.[1] ?? (body as { invoiceIds?: string[]; items?: Array<{ invoiceId: string }> }).invoiceIds?.[0] ?? (body as { items?: Array<{ invoiceId: string }> }).items?.[0]?.invoiceId;
+            if (reviewed) void openInvoice(reviewed);
           }
           setMessage(error?.message ?? "Thao tác không thành công.");
         }
@@ -2736,19 +2962,19 @@ export function FinanceWorkspace({
   const issueInvoice = async () => {
     if (!invoice || !issueAccountsReady) return;
     const runId = run?.id;
-    const personal = issueParts.some((part) => part.channel !== "SCHOOL");
-    const school = issueParts.some((part) => part.channel === "SCHOOL");
+    // Only a part whose Class has no default account sends the account chosen here (decision 2026-10-17).
     const outcome = await command(
-      `/api/app/schools/${schoolId}/finance/invoices/${invoice.id}/${invoice.revisesInvoiceId ? "issue-revision" : "issue"}`,
+      `/api/app/schools/${schoolId}/finance/invoices/approval-submissions`,
       "POST",
       {
-        ...(personal ? { personalBankAccountId: issueBankAccountId } : {}),
-        ...(school ? { schoolBankAccountId: issueSchoolBankAccountId } : {}),
+        invoiceIds: [invoice.id],
+        ...(needsPersonalFallback ? { personalBankAccountId: issueBankAccountId } : {}),
+        ...(needsSchoolFallback ? { schoolBankAccountId: issueSchoolBankAccountId } : {}),
       },
       "invoice",
     );
     if (outcome) {
-      applyInvoice(outcome as Invoice);
+      await openInvoice(invoice.id, run);
       setIssueConfirmation(false);
       setIssueBankAccountId("");
       setIssueSchoolBankAccountId("");
@@ -2778,19 +3004,19 @@ export function FinanceWorkspace({
             nextId: nextDraft?.id,
             nextClassName: nextDraft && nextDraft.className !== sameClass ? nextDraft.className : undefined,
           });
-          const issuedNote = `${issueActionLabel.replace("Phát hành", "Đã phát hành")} cho ${invoice.student.code} / ${invoice.student.name}.`;
+          const issuedNote = `${issueActionLabel.replace("Gửi duyệt", "Đã gửi duyệt")} cho ${invoice.student.code} / ${invoice.student.name}.`;
           setNotice(
             `${issuedNote} ${
               !nextDraft
-                ? "Đã phát hành toàn bộ hóa đơn trong đợt."
+                ? "Đã gửi duyệt toàn bộ hóa đơn nháp trong đợt."
                 : nextDraft.className !== sameClass
-                  ? `Đã phát hành toàn bộ hóa đơn của lớp ${sameClass}.`
-                  : "Tải ảnh hóa đơn để gửi phụ huynh, rồi chuyển sang học sinh kế tiếp."
+                  ? `Đã gửi duyệt toàn bộ hóa đơn nháp của lớp ${sameClass}.`
+                  : "Chuyển sang học sinh kế tiếp."
             }`,
           );
         }
       } catch {
-        setMessage("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất.");
+        setMessage("Hóa đơn đã gửi duyệt; chưa thể tải lại dữ liệu mới nhất.");
       }
     }
   };
@@ -2837,7 +3063,7 @@ export function FinanceWorkspace({
     try {
       const accounts = await loadBankAccounts();
       if (!accounts.length) {
-        setMessage("Máy chủ không có tài khoản nhận đang hoạt động để phát hành hóa đơn.");
+        setMessage("Máy chủ không có tài khoản nhận đang hoạt động để gửi duyệt hóa đơn.");
         return;
       }
       const school = accounts.filter((account) => account.kind === "SCHOOL");
@@ -3061,19 +3287,20 @@ export function FinanceWorkspace({
           : []
         : noticeParts.filter((part) => part.status === "DRAFT" && !part.revisesInvoiceId && part.lines.length);
   // One label for the trigger, the confirmation title and its primary action, so the document noun never changes mid-flow.
+  // Sprint change 2026-10-17: Finance submits; a manager's approval issues the notice to parents.
   const issueActionLabel = invoice?.revisesInvoiceId
-    ? "Phát hành bản thay thế"
+    ? "Gửi duyệt bản thay thế"
     : issueParts.length && issueParts.every((part) => part.kind === "SETTLEMENT" && BigInt(part.total) < 0n)
-      ? "Phát hành phiếu hoàn tiền"
+      ? "Gửi duyệt phiếu hoàn tiền"
       : issueParts.length > 1
-        ? "Phát hành phiếu thu"
-        : "Phát hành hóa đơn";
-  // Run lock (decision 2026-10-08): the server refuses issuing while an earlier run of the same scope target (the School, or the Class) is open; a revision is exempt.
+        ? "Gửi duyệt phiếu thu"
+        : "Gửi duyệt hóa đơn";
+  // Run lock (decision 2026-10-08): the server refuses approving (issuing) while an earlier run of the same scope target (the School, or the Class) is open; a revision is exempt. Submitting stays allowed.
   const previousRunMessage =
     run?.previousOpenRun && !invoice?.revisesInvoiceId
       ? isClassRun(run)
-        ? `Đợt thu ${run.previousOpenRun.name ?? billingMonthLabel(run.previousOpenRun.billingMonth)} của lớp ${run.className ?? ""} chưa đóng. Cần đóng đợt đó trước khi phát hành hóa đơn đợt này.`
-        : `Đợt thu tháng ${billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước khi phát hành hóa đơn đợt này.`
+        ? `Đợt thu ${run.previousOpenRun.name ?? billingMonthLabel(run.previousOpenRun.billingMonth)} của lớp ${run.className ?? ""} chưa đóng. Cần đóng đợt đó trước khi duyệt hóa đơn đợt này.`
+        : `Đợt thu tháng ${billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước khi duyệt hóa đơn đợt này.`
       : "";
   // Period of the open invoice as read after "Đợt thu" / "·": its month, or the Class and run name of a CLASS run.
   const invoiceRun = invoice && run && (!invoice.collectionRunId || invoice.collectionRunId === run.id) ? run : undefined;
@@ -3087,9 +3314,33 @@ export function FinanceWorkspace({
   const paymentParts = noticeParts.filter((part) => part.paymentImageAvailable && part.issue);
   const schoolBankAccounts = bankAccounts.filter((account) => account.kind === "SCHOOL");
   const personalBankAccounts = bankAccounts.filter((account) => (account.kind ?? "PERSONAL") === "PERSONAL");
-  const issueAccountsReady = issueParts.every((part) =>
-    part.channel === "SCHOOL" ? Boolean(issueSchoolBankAccountId) : Boolean(issueBankAccountId),
-  );
+  // Decision 2026-10-17: Invoices use the Class account. A choice is asked only when the Class has none for a channel
+  // (or the Student has no official class), and for the School channel only when several School accounts are active.
+  const classPersonalAccount = personalBankAccounts.find((account) => account.id === invoice?.notice?.classDefaultBankAccountId);
+  const classSchoolAccount =
+    schoolBankAccounts.find((account) => account.id === invoice?.notice?.classDefaultSchoolBankAccountId) ??
+    (schoolBankAccounts.length === 1 ? schoolBankAccounts[0] : undefined);
+  const needsPersonalFallback = issueParts.some((part) => part.channel !== "SCHOOL") && !classPersonalAccount;
+  const needsSchoolFallback = issueParts.some((part) => part.channel === "SCHOOL") && !classSchoolAccount;
+  const issueAccountsReady = (!needsPersonalFallback || Boolean(issueBankAccountId)) && (!needsSchoolFallback || Boolean(issueSchoolBankAccountId));
+  const approvalSubmission = invoice?.approval?.submission ?? null;
+  const approvalReturnNote = invoice?.approval?.returnNote ?? null;
+  const approveOpenInvoice = async () => {
+    if (!invoice || !approvalSubmission) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/approvals`, "POST", { items: [{ invoiceId: invoice.id, submissionId: approvalSubmission.submissionId }] }, "invoice");
+    if (!outcome) return;
+    await openInvoice(invoice.id, run);
+    if (run) await refreshRun(run.id).catch(() => undefined);
+    setNotice(`Đã duyệt và gửi hóa đơn của ${invoice.student.code} / ${invoice.student.name} tới phụ huynh.`);
+  };
+  const withdrawOpenInvoice = async () => {
+    if (!invoice) return;
+    const outcome = await command(`/api/app/schools/${schoolId}/finance/invoices/approval-withdrawals`, "POST", { invoiceIds: [invoice.id] }, "invoice");
+    if (!outcome) return;
+    await openInvoice(invoice.id, run);
+    if (run) await refreshRun(run.id).catch(() => undefined);
+    setNotice("Đã rút lại hóa đơn về Nháp để sửa.");
+  };
   const liveNotices = (run?.notices ?? []).filter((notice) => notice.status !== "CANCELLED");
   const noticeClasses = [...new Set((run?.notices ?? []).map((notice) => notice.className))].sort((a, b) => a.localeCompare(b, "vi"));
   const selectedNoticeClass = run && noticeClass && noticeClass.runId === run.id && noticeClasses.includes(noticeClass.className) ? noticeClass.className : "";
@@ -3111,6 +3362,174 @@ export function FinanceWorkspace({
     </label>
   );
   const draftNoticeCount = liveNotices.filter((notice) => notice.status === "DRAFT").length;
+  // Sprint change 2026-10-17/18: the run table lists unissued notices, filtered by the progress chips, and selected
+  // notices are submitted, withdrawn or approved together. Issued notices are collected in Thu tiền.
+  // Default: the work still to do; a run with nothing left to issue opens on what is being collected.
+  const defaultNoticeFilter: NoticeFilter = liveNotices.some((notice) => notice.status === "DRAFT" || notice.status === "PENDING_APPROVAL")
+    ? "open"
+    : liveNotices.some((notice) => notice.status === "ISSUED" || notice.status === "PARTLY_SETTLED")
+      ? "issued"
+      : "paid";
+  const activeNoticeFilter: NoticeFilter = run && noticeFilter && noticeFilter.runId === run.id ? noticeFilter.value : defaultNoticeFilter;
+  const matchesNoticeFilter = (notice: RunNotice) =>
+    activeNoticeFilter === "open"
+      ? notice.status === "DRAFT" || notice.status === "PENDING_APPROVAL"
+      : activeNoticeFilter === "draft"
+        ? notice.status === "DRAFT" && !notice.returnNote
+        : activeNoticeFilter === "returned"
+          ? notice.status === "DRAFT" && Boolean(notice.returnNote)
+          : activeNoticeFilter === "pending"
+            ? notice.status === "PENDING_APPROVAL"
+            : activeNoticeFilter === "issued"
+              ? notice.status === "ISSUED" || notice.status === "PARTLY_SETTLED"
+              : notice.status === "COMPLETED";
+  const selection = run && selectedNotices && selectedNotices.runId === run.id ? selectedNotices.ids : new Set<string>();
+  const selectNotices = (ids: string[], checked: boolean) => {
+    if (!run) return;
+    const next = new Set(selection);
+    for (const id of ids) {
+      if (checked) next.add(id);
+      else next.delete(id);
+    }
+    setSelectedNotices({ runId: run.id, ids: next });
+  };
+  const selectedList = liveNotices.filter(
+    (notice) => selection.has(notice.invoiceId) && (notice.status === "DRAFT" || notice.status === "PENDING_APPROVAL") && matchesNoticeFilter(notice),
+  );
+  const selectedKind = selectedList.every((notice) => notice.status === "DRAFT")
+    ? "draft"
+    : selectedList.every((notice) => notice.status === "PENDING_APPROVAL")
+      ? "pending"
+      : "mixed";
+  const approvalPath = `/api/app/schools/${schoolId}/finance/invoices`;
+  const accountRefusal = (codes: Array<string | undefined>) =>
+    codes.some((code) => ["PERSONAL_BANK_ACCOUNT_REQUIRED", "SCHOOL_BANK_ACCOUNT_CHOICE_REQUIRED"].includes(code ?? ""));
+  const finishApproval = async (note: string) => {
+    setApprovalDialog(undefined);
+    setApprovalPreview(undefined);
+    setBlockedNotices(undefined);
+    setNeedsFallbackAccount(false);
+    setFallbackPersonalId("");
+    setFallbackSchoolId("");
+    setSelectedNotices(undefined);
+    if (run) {
+      try {
+        await refreshRun(run.id);
+      } catch {
+        setMessage(`${note} Chưa thể tải lại đợt thu mới nhất.`);
+        return;
+      }
+    }
+    setNotice(note);
+  };
+  const submitSelected = async () => {
+    const outcome = await command(
+      `${approvalPath}/approval-submissions`,
+      "POST",
+      {
+        invoiceIds: selectedList.map((notice) => notice.invoiceId),
+        ...(fallbackPersonalId ? { personalBankAccountId: fallbackPersonalId } : {}),
+        ...(fallbackSchoolId ? { schoolBankAccountId: fallbackSchoolId } : {}),
+      },
+      "invoice",
+    );
+    if (outcome) return finishApproval(`Đã gửi duyệt ${selectedList.length} hóa đơn. Hóa đơn chờ duyệt bị khóa sửa.`);
+    const error = lastError.current;
+    setBlockedNotices(error?.invoices);
+    if (accountRefusal([error?.code, ...(error?.invoices ?? []).map((item) => item.code)])) {
+      setNeedsFallbackAccount(true);
+      void loadBankAccounts().catch(() => undefined);
+    }
+  };
+  const withdrawSelected = async () => {
+    const outcome = await command(`${approvalPath}/approval-withdrawals`, "POST", { invoiceIds: selectedList.map((notice) => notice.invoiceId) }, "invoice");
+    if (outcome) return finishApproval(`Đã rút lại ${selectedList.length} hóa đơn về Nháp.`);
+    setBlockedNotices(lastError.current?.invoices);
+  };
+  const loadApprovalPreview = async (invoiceIds: string[]) => {
+    setApprovalPreview(undefined);
+    setBlockedNotices(undefined);
+    try {
+      const response = await fetch(`${apiUrl}${approvalPath}/approval-preview`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json", "x-csrf-token": decodeURIComponent(csrf() ?? "") },
+        body: JSON.stringify({ invoiceIds }),
+      });
+      if ([401, 403].includes(response.status)) {
+        denied();
+        return;
+      }
+      if (!response.ok) throw new Error();
+      setApprovalPreview(((await response.json()) as { data: ApprovalPreview }).data);
+    } catch {
+      setApprovalDialog(undefined);
+      setMessage("Không thể tải tổng quan hóa đơn chờ duyệt từ máy chủ.");
+    }
+  };
+  const openApproval = (invoiceIds: string[]) => {
+    setApprovalDialog("approve");
+    void loadApprovalPreview(invoiceIds);
+  };
+  const approveSelected = async () => {
+    const items = (approvalPreview?.notices ?? []).filter((notice) => notice.submissionId).map((notice) => ({ invoiceId: notice.invoiceId, submissionId: notice.submissionId }));
+    if (!items.length) return;
+    const outcome = await command(`${approvalPath}/approvals`, "POST", { items }, "invoice");
+    if (outcome) return finishApproval(`Đã duyệt và gửi ${items.length} hóa đơn tới phụ huynh.`);
+    setBlockedNotices(lastError.current?.invoices);
+  };
+  const returnInvoice = async () => {
+    if (!returnTarget) return;
+    const outcome = await command(`${approvalPath}/${returnTarget.invoiceId}/approval-return`, "POST", { note: returnNote }, "invoice");
+    if (!outcome) return;
+    const target = returnTarget;
+    setReturnTarget(undefined);
+    setReturnNote("");
+    if (target.fromInvoicePage) {
+      await openInvoice(target.invoiceId, run);
+      if (run) await refreshRun(run.id).catch(() => undefined);
+      setNotice(`Đã trả lại hóa đơn của ${target.label} kèm ghi chú.`);
+      return;
+    }
+    // Returned from the approval modal: the other selected notices stay selected and the summary is reloaded.
+    const remaining = (approvalPreview?.notices ?? []).map((notice) => notice.invoiceId).filter((id) => id !== target.invoiceId);
+    if (run) {
+      setSelectedNotices({ runId: run.id, ids: new Set([...selection].filter((id) => id !== target.invoiceId)) });
+      await refreshRun(run.id).catch(() => undefined);
+    }
+    setNotice(`Đã trả lại hóa đơn của ${target.label} kèm ghi chú.`);
+    if (remaining.length) void loadApprovalPreview(remaining);
+    else setApprovalDialog(undefined);
+  };
+  const exportPaymentImages = async () => {
+    if (!run) return;
+    const outcome = (await command(
+      `/api/app/schools/${schoolId}/finance/collection-runs/${run.id}/payment-images/exports`,
+      "POST",
+      zipClassId ? { classId: zipClassId } : {},
+      "invoice",
+    )) as { exportId: string; fileName: string; imageCount: number } | undefined;
+    if (!outcome) return;
+    try {
+      const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/payment-image-exports/${outcome.exportId}/download`, { credentials: "include" });
+      if ([401, 403].includes(response.status)) {
+        denied();
+        return;
+      }
+      if (!response.ok) throw new Error();
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = outcome.fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+      setApprovalDialog(undefined);
+      setNotice(`Đã tải ${outcome.fileName} gồm ${outcome.imageCount} ảnh hóa đơn.`);
+    } catch {
+      setMessage("Đã tạo tệp ZIP nhưng chưa tải về được; thử lại trong 10 phút.");
+    }
+  };
+  const zipClasses = [...new Map(liveNotices.map((notice) => [notice.classId ?? notice.className, notice.className])).entries()].sort((a, b) => a[1].localeCompare(b[1], "vi"));
   const reviewInvoice = (id: string) => {
     if (onOpenInvoice && run) onOpenInvoice(run.id, id);
     else void openInvoice(id, run);
@@ -3606,9 +4025,9 @@ export function FinanceWorkspace({
                 }}
               >
                 <option value="">Tất cả trạng thái</option>
-                <option value="DRAFT">Nháp</option>
-                <option value="READY">Sẵn sàng tạo hóa đơn</option>
-                <option value="GENERATED">Đã tạo hóa đơn</option>
+                <option value="DRAFT">{runStatusLabel("DRAFT")}</option>
+                <option value="READY">{runStatusLabel("READY")}</option>
+                <option value="GENERATED">{runStatusLabel("GENERATED")}</option>
                 <option value="CLOSED">Đã đóng</option>
               </select>
             </label>
@@ -3882,6 +4301,7 @@ export function FinanceWorkspace({
                           >
                             {runStatusLabel(item.status)}
                           </span>
+                          <RunApprovalCounts summary={item.summary as InvoiceSummary | undefined} />
                         </td>
                         <RunCollectionCells summary={item.summary as InvoiceSummary | undefined} />
                         <td>
@@ -3944,6 +4364,7 @@ export function FinanceWorkspace({
                         >
                           {runStatusLabel(item.status)}
                         </span>
+                        <RunApprovalCounts summary={item.summary as InvoiceSummary | undefined} />
                       </td>
                       <RunCollectionCells summary={item.summary as InvoiceSummary | undefined} />
                       <td>
@@ -4032,11 +4453,18 @@ export function FinanceWorkspace({
                 </>
               )}
             </div>
-            {onBackToRuns && (
-              <button type="button" onClick={onBackToRuns}>
-                Quay lại danh sách đợt thu
-              </button>
-            )}
+            <div className="finance-actions">
+              {onBackToRuns && (
+                <button type="button" onClick={onBackToRuns}>
+                  Quay lại danh sách đợt thu
+                </button>
+              )}
+              {onOpenReceiptQueue && (run.status === "GENERATED" || run.status === "CLOSED") && (
+                <button className="primary-action" type="button" onClick={() => onOpenReceiptQueue(run.id)}>
+                  Thu tiền đợt này
+                </button>
+              )}
+            </div>
           </header>
           <ol className="finance-steps" aria-label="Tiến trình đợt thu">
             {runSteps.map((step) => (
@@ -4045,14 +4473,23 @@ export function FinanceWorkspace({
               </li>
             ))}
           </ol>
-          <dl className="finance-metrics" aria-label="Tổng quan do máy chủ tính">
-            {runMetrics(run, preview).map(([label, value]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
-          </dl>
+          {run.status === "GENERATED" || run.status === "CLOSED" ? (
+            <RunProgress
+              summary={run.summary as InvoiceSummary | undefined}
+              filter={activeNoticeFilter}
+              onFilter={run.status === "GENERATED" && !invoiceRouteActive ? (value) => setNoticeFilter({ runId: run.id, value }) : undefined}
+              onOpenReceiptQueue={onOpenReceiptQueue ? (settled) => onOpenReceiptQueue(run.id, settled) : undefined}
+            />
+          ) : (
+            <dl className="finance-metrics" aria-label="Tổng quan do máy chủ tính">
+              {runMetrics(run, preview).map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
           {run.status === "DRAFT" && (
             <section aria-labelledby="run-template-title">
               <div className="finance-card-heading finance-catalog-heading">
@@ -4607,20 +5044,20 @@ export function FinanceWorkspace({
                 <div className="finance-actions finance-actions-split">
                   {isClassRun(run) ? (
                     <div className="finance-alert">
-                      Chưa thể phát hành hóa đơn của đợt này: cần đóng đợt{" "}
+                      Chưa thể duyệt hóa đơn của đợt này: cần đóng đợt{" "}
                       <b>{run.previousOpenRun.name ?? billingMonthLabel(run.previousOpenRun.billingMonth)}</b>
                       {runPeriod(run.previousOpenRun) ? ` (${runPeriod(run.previousOpenRun)})` : ""} của lớp{" "}
                       {run.className} trước.{" "}
                       <details>
                         <summary>Xem lý do</summary>
-                        Hóa đơn của một đợt chỉ phát hành được sau khi đợt trước của cùng lớp đã đóng. Đợt của lớp khác
-                        không ảnh hưởng.
+                        Hóa đơn của một đợt chỉ duyệt và phát hành được sau khi đợt trước của cùng lớp đã đóng; kế toán vẫn
+                        gửi duyệt được. Đợt của lớp khác không ảnh hưởng.
                       </details>
                     </div>
                   ) : (
                   <p className="finance-alert">
                     Đợt thu tháng {billingMonthLabel(run.previousOpenRun.billingMonth)} chưa đóng. Cần đóng đợt đó trước
-                    khi phát hành hóa đơn đợt này.
+                    khi duyệt hóa đơn đợt này; kế toán vẫn gửi duyệt được.
                   </p>
                   )}
                   {onOpenRun && (
@@ -4637,28 +5074,102 @@ export function FinanceWorkspace({
                 <div className="finance-card-heading">
                   <h2 id="run-invoices-title">Hóa đơn trong đợt</h2>
                   <p>
-                    {liveNotices.filter((notice) => notice.status !== "DRAFT").length}/{liveNotices.length} phiếu thu đã
-                    phát hành hoặc hoàn tất. Mỗi dòng là một phiếu thu gồm phần tài khoản trường và phần tài khoản cá
-                    nhân.
+                    Mỗi dòng là một phiếu thu gồm phần tài khoản trường và phần tài khoản cá nhân. Chọn một trạng thái ở
+                    trên để lọc; tiền phụ huynh chuyển được ghi ở Thu tiền.
                   </p>
                 </div>
-                <button
-                  ref={addStudentsTrigger}
-                  type="button"
-                  disabled={Boolean(pending)}
-                  onClick={() => setAddStudentsOpen(true)}
-                >
-                  Thêm học sinh
-                </button>
+                <div className="finance-actions">
+                  <button
+                    type="button"
+                    disabled={Boolean(pending)}
+                    onClick={() => {
+                      setZipClassId("");
+                      setApprovalDialog("zip");
+                    }}
+                  >
+                    Tải ảnh hóa đơn (ZIP)
+                  </button>
+                  <button
+                    ref={addStudentsTrigger}
+                    type="button"
+                    disabled={Boolean(pending)}
+                    onClick={() => setAddStudentsOpen(true)}
+                  >
+                    Thêm học sinh
+                  </button>
+                </div>
               </div>
               {noticeClassFilter}
+              {selectedList.length > 0 && (
+                <div className="finance-bulk-bar" role="region" aria-label="Thao tác với hóa đơn đã chọn">
+                  <span aria-live="polite">
+                    {selectedKind === "mixed"
+                      ? `Đã chọn ${selectedList.length} hóa đơn khác trạng thái · chọn cùng Nháp/Cần sửa để gửi duyệt hoặc cùng Chờ duyệt để duyệt.`
+                      : `Đã chọn ${selectedList.length} hóa đơn ${selectedKind === "pending" ? "chờ duyệt" : "nháp"}`}
+                  </span>
+                  <div className="finance-actions">
+                    {selectedKind === "draft" && (
+                      <button
+                        className="primary-action"
+                        type="button"
+                        disabled={Boolean(pending)}
+                        onClick={() => {
+                          setBlockedNotices(undefined);
+                          setNeedsFallbackAccount(false);
+                          setApprovalDialog("submit");
+                        }}
+                      >
+                        Gửi duyệt
+                      </button>
+                    )}
+                    {selectedKind === "pending" && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={Boolean(pending)}
+                          onClick={() => {
+                            setBlockedNotices(undefined);
+                            setApprovalDialog("withdraw");
+                          }}
+                        >
+                          Rút lại
+                        </button>
+                        {canApprove && (
+                          <button
+                            className="primary-action"
+                            type="button"
+                            disabled={Boolean(pending)}
+                            onClick={() => openApproval(selectedList.map((notice) => notice.invoiceId))}
+                          >
+                            Duyệt &amp; gửi phụ huynh
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+              {(activeNoticeFilter === "issued" || activeNoticeFilter === "paid") && onOpenReceiptQueue && (
+                <div className="finance-bulk-bar">
+                  <span>
+                    {activeNoticeFilter === "issued"
+                      ? "Hóa đơn đã gửi phụ huynh. Ghi thực nhận khi phụ huynh chuyển khoản ở Thu tiền."
+                      : "Hóa đơn đã thu đủ; phiếu thu đã ghi nằm ở Thu tiền, mục Đã xử lý."}
+                  </span>
+                  <button type="button" onClick={() => onOpenReceiptQueue(run.id, activeNoticeFilter === "paid")}>
+                    Mở Thu tiền đợt này
+                  </button>
+                </div>
+              )}
               <RunNoticeTable
-                notices={shownNotices}
-                caption="Hóa đơn hiện có trong đợt thu"
+                notices={shownNotices.filter(matchesNoticeFilter)}
+                caption={activeNoticeFilter === "issued" || activeNoticeFilter === "paid" ? "Hóa đơn đã phát hành trong đợt thu" : "Hóa đơn chưa phát hành trong đợt thu"}
                 overlapInvoiceIds={new Set((run.invoices ?? []).filter((item) => item.periodOverlap).map((item) => item.id))}
                 actionLabel="Rà soát hóa đơn"
                 currentInvoiceId={invoice?.id}
                 onReview={reviewInvoice}
+                selected={selection}
+                onSelect={selectNotices}
               />
               {priorDebts?.runId === run.id && priorDebts.debts.length > 0 && (
                 <section aria-labelledby="run-prior-debts-title">
@@ -4775,11 +5286,18 @@ export function FinanceWorkspace({
                 </section>
               )}
               <div className="finance-actions finance-actions-split">
-                {run.invoices?.some((invoice) => invoice.status === "DRAFT" && invoice.total !== "0") ? (
+                {run.invoices?.some((invoice) => (invoice.status === "DRAFT" && invoice.total !== "0") || invoice.status === "PENDING_APPROVAL") ? (
                   <p>
-                    {draftNoticeCount
-                      ? `Chưa thể đóng: còn ${draftNoticeCount} phiếu thu nháp cần phát hành.`
-                      : "Chưa thể đóng: còn hóa đơn nháp cần phát hành."}
+                    {draftNoticeCount || run.summary
+                      ? `Chưa thể đóng: còn ${[
+                          [(run.summary as InvoiceSummary | undefined)?.draftNoticeCount ?? draftNoticeCount, "nháp"],
+                          [(run.summary as InvoiceSummary | undefined)?.returnedNoticeCount ?? 0, "cần sửa"],
+                          [(run.summary as InvoiceSummary | undefined)?.pendingNoticeCount ?? 0, "chờ duyệt"],
+                        ]
+                          .filter(([count]) => Number(count) > 0)
+                          .map(([count, label]) => `${count} ${label}`)
+                          .join(", ")}.`
+                      : "Chưa thể đóng: còn hóa đơn chưa phát hành."}
                   </p>
                 ) : (
                   <p>Mọi hóa đơn đã phát hành; có thể đóng đợt thu.</p>
@@ -5225,17 +5743,19 @@ export function FinanceWorkspace({
                     </>
                   ) : (
                     <div className="finance-card-heading">
-                      <h2 id="invoice-issue-title">Rà soát trước khi phát hành</h2>
+                      <h2 id="invoice-issue-title">{invoice.status === "PENDING_APPROVAL" ? "Chờ duyệt" : "Rà soát trước khi gửi duyệt"}</h2>
                       <p>
                         {invoice.status === "DRAFT"
-                          ? `Chính sách ưu đãi sẽ được kiểm tra lại trước khi phát hành. Không thể chỉnh sửa sau phát hành.${issueParts.length > 1 ? " Hai phần được phát hành cùng lúc." : ""}`
-                          : "Hóa đơn đã phát hành giữ nguyên snapshot nghĩa vụ và hướng dẫn thanh toán."}
+                          ? `Rà soát xong thì gửi duyệt. Hóa đơn được phát hành khi quản lý duyệt; ưu đãi được kiểm tra lại lúc duyệt.${issueParts.length > 1 ? " Hai phần được phát hành cùng lúc." : ""}`
+                          : invoice.status === "PENDING_APPROVAL"
+                            ? `${approvalSubmission?.submittedBy ?? "Kế toán"} gửi duyệt lúc ${approvalSubmission ? dateTimeLabel(approvalSubmission.submittedAt) : ""}. Hóa đơn chờ duyệt không sửa được; rút lại nếu cần sửa.`
+                            : "Hóa đơn đã phát hành giữ nguyên snapshot nghĩa vụ và hướng dẫn thanh toán."}
                       </p>
                     </div>
                   )}
-                  {invoice.status === "DRAFT" && (
+                  {(invoice.status === "DRAFT" || invoice.status === "PENDING_APPROVAL") && (
                     <div className="finance-notice-parts">
-                      {issueParts.map((part) => (
+                      {(invoice.status === "DRAFT" ? issueParts : noticeParts.filter((part) => part.status === "PENDING_APPROVAL")).map((part) => (
                         <div key={part.id} className="finance-notice-part">
                           <p className="finance-payment-total">
                             <span>
@@ -5245,60 +5765,43 @@ export function FinanceWorkspace({
                             </span>
                             <b>{signedVnd(part.total)}</b>
                           </p>
-                          {part.channel === "SCHOOL" ? (
-                            schoolBankAccounts.length ? (
-                              <>
-                                <label>
-                                  Tài khoản trường
-                                  <select
-                                    value={issueSchoolBankAccountId}
-                                    onChange={(event) => setIssueSchoolBankAccountId(event.target.value)}
-                                    aria-describedby="school-account-hint"
-                                  >
-                                    <option value="">Chọn tài khoản trường</option>
-                                    {schoolBankAccounts.map((account) => (
-                                      <option key={account.id} value={account.id}>
-                                        {account.receivingBank} · {account.accountNumber} · {account.accountHolderName}
-                                        {account.id === invoice.notice?.classDefaultSchoolBankAccountId
-                                          ? ` (mặc định lớp ${invoice.student.className})`
-                                          : ""}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <small id="school-account-hint">
-                                  Chọn sẵn theo tài khoản trường mặc định của lớp; có thể chọn tài khoản trường khác đang
-                                  hiệu lực.
-                                </small>
-                              </>
-                            ) : (
-                              <p role="alert">Chưa cấu hình tài khoản trường để thu khoản có thuế.</p>
-                            )
-                          ) : (
+                          {(part.channel === "SCHOOL" ? classSchoolAccount : classPersonalAccount) ? (
+                            <p>
+                              {(() => {
+                                const account = (part.channel === "SCHOOL" ? classSchoolAccount : classPersonalAccount)!;
+                                return `${account.receivingBank} · ${account.accountNumber} · ${account.accountHolderName}`;
+                              })()}
+                              <small className="finance-submitted-at">Theo tài khoản của lớp {invoice.student.className}.</small>
+                            </p>
+                          ) : invoice.status !== "DRAFT" ? (
+                            <p>Tài khoản đã chọn khi gửi duyệt.</p>
+                          ) : (part.channel === "SCHOOL" ? schoolBankAccounts : personalBankAccounts).length ? (
                             <>
                               <label>
-                                Tài khoản cá nhân
+                                {part.channel === "SCHOOL" ? "Tài khoản trường" : "Tài khoản cá nhân"}
                                 <select
-                                  value={issueBankAccountId}
-                                  onChange={(event) => setIssueBankAccountId(event.target.value)}
-                                  aria-describedby="personal-account-hint"
+                                  value={part.channel === "SCHOOL" ? issueSchoolBankAccountId : issueBankAccountId}
+                                  onChange={(event) => (part.channel === "SCHOOL" ? setIssueSchoolBankAccountId : setIssueBankAccountId)(event.target.value)}
+                                  aria-describedby={`fallback-account-hint-${part.id}`}
                                 >
-                                  <option value="">Chọn tài khoản cá nhân</option>
-                                  {personalBankAccounts.map((account) => (
+                                  <option value="">{part.channel === "SCHOOL" ? "Chọn tài khoản trường" : "Chọn tài khoản cá nhân"}</option>
+                                  {(part.channel === "SCHOOL" ? schoolBankAccounts : personalBankAccounts).map((account) => (
                                     <option key={account.id} value={account.id}>
                                       {account.receivingBank} · {account.accountNumber} · {account.accountHolderName}
-                                      {account.id === invoice.notice?.classDefaultBankAccountId
-                                        ? ` (mặc định lớp ${invoice.student.className})`
-                                        : ""}
                                     </option>
                                   ))}
                                 </select>
                               </label>
-                              <small id="personal-account-hint">
-                                Chọn sẵn theo tài khoản mặc định của lớp; có thể chọn tài khoản cá nhân khác đang hiệu
-                                lực.
+                              <small id={`fallback-account-hint-${part.id}`}>
+                                {invoice.student.className === "Chỉ ngoại khóa"
+                                  ? "Học sinh chỉ học ngoại khóa nên chưa có tài khoản của lớp; chọn tài khoản cho lần gửi duyệt này."
+                                  : `Lớp ${invoice.student.className} chưa có tài khoản mặc định; chọn tài khoản cho lần gửi duyệt này.`}
                               </small>
                             </>
+                          ) : (
+                            <p role="alert">
+                              {part.channel === "SCHOOL" ? "Chưa cấu hình tài khoản trường để thu khoản có thuế." : "Chưa có tài khoản cá nhân đang hoạt động."}
+                            </p>
                           )}
                         </div>
                       ))}
@@ -5319,18 +5822,47 @@ export function FinanceWorkspace({
                       vào hóa đơn tháng sau. Hóa đơn tự đóng khi phát hành.
                     </p>
                   )}
-                  {invoice.status === "DRAFT" && previousRunMessage && <p className="finance-alert">{previousRunMessage}</p>}
+                  {invoice.status === "DRAFT" && approvalReturnNote && (
+                    <div className="finance-alert" role="status">
+                      <b>Ghi chú của quản lý</b> · {approvalReturnNote.returnedBy ?? "Quản lý"} · trả lại lúc {dateTimeLabel(approvalReturnNote.returnedAt)}
+                      <br />
+                      {approvalReturnNote.note}
+                    </div>
+                  )}
+                  {invoice.status === "PENDING_APPROVAL" && previousRunMessage && <p className="finance-alert">{previousRunMessage}</p>}
                   <div className="finance-actions">
                     {invoice.status === "DRAFT" && (
                       <button
                         ref={issueTrigger}
                         className="primary-action"
                         type="button"
-                        disabled={Boolean(pending) || !issueParts.length || pendingLineEdits.length > 0 || Boolean(previousRunMessage)}
-                        title={previousRunMessage || (pendingLineEdits.length ? "Lưu hoặc hoàn tác thay đổi trên dòng trước khi phát hành." : undefined)}
+                        disabled={Boolean(pending) || !issueParts.length || pendingLineEdits.length > 0}
+                        title={pendingLineEdits.length ? "Lưu hoặc hoàn tác thay đổi trên dòng trước khi gửi duyệt." : undefined}
                         onClick={() => void openIssueConfirmation()}
                       >
-                        {issueActionLabel}
+                        {approvalReturnNote ? issueActionLabel.replace("Gửi duyệt", "Gửi duyệt lại") : issueActionLabel}
+                      </button>
+                    )}
+                    {invoice.status === "PENDING_APPROVAL" && canApprove && (
+                      <>
+                        <button className="primary-action" type="button" disabled={Boolean(pending) || !approvalSubmission || Boolean(previousRunMessage)} onClick={() => void approveOpenInvoice()}>
+                          Duyệt &amp; gửi phụ huynh
+                        </button>
+                        <button
+                          type="button"
+                          disabled={Boolean(pending)}
+                          onClick={() => {
+                            setReturnNote("");
+                            setReturnTarget({ invoiceId: invoice.id, label: `${invoice.student.code} / ${invoice.student.name}`, fromInvoicePage: true });
+                          }}
+                        >
+                          Trả lại
+                        </button>
+                      </>
+                    )}
+                    {invoice.status === "PENDING_APPROVAL" && (
+                      <button type="button" disabled={Boolean(pending)} onClick={() => void withdrawOpenInvoice()}>
+                        Rút lại
                       </button>
                     )}
                     {invoice.status === "DRAFT" && invoice.revisesInvoiceId && (
@@ -5588,6 +6120,251 @@ export function FinanceWorkspace({
               </div>
             </>
           )}
+          {approvalDialog === "submit" && run && (
+            <ApprovalModal titleId="finance-submit-title" wide busy={Boolean(pending)} onClose={() => setApprovalDialog(undefined)}>
+              <h3 id="finance-submit-title">Gửi duyệt {selectedList.length} hóa đơn</h3>
+              <p>Quản lý duyệt hóa đơn nào thì hóa đơn đó được phát hành và gửi tới phụ huynh. Hóa đơn chờ duyệt bị khóa sửa; có thể rút lại trước khi quản lý duyệt.</p>
+              <div className="table-scroll">
+                <table className="finance-issue-lines">
+                  <caption className="sr-only">Hóa đơn sẽ gửi duyệt</caption>
+                  <thead>
+                    <tr>
+                      <th>Học sinh</th>
+                      <th>Lớp</th>
+                      <th className="finance-money">Tổng (đ)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedList.map((notice) => (
+                      <tr key={notice.invoiceId}>
+                        <td>
+                          {notice.studentCode} / {notice.studentName}
+                          {notice.kind === "SETTLEMENT" && <small> · Quyết toán</small>}
+                        </td>
+                        <td>{notice.className}</td>
+                        <td className="finance-money">{signedVnd(notice.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <BlockedNoticeList blocked={blockedNotices} />
+              {needsFallbackAccount && (
+                <>
+                  <p>Hóa đơn dùng tài khoản của lớp. Lớp chưa có tài khoản mặc định, hoặc học sinh chỉ học ngoại khóa, dùng tài khoản chọn ở đây.</p>
+                  <label>
+                    Tài khoản cá nhân cho lớp chưa có tài khoản
+                    <select value={fallbackPersonalId} onChange={(event) => setFallbackPersonalId(event.target.value)}>
+                      <option value="">Chọn tài khoản cá nhân</option>
+                      {personalBankAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.receivingBank} · {account.accountNumber} · {account.accountHolderName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {schoolBankAccounts.length > 1 && (
+                    <label>
+                      Tài khoản trường cho lớp chưa có tài khoản
+                      <select value={fallbackSchoolId} onChange={(event) => setFallbackSchoolId(event.target.value)}>
+                        <option value="">Chọn tài khoản trường</option>
+                        {schoolBankAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.receivingBank} · {account.accountNumber} · {account.accountHolderName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </>
+              )}
+              <div className="dialog-actions">
+                <button data-dialog-cancel type="button" disabled={Boolean(pending)} onClick={() => setApprovalDialog(undefined)}>
+                  Hủy
+                </button>
+                <button className="primary-action" type="button" disabled={Boolean(pending) || !selectedList.length} onClick={() => void submitSelected()}>
+                  Gửi duyệt
+                </button>
+              </div>
+            </ApprovalModal>
+          )}
+          {approvalDialog === "withdraw" && run && (
+            <ApprovalModal titleId="finance-withdraw-title" busy={Boolean(pending)} onClose={() => setApprovalDialog(undefined)}>
+              <h3 id="finance-withdraw-title">Rút lại {selectedList.length} hóa đơn chờ duyệt</h3>
+              <p>Các hóa đơn đã chọn quay về Nháp để sửa. Cần gửi duyệt lại sau khi sửa.</p>
+              <BlockedNoticeList blocked={blockedNotices} />
+              <div className="dialog-actions">
+                <button data-dialog-cancel type="button" disabled={Boolean(pending)} onClick={() => setApprovalDialog(undefined)}>
+                  Hủy
+                </button>
+                <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={() => void withdrawSelected()}>
+                  Rút lại
+                </button>
+              </div>
+            </ApprovalModal>
+          )}
+          {approvalDialog === "approve" && !returnTarget && (
+            <ApprovalModal titleId="finance-approve-title" wide busy={Boolean(pending)} onClose={() => setApprovalDialog(undefined)}>
+              <h3 id="finance-approve-title">Duyệt &amp; gửi {approvalPreview?.noticeCount ?? ""} hóa đơn</h3>
+              {!approvalPreview ? (
+                <p>Đang tải tổng quan từ máy chủ.</p>
+              ) : (
+                <>
+                  {approvalPreview.notices[0]?.submittedBy && (
+                    <p>
+                      {approvalPreview.notices[0].submittedBy} gửi lúc {dateTimeLabel(approvalPreview.notices[0].submittedAt!)}.
+                    </p>
+                  )}
+                  <dl className="finance-metrics" aria-label="Tổng quan hóa đơn đã chọn">
+                    <div>
+                      <dt>Hóa đơn</dt>
+                      <dd>{approvalPreview.noticeCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Phải thu</dt>
+                      <dd>{vnd(approvalPreview.collectTotal)} <small>đ</small></dd>
+                    </div>
+                    <div>
+                      <dt>Phải hoàn</dt>
+                      <dd>{vnd(approvalPreview.refundTotal)} <small>đ</small></dd>
+                    </div>
+                  </dl>
+                  <div className="table-scroll">
+                    <table>
+                      <caption>Theo lớp</caption>
+                      <thead>
+                        <tr>
+                          <th>Lớp</th>
+                          <th className="finance-money">Hóa đơn</th>
+                          <th className="finance-money">Tổng (đ)</th>
+                          <th className="finance-money">Bình quân / HS (đ)</th>
+                          <th className="finance-money">Đợt trước (đ)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {approvalPreview.classes.map((item) => (
+                          <tr key={`${item.className}-${item.settlement}`}>
+                            <td>
+                              {item.className}
+                              {item.settlement ? " · Quyết toán" : ""}
+                            </td>
+                            <td className="finance-money">{item.noticeCount}</td>
+                            <td className="finance-money">{signedVnd(item.total)}</td>
+                            <td className="finance-money">{item.average ? vnd(item.average) : "—"}</td>
+                            <td className="finance-money">{item.previousAverage ? vnd(item.previousAverage) : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {approvalPreview.notices.some((notice) => notice.items.length) && (
+                    <div className="table-scroll">
+                      <table>
+                        <caption>Cần chú ý</caption>
+                        <thead>
+                          <tr>
+                            <th>Học sinh</th>
+                            <th>Nội dung</th>
+                            <th>Tùy chọn</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {approvalPreview.notices
+                            .filter((notice) => notice.items.length)
+                            .map((notice) => (
+                              <tr key={notice.invoiceId}>
+                                <td>
+                                  {notice.studentCode} / {notice.studentName} · {notice.className}
+                                </td>
+                                <td>{notice.items.join(" · ")}</td>
+                                <td>
+                                  <div className="finance-actions">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setApprovalDialog(undefined);
+                                        reviewInvoice(notice.invoiceId);
+                                      }}
+                                    >
+                                      Xem hóa đơn
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={Boolean(pending)}
+                                      onClick={() => {
+                                        setReturnNote("");
+                                        setReturnTarget({ invoiceId: notice.invoiceId, label: `${notice.studentCode} / ${notice.studentName}` });
+                                      }}
+                                    >
+                                      Trả lại
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <BlockedNoticeList blocked={blockedNotices} />
+                  <p>Sau khi duyệt, phụ huynh thấy hóa đơn trên app ngay. Hệ thống kiểm tra lại ưu đãi; lỗi một hóa đơn thì không hóa đơn nào trong lần này được phát hành.</p>
+                </>
+              )}
+              <div className="dialog-actions">
+                <button data-dialog-cancel type="button" disabled={Boolean(pending)} onClick={() => setApprovalDialog(undefined)}>
+                  Đóng
+                </button>
+                <button className="primary-action" type="button" disabled={Boolean(pending) || !approvalPreview?.noticeCount} onClick={() => void approveSelected()}>
+                  Duyệt &amp; gửi phụ huynh
+                </button>
+              </div>
+            </ApprovalModal>
+          )}
+          {returnTarget && (
+            <ApprovalModal titleId="finance-return-title" busy={Boolean(pending)} onClose={() => setReturnTarget(undefined)}>
+              <h3 id="finance-return-title">Trả lại hóa đơn · {returnTarget.label}</h3>
+              <p>Hóa đơn về Cần sửa; kế toán thấy ghi chú trên dòng hóa đơn và trên trang hóa đơn. Hóa đơn khác không bị ảnh hưởng.</p>
+              <label>
+                Ghi chú cho kế toán
+                <textarea rows={4} maxLength={1000} value={returnNote} onChange={(event) => setReturnNote(event.target.value)} placeholder="Ví dụ: Tiền ăn sửa còn 20 ngày nhưng chưa ghi lý do." />
+              </label>
+              {errors.note && <p role="alert">{errors.note}</p>}
+              <div className="dialog-actions">
+                <button data-dialog-cancel type="button" disabled={Boolean(pending)} onClick={() => setReturnTarget(undefined)}>
+                  Hủy
+                </button>
+                <button className="primary-action" type="button" disabled={Boolean(pending) || !returnNote.trim()} onClick={() => void returnInvoice()}>
+                  Trả lại
+                </button>
+              </div>
+            </ApprovalModal>
+          )}
+          {approvalDialog === "zip" && run && (
+            <ApprovalModal titleId="finance-zip-title" busy={Boolean(pending)} onClose={() => setApprovalDialog(undefined)}>
+              <h3 id="finance-zip-title">Tải ảnh hóa đơn (ZIP)</h3>
+              <p>Mỗi học sinh một ảnh, gồm hóa đơn đã phát hành và chưa thu tiền. Dùng để gửi cho phụ huynh không dùng app.</p>
+              <label>
+                Lớp
+                <select value={zipClassId} onChange={(event) => setZipClassId(event.target.value)}>
+                  <option value="">Tất cả lớp</option>
+                  {zipClasses.map(([id, name]) => (
+                    <option key={id} value={id}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p>Tên file theo dạng Lớp_Tên học sinh_Tên đợt thu; trùng tên trong lớp thì thêm mã học sinh. Liên kết tải hết hạn sau 10 phút.</p>
+              <div className="dialog-actions">
+                <button data-dialog-cancel type="button" disabled={Boolean(pending)} onClick={() => setApprovalDialog(undefined)}>
+                  Đóng
+                </button>
+                <button className="primary-action" type="button" disabled={Boolean(pending)} onClick={() => void exportPaymentImages()}>
+                  Tạo và tải ZIP
+                </button>
+              </div>
+            </ApprovalModal>
+          )}
           {issueConfirmation && invoice && (
             <>
               <div className="dialog-backdrop" aria-hidden="true" />
@@ -5654,40 +6431,32 @@ export function FinanceWorkspace({
                     </tfoot>
                   </table>
                 </div>
-                <p>Sau khi phát hành, hóa đơn không sửa trực tiếp được; muốn thay đổi phải tạo bản điều chỉnh.</p>
-                {issueParts.map((part) =>
-                  part.channel === "SCHOOL" ? (
-                    <label key={part.id}>
-                      {issueParts.length > 1 ? `Tài khoản trường · ${vnd(part.total)} đ` : "Tài khoản nhận"}
-                      <select
-                        value={issueSchoolBankAccountId}
-                        onChange={(event) => setIssueSchoolBankAccountId(event.target.value)}
-                      >
-                        <option value="">Chọn tài khoản</option>
-                        {schoolBankAccounts.map((account) => (
-                          <option key={account.id} value={account.id}>
-                            {account.receivingBank} / {account.accountNumber} / {account.accountHolderName}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                <p>Hóa đơn chờ duyệt bị khóa sửa. Quản lý duyệt thì hóa đơn được phát hành và gửi tới phụ huynh; sau đó muốn thay đổi phải tạo bản điều chỉnh.</p>
+                {issueParts.map((part) => {
+                  const account = part.channel === "SCHOOL" ? classSchoolAccount : classPersonalAccount;
+                  const label = issueParts.length > 1 ? `${channelAccountLabel(part.channel)} · ${vnd(part.total)} đ` : "Tài khoản nhận";
+                  return account ? (
+                    <p key={part.id}>
+                      {label}: {account.receivingBank} / {account.accountNumber} / {account.accountHolderName}{" "}
+                      <small>(tài khoản của lớp)</small>
+                    </p>
                   ) : (
                     <label key={part.id}>
-                      {issueParts.length > 1 ? `Tài khoản cá nhân · ${vnd(part.total)} đ` : "Tài khoản nhận"}
+                      {label}
                       <select
-                        value={issueBankAccountId}
-                        onChange={(event) => setIssueBankAccountId(event.target.value)}
+                        value={part.channel === "SCHOOL" ? issueSchoolBankAccountId : issueBankAccountId}
+                        onChange={(event) => (part.channel === "SCHOOL" ? setIssueSchoolBankAccountId : setIssueBankAccountId)(event.target.value)}
                       >
                         <option value="">Chọn tài khoản</option>
-                        {personalBankAccounts.map((account) => (
-                          <option key={account.id} value={account.id}>
-                            {account.receivingBank} / {account.accountNumber} / {account.accountHolderName}
+                        {(part.channel === "SCHOOL" ? schoolBankAccounts : personalBankAccounts).map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.receivingBank} / {item.accountNumber} / {item.accountHolderName}
                           </option>
                         ))}
                       </select>
                     </label>
-                  ),
-                )}
+                  );
+                })}
                 <div className="dialog-actions">
                   <button data-dialog-cancel type="button" disabled={Boolean(pending)} onClick={() => setIssueConfirmation(false)}>
                     Hủy

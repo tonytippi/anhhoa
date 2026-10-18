@@ -11,12 +11,12 @@ Công nợ **đi theo học sinh, kể cả khi em đã chuyển sang lớp khá
 ## Điều kiện
 
 - Đợt thu chứa hóa đơn cũ đã đóng (xem [Đóng đợt thu](guide:dong-dot-thu)) và có kỳ bắt đầu trước đợt này.
-- Đợt thu kỳ này đã tạo hóa đơn nháp và học sinh có hóa đơn trong đợt. Chuyển **trước khi phát hành** hóa đơn kỳ này.
+- Đợt thu kỳ này đã tạo hóa đơn nháp và học sinh có hóa đơn trong đợt. Chuyển **trước khi gửi duyệt** hóa đơn kỳ này.
 - Hóa đơn cũ chưa ghi thực nhận.
 
 ## Các bước
 
-1. Mở đợt thu kỳ này (trạng thái `Đã tạo hóa đơn`). Nếu có công nợ đủ điều kiện, bên dưới bảng hóa đơn hiện mục `Công nợ kỳ trước`; cột `Kỳ` cho biết hóa đơn cũ thuộc lớp và đợt nào. Không có mục này nghĩa là chưa có gì để chuyển.
+1. Mở đợt thu kỳ này (trạng thái `Duyệt & thu tiền`). Nếu có công nợ đủ điều kiện, bên dưới bảng hóa đơn hiện mục `Công nợ kỳ trước`; cột `Kỳ` cho biết hóa đơn cũ thuộc lớp và đợt nào. Không có mục này nghĩa là chưa có gì để chuyển.
 
 ![Công nợ Unit 1 chưa thu trong đợt Unit 2](tt-cong-no-danh-sach.jpg)
 

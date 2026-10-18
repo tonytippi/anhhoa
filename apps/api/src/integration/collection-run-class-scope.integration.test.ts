@@ -3,6 +3,7 @@ import { AuthorizationService } from "../modules/authorization/authorization.ser
 import { PrismaService } from "../modules/identity/prisma.service.js";
 import { FinanceService } from "../modules/finance/finance.service.js";
 import { SettingsService } from "../modules/settings/settings.service.js";
+import { issueThroughApproval } from './approval-helpers.js';
 
 // Story 5.50 (sprint change 2026-10-12): a language center bills each Class by a period Finance enters (a unit).
 const prisma = new PrismaService();
@@ -21,7 +22,7 @@ async function setup(kind: "LANGUAGE_CENTER" | "PRESCHOOL" = "LANGUAGE_CENTER") 
   const identity = await prisma.userIdentity.create({ data: { emailNormalized: `${uuid()}@example.com` } });
   const membership = await prisma.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: identity.id } });
   const position = await prisma.schoolPosition.create({ data: { schoolId: school.id, code: `FIN_${uuid().slice(0, 8)}`, name: `Finance ${uuid()}` } });
-  await prisma.positionCapabilityGrant.createMany({ data: ["SCHOOL_CONTEXT_READ", "FINANCE_MANAGE", "SETTINGS_MANAGE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })) });
+  await prisma.positionCapabilityGrant.createMany({ data: ["SCHOOL_CONTEXT_READ", "FINANCE_MANAGE", "COLLECTION_RUN_APPROVE", "SETTINGS_MANAGE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })) });
   await prisma.staffProfile.create({ data: { schoolId: school.id, fullName: "Finance", email: identity.emailNormalized, phone: "0900000000", dateOfBirth: date("1990-01-01"), gender: "Khác", address: "Test", primaryPositionId: position.id, schoolMembershipId: membership.id, boundAt: new Date(), boundByMembershipId: membership.id } });
   const year = await prisma.schoolYear.create({ data: { schoolId: school.id, name: "Toàn thời gian", startsOn: date("2000-01-01"), endsOn: kind === "LANGUAGE_CENTER" ? null : date("2100-01-01") } });
   const starters = await prisma.class.create({ data: { schoolId: school.id, schoolYearId: year.id, name: "Starters A" } });
@@ -61,7 +62,7 @@ afterEach(async () => {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('passionedu.allow_history_cleanup', 'on', true)`;
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
-    for (const model of ["auditRecord", "financeLedgerEvent", "collectionRunGenerationItem", "collectionRunGeneration", "debtTransfer", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateScopeClass", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "extracurricularMembership", "extracurricularClassLifecycleTransition", "extracurricularClass", "receivableClass", "receivableLifecycleTransition", "receivable", "receivableGroup", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
+    for (const model of ["auditRecord", "financeLedgerEvent", "invoiceApprovalEvent", "invoiceImageExport", "collectionRunGenerationItem", "collectionRunGeneration", "debtTransfer", "invoiceLine", "settlementCarry", "settlementDifference", "receipt", "invoice", "collectionRunTemplateScopeClass", "collectionRunTemplateLine", "collectionRunLifecycleTransition", "collectionRun", "extracurricularMembership", "extracurricularClassLifecycleTransition", "extracurricularClass", "receivableClass", "receivableLifecycleTransition", "receivable", "receivableGroup", "bankAccountLifecycleTransition", "bankAccount", "financePolicy", "enrollmentClassAssignment", "studentEnrollment", "student", "class", "schoolYear", "operation", "staffProfile", "positionCapabilityGrant", "schoolPosition", "schoolMembership"] as const)
       await (tx as any)[model].deleteMany({ where: { schoolId: { in: ids } } });
     await tx.school.deleteMany({ where: { id: { in: ids } } });
   });
@@ -135,15 +136,16 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     // Only whole-class lines are copied; a line named for specific Students is a one-off.
     expect((second.outcome as any).templateLines.map((line: any) => line.receivableId)).toEqual([s.tuition]);
     const [secondInvoice] = await generate(s, id(second));
-    // Unit 1 of the same Class is not CLOSED yet.
-    await expect(finance.issueInvoice(s.identity.id, s.school.id, secondInvoice!.id, uuid(), uuid(), {})).rejects.toMatchObject({ status: 409, response: { code: "PREVIOUS_RUN_NOT_CLOSED", message: expect.stringContaining("Unit 1") } });
+    // Unit 1 of the same Class is not CLOSED yet: Finance may submit, but approval refuses to issue.
+    const personal = id(await settings.createBankAccount(s.identity.id, s.school.id, uuid(), uuid(), { bankBin: "970436", accountNumber: "215000002088", accountHolderName: "Trung tâm", transferTemplate: "{{studentName}} {{className}}", kind: "PERSONAL" }));
+    await expect(issueThroughApproval(finance, s.identity.id, s.school.id, secondInvoice!.id, uuid(), uuid(), { personalBankAccountId: personal })).rejects.toMatchObject({ status: 409, response: { code: "PREVIOUS_RUN_NOT_CLOSED", message: expect.stringContaining("Unit 1") } });
     await expect(finance.run(s.identity.id, s.school.id, id(second))).resolves.toMatchObject({ previousOpenRun: { id: first, name: "Unit 1", periodStartsOn: "2026-08-03", periodEndsOn: "2026-09-26" } });
     // The other Class is not held back by it.
     const movers = id(await open(s, s.movers.id, "Unit 6", "2026-10-05", "2026-11-28"));
     await finance.saveTemplateLine(s.identity.id, s.school.id, movers, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
     const [moversInvoice] = await generate(s, movers);
     expect(moversInvoice!.studentId).toBe(m.studentId);
-    await expect(finance.issueInvoice(s.identity.id, s.school.id, moversInvoice!.id, uuid(), uuid(), {})).rejects.not.toMatchObject({ response: { code: "PREVIOUS_RUN_NOT_CLOSED" } });
+    await expect(issueThroughApproval(finance, s.identity.id, s.school.id, moversInvoice!.id, uuid(), uuid(), {})).rejects.not.toMatchObject({ response: { code: "PREVIOUS_RUN_NOT_CLOSED" } });
   });
 
   it("flags a Receivable the Student already has on an overlapping run of a previous Class, without blocking", async () => {
@@ -187,7 +189,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     const first = id(opened);
     await finance.saveTemplateLine(s.identity.id, s.school.id, first, uuid(), uuid(), { receivableId: s.tuition, quantity: "1", expectedVersion: 1 });
     const firstInvoices = await generate(s, first);
-    for (const invoice of firstInvoices) await finance.issueInvoice(s.identity.id, s.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
+    for (const invoice of firstInvoices) await issueThroughApproval(finance, s.identity.id, s.school.id, invoice.id, uuid(), uuid(), { personalBankAccountId: personal });
     const queue: any = await finance.receiptQueue(s.identity.id, s.school.id, { billingMonth: "ALL" });
     expect(queue.invoices.map((invoice: any) => invoice.periodLabel)).toEqual(["Starters A · Unit 1", "Starters A · Unit 1"]);
     // One Student pays 100.000đ short; the other pays nothing.
@@ -229,7 +231,7 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class-scoped coll
     await finance.saveTemplateLine(s.identity.id, s.school.id, first, uuid(), uuid(), { receivableId: taxed, quantity: "1", expectedVersion: 2 });
     const parts = await generate(s, first);
     expect(parts.map((invoice) => invoice.channel).sort()).toEqual(["PERSONAL", "SCHOOL"]);
-    await finance.issueInvoice(s.identity.id, s.school.id, parts[0]!.id, uuid(), uuid(), { bankAccountId: schoolAccount, personalBankAccountId: personal });
+    await issueThroughApproval(finance, s.identity.id, s.school.id, parts[0]!.id, uuid(), uuid(), { bankAccountId: schoolAccount, personalBankAccountId: personal });
     expect(await prisma.invoice.count({ where: { schoolId: s.school.id, collectionRunId: first, status: "ISSUED" } })).toBe(2);
     await finance.closeRun(s.identity.id, s.school.id, first, uuid(), uuid(), { reason: "Hết unit" });
     const second = id(await open(s, s.starters.id, "Unit 2", "2026-09-28", "2026-11-21"));

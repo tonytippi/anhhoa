@@ -48,7 +48,7 @@ try {
       const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: admin.id } });
       const position = await tx.schoolPosition.create({ data: { schoolId: school.id, code: "KE_TOAN", name: "Kế toán" } });
       await tx.positionCapabilityGrant.createMany({
-        data: ["SCHOOL_CONTEXT_READ", "ROSTER_MANAGE", "SETTINGS_MANAGE", "FINANCE_MANAGE", "LEAVE_REQUEST_DECIDE", "ACCESS_MANAGE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })),
+        data: ["SCHOOL_CONTEXT_READ", "ROSTER_MANAGE", "SETTINGS_MANAGE", "FINANCE_MANAGE", "COLLECTION_RUN_APPROVE", "LEAVE_REQUEST_DECIDE", "ACCESS_MANAGE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })),
       });
       await tx.staffProfile.create({
         data: {

@@ -26,6 +26,7 @@ Nhân viên bị chặn từ thao tác kế tiếp trên phần mềm. Hồ sơ 
 ## Cần lưu ý
 
 - **Quyền thao tác của nhân viên do chức danh quyết định.** Cấp quyền đăng nhập chỉ cho họ vào được trường; việc họ thấy và làm được gì phụ thuộc chức danh ở `Cấu hình trường › Chức danh`. Nếu chức danh chưa có quyền vào trường, hệ thống vẫn cấp nhưng báo "chưa có quyền vào trường" và nhân viên sẽ thấy `Chưa có trường được cấp quyền`. Hãy cấp quyền cho chức danh trước.
+- **Quyền duyệt hóa đơn cũng cấp theo chức danh.** Người duyệt hóa đơn trước khi gửi phụ huynh cần quyền `Duyệt hóa đơn` (nhóm **Tài chính**) trên chức danh, ví dụ Hiệu trưởng hoặc Quản lý. Một người có cả quyền làm đợt thu và quyền duyệt thì tự duyệt được hóa đơn mình gửi.
 - **Cần quyền `Quản lý truy cập`.** Nếu không thấy các mục này trong menu `...` hoặc báo thiếu quyền, nhờ người quản lý trường (Hiệu trưởng hoặc Quản lý trường) làm thay.
 - **Email phải là tài khoản Google thật của nhân viên.** Sai email thì người khác có thể đăng nhập vào nhầm hồ sơ. Kiểm tra kỹ trước khi cấp.
 - **Một email chỉ gắn với một nhân viên trong cùng trường.** Nếu email đã thuộc hồ sơ khác, hệ thống từ chối và nêu lý do.

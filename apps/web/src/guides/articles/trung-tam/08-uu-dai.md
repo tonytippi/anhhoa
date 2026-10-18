@@ -41,4 +41,4 @@ Trang `Ưu đãi` vẫn có lựa chọn **Ưu đãi nộp trước**, nhưng đ
 
 Nếu phụ huynh muốn đóng trước nhiều kỳ, hãy mở đợt thu cho từng kỳ và thu theo từng hóa đơn; muốn giảm giá thì dùng chính sách **Giảm trên hóa đơn** hoặc nhập `Bớt` kèm lý do.
 
-> Nếu ưu đãi thay đổi sau khi đã tạo hóa đơn nháp, khi phát hành hệ thống có thể báo "Kết quả ưu đãi đã thay đổi. Hãy rà soát lại hóa đơn trước khi phát hành." — kiểm tra lại số tiền rồi phát hành lại.
+> Nếu ưu đãi thay đổi sau khi đã tạo hóa đơn nháp, khi quản lý duyệt hệ thống có thể báo "Kết quả ưu đãi đã thay đổi. Hãy rà soát lại hóa đơn trước khi phát hành." và hóa đơn vẫn ở `Chờ duyệt` — quản lý trả lại kèm ghi chú (hoặc kế toán rút lại), kế toán kiểm tra số tiền rồi gửi duyệt lại.

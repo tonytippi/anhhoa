@@ -58,7 +58,7 @@ describe('SchoolContext Home-only chooser', () => {
   });
   it('canonicalizes a legacy School UUID detail route without dropping its run ID or status query', async () => {
     window.history.replaceState({}, '', '/schools/uuid-a/collection-runs/run-a?status=DRAFT'); vi.stubGlobal('fetch', financeFetch()); renderContext();
-    await screen.findByRole('heading', { name: 'Đợt thu tháng 09/2026 · Nháp' });
+    await screen.findByRole('heading', { name: 'Đợt thu tháng 09/2026 · Thiết lập khoản thu' });
     expect(window.location.pathname).toBe('/schools/peakland/collection-runs/run-a'); expect(window.location.search).toBe('?status=DRAFT');
   });
   it('canonicalizes and opens a direct Invoice route, then returns Back to its run with the list query', async () => {
@@ -66,7 +66,7 @@ describe('SchoolContext Home-only chooser', () => {
     const review = await screen.findByRole('region', { name: 'Rà soát hóa đơn HS001 / Bé An' });
     expect(window.location.pathname).toBe('/schools/peakland/collection-runs/run-a/invoices/invoice-a');
     fireEvent.click(within(review).getByRole('button', { name: 'Quay lại đợt thu' }));
-    await screen.findByRole('heading', { name: 'Đợt thu tháng 09/2026 · Nháp' });
+    await screen.findByRole('heading', { name: 'Đợt thu tháng 09/2026 · Thiết lập khoản thu' });
     expect(window.location.pathname).toBe('/schools/peakland/collection-runs/run-a'); expect(window.location.search).toBe('?status=DRAFT');
   });
   it('returns a direct unavailable run to its filtered list with an error', async () => {
@@ -89,8 +89,8 @@ describe('SchoolContext Home-only chooser', () => {
     fireEvent.click(within(submenu).getByRole('button', { name: 'Tạo đợt thu và hóa đơn nháp' }));
     await screen.findByRole('heading', { name: 'Tạo đợt thu và hóa đơn nháp', level: 1 });
     expect(window.location.pathname).toBe('/schools/peakland/guides/tao-dot-thu');
-    fireEvent.click(screen.getByRole('link', { name: 'Rà soát và phát hành hóa đơn' }));
-    await screen.findByRole('heading', { name: 'Rà soát và phát hành hóa đơn', level: 1 });
+    fireEvent.click(screen.getByRole('link', { name: 'Rà soát, gửi duyệt và phát hành hóa đơn' }));
+    await screen.findByRole('heading', { name: 'Rà soát, gửi duyệt và phát hành hóa đơn', level: 1 });
     expect(window.location.pathname).toBe('/schools/peakland/guides/ra-soat-phat-hanh');
     expect(screen.queryByRole('button', { name: 'Hướng dẫn cho trang này' })).toBeNull();
   });

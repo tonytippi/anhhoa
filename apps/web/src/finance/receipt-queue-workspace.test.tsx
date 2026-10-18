@@ -120,7 +120,7 @@ describe("ReceiptQueueWorkspace", () => {
   it("shows each row's receiving account and filters by a server-listed account grouped by kind", async () => {
     const personalRow = { ...row, id: "invoice-p", channel: "PERSONAL" as const, account: personalAccount, outstanding: "770000" };
     const fetch = vi.fn((url: string) => {
-      if (url.includes("/classes")) return Promise.resolve(response({ classes: [], accounts: [schoolAccount, personalAccount], months: ["2026-09", "2026-08"] }));
+      if (url.includes("/classes")) return Promise.resolve(response({ classes: [], accounts: [schoolAccount, personalAccount], runs: [{ id: "run-09", label: "Tháng 09/2026" }, { id: "run-08", label: "Tháng 08/2026" }] }));
       return Promise.resolve(response({ ...queue, invoices: url.includes("bankAccountId=bank-an") ? [personalRow] : [row, personalRow], filters: { ...queue.filters, bankAccountId: url.includes("bankAccountId=bank-an") ? "bank-an" : null } }));
     });
     vi.stubGlobal("fetch", fetch);
@@ -138,10 +138,11 @@ describe("ReceiptQueueWorkspace", () => {
       ["Tài khoản trường", ["VCB - TRUONG MN ANH HOA · 0123456789"]],
       ["Tài khoản cá nhân", ["ABB - NGUYEN VAN AN · 215000002088"]],
     ]);
-    // The month opens on the server's latest month with issued Invoices; there is no school-year picker.
-    const month = screen.getByLabelText("Tháng thu") as HTMLSelectElement;
-    expect(month.value).toBe("2026-09");
-    expect([...month.options].map((option) => option.textContent)).toEqual(["Tất cả tháng", "Tháng 09/2026", "Tháng 08/2026"]);
+    // Sprint change 2026-10-18: a run filter replaces the month; it lists every queue run and starts on all of them.
+    const run = screen.getByLabelText("Đợt thu") as HTMLSelectElement;
+    expect(run.value).toBe("");
+    expect([...run.options].map((option) => option.textContent)).toEqual(["Tất cả đợt", "Tháng 09/2026", "Tháng 08/2026"]);
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("receipt-queue?") && String(url).includes("billingMonth=ALL"))).toBe(true);
     expect(screen.queryByLabelText("Năm học")).toBeNull();
     expect(fetch.mock.calls.some(([url]) => String(url).includes("/receivables"))).toBe(false);
     fireEvent.change(select, { target: { value: "bank-an" } });
@@ -149,6 +150,23 @@ describe("ReceiptQueueWorkspace", () => {
     await waitFor(() => expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2));
     expect(fetch.mock.calls.some(([url]) => String(url).includes("receipt-queue?") && String(url).includes("bankAccountId=bank-an"))).toBe(true);
     expect(select.value).toBe("bank-an");
+  });
+
+  it("opens filtered to a run from the run page, names it, and returns to the run or to every run", async () => {
+    const fetch = vi.fn((url: string) =>
+      Promise.resolve(url.includes("/classes") ? response({ classes: [], accounts: [], runs: [{ id: "run-09", label: "Tháng 09/2026" }] }) : response({ ...queue, filters: { ...queue.filters, billingMonth: "ALL", collectionRunId: "run-09" } })),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const onBackToRun = vi.fn(); const onClearRunFilter = vi.fn();
+    render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} runFilter="run-09" onBackToRun={onBackToRun} onClearRunFilter={onClearRunFilter} />);
+    const context = await screen.findByText(/Đang xem hóa đơn chờ thu của/);
+    expect(context.textContent).toContain("Tháng 09/2026");
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("receipt-queue?") && String(url).includes("collectionRunId=run-09"))).toBe(true);
+    expect((screen.getByLabelText("Đợt thu") as HTMLSelectElement).value).toBe("run-09");
+    fireEvent.click(screen.getByRole("button", { name: "Quay lại đợt thu" }));
+    expect(onBackToRun).toHaveBeenCalledWith("run-09");
+    fireEvent.click(screen.getByRole("button", { name: "Xem mọi đợt" }));
+    expect(onClearRunFilter).toHaveBeenCalled();
   });
 
   it("shows the run period label in a Kỳ column for a class-scoped School and keeps the month column otherwise", async () => {
@@ -160,7 +178,7 @@ describe("ReceiptQueueWorkspace", () => {
     const cells = within((await within(table).findByText(/HS001/)).closest("tr")!).getAllByRole("cell");
     expect(within(table).getAllByRole("columnheader")[3]!.textContent).toBe("Kỳ");
     expect(cells[2]!.textContent).toBe("Starters A · Unit 3");
-    expect(screen.getByLabelText("Tháng thu")).toBeTruthy();
+    expect(screen.getByLabelText("Đợt thu")).toBeTruthy();
     center.unmount();
     vi.stubGlobal("fetch", fetch());
     render(<ReceiptQueueWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);

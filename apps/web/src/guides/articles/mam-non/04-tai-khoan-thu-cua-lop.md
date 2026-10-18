@@ -1,10 +1,13 @@
 ---
 title: Tài khoản thu mặc định của lớp
-summary: Chọn sẵn tài khoản trường và tài khoản cá nhân cho từng lớp để phát hành nhanh hơn.
+summary: Chọn tài khoản trường và tài khoản cá nhân cho từng lớp; mọi hóa đơn của lớp thu vào hai tài khoản này.
 order: 4
 requires: classes, collection-runs
 ---
-Mỗi lớp có thể chọn trước một tài khoản trường và một tài khoản cá nhân. Khi phát hành hóa đơn, hệ thống chọn sẵn hai tài khoản này; kế toán vẫn đổi được tài khoản khác đang hiệu lực.
+Mỗi lớp chọn trước một tài khoản trường và một tài khoản cá nhân. Khi gửi duyệt, hóa đơn **luôn dùng tài khoản của lớp**; kế toán không phải chọn lại từng hóa đơn. Chỉ khi lớp chưa chọn tài khoản (hoặc học sinh chỉ học ngoại khóa), trang hóa đơn mới hỏi chọn tài khoản cho lần gửi duyệt đó.
+
+> [!WARNING]
+> Đổi tài khoản của lớp chỉ áp dụng cho hóa đơn **gửi duyệt sau đó**. Hóa đơn đang `Chờ duyệt` giữ tài khoản lúc gửi; muốn đổi, `Rút lại` rồi gửi duyệt lại. Hóa đơn đã phát hành phải làm bản điều chỉnh.
 
 ## Các bước
 
@@ -18,4 +21,4 @@ Sau khi lưu, cột `Tài khoản thu mặc định` hiển thị ngân hàng, 4
 
 ![Danh sách lớp sau khi đã chọn tài khoản thu](lop-hoc-tai-khoan-thu-da-chon.jpg)
 
-> Chỉ chọn được tài khoản đang hiệu lực. Nếu danh sách trống, xem lại [Thiết lập tài khoản nhận tiền](guide:tai-khoan-nhan-tien). Nếu trường chỉ có đúng một tài khoản trường, hệ thống tự chọn tài khoản đó khi phát hành dù lớp chưa chọn.
+> Chỉ chọn được tài khoản đang hiệu lực. Nếu danh sách trống, xem lại [Thiết lập tài khoản nhận tiền](guide:tai-khoan-nhan-tien). Nếu trường chỉ có đúng một tài khoản trường, hệ thống tự chọn tài khoản đó khi gửi duyệt dù lớp chưa chọn.

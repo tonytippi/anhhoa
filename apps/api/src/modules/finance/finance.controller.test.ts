@@ -6,7 +6,7 @@ const valid = { origin: 'http://localhost:5173', cookie: 'app_csrf=token', 'x-cs
 
 describe('FinanceController mutation boundary', () => {
   const auth = { session: vi.fn().mockReturnValue({ userIdentityId: 'actor-id' }) };
-  const finance = { runExtracurricularClasses: vi.fn(), setRunExtracurricularExclusion: vi.fn(), runScopeOptions: vi.fn(), editExtracurricularClass: vi.fn(), extracurricularClasses: vi.fn(), createExtracurricularClass: vi.fn(), addExtracurricularMemberships: vi.fn(), endExtracurricularMemberships: vi.fn(), transitionExtracurricularClass: vi.fn(), extracurricularClass: vi.fn(), extracurricularCandidates: vi.fn(), updateReceivable: vi.fn(), read: vi.fn(), runs: vi.fn(), operation: vi.fn(), invoice: vi.fn(), receiptQueue: vi.fn(), receiptQueueDetail: vi.fn(), receiptQueueClasses: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageRefundEligibility: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), issueInvoice: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), issueRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), addableStudents: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), editInvoiceLines: vi.fn(), previewInvoiceLines: vi.fn(), preview: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
+  const finance = { runExtracurricularClasses: vi.fn(), setRunExtracurricularExclusion: vi.fn(), runScopeOptions: vi.fn(), editExtracurricularClass: vi.fn(), extracurricularClasses: vi.fn(), createExtracurricularClass: vi.fn(), addExtracurricularMemberships: vi.fn(), endExtracurricularMemberships: vi.fn(), transitionExtracurricularClass: vi.fn(), extracurricularClass: vi.fn(), extracurricularCandidates: vi.fn(), updateReceivable: vi.fn(), read: vi.fn(), runs: vi.fn(), operation: vi.fn(), invoice: vi.fn(), receiptQueue: vi.fn(), receiptQueueDetail: vi.fn(), receiptQueueClasses: vi.fn(), bankAccounts: vi.fn(), coverageReversalRequests: vi.fn(), previewCoverageReversal: vi.fn(), createCoverageRefundEligibility: vi.fn(), createCoverageReversal: vi.fn(), decideCoverageReversal: vi.fn(), submitInvoicesForApproval: vi.fn(), withdrawInvoiceApproval: vi.fn(), approveInvoices: vi.fn(), returnInvoiceApproval: vi.fn(), approvalPreview: vi.fn(), approvalSummary: vi.fn(), requestPaymentImageExport: vi.fn(), downloadPaymentImageExport: vi.fn(), closeInvoice: vi.fn(), transferDebt: vi.fn(), prepareRevision: vi.fn(), createGroup: vi.fn(), createReceivable: vi.fn(), transitionGroup: vi.fn(), transitionReceivable: vi.fn(), generateRun: vi.fn(), pauseGeneration: vi.fn(), resumeGeneration: vi.fn(), addGeneratedStudent: vi.fn(), addableStudents: vi.fn(), saveTemplateLine: vi.fn(), removeTemplateLine: vi.fn(), closeRun: vi.fn(), addInvoiceLine: vi.fn(), editInvoiceLine: vi.fn(), editInvoiceLines: vi.fn(), previewInvoiceLines: vi.fn(), preview: vi.fn(), removeInvoiceLine: vi.fn(), promotionPolicies: vi.fn(), promotionStudents: vi.fn(), createPromotionPolicy: vi.fn(), activatePromotionVersion: vi.fn(), retirePromotionVersion: vi.fn(), assignPromotionStudents: vi.fn(), endPromotionAssignment: vi.fn(), report: vi.fn(), requestReportExport: vi.fn(), downloadReportExport: vi.fn() };
   it('forwards report filters and streams only server-authorized CSV bytes', async () => {
     const controller = new FinanceController(auth as never, finance as never);
     finance.report.mockResolvedValue({ workspace: 'overview' }); finance.requestReportExport.mockResolvedValue({ exportId: 'export' }); finance.downloadReportExport.mockResolvedValue({ csv: Buffer.from('a'), workspace: 'overview' });
@@ -187,18 +187,42 @@ describe('FinanceController mutation boundary', () => {
     expect((controller as any).selection).toBeUndefined();
     expect((controller as any).candidates).toBeUndefined();
   });
-  it('projects active bank accounts and passes only the protected issue command through', async () => {
+  it('projects active bank accounts and passes the protected approval commands through', async () => {
     const controller = new FinanceController(auth as never, finance as never);
-    finance.bankAccounts.mockResolvedValue({ accounts: [{ id: 'bank' }] }); finance.issueInvoice.mockResolvedValue({ id: 'operation' });
+    finance.bankAccounts.mockResolvedValue({ accounts: [{ id: 'bank' }] });
+    finance.submitInvoicesForApproval.mockResolvedValue({ status: 'PENDING_APPROVAL' }); finance.withdrawInvoiceApproval.mockResolvedValue({ status: 'DRAFT' });
+    finance.approveInvoices.mockResolvedValue({ status: 'ISSUED' }); finance.returnInvoiceApproval.mockResolvedValue({ status: 'DRAFT' });
     await expect(controller.bankAccounts(request({}), 'school')).resolves.toEqual({ data: { accounts: [{ id: 'bank' }] } });
-    await expect(controller.issueInvoice(request(valid), 'school', 'invoice', 'key', 'operation', { bankAccountId: 'bank', total: '1' })).resolves.toEqual({ data: { id: 'operation' } });
-    expect(finance.bankAccounts).toHaveBeenCalledWith('actor-id', 'school');
-    expect(finance.issueInvoice).toHaveBeenCalledWith('actor-id', 'school', 'invoice', 'key', 'operation', { bankAccountId: 'bank', total: '1' });
+    await expect(controller.submitApproval(request(valid), 'school', 'key', 'operation', { invoiceIds: ['invoice'], total: '1' })).resolves.toEqual({ data: { status: 'PENDING_APPROVAL' } });
+    await expect(controller.withdrawApproval(request(valid), 'school', 'key', 'operation', { invoiceIds: ['invoice'] })).resolves.toEqual({ data: { status: 'DRAFT' } });
+    await expect(controller.approveInvoices(request(valid), 'school', 'key', 'operation', { items: [{ invoiceId: 'invoice', submissionId: 'submission' }] })).resolves.toEqual({ data: { status: 'ISSUED' } });
+    await expect(controller.returnApproval(request(valid), 'school', 'invoice', 'key', 'operation', { note: 'Sai tiền ăn' })).resolves.toEqual({ data: { status: 'DRAFT' } });
+    expect(finance.submitInvoicesForApproval).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', { invoiceIds: ['invoice'], total: '1' });
+    expect(finance.approveInvoices).toHaveBeenCalledWith('actor-id', 'school', 'key', 'operation', { items: [{ invoiceId: 'invoice', submissionId: 'submission' }] });
+    expect(finance.returnInvoiceApproval).toHaveBeenCalledWith('actor-id', 'school', 'invoice', 'key', 'operation', { note: 'Sai tiền ăn' });
+    expect((controller as any).issueInvoice).toBeUndefined();
+    expect((controller as any).issueRevision).toBeUndefined();
   });
-  it('rejects issue before Finance when origin or CSRF proof is absent', async () => {
-    const controller = new FinanceController(auth as never, finance as never); finance.issueInvoice.mockClear();
-    await expect(controller.issueInvoice(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'invoice', 'key', 'operation', { bankAccountId: 'bank' })).rejects.toMatchObject({ status: 401 });
-    expect(finance.issueInvoice).not.toHaveBeenCalled();
+  it('rejects approval commands and the approval preview before Finance when origin or CSRF proof is absent', async () => {
+    const controller = new FinanceController(auth as never, finance as never);
+    finance.submitInvoicesForApproval.mockClear(); finance.approveInvoices.mockClear(); finance.returnInvoiceApproval.mockClear(); finance.approvalPreview.mockClear();
+    const unprotected = request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' });
+    await expect(controller.submitApproval(unprotected, 'school', 'key', 'operation', { invoiceIds: ['invoice'] })).rejects.toMatchObject({ status: 401 });
+    await expect(controller.approveInvoices(unprotected, 'school', 'key', 'operation', { items: [] })).rejects.toMatchObject({ status: 401 });
+    await expect(controller.returnApproval(unprotected, 'school', 'invoice', 'key', 'operation', { note: 'x' })).rejects.toMatchObject({ status: 401 });
+    await expect(controller.approvalPreview(unprotected, 'school', { invoiceIds: ['invoice'] })).rejects.toMatchObject({ status: 401 });
+    expect(finance.submitInvoicesForApproval).not.toHaveBeenCalled(); expect(finance.approveInvoices).not.toHaveBeenCalled();
+    expect(finance.returnInvoiceApproval).not.toHaveBeenCalled(); expect(finance.approvalPreview).not.toHaveBeenCalled();
+  });
+  it('streams the run ZIP of payment images with a UTF-8 file name and no caching', async () => {
+    const controller = new FinanceController(auth as never, finance as never);
+    finance.downloadPaymentImageExport.mockResolvedValue({ zip: Buffer.from('PK'), fileName: 'Tháng 09-2026.zip' });
+    const headers: Record<string, string> = {}; let sent: Uint8Array | undefined;
+    await controller.downloadPaymentImageExport(request({}), 'school', 'export', { setHeader: (name: string, value: string) => { headers[name] = value; }, send: (value: Uint8Array) => { sent = value; } });
+    expect(headers['Content-Type']).toBe('application/zip');
+    expect(headers['Cache-Control']).toBe('private, no-store');
+    expect(headers['Content-Disposition']).toContain(`filename*=UTF-8''${encodeURIComponent('Tháng 09-2026.zip')}`);
+    expect(Buffer.from(sent!).toString()).toBe('PK');
   });
   it('forwards actual receipt only through the protected one-Invoice close command', async () => {
     const controller = new FinanceController(auth as never, finance as never); finance.closeInvoice.mockResolvedValue({ id: 'close' });
@@ -219,19 +243,13 @@ describe('FinanceController mutation boundary', () => {
     await expect(controller.closeInvoice(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'invoice', 'key', 'operation', { actualAmount: '90000' })).rejects.toMatchObject({ status: 401 });
     expect(finance.closeInvoice).not.toHaveBeenCalled();
   });
-  it('forwards protected revision commands with their server-authoritative inputs', async () => {
-    const controller = new FinanceController(auth as never, finance as never); finance.prepareRevision.mockResolvedValue({ id: 'prepare' }); finance.issueRevision.mockResolvedValue({ id: 'issue' });
+  it('forwards the protected prepare-revision command with its server-authoritative inputs', async () => {
+    const controller = new FinanceController(auth as never, finance as never); finance.prepareRevision.mockResolvedValue({ id: 'prepare' });
     await expect(controller.prepareRevision(request(valid), 'school', 'source', 'key', 'operation', { reason: 'Sai khoản thu' })).resolves.toEqual({ data: { id: 'prepare' } });
-    await expect(controller.issueRevision(request(valid), 'school', 'replacement', 'key', 'operation', { bankAccountId: 'bank' })).resolves.toEqual({ data: { id: 'issue' } });
     expect(finance.prepareRevision).toHaveBeenCalledWith('actor-id', 'school', 'source', 'key', 'operation', { reason: 'Sai khoản thu' });
-    expect(finance.issueRevision).toHaveBeenCalledWith('actor-id', 'school', 'replacement', 'key', 'operation', { bankAccountId: 'bank' });
-  });
-  it('rejects revision commands without origin and CSRF proof before reaching Finance', async () => {
-    const controller = new FinanceController(auth as never, finance as never); finance.prepareRevision.mockClear(); finance.issueRevision.mockClear();
-    const unprotected = request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' });
-    await expect(controller.prepareRevision(unprotected, 'school', 'source', 'key', 'operation', { reason: 'Sai' })).rejects.toMatchObject({ status: 401 });
-    await expect(controller.issueRevision(unprotected, 'school', 'replacement', 'key', 'operation', { bankAccountId: 'bank' })).rejects.toMatchObject({ status: 401 });
-    expect(finance.prepareRevision).not.toHaveBeenCalled(); expect(finance.issueRevision).not.toHaveBeenCalled();
+    finance.prepareRevision.mockClear();
+    await expect(controller.prepareRevision(request({ cookie: 'app_csrf=token', 'x-csrf-token': 'token' }), 'school', 'source', 'key', 'operation', { reason: 'Sai' })).rejects.toMatchObject({ status: 401 });
+    expect(finance.prepareRevision).not.toHaveBeenCalled();
   });
   it('forwards promotion reads and all protected promotion commands', async () => {
     const controller = new FinanceController(auth as never, finance as never);

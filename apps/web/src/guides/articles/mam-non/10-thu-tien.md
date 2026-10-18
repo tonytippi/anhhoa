@@ -4,13 +4,15 @@ summary: Đối chiếu sao kê theo từng tài khoản và ghi thực nhận; 
 order: 10
 requires: receipt-queue
 ---
-Mở `Tài chính › Thu tiền`. Bảng liệt kê **hóa đơn chờ thu** và **phiếu hoàn tiền chờ chi**. Mỗi dòng là một phần hóa đơn theo một tài khoản nhận; hai phần của cùng học sinh nằm liền nhau (tài khoản trường trước).
+Mở `Tài chính › Thu tiền`. Bảng liệt kê **hóa đơn chờ thu** và **phiếu hoàn tiền chờ chi**. Mỗi dòng là một phần hóa đơn theo một tài khoản nhận; hai phần của cùng học sinh nằm liền nhau (tài khoản trường trước). Chỉ hóa đơn **đã được duyệt** mới có ở đây; hóa đơn nháp hoặc chờ duyệt chưa thu được.
+
+> Đang làm ở trang đợt thu thì bấm `Thu tiền đợt này`: trang `Thu tiền` mở sẵn bộ lọc `Đợt thu` của đợt đó, kèm nút `Quay lại đợt thu` và `Xem mọi đợt`. Trên thanh tiến độ của đợt, bấm `Đã thu đủ` rồi `Mở Thu tiền đợt này` để xem phiếu thu đã ghi (mục đã xử lý).
 
 ![Danh sách chờ thu](thu-tien-danh-sach.jpg)
 
 ## Đối chiếu theo sao kê
 
-1. Chọn `Tài khoản nhận` đúng tài khoản của sao kê đang đối chiếu (có thể lọc thêm `Tháng thu`, `Lớp`, `Tìm học sinh`) rồi bấm `Lọc`.
+1. Chọn `Tài khoản nhận` đúng tài khoản của sao kê đang đối chiếu (có thể lọc thêm `Đợt thu`, `Lớp`, `Tìm học sinh`) rồi bấm `Lọc`.
 2. Với từng giao dịch trên sao kê, tìm học sinh theo **nội dung chuyển khoản** (tên học sinh + tên lớp, không dấu).
 
 ![Lọc theo tài khoản Vietcombank](thu-tien-loc-tai-khoan.jpg)
@@ -53,7 +55,7 @@ Chọn `Trạng thái` là `Đã xử lý` rồi bấm `Lọc` (chọn thêm `Lo
 
 ## Đợt thu đã đóng
 
-Đóng (khóa) đợt thu chỉ cần mọi hóa đơn đã phát hành, không cần đã thu đủ. Sau khi đợt đã đóng, bạn vẫn ghi thực nhận và ghi nhận đã chi cho hóa đơn của đợt đó ở `Thu tiền` như bình thường; chỉ việc thêm học sinh, sửa hay điều chỉnh hóa đơn là bị khóa. Hóa đơn chưa thu có thể chuyển sang tháng sau bằng [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
+Đóng (khóa) đợt thu chỉ cần mọi hóa đơn đã được duyệt và phát hành, không cần đã thu đủ. Sau khi đợt đã đóng, bạn vẫn ghi thực nhận và ghi nhận đã chi cho hóa đơn của đợt đó ở `Thu tiền` như bình thường; chỉ việc thêm học sinh, sửa hay điều chỉnh hóa đơn là bị khóa. Hóa đơn chưa thu có thể chuyển sang tháng sau bằng [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
 
 ## Ghi nhận đã chi (phiếu hoàn tiền)
 

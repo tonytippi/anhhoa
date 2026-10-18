@@ -95,6 +95,13 @@ const positionCapabilityGroups = [
     ],
   },
   {
+    id: "finance",
+    label: "Tài chính",
+    capabilities: [
+      { code: "COLLECTION_RUN_APPROVE", label: "Duyệt hóa đơn" },
+    ],
+  },
+  {
     id: "workforce",
     label: "Nhân sự & chấm công",
     capabilities: [

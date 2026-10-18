@@ -16,11 +16,11 @@ requires: collection-runs
 ## Mỗi kỳ của một lớp
 
 1. **Mở đợt thu** cho lớp, đặt tên kỳ và ngày, kiểm tra khoản thu, xem trước và tạo hóa đơn nháp: [Mở đợt thu theo lớp và tạo hóa đơn nháp](guide:mo-dot-thu).
-2. (Hiếm khi cần) Nếu học sinh còn nợ hóa đơn kỳ trước, **chuyển công nợ** vào hóa đơn nháp kỳ này trước khi phát hành: [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
-3. **Rà soát từng hóa đơn**, xử lý các dòng `Trùng kỳ`, sửa số lượng hoặc phần bớt nếu cần, rồi phát hành và gửi ảnh hóa đơn cho phụ huynh: [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh).
-4. **Ghi thực nhận** khi tiền về theo từng sao kê tài khoản: [Ghi nhận thu tiền](guide:thu-tien).
+2. (Hiếm khi cần) Nếu học sinh còn nợ hóa đơn kỳ trước, **chuyển công nợ** vào hóa đơn nháp kỳ này trước khi gửi duyệt: [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
+3. **Rà soát từng hóa đơn**, xử lý các dòng `Trùng kỳ`, sửa số lượng hoặc phần bớt nếu cần, rồi **gửi duyệt** từng hóa đơn ngay khi xong. **Quản lý duyệt** (hoặc trả lại kèm ghi chú) để phát hành; sau đó gửi ảnh hóa đơn cho phụ huynh, hoặc tải ZIP cả lớp cho phụ huynh không dùng app: [Rà soát, gửi duyệt và phát hành hóa đơn](guide:ra-soat-phat-hanh).
+4. **Ghi thực nhận** khi tiền về theo từng sao kê tài khoản: [Ghi nhận thu tiền](guide:thu-tien). Từ trang đợt thu, bấm `Thu tiền đợt này` để mở `Thu tiền` đã lọc sẵn theo đợt.
 5. Học sinh vào lớp giữa kỳ, chuyển lớp hoặc nghỉ: [Học sinh vào giữa kỳ, chuyển lớp, nghỉ học](guide:hoc-sinh-giua-ky).
-6. **Đóng đợt thu** khi mọi hóa đơn đã phát hành: [Đóng đợt thu](guide:dong-dot-thu). Phải đóng đợt trước của lớp **trước khi phát hành hóa đơn của đợt sau cùng lớp**; đợt sau vẫn mở và soạn hóa đơn nháp được trong lúc chờ.
+6. **Đóng đợt thu** khi mọi hóa đơn đã phát hành: [Đóng đợt thu](guide:dong-dot-thu). Phải đóng đợt trước của lớp **trước khi duyệt hóa đơn của đợt sau cùng lớp**; đợt sau vẫn mở, soạn hóa đơn nháp và gửi duyệt được trong lúc chờ.
 7. Theo dõi số đã thu, còn nợ và xuất CSV: [Báo cáo tài chính](guide:bao-cao).
 
 > Hai đợt của cùng một lớp không được trùng ngày. Nếu bấm `Mở đợt thu` với kỳ trùng, hệ thống báo đợt đang trùng thay vì tạo thêm.

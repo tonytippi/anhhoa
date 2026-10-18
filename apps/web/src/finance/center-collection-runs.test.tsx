@@ -66,7 +66,7 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
     const table = await screen.findByRole("table", { name: "Danh sách đợt thu của Anh ngữ Sao Mai" });
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Lớp", "Tên đợt", "Kỳ", "Trạng thái", "Đã thu / Phải thu (đ)", "Đã thanh toán", "Tùy chọn"]);
     const row = (await within(table).findByText("Movers B")).closest("tr")!;
-    expect(within(row).getAllByRole("cell").slice(0, 4).map((cell) => cell.textContent)).toEqual(["Movers B", "Unit 6", "09/11/2026 – 02/01/2027", "Nháp"]);
+    expect(within(row).getAllByRole("cell").slice(0, 4).map((cell) => cell.textContent)).toEqual(["Movers B", "Unit 6", "09/11/2026 – 02/01/2027", "Thiết lập khoản thu"]);
     expect(within(table).getByText("Starters A").closest("tr")!.textContent).toContain("28/09/2026 – 21/11/2026");
     expect(screen.getByRole("button", { name: "Tùy chọn cho đợt thu Movers B · Unit 6" })).toBeTruthy();
     expect(screen.queryByRole("table", { name: "Đợt thu theo trường" })).toBeNull();
@@ -142,7 +142,7 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
     );
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" features={centerFeatures} page="collection-runs" runId={run.id} onOpenRun={vi.fn()} onBackToRuns={vi.fn()} denied={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Movers B · Unit 6 · Nháp" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Movers B · Unit 6 · Thiết lập khoản thu" })).toBeTruthy();
     expect(screen.getByText("Đợt thu · Lớp Movers B · Kỳ 09/11/2026 – 02/01/2027")).toBeTruthy();
     expect(screen.queryByText(/Năm học/)).toBeNull();
     expect(screen.queryByText(/Khoản cố định được tự thêm/)).toBeNull();
@@ -182,10 +182,10 @@ describe("FinanceWorkspace · collection runs of a class-scoped School", () => {
     );
     vi.stubGlobal("fetch", fetch);
     const view = render(<FinanceWorkspace schoolId="school-c" schoolName="Anh ngữ Sao Mai" features={centerFeatures} page="collection-runs" runId={run.id} onOpenRun={onOpenRun} onBackToRuns={vi.fn()} onOpenInvoice={vi.fn()} denied={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Starters A · Unit 3 · Đã tạo hóa đơn" })).toBeTruthy();
-    const notice = screen.getByText(/Chưa thể phát hành hóa đơn của đợt này/);
+    expect(await screen.findByRole("heading", { name: "Starters A · Unit 3 · Duyệt & thu tiền" })).toBeTruthy();
+    const notice = screen.getByText(/Chưa thể duyệt hóa đơn của đợt này/);
     expect(notice.textContent).toContain("cần đóng đợt Unit 2 (03/08/2026 – 26/09/2026) của lớp Starters A trước.");
-    const invoices = screen.getByRole("table", { name: "Hóa đơn hiện có trong đợt thu" });
+    const invoices = screen.getByRole("table", { name: "Hóa đơn chưa phát hành trong đợt thu" });
     expect(within(within(invoices).getByText(/SM-047/).closest("tr")!).getByText("Trùng kỳ").className).toContain("warning");
     expect(within(within(invoices).getByText(/SM-012/).closest("tr")!).queryByText("Trùng kỳ")).toBeNull();
     const debts = await screen.findByRole("table", { name: "Công nợ kỳ trước chưa thu" });
@@ -229,7 +229,7 @@ describe("FinanceWorkspace · collection runs of a School-scoped School stay as 
     const table = await screen.findByRole("table", { name: "Đợt thu theo trường" });
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Tháng", "Trạng thái", "Đã thu / Phải thu (đ)", "Đã thanh toán", "Tùy chọn"]);
     const row = (await within(table).findByText("09/2026")).closest("tr")!;
-    expect(within(row).getAllByRole("cell").slice(0, 3).map((cell) => cell.textContent)).toEqual(["09/2026Năm học 2026-2027", "Nháp", "—"]);
+    expect(within(row).getAllByRole("cell").slice(0, 3).map((cell) => cell.textContent)).toEqual(["09/2026Năm học 2026-2027", "Thiết lập khoản thu", "—"]);
     expect(screen.getByRole("button", { name: "Tùy chọn cho đợt thu 2026-09" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mở đợt thu" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Tạo đợt thu" }));
@@ -249,7 +249,7 @@ describe("FinanceWorkspace · collection runs of a School-scoped School stay as 
     const draft = vi.fn((url: string) => Promise.resolve(url.includes("/scope-options") ? response({ classes: [{ id: "class-a", name: "Lá 1" }], students: [] }) : url.includes("/extracurricular-classes") ? response({ billingMonth: "2026-09", classes: [] }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-runs") ? response(monthRun) : response(monthCatalog)));
     vi.stubGlobal("fetch", draft);
     const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="collection-runs" runId={monthRun.id} onOpenRun={vi.fn()} onBackToRuns={vi.fn()} denied={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Đợt thu tháng 09/2026 · Nháp" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Đợt thu tháng 09/2026 · Thiết lập khoản thu" })).toBeTruthy();
     expect(screen.getByText(/Đợt thu · Năm học 2026-2027/)).toBeTruthy();
     expect(screen.getByText(/Khoản cố định được tự thêm khi mở đợt thu/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Lớp ngoại khóa trong đợt" })).toBeTruthy();
@@ -264,8 +264,8 @@ describe("FinanceWorkspace · collection runs of a School-scoped School stay as 
     const fetch = vi.fn((url: string) => Promise.resolve(url.includes("/settlements") ? response({ students: [] }) : url.includes("/prior-debts") ? response({ total: "100", debts: [{ sourceInvoiceId: "invoice-old", student: { id: "student-a", code: "HS001", name: "Bé An" }, className: "Lá 1", billingMonth: "2026-08", periodLabel: "Tháng 08/2026", channel: "PERSONAL", account: null, outstanding: "100", obligationCode: null }] }) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("collection-runs") ? response(generated) : response(monthCatalog)));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" page="collection-runs" runId={monthRun.id} onOpenRun={vi.fn()} onBackToRuns={vi.fn()} denied={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Đợt thu tháng 09/2026 · Đã tạo hóa đơn" })).toBeTruthy();
-    expect(screen.getByText(/Đợt thu tháng 08\/2026 chưa đóng\. Cần đóng đợt đó trước\s+khi phát hành hóa đơn đợt này\./)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Đợt thu tháng 09/2026 · Duyệt & thu tiền" })).toBeTruthy();
+    expect(screen.getByText(/Đợt thu tháng 08\/2026 chưa đóng\. Cần đóng đợt đó trước\s+khi duyệt hóa đơn đợt này; kế toán vẫn gửi duyệt được\./)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mở đợt thu 08/2026" })).toBeTruthy();
     await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("/settlements"))).toBe(true));
     const debts = await screen.findByRole("table", { name: "Công nợ kỳ trước chưa thu" });

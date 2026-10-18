@@ -43,7 +43,7 @@ Dùng khi phụ huynh đóng trước nhiều tháng liên tiếp. Ở bước `
 
 ![Tạo gói đóng trước 3 tháng giảm 5%](uu-dai-nop-truoc.jpg)
 
-Sau khi kích hoạt, gói được áp dụng **trên từng hóa đơn nháp** ở thẻ `Gói nộp trước` (xem [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh)). Khi áp dụng, hóa đơn thu luôn **đủ số tháng của gói** (ví dụ gói 3 tháng: Học phí 3 tháng, trừ phần giảm của cả 3 tháng); các đợt thu tháng sau sẽ tự bỏ qua học phí của những tháng đã nộp trước. Quyền ưu đãi các tháng sau chỉ được phát hành khi hóa đơn đó được thu **đủ đúng số tiền**.
+Sau khi kích hoạt, gói được áp dụng **trên từng hóa đơn nháp** ở thẻ `Gói nộp trước` (xem [Rà soát, gửi duyệt và phát hành hóa đơn](guide:ra-soat-phat-hanh)). Khi áp dụng, hóa đơn thu luôn **đủ số tháng của gói** (ví dụ gói 3 tháng: Học phí 3 tháng, trừ phần giảm của cả 3 tháng); các đợt thu tháng sau sẽ tự bỏ qua học phí của những tháng đã nộp trước. Quyền ưu đãi các tháng sau chỉ được phát hành khi hóa đơn đó được thu **đủ đúng số tiền**.
 
 > Nên cho một gói gồm học phí của **mọi lớp** (ví dụ Học phí Mầm, Chồi, Lá). Khi áp dụng, hệ thống chỉ thu khoản có trên hóa đơn của học sinh đó; nhưng trong thời hạn gói, các khoản thu của gói **thay thế cho nhau**: học sinh chuyển lớp hoặc lên lớp sang năm học mới không bị thu học phí lớp mới, và **giữ mức giá đã trả trước** (không thu bù chênh lệch). Khoản thu không thuộc gói vẫn thu bình thường.
 
@@ -59,4 +59,4 @@ Sau khi kích hoạt, gói được áp dụng **trên từng hóa đơn nháp**
 > [!WARNING]
 > Không thu nhiều tháng bằng cách tăng số lượng học phí trên hóa đơn: các tháng sau sẽ vẫn bị thu và không được hoàn khi học sinh nghỉ. Hãy dùng gói nộp trước.
 
-> Nếu ưu đãi thay đổi sau khi đã tạo hóa đơn nháp, khi phát hành hệ thống có thể báo "Kết quả ưu đãi đã thay đổi. Hãy rà soát lại hóa đơn trước khi phát hành." — kiểm tra lại số tiền rồi phát hành lại.
+> Nếu ưu đãi thay đổi sau khi đã tạo hóa đơn nháp, khi quản lý duyệt hệ thống có thể báo "Kết quả ưu đãi đã thay đổi. Hãy rà soát lại hóa đơn trước khi phát hành." và hóa đơn vẫn ở `Chờ duyệt` — quản lý trả lại kèm ghi chú (hoặc kế toán rút lại), kế toán kiểm tra số tiền rồi gửi duyệt lại.

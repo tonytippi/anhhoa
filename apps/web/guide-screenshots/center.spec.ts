@@ -121,7 +121,7 @@ test('language center guide screenshots', async ({ page }) => {
     await open.getByLabel('Đến ngày').fill('26/09/2026');
     await shot(open, 'dot-thu-mo');
     await open.getByRole('button', { name: 'Xác nhận mở đợt thu' }).click();
-    await expect(page.getByRole('heading', { name: 'Starters 1 · Unit 1 · Nháp', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Starters 1 · Unit 1 · Thiết lập khoản thu', level: 1 })).toBeVisible();
     await page.getByRole('button', { name: 'Thêm khoản thu' }).click();
     const line = dialog(page, 'Thêm khoản thu');
     await line.getByLabel('Khoản thu').selectOption({ label: 'Giáo trình · 650.000 đ/bộ' });
@@ -144,8 +144,8 @@ test('language center guide screenshots', async ({ page }) => {
     await runInvoices(page).getByRole('button', { name: 'Rà soát hóa đơn' }).first().click();
     await expect(page.getByRole('region', { name: /^Rà soát hóa đơn / })).toBeVisible();
     await shot(region(page, 'Chi tiết hóa đơn'), 'hoa-don-chi-tiet');
-    await shot(page.getByRole('complementary', { name: 'Rà soát trước khi phát hành' }), 'hoa-don-ra-soat-phat-hanh');
-    for (let index = 0; index < 5; index += 1) await issue(page, true, index === 0 ? (target) => shot(target, 'hoa-don-xac-nhan-phat-hanh') : undefined);
+    await shot(page.getByRole('complementary', { name: 'Rà soát trước khi gửi duyệt' }), 'hoa-don-ra-soat-gui-duyet');
+    for (let index = 0; index < 5; index += 1) await issue(page, true, index === 0 ? (target) => shot(target, 'hoa-don-xac-nhan-gui-duyet') : undefined);
     await issue(page, false);
     await shot(page.getByRole('complementary', { name: 'Thanh toán' }), 'hoa-don-thanh-toan');
     await page.getByRole('button', { name: 'Xem ảnh hóa đơn' }).first().click();
@@ -179,7 +179,7 @@ test('language center guide screenshots', async ({ page }) => {
     await open.getByLabel('Từ ngày').fill('14/09/2026');
     await open.getByLabel('Đến ngày').fill('07/11/2026');
     await open.getByRole('button', { name: 'Xác nhận mở đợt thu' }).click();
-    await expect(page.getByRole('heading', { name: 'Starters 3 · Unit 2 · Nháp', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Starters 3 · Unit 2 · Thiết lập khoản thu', level: 1 })).toBeVisible();
     await generate(page, 2);
     await go(page, 'Danh bộ', 'Học sinh');
     await page.getByRole('button', { name: 'Chuyển danh bộ' }).click();
@@ -206,13 +206,13 @@ test('language center guide screenshots', async ({ page }) => {
     await expect(open.getByText(/được sao chép từ đợt Unit 1 của lớp Starters 1/)).toBeVisible();
     await shot(open, 'dot-thu-mo-dot-sau');
     await open.getByRole('button', { name: 'Xác nhận mở đợt thu' }).click();
-    await expect(page.getByRole('heading', { name: 'Starters 1 · Unit 2 · Nháp', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Starters 1 · Unit 2 · Thiết lập khoản thu', level: 1 })).toBeVisible();
     await generate(page, 8);
-    const lock = page.locator('div').filter({ has: page.getByText(/^Chưa thể phát hành hóa đơn của đợt này/) }).filter({ has: page.getByRole('button', { name: 'Mở đợt thu Unit 1' }) }).last();
+    const lock = page.locator('div').filter({ has: page.getByText(/^Chưa thể duyệt hóa đơn của đợt này/) }).filter({ has: page.getByRole('button', { name: 'Mở đợt thu Unit 1' }) }).last();
     await shot(lock, 'dot-thu-khoa-dot-truoc');
     await shot(runInvoices(page), 'dot-thu-hoa-don-trung-ky');
     await page.getByRole('button', { name: 'Mở đợt thu Unit 1' }).click();
-    await expect(page.getByRole('heading', { name: 'Starters 1 · Unit 1 · Đã tạo hóa đơn', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Starters 1 · Unit 1 · Duyệt & thu tiền', level: 1 })).toBeVisible();
     await page.getByRole('button', { name: 'Đóng đợt thu', exact: true }).click();
     const close = dialog(page, 'Đóng đợt thu Starters 1 · Unit 1');
     await close.getByLabel('Lý do đóng đợt thu').fill('Hết Unit 1, đã phát hành đủ hóa đơn');
@@ -290,7 +290,7 @@ test('language center guide screenshots', async ({ page }) => {
       await open.getByLabel('Từ ngày').fill(from);
       await open.getByLabel('Đến ngày').fill(to);
       await open.getByRole('button', { name: 'Xác nhận mở đợt thu' }).click();
-      await expect(page.getByRole('heading', { name: `${className} · ${name} · Nháp`, level: 1 })).toBeVisible();
+      await expect(page.getByRole('heading', { name: `${className} · ${name} · Thiết lập khoản thu`, level: 1 })).toBeVisible();
       if (className === 'Movers 1') await generate(page, count);
     }
     await go(page, 'Tài chính', 'Đợt thu');

@@ -1,9 +1,17 @@
 import { readFile } from 'node:fs/promises';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const api = `http://localhost:${process.env.E2E_API_PORT ?? '3000'}`;
 const app = `http://localhost:${process.env.E2E_APP_PORT ?? '5173'}`;
 
+// Sprint change 2026-10-17: an approver issues a submitted Invoice from its page.
+async function approveOpenInvoice(page: Page, review: Locator) {
+  await expect(review.getByRole('heading', { name: 'Chờ duyệt' })).toBeVisible();
+  const approved = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith('/finance/invoices/approvals') && response.request().method() === 'POST');
+  await review.getByRole('button', { name: 'Duyệt & gửi phụ huynh' }).click();
+  expect((await approved).status()).toBe(201);
+  await expect(review.getByRole('complementary', { name: 'Thanh toán' })).toBeVisible();
+}
 async function login(context: import('@playwright/test').BrowserContext) {
   const start = await context.request.get(`${api}/api/app/auth/google/start`, { maxRedirects: 0 });
   expect(start.status()).toBe(302);
@@ -123,7 +131,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await expect(page.getByRole('table', { name: 'Khoản thu theo trường', exact: true })).toContainText('gắn 2 lớp ngoại khóa');
   await page.getByRole('button', { name: 'Ưu đãi' }).click();
   await expect(page.getByRole('heading', { name: 'Ưu đãi', level: 1 })).toBeVisible();
-  await expect(page.getByRole('form', { name: 'Điều khiển danh sách ưu đãi' }).getByRole('button', { name: 'Thêm chính sách' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Thêm chính sách' })).toBeInViewport();
    await page.getByRole('button', { name: 'Đợt thu' }).click();
   await expect(page.getByRole('heading', { name: 'Đợt thu', level: 1 })).toBeVisible();
   const runsToolbar = page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' });
@@ -140,7 +148,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await runDialog.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
    await expect(page.getByRole('dialog', { name: 'Rời không gian làm việc?' })).toHaveCount(0);
    await expect(page).toHaveURL(/\/schools\/[^/]+\/collection-runs\/[^/]+/);
-   await expect(page.getByRole('heading', { name: 'Đợt thu tháng 10/2026 · Nháp' })).toBeVisible();
+   await expect(page.getByRole('heading', { name: 'Đợt thu tháng 10/2026 · Thiết lập khoản thu' })).toBeVisible();
    await expect(page.getByRole('form', { name: 'Điều khiển danh sách đợt thu' })).toHaveCount(0);
    await page.getByRole('button', { name: 'Quay lại danh sách đợt thu' }).click();
    await expect(page).toHaveURL(/\/schools\/[^/]+\/collection-runs$/);
@@ -193,12 +201,12 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(page.getByRole('region', { name: 'Tiến độ tạo hóa đơn từ máy chủ' })).toContainText(/Đang xử lý \d+\/2/);
   await expect(page.getByRole('heading', { name: 'Kết quả tạo hóa đơn từ máy chủ' })).toBeVisible({ timeout: 10000 });
   expect(selectionRequests).toBe(0);
-   await expect(page.getByRole('list', { name: 'Tiến trình đợt thu' }).locator('[aria-current="step"]')).toHaveText('Đã tạo hóa đơn');
-   await expect(overview).toContainText('285.000 đ');
-   await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tr').filter({ hasText: 'RG1-1 / Bé An' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
+   await expect(page.getByRole('list', { name: 'Tiến trình đợt thu' }).locator('[aria-current="step"]')).toHaveText('Duyệt & thu tiền');
+   await expect(page.getByRole('region', { name: 'Hóa đơn theo trạng thái' })).toContainText('285.000 đ');
+   await page.getByRole('table', { name: /^Hóa đơn (chưa|đã) phát hành trong đợt thu$/ }).locator('tr').filter({ hasText: 'RG1-1 / Bé An' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
    await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
    await expect(page).toHaveURL(/\/collection-runs\/[^/]+\/invoices\/[^/?]+/);
-   await expect(page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' })).toHaveCount(0);
+   await expect(page.getByRole('table', { name: /^Hóa đơn (chưa|đã) phát hành trong đợt thu$/ })).toHaveCount(0);
    await expect(page.getByRole('heading', { name: 'Rà soát hóa đơn', level: 1 })).toBeFocused();
    await page.reload();
    await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-1 / Bé An' }).getByText('Nháp', { exact: true })).toBeVisible();
@@ -215,15 +223,17 @@ test('Admin Finance uses server-returned promotion values and clears the other S
    await expect(invoiceLines).toContainText('135.000');
    await expect(invoiceLines).toContainText('Ưu đãi Release Gate');
    await expect(invoiceReview.getByTitle('Nguồn')).toHaveText('Cố định');
-   await invoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
-   const firstIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn · tháng 10/2026' });
+   await invoiceReview.getByRole('button', { name: 'Gửi duyệt hóa đơn' }).click();
+   const firstIssue = page.getByRole('dialog', { name: 'Gửi duyệt hóa đơn · tháng 10/2026' });
    await expect(firstIssue).toContainText('Bé AnRG1-1 · Lớp');
    const issuedRunRefresh = page.waitForResponse((response) =>
      /\/finance\/collection-runs\/[^/]+$/.test(new URL(response.url()).pathname) &&
      response.request().method() === 'GET',
    );
-   await firstIssue.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
+   await firstIssue.getByRole('button', { name: 'Gửi duyệt hóa đơn' }).click();
    expect((await issuedRunRefresh).status()).toBe(200);
+   // Sprint change 2026-10-17: the release-gate admin also approves; approval issues the Invoice to parents.
+   await approveOpenInvoice(page, invoiceReview);
      // The issued Invoice stays open for its payment image until Finance moves on.
      await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-1 / Bé An' })).toBeVisible();
      await page.getByRole('button', { name: /^Học sinh kế tiếp/ }).click();
@@ -236,16 +246,17 @@ test('Admin Finance uses server-returned promotion values and clears the other S
      await expect(invoiceReview.getByRole('button', { name: 'Ghi thực nhận và đóng hóa đơn' })).toHaveCount(0);
     await invoiceReview.getByRole('button', { name: 'Quay lại đợt thu' }).click();
     await expect(page).toHaveURL(/\/collection-runs\/[^/]+$/);
-    await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tbody tr').filter({ hasText: 'RG1-2 / Bé Bình' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
+    await page.getByRole('table', { name: /^Hóa đơn (chưa|đã) phát hành trong đợt thu$/ }).locator('tbody tr').filter({ hasText: 'RG1-2 / Bé Bình' }).getByRole('button', { name: 'Rà soát hóa đơn' }).click();
   await expect(page.getByRole('region', { name: 'Rà soát hóa đơn RG1-2 / Bé Bình' })).toBeVisible();
   const secondInvoiceReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-2/ });
   await expect(secondInvoiceReview.getByRole('table', { name: 'Dòng hóa đơn do máy chủ tính' })).toContainText('150.000');
    await expect(secondInvoiceReview.getByText('135.000')).toHaveCount(0);
 
-  await secondInvoiceReview.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
-   const secondIssue = page.getByRole('dialog', { name: 'Phát hành hóa đơn · tháng 10/2026' });
+  await secondInvoiceReview.getByRole('button', { name: 'Gửi duyệt hóa đơn' }).click();
+   const secondIssue = page.getByRole('dialog', { name: 'Gửi duyệt hóa đơn · tháng 10/2026' });
     await expect(secondIssue).toContainText('Bé BìnhRG1-2 · Lớp');
-    await secondIssue.getByRole('button', { name: 'Phát hành hóa đơn' }).click();
+    await secondIssue.getByRole('button', { name: 'Gửi duyệt hóa đơn' }).click();
+    await approveOpenInvoice(page, secondInvoiceReview);
    await expect(secondInvoiceReview.getByRole('complementary', { name: 'Thanh toán' })).toContainText('Tổng cần nộp150.000 đ');
     // The initial queue load rewrites the filter form with the server's default month when it lands, so let it finish before typing.
     const initialQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?'));
@@ -255,15 +266,15 @@ test('Admin Finance uses server-returned promotion values and clears the other S
     // The queue defaults to the current month, so select each month explicitly instead of depending on today's date.
     const receiptQueue = page.getByRole('table', { name: 'Hóa đơn chờ thu' });
     await expect(receiptQueue).toBeVisible();
-    await expect(page.getByLabel('Tháng thu')).not.toHaveValue('');
-    const septemberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('billingMonth=2026-09'));
-    await page.getByLabel('Tháng thu').selectOption('2026-09');
+    // Sprint change 2026-10-18: the queue is filtered by run instead of month.
+    const septemberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('collectionRunId='));
+    await page.getByLabel('Đợt thu').selectOption({ label: 'Tháng 09/2026' });
     await page.getByRole('button', { name: 'Lọc' }).click();
     expect((await septemberQueue).status()).toBe(200);
     // The seed already holds an issued 2026-09 Invoice.
     await expect(receiptQueue).toContainText('09/2026');
-    const octoberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('billingMonth=2026-10'));
-    await page.getByLabel('Tháng thu').selectOption('2026-10');
+    const octoberQueue = page.waitForResponse((response) => response.url().includes('/finance/receipt-queue?') && response.url().includes('collectionRunId='));
+    await page.getByLabel('Đợt thu').selectOption({ label: 'Tháng 10/2026' });
     await page.getByRole('button', { name: 'Lọc' }).click();
     expect((await octoberQueue).status()).toBe(200);
     await expect(receiptQueue).not.toContainText('09/2026');
@@ -351,7 +362,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await novDialog.getByLabel('Năm học').selectOption({ label: 'Năm học Release 2026' });
   await novDialog.getByLabel('Tháng thu').selectOption('2026-11');
   await novDialog.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
-  await expect(page.getByRole('heading', { name: 'Đợt thu tháng 11/2026 · Nháp' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Đợt thu tháng 11/2026 · Thiết lập khoản thu' })).toBeVisible();
   const novTemplate = page.getByRole('table', { name: 'Khoản thu mẫu của đợt' });
   await expect(novTemplate.getByRole('row').filter({ hasText: 'Học phí Release 1' })).toContainText('Cố định');
   await page.getByRole('button', { name: 'Thêm khoản thu' }).click();
@@ -373,7 +384,7 @@ test('Admin Finance uses server-returned promotion values and clears the other S
   await page.getByRole('button', { name: 'Tạo hóa đơn nháp' }).click();
    await page.getByRole('button', { name: /Tạo hóa đơn nháp cho 2 học sinh/ }).click();
   await expect(page.getByRole('heading', { name: 'Kết quả tạo hóa đơn từ máy chủ' })).toBeVisible({ timeout: 10000 });
-  await page.getByRole('table', { name: 'Hóa đơn hiện có trong đợt thu' }).locator('tr').filter({ hasText: 'RG1-1 / Bé An' }).first().getByRole('button', { name: 'Rà soát hóa đơn' }).click();
+  await page.getByRole('table', { name: /^Hóa đơn (chưa|đã) phát hành trong đợt thu$/ }).locator('tr').filter({ hasText: 'RG1-1 / Bé An' }).first().getByRole('button', { name: 'Rà soát hóa đơn' }).click();
   const novReview = page.getByRole('region', { name: /Rà soát hóa đơn RG1-1/ });
   await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Cố định' })).toBeVisible();
   await expect(novReview.getByTitle('Nguồn').filter({ hasText: 'Linh hoạt · Lớp chính thức: Mầm Release 1' })).toBeVisible();

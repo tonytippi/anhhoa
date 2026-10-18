@@ -56,7 +56,7 @@ Lưu ý cho kế toán:
 Bấm `...` ở cột `Tùy chọn` của dòng, chọn `Chỉnh sửa`. Sửa thông tin cần thiết, nhập `Lý do` (bắt buộc) rồi bấm `Lưu thay đổi`.
 
 - Hóa đơn **đã tạo** giữ nguyên tên, đơn vị, giá và mức thuế lúc tạo.
-- Giá mới chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó. Nếu đợt thu của lớp còn `Nháp`, hãy `Xem trước từ máy chủ` lại.
+- Giá mới chỉ áp dụng cho dòng hóa đơn thêm mới hoặc làm mới sau đó. Nếu đợt thu của lớp còn `Thiết lập khoản thu`, hãy `Xem trước từ máy chủ` lại.
 - Đổi `Áp dụng cho` của khoản thu cố định chỉ có hiệu lực với đợt thu mở sau đó; đợt đã mở giữ nguyên.
 
 ## Ngừng áp dụng

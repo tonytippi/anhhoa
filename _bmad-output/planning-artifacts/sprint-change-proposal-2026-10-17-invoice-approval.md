@@ -52,6 +52,7 @@ Status: requested by the user on 2026-10-17. This changes the Invoice issue flow
   - In Thu tiền, the month filter becomes an `Đợt thu` filter (`collectionRunId`). This also works for class runs.
   - When Thu tiền is opened from a run, a context bar shows the run, the count still to collect and the amount collected, with "Quay lại đợt thu" and "Xem mọi đợt".
   - Issued Invoices open from Thu tiền ("Xem hóa đơn").
+  - **Implementation change (2026-10-18), not yet in the mockup:** in the code, `Đã phát hành` and `Đã thu đủ` filter the run table like the other chips. Without that, issued Invoices could not be reached from the run, but revisions and payment images still start there. While one of these filters is selected, a bar above the table explains that collection happens in Thu tiền and offers "Mở Thu tiền đợt này". From `Đã thu đủ`, that link opens the processed list (`state=SETTLED`). The default filter is the remaining work: `Chưa phát hành` while drafts or pending Invoices exist, otherwise `Đã phát hành`, otherwise `Đã thu đủ`. The header button "Thu tiền đợt này" is unchanged. The run table caption follows the filter ("Hóa đơn chưa phát hành / đã phát hành trong đợt thu"). The approval modals use the wide dialog from the mockup.
 - The run's Invoice summary returns counts per state (`DRAFT`, `RETURNED`, `PENDING_APPROVAL`, `ISSUED` with an unpaid balance, and fully paid) and the collected amount.
 
 ## Mockup

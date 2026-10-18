@@ -97,6 +97,12 @@ try {
       await tx.financeReportExport.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });
+      await tx.invoiceApprovalEvent.deleteMany({
+        where: { schoolId: { in: schoolIds } },
+      });
+      await tx.invoiceImageExport.deleteMany({
+        where: { schoolId: { in: schoolIds } },
+      });
       await tx.financeLedgerEvent.deleteMany({
         where: { schoolId: { in: schoolIds } },
       });
@@ -298,7 +304,7 @@ try {
                     "OPERATIONAL_QUEUE_READ",
                   ]
                 : []),
-              ...(userIdentityId === admin.id ? ["FINANCE_MANAGE"] : []),
+              ...(userIdentityId === admin.id ? ["FINANCE_MANAGE", "COLLECTION_RUN_APPROVE"] : []),
             ].map((value) => ({
               schoolId: school.id,
               positionId: position.id,
@@ -775,7 +781,7 @@ try {
         const membership = await tx.schoolMembership.create({ data: { schoolId: school.id, userIdentityId: admin.id } });
         const position = await tx.schoolPosition.create({ data: { schoolId: school.id, code: "ADMIN", name: "Quản lý trung tâm" } });
         await tx.positionCapabilityGrant.createMany({
-          data: ["SCHOOL_CONTEXT_READ", "ROSTER_MANAGE", "FINANCE_MANAGE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })),
+          data: ["SCHOOL_CONTEXT_READ", "ROSTER_MANAGE", "FINANCE_MANAGE", "COLLECTION_RUN_APPROVE"].map((capability) => ({ schoolId: school.id, positionId: position.id, capability })),
         });
         await tx.staffProfile.create({
           data: {

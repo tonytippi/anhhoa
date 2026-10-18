@@ -1,25 +1,25 @@
 ---
 title: Đóng đợt thu
-summary: Khóa đợt thu khi mọi hóa đơn đã phát hành; phải đóng đợt tháng trước mới phát hành được hóa đơn tháng sau.
+summary: Khóa đợt thu khi mọi hóa đơn đã phát hành; phải đóng đợt tháng trước mới duyệt được hóa đơn tháng sau.
 order: 13
 requires: collection-runs
 ---
-Đóng (khóa) đợt thu khi đã **phát hành** xong mọi hóa đơn trong tháng; không cần chờ phụ huynh đóng đủ tiền. Sau khi đóng, không thể thêm học sinh, tạo hoặc sửa hóa đơn trong đợt; việc ghi thực nhận và ghi nhận đã chi vẫn tiếp tục bình thường ở trang `Thu tiền`.
+Đóng (khóa) đợt thu khi mọi hóa đơn trong tháng đã được **duyệt và phát hành**; không cần chờ phụ huynh đóng đủ tiền. Sau khi đóng, không thể thêm học sinh, tạo hoặc sửa hóa đơn trong đợt; việc ghi thực nhận và ghi nhận đã chi vẫn tiếp tục bình thường ở trang `Thu tiền`.
 
 ## Khóa đợt thu
 
-Đóng đợt thu cũng là **khóa đợt thu**: phải đóng đợt tháng trước thì mới phát hành được hóa đơn của tháng sau. Nếu đợt tháng trước chưa đóng, trang chi tiết đợt tháng sau báo "Đợt thu tháng MM/YYYY chưa đóng", kèm nút `Mở đợt thu MM/YYYY` để sang đóng đợt đó, và nút phát hành hóa đơn bị khóa.
+Đóng đợt thu cũng là **khóa đợt thu**: phải đóng đợt tháng trước thì mới duyệt được hóa đơn của tháng sau. Nếu đợt tháng trước chưa đóng, trang chi tiết đợt tháng sau báo "Đợt thu tháng MM/YYYY chưa đóng. Cần đóng đợt đó trước khi duyệt hóa đơn đợt này; kế toán vẫn gửi duyệt được.", kèm nút `Mở đợt thu MM/YYYY` để sang đóng đợt đó, và nút `Duyệt & gửi phụ huynh` bị khóa. Hóa đơn đã gửi vẫn nằm ở `Chờ duyệt`.
 
 ![Đợt tháng 11 báo đợt tháng 10 chưa đóng](dot-thu-khoa-dot-truoc.jpg)
 
-![Nút phát hành bị khóa trên trang rà soát hóa đơn](hoa-don-khoa-phat-hanh.jpg)
+![Nút duyệt bị khóa trên hóa đơn chờ duyệt](hoa-don-khoa-duyet.jpg)
 
-Tháng sau vẫn **tạo đợt, xem trước và tạo hóa đơn nháp** được trước khi đóng tháng trước; chỉ việc phát hành là phải chờ. Bản thay thế của hóa đơn (xem [Điều chỉnh hóa đơn](guide:dieu-chinh-hoa-don)) thuộc đợt chưa đóng nên không bị chặn.
+Tháng sau vẫn **tạo đợt, tạo hóa đơn nháp và gửi duyệt** được trước khi đóng tháng trước; chỉ việc duyệt là phải chờ. Bản thay thế của hóa đơn (xem [Điều chỉnh hóa đơn](guide:dieu-chinh-hoa-don)) thuộc đợt chưa đóng nên không bị chặn.
 
 ## Các bước
 
 1. Mở đợt thu. Dưới bảng hóa đơn, dòng trạng thái cho biết:
-   - "Chưa thể đóng: còn N phiếu thu nháp cần phát hành." — phát hành hết trước đã.
+   - "Chưa thể đóng: còn 2 nháp, 1 cần sửa, 3 chờ duyệt." — gửi duyệt và duyệt hết trước đã (bấm từng trạng thái trên thanh tiến độ để lọc ra các hóa đơn còn lại).
    - "Mọi hóa đơn đã phát hành; có thể đóng đợt thu."
 2. Bấm `Đóng đợt thu`, nhập `Lý do đóng đợt thu` và xác nhận.
 

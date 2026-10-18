@@ -9,12 +9,12 @@ Phụ huynh thường đóng đủ trước khi đưa trẻ đến lớp, nên v
 ## Điều kiện
 
 - Đợt thu tháng trước đã đóng (xem [Đóng đợt thu](guide:dong-dot-thu)).
-- Đợt thu tháng này đã tạo hóa đơn nháp và học sinh có hóa đơn trong đợt. Chuyển **trước khi phát hành** hóa đơn tháng này.
+- Đợt thu tháng này đã tạo hóa đơn nháp và học sinh có hóa đơn trong đợt. Chuyển **trước khi gửi duyệt** hóa đơn tháng này.
 - Hóa đơn tháng trước chưa ghi thực nhận và không có gói nộp trước.
 
 ## Các bước
 
-1. Mở đợt thu tháng này (trạng thái `Đã tạo hóa đơn`). Nếu có công nợ đủ điều kiện, bên dưới bảng hóa đơn hiện mục `Công nợ kỳ trước` với bảng `Công nợ kỳ trước chưa thu`. Không có mục này nghĩa là chưa có gì để chuyển.
+1. Mở đợt thu tháng này (trạng thái `Duyệt & thu tiền`). Nếu có công nợ đủ điều kiện, bên dưới bảng hóa đơn hiện mục `Công nợ kỳ trước` với bảng `Công nợ kỳ trước chưa thu`. Không có mục này nghĩa là chưa có gì để chuyển.
 ![Mục Công nợ kỳ trước trong đợt thu tháng 11](cong-no-danh-sach.jpg)
 
 2. Chuyển từng hóa đơn bằng `Chuyển vào hóa đơn tháng này` ở dòng của học sinh, hoặc bấm `Chuyển tất cả công nợ`.
@@ -30,10 +30,10 @@ Phụ huynh thường đóng đủ trước khi đưa trẻ đến lớp, nên v
 
 - Lý do của dòng tự ghi "Chuyển công nợ tháng MM/YYYY". Dòng này không sửa hay xóa được.
 - Hóa đơn cũ **rời trang `Thu tiền`** và không còn tải được ảnh VietQR; báo cáo không tính nó là còn nợ nữa. Phụ huynh nhận ảnh của hóa đơn tháng này, đã gồm khoản nợ cũ.
-- Nếu phụ huynh lỡ chuyển khoản theo hóa đơn cũ, hãy ghi khoản đó vào hóa đơn tháng này khi phát hành và ghi thực nhận ở đó.
+- Nếu phụ huynh lỡ chuyển khoản theo hóa đơn cũ, hãy ghi khoản đó vào hóa đơn tháng này trước khi gửi duyệt và ghi thực nhận ở đó.
 - Thao tác chọn nhiều hóa đơn là **tất cả hoặc không**: một hóa đơn không còn đủ điều kiện thì không hóa đơn nào được chuyển.
 
 > [!WARNING]
 > Chuyển công nợ không thể hoàn tác. Kiểm tra kỹ học sinh và số tiền trong hộp xác nhận trước khi bấm `Chuyển công nợ`.
 
-Xem tiếp [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh) để phát hành hóa đơn đã có dòng công nợ, và [Ghi nhận thu tiền](guide:thu-tien) để ghi thực nhận.
+Xem tiếp [Rà soát, gửi duyệt và phát hành hóa đơn](guide:ra-soat-phat-hanh) để gửi duyệt hóa đơn đã có dòng công nợ, và [Ghi nhận thu tiền](guide:thu-tien) để ghi thực nhận.

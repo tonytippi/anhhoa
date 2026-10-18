@@ -32,6 +32,7 @@ type Queue = {
   invoices: Row[];
   filters: {
     schoolYearId: string | null;
+    collectionRunId?: string | null;
     billingMonth: string;
     classIdSnapshot: string | null;
     student: string | null;
@@ -123,6 +124,10 @@ export function ReceiptQueueWorkspace({
   denied,
   onStatusChange,
   classRuns = false,
+  runFilter,
+  stateFilter,
+  onBackToRun,
+  onClearRunFilter,
 }: {
   // Sprint change 2026-10-12: a School that bills by Class reads the run period ("Starters A · Unit 3") instead of the month.
   classRuns?: boolean;
@@ -130,14 +135,31 @@ export function ReceiptQueueWorkspace({
   schoolName: string;
   denied: () => void;
   onStatusChange?: (status: FinanceStatus) => void;
+  // Sprint change 2026-10-18: opened from a run ("Thu tiền đợt này"), the queue starts filtered to it.
+  runFilter?: string;
+  stateFilter?: string;
+  onBackToRun?: (runId: string) => void;
+  onClearRunFilter?: () => void;
 }) {
   const [queue, setQueue] = useState<Queue>();
   // The result names the invoice's own period by the run label for a School that bills by Class; any other covered month stays a month.
   const opened = useRef<Row | undefined>(undefined);
   const periodName = (month: string) =>
     classRuns && opened.current?.periodLabel && opened.current.billingMonth === month ? opened.current.periodLabel : monthLabel(month);
+  const initialFilters = () => ({
+    schoolYearId: "",
+    collectionRunId: runFilter ?? "",
+    // The run filter replaces the month: every month of the queue unless a run is chosen.
+    billingMonth: "ALL",
+    classIdSnapshot: "",
+    student: "",
+    direction: "",
+    bankAccountId: "",
+    state: stateFilter === "SETTLED" ? "SETTLED" : "",
+  });
   const [filters, setFilters] = useState({
     schoolYearId: "",
+    collectionRunId: "",
     billingMonth: "",
     classIdSnapshot: "",
     student: "",
@@ -148,7 +170,7 @@ export function ReceiptQueueWorkspace({
   const [payout, setPayout] = useState({ paidOn: today(), method: "BANK_TRANSFER", reference: "" });
   const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
   const [accounts, setAccounts] = useState<ReceivingAccount[]>([]);
-  const [months, setMonths] = useState<string[]>([]);
+  const [runs, setRuns] = useState<Array<{ id: string; label: string }>>([]);
   const [detail, setDetail] = useState<Detail>();
   const [actual, setActual] = useState("");
   const [pending, setPending] = useState<string>();
@@ -161,14 +183,14 @@ export function ReceiptQueueWorkspace({
   const dialogRef = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
-  const query = (cursor?: string | null) => {
+  const query = (cursor?: string | null, current = filters) => {
     const value = new URLSearchParams({ limit: "25" });
-    for (const [key, item] of Object.entries(filters)) if (item) value.set(key, item);
+    for (const [key, item] of Object.entries(current)) if (item) value.set(key, item);
     if (cursor) value.set("cursor", cursor);
     return value;
   };
-  const load = async (cursor?: string | null, replace = true, expected = generation.current) => {
-    const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/receipt-queue?${query(cursor)}`, {
+  const load = async (cursor?: string | null, replace = true, expected = generation.current, current = filters) => {
+    const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/receipt-queue?${query(cursor, current)}`, {
       credentials: "include",
     });
     if ([401, 403].includes(response.status)) {
@@ -184,6 +206,7 @@ export function ReceiptQueueWorkspace({
     setFilters((current) => ({
       ...current,
       schoolYearId: value.filters.schoolYearId ?? "",
+      collectionRunId: value.filters.collectionRunId ?? "",
       billingMonth: value.filters.billingMonth,
       classIdSnapshot: value.filters.classIdSnapshot ?? "",
       student: value.filters.student ?? "",
@@ -193,11 +216,12 @@ export function ReceiptQueueWorkspace({
     }));
     return value;
   };
-  const loadClasses = async (expected = generation.current) => {
+  const loadClasses = async (expected = generation.current, current = filters) => {
     const value = new URLSearchParams();
-    if (filters.schoolYearId) value.set("schoolYearId", filters.schoolYearId);
-    if (filters.billingMonth) value.set("billingMonth", filters.billingMonth);
-    if (filters.state) value.set("state", filters.state);
+    if (current.schoolYearId) value.set("schoolYearId", current.schoolYearId);
+    if (current.collectionRunId) value.set("collectionRunId", current.collectionRunId);
+    if (current.billingMonth) value.set("billingMonth", current.billingMonth);
+    if (current.state) value.set("state", current.state);
     const response = await fetch(`${apiUrl}/api/app/schools/${schoolId}/finance/receipt-queue/classes?${value}`, {
       credentials: "include",
     });
@@ -208,12 +232,12 @@ export function ReceiptQueueWorkspace({
     if (response.ok && active.current === schoolId && expected === generation.current) {
       const options = (
         (await response.json()) as {
-          data: { classes: Array<{ id: string; name: string }>; accounts?: ReceivingAccount[]; months?: string[] };
+          data: { classes: Array<{ id: string; name: string }>; accounts?: ReceivingAccount[]; runs?: Array<{ id: string; label: string }> };
         }
       ).data;
       setClasses(options.classes);
       setAccounts(options.accounts ?? []);
-      setMonths(options.months ?? []);
+      setRuns(options.runs ?? []);
     }
   };
   const clearProtected = () => {
@@ -268,10 +292,12 @@ export function ReceiptQueueWorkspace({
     setQueue(undefined);
     setClasses([]);
     setAccounts([]);
-    setMonths([]);
+    setRuns([]);
     setMessage("");
     const expected = generation.current;
-    void Promise.all([load(undefined, true, expected), loadClasses(expected)]).catch((error: Error) =>
+    const initial = initialFilters();
+    setFilters(initial);
+    void Promise.all([load(undefined, true, expected, initial), loadClasses(expected, initial)]).catch((error: Error) =>
       setMessage(error.message),
     );
     const saved = sessionStorage.getItem(pendingKey);
@@ -285,7 +311,7 @@ export function ReceiptQueueWorkspace({
       } catch {
         sessionStorage.removeItem(pendingKey);
       }
-  }, [schoolId]);
+  }, [schoolId, runFilter, stateFilter]);
   useEffect(() => {
     onStatusChange?.({
       dirty: Boolean(detail),
@@ -413,6 +439,26 @@ export function ReceiptQueueWorkspace({
         riêng.
       </p>
       {message && <p role="alert">{message}</p>}
+      {runFilter && queue?.filters.collectionRunId === runFilter && (
+        <div className="finance-bulk-bar" role="status">
+          <span>
+            Đang xem hóa đơn {queue.filters.state === "SETTLED" ? "đã xử lý" : "chờ thu"} của{" "}
+            <b>{runs.find((item) => item.id === runFilter)?.label ?? "đợt thu đã chọn"}</b>.
+          </span>
+          <span className="receipt-queue-run-actions">
+            {onClearRunFilter && (
+              <button type="button" onClick={onClearRunFilter}>
+                Xem mọi đợt
+              </button>
+            )}
+            {onBackToRun && (
+              <button className="primary-action" type="button" onClick={() => onBackToRun(runFilter)}>
+                Quay lại đợt thu
+              </button>
+            )}
+          </span>
+        </div>
+      )}
       {result && (
         <section className="receipt-result" aria-labelledby="receipt-result-title">
           <span className="receipt-result-icon" aria-hidden="true">✓</span>
@@ -468,20 +514,17 @@ export function ReceiptQueueWorkspace({
           />
         </label>
         <label className="receipt-queue-filter-narrow">
-          Tháng thu
+          Đợt thu
           <select
-            value={filters.billingMonth}
-            onChange={(event) => setFilters({ ...filters, billingMonth: event.target.value })}
+            value={filters.collectionRunId}
+            onChange={(event) => setFilters({ ...filters, collectionRunId: event.target.value, billingMonth: "ALL" })}
           >
-            <option value="ALL">Tất cả tháng</option>
-            {[...new Set([...months, ...(filters.billingMonth && filters.billingMonth !== "ALL" ? [filters.billingMonth] : [])])]
-              .sort()
-              .reverse()
-              .map((month) => (
-                <option key={month} value={month}>
-                  Tháng {monthLabel(month)}
-                </option>
-              ))}
+            <option value="">Tất cả đợt</option>
+            {runs.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
           </select>
         </label>
         <label className="receipt-queue-filter-narrow">

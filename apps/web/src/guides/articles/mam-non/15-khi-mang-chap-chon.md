@@ -4,7 +4,7 @@ summary: Vì sao màn hình báo "Đang kiểm tra kết quả với hệ thốn
 order: 15
 pages: collection-runs, receipt-queue
 ---
-Các thao tác tài chính (phát hành, ghi thực nhận, tạo hóa đơn…) đều có mã thao tác riêng. Nếu mạng bị gián đoạn hoặc máy chủ trả lời chậm, hệ thống **không coi là thất bại** mà tự hỏi lại máy chủ xem thao tác đã xong chưa.
+Các thao tác tài chính (gửi duyệt, duyệt, ghi thực nhận, tạo hóa đơn…) đều có mã thao tác riêng. Nếu mạng bị gián đoạn hoặc máy chủ trả lời chậm, hệ thống **không coi là thất bại** mà tự hỏi lại máy chủ xem thao tác đã xong chưa.
 
 ## Bạn sẽ thấy
 

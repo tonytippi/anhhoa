@@ -9,9 +9,9 @@ pages: collection-runs, receipt-queue, students
 
 Học sinh được xếp vào lớp **trước khi** tạo hóa đơn nháp sẽ tự có hóa đơn. Nếu em vào lớp **sau khi** đợt đã tạo hóa đơn:
 
-1. Mở đợt thu của lớp (trạng thái `Đã tạo hóa đơn`).
+1. Mở đợt thu của lớp (trạng thái `Duyệt & thu tiền`).
 2. Bấm `Thêm học sinh` trong bảng **Hóa đơn trong đợt**, chọn em rồi `Yêu cầu thêm`. Chỉ học sinh của lớp này mới hiện trong danh sách.
-3. Hóa đơn bổ sung tính **trọn kỳ**. Nếu chỉ thu phần còn lại của unit, sửa số lượng hoặc dùng `Bớt` trên hóa đơn nháp, kèm lý do, rồi phát hành.
+3. Hóa đơn bổ sung tính **trọn kỳ**. Nếu chỉ thu phần còn lại của unit, sửa số lượng hoặc dùng `Bớt` trên hóa đơn nháp, kèm lý do, rồi gửi duyệt.
 
 ![Thêm học sinh vào lớp sau khi đã tạo hóa đơn](tt-dot-thu-them-hoc-sinh.jpg)
 
@@ -26,7 +26,7 @@ Chuyển lớp làm ở `Danh bộ › Học sinh › Chuyển danh bộ` (xem [
 - Học sinh thật sự học cả hai lớp: thu đủ.
 - Học sinh chỉ chuyển lớp và đã đóng tiền ở lớp cũ: giảm số lượng, dùng `Bớt` hoặc xóa dòng trên hóa đơn ở lớp mới.
 
-Hệ thống không tự bỏ dòng nào; kế toán quyết định trước khi phát hành. Công nợ và chênh lệch thu thiếu/thừa của em **đi theo học sinh** sang lớp mới.
+Hệ thống không tự bỏ dòng nào; kế toán quyết định trước khi gửi duyệt. Công nợ và chênh lệch thu thiếu/thừa của em **đi theo học sinh** sang lớp mới.
 
 ## Học sinh nghỉ học
 

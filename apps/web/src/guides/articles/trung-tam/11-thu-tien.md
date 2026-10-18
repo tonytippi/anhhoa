@@ -4,13 +4,15 @@ summary: Đối chiếu sao kê theo từng tài khoản và ghi thực nhận; 
 order: 11
 requires: receipt-queue
 ---
-Mở `Tài chính › Thu tiền`. Bảng liệt kê **hóa đơn chờ thu** của mọi lớp. Mỗi dòng là một phần hóa đơn theo một tài khoản nhận; hai phần của cùng học sinh nằm liền nhau (tài khoản trường trước). Cột `Kỳ` ghi tên lớp và tên đợt, ví dụ "Movers 2 · Unit 3".
+Mở `Tài chính › Thu tiền`. Bảng liệt kê **hóa đơn chờ thu** của mọi lớp. Mỗi dòng là một phần hóa đơn theo một tài khoản nhận; hai phần của cùng học sinh nằm liền nhau (tài khoản trường trước). Cột `Kỳ` ghi tên lớp và tên đợt, ví dụ "Movers 2 · Unit 3". Chỉ hóa đơn **đã được duyệt** mới có ở đây; hóa đơn nháp hoặc chờ duyệt chưa thu được.
+
+> Đang làm ở trang đợt thu thì bấm `Thu tiền đợt này`: trang `Thu tiền` mở sẵn bộ lọc `Đợt thu` của đợt đó, kèm nút `Quay lại đợt thu` và `Xem mọi đợt`. Trên thanh tiến độ của đợt, bấm `Đã thu đủ` rồi `Mở Thu tiền đợt này` để xem phiếu thu đã ghi (mục đã xử lý).
 
 ![Danh sách chờ thu, cột Kỳ ghi lớp và tên đợt](tt-thu-tien-danh-sach.jpg)
 
 ## Đối chiếu theo sao kê
 
-1. Chọn `Tài khoản nhận` đúng tài khoản của sao kê đang đối chiếu (có thể lọc thêm `Tháng thu` — tháng có ngày bắt đầu kỳ, `Lớp`, `Tìm học sinh`) rồi bấm `Lọc`.
+1. Chọn `Tài khoản nhận` đúng tài khoản của sao kê đang đối chiếu (có thể lọc thêm `Đợt thu`, `Lớp`, `Tìm học sinh`) rồi bấm `Lọc`.
 2. Với từng giao dịch trên sao kê, tìm học sinh theo **nội dung chuyển khoản** (tên học sinh + tên lớp, không dấu).
 
 ## Ghi thực nhận
@@ -47,7 +49,7 @@ Chọn `Trạng thái` là `Đã xử lý` rồi bấm `Lọc`. Bảng liệt k�
 
 ## Đợt thu đã đóng
 
-Đóng đợt thu chỉ cần mọi hóa đơn đã phát hành, không cần đã thu đủ. Sau khi đợt đã đóng, bạn vẫn ghi thực nhận cho hóa đơn của đợt đó ở `Thu tiền` như bình thường. Hóa đơn chưa thu có thể chuyển sang kỳ sau bằng [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
+Đóng đợt thu chỉ cần mọi hóa đơn đã được duyệt và phát hành, không cần đã thu đủ. Sau khi đợt đã đóng, bạn vẫn ghi thực nhận cho hóa đơn của đợt đó ở `Thu tiền` như bình thường. Hóa đơn chưa thu có thể chuyển sang kỳ sau bằng [Chuyển công nợ kỳ trước](guide:chuyen-cong-no).
 
 ## Trả lại tiền cho phụ huynh
 

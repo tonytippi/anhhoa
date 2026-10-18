@@ -4,7 +4,9 @@ summary: Mở đợt thu cho một lớp theo tên và ngày của kỳ, kiểm 
 order: 9
 requires: collection-runs
 ---
-Mở `Tài chính › Đợt thu`. Danh sách có cột `Lớp`, `Tên đợt`, `Kỳ`, `Trạng thái` và `Đã thu / Phải thu (đ)`; lọc theo trạng thái ở ô `Lọc trạng thái`, bấm vào tên đợt để mở. Cột `Đã thanh toán` là số học sinh đã thanh toán đủ / số học sinh có hóa đơn; đầu trang chi tiết đợt thu cũng hiện các số này. Một đợt thu đi qua 4 bước: **Nháp → Sẵn sàng tạo hóa đơn → Đã tạo hóa đơn → Đã đóng**.
+Mở `Tài chính › Đợt thu`. Danh sách có cột `Lớp`, `Tên đợt`, `Kỳ`, `Trạng thái` và `Đã thu / Phải thu (đ)`; lọc theo trạng thái ở ô `Lọc trạng thái`, bấm vào tên đợt để mở. Cột `Đã thanh toán` là số học sinh đã thanh toán đủ / số học sinh có hóa đơn; cột `Hóa đơn` cho biết số hóa đơn đang nháp, cần sửa và chờ duyệt. Một đợt thu đi qua 4 bước: **Thiết lập khoản thu → Sẵn sàng tạo hóa đơn → Duyệt & thu tiền → Đã đóng**.
+
+Ở bước `Duyệt & thu tiền`, đầu trang đợt thu là **thanh tiến độ** đếm hóa đơn theo trạng thái: `Nháp`, `Cần sửa`, `Chờ duyệt`, `Đã phát hành`, `Đã thu đủ`, kèm `Đã thu / Phải thu`. Bấm vào một trạng thái để lọc bảng hóa đơn theo trạng thái đó. Hóa đơn trong cùng một đợt có thể ở nhiều trạng thái cùng lúc: kế toán gửi duyệt từng hóa đơn, quản lý duyệt dần, không phải chờ cả đợt.
 
 ![Danh sách đợt thu của nhiều lớp, mỗi lớp một chuỗi kỳ](tt-dot-thu-danh-sach.jpg)
 
@@ -32,7 +34,7 @@ Hai đợt của **cùng một lớp** không được trùng ngày; hệ thốn
 
 ![Đợt thứ hai: hệ thống báo sẽ sao chép khoản thu linh hoạt từ đợt trước](tt-dot-thu-mo-dot-sau.jpg)
 
-Khi đợt còn `Nháp`, dùng `Sửa` để đổi số lượng/phạm vi, `Bỏ` để bỏ khoản khỏi đợt này (không ảnh hưởng danh mục khoản thu). Khoản cố định chỉ sửa được số lượng.
+Khi đợt còn `Thiết lập khoản thu`, dùng `Sửa` để đổi số lượng/phạm vi, `Bỏ` để bỏ khoản khỏi đợt này (không ảnh hưởng danh mục khoản thu). Khoản cố định chỉ sửa được số lượng.
 
 > [!WARNING]
 > Mức học phí của đợt lấy từ khoản thu cố định đang gắn lớp **lúc mở đợt**. Muốn lớp sang mức giá khác, sửa danh sách lớp của khoản thu **trước khi mở đợt**; đợt đã mở không đổi theo.
@@ -59,13 +61,13 @@ Kiểm tra bảng **Học sinh đủ điều kiện** và bảng **Học sinh b�
 
 ![Xác nhận tạo hóa đơn nháp](tt-dot-thu-tao-hoa-don-xac-nhan.jpg)
 
-Xong, đợt thu chuyển sang `Đã tạo hóa đơn` và hiện bảng **Hóa đơn trong đợt**. Mỗi dòng là một phiếu thu của một học sinh, gồm phần tài khoản trường và phần tài khoản cá nhân. Nhãn `Trùng kỳ` cạnh tên học sinh cần xử lý trước khi phát hành, xem [Học sinh vào giữa kỳ, chuyển lớp, nghỉ học](guide:hoc-sinh-giua-ky).
+Xong, đợt thu chuyển sang `Duyệt & thu tiền` và hiện bảng hóa đơn của đợt. Mỗi dòng là một phiếu thu của một học sinh, gồm phần tài khoản trường và phần tài khoản cá nhân. Nhãn `Trùng kỳ` cạnh tên học sinh cần xử lý trước khi gửi duyệt, xem [Học sinh vào giữa kỳ, chuyển lớp, nghỉ học](guide:hoc-sinh-giua-ky).
 
 ![Hóa đơn nháp trong đợt](tt-dot-thu-hoa-don-trong-dot.jpg)
 
-Tiếp theo: [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh).
+Tiếp theo: [Rà soát, gửi duyệt và phát hành hóa đơn](guide:ra-soat-phat-hanh).
 
 ## Lưu ý cho kế toán
 
 - **Doanh thu ghi theo tháng bắt đầu kỳ.** Học phí của cả unit được ghi nhận trọn vào tháng có ngày bắt đầu của đợt, dù unit kéo dài sang tháng sau. Báo cáo theo tháng vì vậy không chia đều học phí theo số buổi của từng tháng.
-- **Đợt sau chỉ phát hành khi đợt trước của cùng lớp đã đóng.** Bạn vẫn mở đợt, xem trước và tạo hóa đơn nháp cho kỳ sau được trong lúc chờ. Xem [Đóng đợt thu](guide:dong-dot-thu).
+- **Đợt sau chỉ duyệt được khi đợt trước của cùng lớp đã đóng.** Bạn vẫn mở đợt, tạo hóa đơn nháp và gửi duyệt cho kỳ sau được trong lúc chờ. Xem [Đóng đợt thu](guide:dong-dot-thu).

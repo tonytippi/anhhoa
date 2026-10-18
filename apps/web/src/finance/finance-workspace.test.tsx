@@ -291,7 +291,7 @@ describe("FinanceWorkspace", () => {
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-a" onOpenRun={vi.fn()} onOpenInvoice={onOpenInvoice} onBackToRun={onBackToRun} denied={vi.fn()} />);
     const review = await screen.findByRole("region", { name: "Rà soát hóa đơn HS001 / Bé An" });
     expect(within(review).getByRole("heading", { level: 1, name: "Rà soát hóa đơn" })).toBeTruthy();
-    expect(screen.queryByRole("table", { name: "Hóa đơn hiện có trong đợt thu" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "Hóa đơn chưa phát hành trong đợt thu" })).toBeNull();
     expect(screen.queryByRole("list", { name: "Tiến trình đợt thu" })).toBeNull();
     fireEvent.click(within(review).getByRole("button", { name: "Học sinh tiếp theo" }));
     expect(onOpenInvoice).toHaveBeenCalledWith(run.id, "invoice-b");
@@ -353,7 +353,7 @@ describe("FinanceWorkspace", () => {
     // The server preview and save return the edited meals part: 22 x 35.000 - 2 x 28.000 = 714.000.
     const edited = { ...personalPart, total: "714000", lines: [{ ...personalPart.lines[0]!, deductionQuantity: "2", deductionAmount: "56000", netAmount: "714000", amount: "714000", deductionReason: "Ngày 16/09 có ăn trưa" }] };
     const editedNotice = { ...schoolPart, noticeTotal: "2131500", notice: { ...notice, invoices: [schoolPart, edited] } };
-    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(String(url).endsWith("/invoices/invoice-school/lines/preview") ? response(editedNotice) : options?.method === "PUT" && String(url).endsWith("/invoices/invoice-school/lines") ? response({ outcome: editedNotice }) : options?.method === "POST" && String(url).endsWith("/issue") ? response({ outcome: { ...schoolPart, notice } }) : url.includes("bank-accounts") ? response({ accounts }) : url.endsWith("/invoices/invoice-school") ? response({ ...schoolPart, notice }) : url.endsWith(`/collection-runs/${run.id}`) ? response(routedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [routedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog)));
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(String(url).endsWith("/invoices/invoice-school/lines/preview") ? response(editedNotice) : options?.method === "PUT" && String(url).endsWith("/invoices/invoice-school/lines") ? response({ outcome: editedNotice }) : options?.method === "POST" && String(url).endsWith("/approval-submissions") ? response({ outcome: { noticeCount: 1, status: "PENDING_APPROVAL" } }) : url.includes("bank-accounts") ? response({ accounts }) : url.endsWith("/invoices/invoice-school") ? response({ ...schoolPart, notice }) : url.endsWith(`/collection-runs/${run.id}`) ? response(routedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [routedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
     const onBackToRun = vi.fn();
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-school" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={onBackToRun} denied={vi.fn()} />);
@@ -376,7 +376,7 @@ describe("FinanceWorkspace", () => {
     await waitFor(() => expect(within(meals).getByText("714.000", { selector: "th" })).toBeTruthy());
     expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/lines/preview")).at(-1)![1]!.body).toBe(editBody);
     expect(screen.getByText(/Tổng cần thu do hệ thống xác nhận/).closest("p")!.textContent).toContain("2.131.500 đ");
-    expect(screen.getByRole("button", { name: "Phát hành phiếu thu" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Gửi duyệt phiếu thu" })).toHaveProperty("disabled", true);
     // Leaving with unsaved edits asks first.
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "Quay lại đợt thu" }));
@@ -386,21 +386,19 @@ describe("FinanceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-school/lines") && (options as RequestInit).method === "PUT" && (options as RequestInit).body === editBody)).toBe(true));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Lưu thay đổi" })).toBeNull());
-    const panel = screen.getByRole("complementary", { name: "Rà soát trước khi phát hành" });
-    // Several School accounts: the Class default is pre-selected and Finance may choose another one.
-    await waitFor(() => expect((within(panel).getByLabelText("Tài khoản trường") as HTMLSelectElement).value).toBe("bank-school-2"));
-    expect(within(panel).getByRole("option", { name: "BIDV · 8827839003 · HKD MN (mặc định lớp Mầm 4A)" })).toBeTruthy();
-    fireEvent.change(within(panel).getByLabelText("Tài khoản trường"), { target: { value: "bank-school" } });
-    await waitFor(() => expect((within(panel).getByLabelText("Tài khoản cá nhân") as HTMLSelectElement).value).toBe("bank-an"));
-    expect(within(panel).getByRole("option", { name: "ABBANK · 2088 · NGUYEN VAN AN (mặc định lớp Mầm 4A)" })).toBeTruthy();
-    fireEvent.change(within(panel).getByLabelText("Tài khoản cá nhân"), { target: { value: "bank-binh" } });
-    fireEvent.click(within(panel).getByRole("button", { name: "Phát hành phiếu thu" }));
-    const dialog = await screen.findByRole("dialog", { name: "Phát hành phiếu thu · tháng 10/2026" });
-    expect((within(dialog).getByLabelText("Tài khoản trường · 1.417.500 đ") as HTMLSelectElement).value).toBe("bank-school");
+    const panel = screen.getByRole("complementary", { name: "Rà soát trước khi gửi duyệt" });
+    // Decision 2026-10-17: each part goes to its Class account; nothing is chosen per Invoice.
+    await waitFor(() => expect(within(panel).getByText(/BIDV · 8827839003 · HKD MN/)).toBeTruthy());
+    expect(within(panel).getByText(/ABBANK · 2088 · NGUYEN VAN AN/)).toBeTruthy();
+    expect(within(panel).queryByRole("combobox")).toBeNull();
+    fireEvent.click(within(panel).getByRole("button", { name: "Gửi duyệt phiếu thu" }));
+    const dialog = await screen.findByRole("dialog", { name: "Gửi duyệt phiếu thu · tháng 10/2026" });
+    expect(within(dialog).queryByRole("combobox")).toBeNull();
+    expect(dialog.textContent).toContain("BIDV / 8827839003 / HKD MN");
     expect(within(dialog).queryByLabelText(/Nhập chính xác/)).toBeNull();
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Hủy" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Phát hành phiếu thu" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/invoice-school/issue") && (options as RequestInit).body === JSON.stringify({ personalBankAccountId: "bank-binh", schoolBankAccountId: "bank-school" }))).toBe(true));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Gửi duyệt phiếu thu" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/approval-submissions") && (options as RequestInit).body === JSON.stringify({ invoiceIds: ["invoice-school"] }))).toBe(true));
   });
   it("renders the payment total and the settlement total exactly as the server returned them, never summing parts", async () => {
     const routedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "5" }] };
@@ -472,7 +470,7 @@ describe("FinanceWorkspace", () => {
     const fetch = vi.fn((url: string) => Promise.resolve(url.endsWith(`/collection-runs/${run.id}`) ? response(detailedRun) : url.includes("collection-runs") ? response({ runs: [detailedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
     const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} onOpenRun={onOpenRun} onBackToRuns={onBackToRuns} denied={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Đợt thu tháng 09/2026 · Nháp" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Đợt thu tháng 09/2026 · Thiết lập khoản thu" })).toBeTruthy();
     expect(screen.queryByRole("form", { name: "Điều khiển danh sách đợt thu" })).toBeNull();
     expect(screen.queryByRole("table", { name: "Đợt thu theo trường" })).toBeNull();
     expect(screen.queryByText("DRAFT")).toBeNull();
@@ -492,7 +490,7 @@ describe("FinanceWorkspace", () => {
     const filter = await screen.findByLabelText("Lớp");
     expect([...(filter as HTMLSelectElement).options].map((option) => option.textContent)).toEqual(["Tất cả lớp (3)", "Chồi 1 (1)", "Lá 1 (2)"]);
     fireEvent.change(filter, { target: { value: "Lá 1" } });
-    const table = screen.getByRole("table", { name: "Hóa đơn hiện có trong đợt thu" });
+    const table = screen.getByRole("table", { name: "Hóa đơn chưa phát hành trong đợt thu" });
     expect(within(table).queryByText(/Bé Bình/)).toBeNull();
     fireEvent.click(within(table).getAllByRole("button", { name: "Rà soát hóa đơn" })[0]!);
     expect(await screen.findByText("Học sinh 1/2 · Lớp Lá 1")).toBeTruthy();
@@ -1586,11 +1584,12 @@ describe("FinanceWorkspace", () => {
     const steps = await screen.findByRole("list", { name: "Tiến trình đợt thu" });
     expect(within(steps).getAllByRole("listitem").map((item) => item.getAttribute("aria-current"))).toEqual([null, null, "step", null]);
     expect(within(steps).queryByRole("button")).toBeNull();
-    const overview = screen.getByLabelText("Tổng quan do máy chủ tính");
-    const metric = (label: string) => within(overview).getByText(label).nextElementSibling?.textContent;
-    expect(metric("Đã phát hành")).toBe("5 / 7 phiếu thu");
-    expect(metric("Đã thu / Phải thu")).toBe("9.007.199.254.740.991 / 9.007.199.254.740.993 đ");
-    expect(metric("Đã thanh toán")).toBe("3 / 7 học sinh");
+    // Sprint change 2026-10-18: the stage shows the server's collected/owed totals and Invoice states as filter chips.
+    const progress = screen.getByRole("region", { name: "Hóa đơn theo trạng thái" });
+    expect(within(progress).getByText("Tổng phải thu · đã thu 9.007.199.254.740.991 đ")).toBeTruthy();
+    expect(within(progress).getByText("9.007.199.254.740.993 đ")).toBeTruthy();
+    expect(within(progress).getByRole("button", { name: /^Đã thu đủ 3/ })).toBeTruthy();
+    expect(within(progress).getByRole("button", { name: /^Chưa phát hành 0/ })).toBeTruthy();
   });
   it("shows the READY server summary and locked template, and waits for a DRAFT preview before showing figures", async () => {
     const readyRun = { ...run, status: "READY" as const, templateLines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí tháng", unitLabel: "tháng", defaultUnitPrice: "1500000", quantity: "1", amount: "1500000" }], summary: { eligibleCount: 124, skippedCount: 1, expectedTotal: "262600000" } };
@@ -1653,7 +1652,7 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [draftRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
-    await screen.findByText("Chưa thể đóng: còn 1 phiếu thu nháp cần phát hành.");
+    await screen.findByText("Chưa thể đóng: còn 1 nháp.");
     expect(screen.getByRole("button", { name: "Đóng đợt thu" })).toHaveProperty("disabled", true);
   });
   it("lists one row per payment notice with each part's receiving account and the server total and status", async () => {
@@ -1678,10 +1677,19 @@ describe("FinanceWorkspace", () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("collection-run-candidates") ? response(candidates) : url.includes("addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun();
-    await screen.findByText(/2\/3 phiếu thu đã phát hành hoặc hoàn tất\./);
-    const table = screen.getByRole("table", { name: "Hóa đơn hiện có trong đợt thu" });
-    const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows).toHaveLength(3);
+    // The table opens on what is still unissued; the progress chips switch to issued and paid notices.
+    const unissued = await screen.findByRole("table", { name: "Hóa đơn chưa phát hành trong đợt thu" });
+    expect(within(unissued).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[1]!.textContent)).toEqual(["HS002 / Bé Bình"]);
+    expect(within(within(unissued).getAllByRole("row")[1]!).getByText("Nháp")).toBeTruthy();
+    expect(within(within(unissued).getAllByRole("row")[1]!).queryByText(/VCB|ABB/)).toBeNull();
+    expect(screen.getByText("Chưa thể đóng: còn 1 nháp.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Đã phát hành/ }));
+    const table = screen.getByRole("table", { name: "Hóa đơn đã phát hành trong đợt thu" });
+    const rows = [...within(table).getAllByRole("row").slice(1)];
+    fireEvent.click(screen.getByRole("button", { name: /^Đã thu đủ/ }));
+    rows.push(...within(screen.getByRole("table", { name: "Hóa đơn đã phát hành trong đợt thu" })).getAllByRole("row").slice(1));
+    fireEvent.click(screen.getByRole("button", { name: /^Đã phát hành/ }));
+    expect(rows).toHaveLength(2);
     expect(within(rows[0]!).getByText("Đã thu 1/2 phần")).toBeTruthy();
     expect(within(rows[0]!).getByText("2.345.000 đ")).toBeTruthy();
     expect(within(rows[0]!).getByText("VCB - TRUONG MN ANH HOA")).toBeTruthy();
@@ -1690,12 +1698,8 @@ describe("FinanceWorkspace", () => {
     // The School account is marked by an icon with an accessible name only; no visible kind text.
     expect(within(rows[0]!).getAllByText("Tài khoản trường")).toHaveLength(1);
     expect(within(rows[0]!).getByText("Tài khoản trường").className).toBe("sr-only");
-    expect(within(rows[1]!).getByText("Nháp")).toBeTruthy();
-    expect(within(rows[1]!).queryByText(/VCB|ABB/)).toBeNull();
-    expect(within(rows[2]!).getByText("—")).toBeTruthy();
-    expect(within(rows[2]!).getByText("Hoàn tất")).toBeTruthy();
-    expect(screen.getByText("Đã phát hành")).toBeTruthy();
-    expect(screen.getByText("Chưa thể đóng: còn 1 phiếu thu nháp cần phát hành.")).toBeTruthy();
+    expect(within(rows[1]!).getByText("—")).toBeTruthy();
+    expect(within(rows[1]!).getByText("Hoàn tất")).toBeTruthy();
   });
   it("allows close when every invoice has been issued", async () => {
     const issuedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }] };
@@ -1827,35 +1831,38 @@ describe("FinanceWorkspace", () => {
   it("uses only server-returned active accounts, names the Student without typed confirmation, focuses Hủy, traps focus, and renders the issued snapshot read-only", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
-    const issued = { ...draft, status: "ISSUED", issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank-active", receivingBank: "Ngân hàng A", accountNumber: "123", accountHolderName: "Ánh Hoa" }, transferContent: "Be An La 1", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7 } } };
-    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue") ? response({ outcome: issued }) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank-active", receivingBank: "Ngân hàng A", accountNumber: "123", accountHolderName: "Ánh Hoa" }] }) : url.includes("/invoices/") ? response(draft) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response({ groups: [], receivables: [{ id: "receivable-a", groupId: "group", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true }] })));
+    let submitted = false;
+    const pendingInvoice = { ...draft, status: "PENDING_APPROVAL", approval: { submission: { submissionId: "operation-submit", submittedAt: "2026-10-17T02:12:00.000Z", submittedBy: "Lê Thu Hà" }, returnNote: null } };
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/approval-submissions") ? (submitted = true, response({ outcome: { noticeCount: 1, status: "PENDING_APPROVAL" } })) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank-active", receivingBank: "Ngân hàng A", accountNumber: "123", accountHolderName: "Ánh Hoa" }] }) : url.includes("/invoices/") ? response(submitted ? pendingInvoice : draft) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response({ groups: [], receivables: [{ id: "receivable-a", groupId: "group", code: null, displayName: "Học phí", unitLabel: "tháng", defaultUnitPrice: "100", status: "ACTIVE", available: true }] })));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ });
-    fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
-    const dialog = await screen.findByRole("dialog", { name: "Phát hành hóa đơn · tháng 09/2026" }); const confirm = within(dialog).getByRole("button", { name: "Phát hành hóa đơn" });
-    expect(dialog.textContent).toContain("Ngân hàng A / 123 / Ánh Hoa"); expect(dialog.textContent).not.toContain("inactive"); expect(dialog.textContent).toContain("Lớp Lá 1"); expect(dialog.textContent).toContain("100 đ"); expect(dialog.textContent).toContain("phải tạo bản điều chỉnh");
+    fireEvent.click(await screen.findByRole("button", { name: "Gửi duyệt hóa đơn" }));
+    const dialog = await screen.findByRole("dialog", { name: "Gửi duyệt hóa đơn · tháng 09/2026" }); const confirm = within(dialog).getByRole("button", { name: "Gửi duyệt hóa đơn" });
+    expect(dialog.textContent).toContain("Ngân hàng A / 123 / Ánh Hoa"); expect(dialog.textContent).not.toContain("inactive"); expect(dialog.textContent).toContain("Lớp Lá 1"); expect(dialog.textContent).toContain("100 đ"); expect(dialog.textContent).toContain("Hóa đơn chờ duyệt bị khóa sửa");
     expect(within(dialog).queryByRole("textbox")).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Hủy" })));
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Tài khoản nhận" }), { target: { value: "bank-active" } });
     expect(confirm).toHaveProperty("disabled", false);
     confirm.focus(); fireEvent.keyDown(confirm, { key: "Tab" }); expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Tài khoản nhận" }));
     fireEvent.click(confirm);
-    expect(await screen.findByText("Nội dung chuyển khoản: Be An La 1")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Thêm dòng" })).toBeNull(); expect(screen.queryByRole("button", { name: "Phát hành hóa đơn" })).toBeNull();
-    expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/issue") && (options as RequestInit).method === "POST" && (options as RequestInit).body === JSON.stringify({ personalBankAccountId: "bank-active" }))).toBe(true);
+    // Submitted: read-only and waiting for a manager; this user may withdraw but not approve without the capability.
+    expect(await screen.findByRole("heading", { name: "Chờ duyệt" })).toBeTruthy();
+    expect(screen.getByText(/Lê Thu Hà gửi duyệt lúc 09:12 17\/10/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Thêm dòng" })).toBeNull(); expect(screen.queryByRole("button", { name: "Gửi duyệt hóa đơn" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Rút lại" })).toBeTruthy(); expect(screen.queryByRole("button", { name: "Duyệt & gửi phụ huynh" })).toBeNull();
+    expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/approval-submissions") && (options as RequestInit).method === "POST" && (options as RequestInit).body === JSON.stringify({ invoiceIds: ["invoice-a"], personalBankAccountId: "bank-active" }))).toBe(true);
   });
-  it("refreshes the selected run from the server after issuing the second invoice so it can be closed", async () => {
+  it("refreshes the selected run from the server after submitting the last draft for approval", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [
       { id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "CLOSED", total: "100" },
       { id: "invoice-b", studentId: "33333333-3333-4333-8333-333333333333", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 2", status: "DRAFT", total: "100" },
     ] };
-    const refreshedRun = { ...generatedRun, invoices: generatedRun.invoices.map((item) => item.id === "invoice-b" ? { ...item, status: "ISSUED" } : item) };
+    const refreshedRun = { ...generatedRun, invoices: generatedRun.invoices.map((item) => item.id === "invoice-b" ? { ...item, status: "PENDING_APPROVAL" } : item) };
     const draft = { id: "invoice-b", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS002", name: "Bé Bình", className: "Lá 2" }, lines: [{ id: "line-b", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", grossAmount: "100", discountAmount: "0", netAmount: "100", promotionEvaluation: null, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
-    const issued = { ...draft, status: "ISSUED", issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be Binh La 2", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7 } } };
     let afterIssue = false;
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(
-      options?.method === "POST" && String(url).endsWith("/issue") ? (afterIssue = true, response({ outcome: issued })) :
+      options?.method === "POST" && String(url).endsWith("/approval-submissions") ? (afterIssue = true, response({ outcome: { noticeCount: 1, status: "PENDING_APPROVAL" } })) :
       url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) :
       url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) :
       url.includes("/invoices/") ? response(draft) :
@@ -1869,12 +1876,12 @@ describe("FinanceWorkspace", () => {
     await openRun();
     expect(screen.getByRole("button", { name: "Đóng đợt thu" })).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByText("HS002 / Bé Bình").closest("tr")!.querySelector("button")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Gửi duyệt hóa đơn" }));
     await screen.findByRole("dialog");
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phát hành hóa đơn" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Đóng đợt thu" })).toHaveProperty("disabled", false));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Gửi duyệt hóa đơn" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/approval-submissions") && (options as RequestInit).method === "POST")).toBe(true));
     // Success is announced as a status, never through the error alert.
-    expect((await screen.findByRole("status")).textContent).toBe("Đã phát hành hóa đơn cho HS002 / Bé Bình. Đã phát hành toàn bộ hóa đơn trong đợt.");
+    expect((await screen.findByRole("status")).textContent).toBe("Đã gửi duyệt hóa đơn cho HS002 / Bé Bình. Đã gửi duyệt toàn bộ hóa đơn nháp trong đợt.");
     expect(screen.getByRole("button", { name: "Về đợt thu" })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(fetch.mock.calls.filter(([url]) => String(url).includes("collection-runs")).length).toBeGreaterThanOrEqual(2);
@@ -1885,12 +1892,11 @@ describe("FinanceWorkspace", () => {
       { id: "invoice-b", studentId: "33333333-3333-4333-8333-333333333333", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 2", status: "DRAFT", total: "100" },
       { id: "invoice-c", studentId: "44444444-4444-4444-8444-444444444444", studentCode: "HS003", studentName: "Bé Chi", className: "Lá 2", status: "DRAFT", total: "100" },
     ] };
-    const refreshedRun = { ...generatedRun, invoices: generatedRun.invoices.map((item) => item.id === "invoice-b" ? { ...item, status: "ISSUED" } : item) };
+    const refreshedRun = { ...generatedRun, invoices: generatedRun.invoices.map((item) => item.id === "invoice-b" ? { ...item, status: "PENDING_APPROVAL" } : item) };
     const draft = { id: "invoice-b", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS002", name: "Bé Bình", className: "Lá 2" }, lines: [{ id: "line-b", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", grossAmount: "100", discountAmount: "0", netAmount: "100", promotionEvaluation: null, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
-    const issued = { ...draft, status: "ISSUED", issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be Binh La 2", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7 } } };
     let afterIssue = false;
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(
-      options?.method === "POST" && String(url).endsWith("/issue") ? (afterIssue = true, response({ outcome: issued })) :
+      options?.method === "POST" && String(url).endsWith("/approval-submissions") ? (afterIssue = true, response({ outcome: { noticeCount: 1, status: "PENDING_APPROVAL" } })) :
       url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) :
       url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) :
       url.includes("/invoices/invoice-c") ? response({ ...draft, id: "invoice-c", student: { code: "HS003", name: "Bé Chi", className: "Lá 2" } }) :
@@ -1905,13 +1911,13 @@ describe("FinanceWorkspace", () => {
     await openRun();
     expect(screen.getByRole("button", { name: "Đóng đợt thu" })).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByText("HS002 / Bé Bình").closest("tr")!.querySelector("button")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Gửi duyệt hóa đơn" }));
     await screen.findByRole("dialog");
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phát hành hóa đơn" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Gửi duyệt hóa đơn" }));
     // The issued Invoice stays open (its payment image is downloadable) until Finance moves on.
     const next = await screen.findByRole("button", { name: "Học sinh kế tiếp" });
     expect(screen.getByRole("region", { name: /Rà soát hóa đơn HS002 \/ Bé Bình/ })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("Đã phát hành hóa đơn cho HS002 / Bé Bình. Tải ảnh hóa đơn để gửi phụ huynh, rồi chuyển sang học sinh kế tiếp.");
+    expect(screen.getByRole("status").textContent).toBe("Đã gửi duyệt hóa đơn cho HS002 / Bé Bình. Chuyển sang học sinh kế tiếp.");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByRole("button", { name: "Học sinh tiếp theo" })).toBeNull();
     fireEvent.click(next);
@@ -1923,12 +1929,11 @@ describe("FinanceWorkspace", () => {
       { id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" },
       { id: "invoice-b", studentId: "33333333-3333-4333-8333-333333333333", studentCode: "HS002", studentName: "Bé Bình", className: "Lá 2", status: "DRAFT", total: "100" },
     ] };
-    const refreshedRun = { ...generatedRun, invoices: generatedRun.invoices.map((item) => item.id === "invoice-b" ? { ...item, status: "ISSUED" } : item) };
+    const refreshedRun = { ...generatedRun, invoices: generatedRun.invoices.map((item) => item.id === "invoice-b" ? { ...item, status: "PENDING_APPROVAL" } : item) };
     const draft = { id: "invoice-b", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS002", name: "Bé Bình", className: "Lá 2" }, lines: [{ id: "line-b", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", grossAmount: "100", discountAmount: "0", netAmount: "100", promotionEvaluation: null, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
-    const issued = { ...draft, status: "ISSUED", issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be Binh La 2", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7 } } };
     let afterIssue = false;
     const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(
-      options?.method === "POST" && String(url).endsWith("/issue") ? (afterIssue = true, response({ outcome: issued })) :
+      options?.method === "POST" && String(url).endsWith("/approval-submissions") ? (afterIssue = true, response({ outcome: { noticeCount: 1, status: "PENDING_APPROVAL" } })) :
       url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) :
       url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) :
       url.includes("/invoices/invoice-a") ? response({ ...draft, id: "invoice-a", student: { code: "HS001", name: "Bé An", className: "Lá 1" } }) :
@@ -1943,11 +1948,11 @@ describe("FinanceWorkspace", () => {
     await openRun();
     expect(screen.getByRole("button", { name: "Đóng đợt thu" })).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByText("HS002 / Bé Bình").closest("tr")!.querySelector("button")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Gửi duyệt hóa đơn" }));
     await screen.findByRole("dialog");
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phát hành hóa đơn" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Gửi duyệt hóa đơn" }));
     const next = await screen.findByRole("button", { name: "Học sinh kế tiếp · Lớp Lá 1" });
-    expect(screen.getByRole("status").textContent).toBe("Đã phát hành hóa đơn cho HS002 / Bé Bình. Đã phát hành toàn bộ hóa đơn của lớp Lá 2.");
+    expect(screen.getByRole("status").textContent).toBe("Đã gửi duyệt hóa đơn cho HS002 / Bé Bình. Đã gửi duyệt toàn bộ hóa đơn nháp của lớp Lá 2.");
     fireEvent.click(next);
     expect(await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ })).toBeTruthy();
   });
@@ -1956,11 +1961,11 @@ describe("FinanceWorkspace", () => {
     const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "r", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", grossAmount: "100", discountAmount: "0", netAmount: "100", promotionEvaluation: { applications: [{ assignmentReason: "Draft cũ", appliedDiscount: "0" }] }, promotionApplicationSnapshot: null, overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
     const refreshed = { ...draft, lines: [{ ...draft.lines[0], promotionEvaluation: { applications: [{ assignmentReason: "Draft mới từ máy chủ", appliedDiscount: "10" }] } }] };
     let invoiceReads = 0;
-    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue") ? new Response(JSON.stringify({ error: { code: "PROMOTION_REVIEW_REQUIRED", message: "Máy chủ yêu cầu rà soát ưu đãi." } }), { status: 409 }) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(++invoiceReads === 1 ? draft : refreshed) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/approval-submissions") ? new Response(JSON.stringify({ error: { code: "PROMOTION_REVIEW_REQUIRED", message: "Máy chủ yêu cầu rà soát ưu đãi." } }), { status: 409 }) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(++invoiceReads === 1 ? draft : refreshed) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch);
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
-    await screen.findByRole("dialog"); fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phát hành hóa đơn" }));
+    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Gửi duyệt hóa đơn" }));
+    await screen.findByRole("dialog"); fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Gửi duyệt hóa đơn" }));
     expect(await screen.findByText("Máy chủ yêu cầu rà soát ưu đãi.")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(await screen.findByText("Draft mới từ máy chủ")).toBeTruthy();
@@ -1982,9 +1987,9 @@ describe("FinanceWorkspace", () => {
     const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
     const issued = { ...draft, status: "ISSUED", issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank-active", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An La 1", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7 } } };
     let uncertain = true;
-    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue") ? uncertain ? (uncertain = false, new Response(null, { status: 503 })) : new Response(JSON.stringify({ error: { message: "Tài khoản không còn hoạt động." } }), { status: 400 }) : url.includes("/operations/") ? response({ status: "COMPLETED", outcome: issued }) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank-active", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(draft) : url.includes("/roster/school-years/year-a/students") ? response({ data: candidates.students }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
+    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/approval-submissions") ? uncertain ? (uncertain = false, new Response(null, { status: 503 })) : new Response(JSON.stringify({ error: { message: "Tài khoản không còn hoạt động." } }), { status: 400 }) : url.includes("/operations/") ? response({ status: "COMPLETED", outcome: issued }) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank-active", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(draft) : url.includes("/roster/school-years/year-a/students") ? response({ data: candidates.students }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" })); await screen.findByRole("dialog"); fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phát hành hóa đơn" }));
+    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Gửi duyệt hóa đơn" })); await screen.findByRole("dialog"); fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Gửi duyệt hóa đơn" }));
     expect(await screen.findByText("Nội dung chuyển khoản: Be An La 1")).toBeTruthy();
   });
   it("does not open an unusable issue dialog when the server has no active account", async () => {
@@ -1992,8 +1997,8 @@ describe("FinanceWorkspace", () => {
     const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("bank-accounts") ? response({ accounts: [] }) : url.includes("/invoices/") ? response(draft) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" }));
-    expect(await screen.findByText("Máy chủ không có tài khoản nhận đang hoạt động để phát hành hóa đơn.")).toBeTruthy();
+    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Gửi duyệt hóa đơn" }));
+    expect(await screen.findByText("Máy chủ không có tài khoản nhận đang hoạt động để gửi duyệt hóa đơn.")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
   it("explains that a negative monthly Invoice closes at issue and carries its credit to next month", async () => {
@@ -2003,18 +2008,16 @@ describe("FinanceWorkspace", () => {
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
     await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" }));
     expect(await screen.findByText("Tổng âm: tiền thừa 35.000 đ không hoàn ngay mà trừ vào hóa đơn tháng sau. Hóa đơn tự đóng khi phát hành.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Phát hành hóa đơn" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Gửi duyệt hóa đơn" }) as HTMLButtonElement).disabled).toBe(false);
   });
   it("keeps the issued success visible when the post-issue Finance refresh fails", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
-    const issued = { ...draft, status: "ISSUED", issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An La 1", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
     let afterIssue = false;
-    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue") ? (afterIssue = true, response({ outcome: issued })) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(draft) : url.includes(`/collection-runs/${run.id}`) ? afterIssue ? new Response(null, { status: 503 }) : response(generatedRun) : url.includes("collection-run-candidates") ? response(candidates) : afterIssue && url.includes("collection-runs") ? new Response(null, { status: 503 }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
+    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/approval-submissions") ? (afterIssue = true, response({ outcome: { noticeCount: 1, status: "PENDING_APPROVAL" } })) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(draft) : url.includes(`/collection-runs/${run.id}`) ? afterIssue ? new Response(null, { status: 503 }) : response(generatedRun) : url.includes("collection-run-candidates") ? response(candidates) : afterIssue && url.includes("collection-runs") ? new Response(null, { status: 503 }) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog))));
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Phát hành hóa đơn" })); await screen.findByRole("dialog"); fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phát hành hóa đơn" }));
-    expect(await screen.findByText("Nội dung chuyển khoản: Be An La 1")).toBeTruthy();
-    expect(await screen.findByText("Hóa đơn đã phát hành; chưa thể tải lại dữ liệu mới nhất.")).toBeTruthy();
+    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); fireEvent.click(await screen.findByRole("button", { name: "Gửi duyệt hóa đơn" })); await screen.findByRole("dialog"); fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Gửi duyệt hóa đơn" }));
+    expect(await screen.findByText("Hóa đơn đã gửi duyệt; chưa thể tải lại dữ liệu mới nhất.")).toBeTruthy();
   });
   it("requires a reason in a named confirmation that focuses Hủy before preparing a server-returned revision draft", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "ISSUED", total: "100" }] };
@@ -2085,10 +2088,10 @@ describe("FinanceWorkspace", () => {
     expect(discarded).toBe(true);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
-  it.each([[false], [true]])("blocks issuing while an earlier run is still open (invoice review %s)", async (review) => {
+  it.each([[false], [true]])("names the earlier open run that blocks approval, while submitting stays allowed (invoice review %s)", async (review) => {
     const generatedRun = { ...run, status: "GENERATED" as const, previousOpenRun: { id: "run-08", billingMonth: "2026-08" }, invoices: [{ id: "invoice-a", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const draft = { id: "invoice-a", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line-a", receivableId: "receivable-a", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
-    const message = "Đợt thu tháng 08/2026 chưa đóng. Cần đóng đợt đó trước khi phát hành hóa đơn đợt này.";
+    const message = "Đợt thu tháng 08/2026 chưa đóng. Cần đóng đợt đó trước khi duyệt hóa đơn đợt này; kế toán vẫn gửi duyệt được.";
     const onOpenRun = vi.fn();
     vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.endsWith("/invoices/invoice-a") ? response(draft) : url.endsWith(`/collection-runs/${run.id}`) ? response(generatedRun) : url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } }) : url.includes("collection-runs") ? response({ runs: [generatedRun], meta: { nextCursor: null } }) : url.includes("promotion-policies") ? response({ policies: [] }) : url.includes("coverage-reversal-requests") ? response({ requests: [] }) : response(catalog))));
     const route = (props: object) => render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} onOpenRun={onOpenRun} denied={vi.fn()} {...props} />);
@@ -2101,20 +2104,20 @@ describe("FinanceWorkspace", () => {
     }
     render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="invoice-a" onOpenRun={onOpenRun} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} />);
     await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ });
-    const issue = screen.getByRole("button", { name: "Phát hành hóa đơn" });
-    expect(issue).toHaveProperty("disabled", true);
-    expect(issue.getAttribute("title")).toBe(message);
-    expect(screen.getByText(message)).toBeTruthy();
+    // Sprint change 2026-10-17: Finance may still submit; only approval waits for the earlier run.
+    expect(screen.getByRole("button", { name: "Gửi duyệt hóa đơn" })).toHaveProperty("disabled", false);
+    expect(screen.queryByText(/chưa đóng\. Cần đóng đợt đó/)).toBeNull();
   });
   it("traps revision-dialog focus, restores its trigger, issues the replacement route, and renders a cancelled source readonly", async () => {
     const generatedRun = { ...run, status: "GENERATED" as const, invoices: [{ id: "replacement", studentId: fixtureStudentId, studentCode: "HS001", studentName: "Bé An", className: "Lá 1", status: "DRAFT", total: "100" }] };
     const replacement = { id: "replacement", status: "DRAFT", total: "100", billingMonth: "2026-09", revisesInvoiceId: "source", revisionReason: "Sai", replacementInvoiceId: null, student: { code: "HS001", name: "Bé An", className: "Lá 1" }, lines: [{ id: "line", receivableId: "r", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null }] };
-    const issued = { ...replacement, status: "ISSUED", issue: { obligationTotal: "100", dueOn: "2026-09-28", bankAccount: { id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }, transferContent: "Be An La 1", policy: { effectiveFrom: "2026-01-01", dueDaysAfterIssue: 7, taxTreatment: "NOT_APPLICABLE", debtScope: "CURRENT_SCHOOL_YEAR_ONLY", reversalMode: "DIRECT" } } };
-    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/issue-revision") ? response({ outcome: issued }) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(replacement) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
+    const fetch = vi.fn((url: string, options?: RequestInit) => Promise.resolve(options?.method === "POST" && String(url).endsWith("/approval-submissions") ? response({ outcome: { noticeCount: 1, status: "PENDING_APPROVAL" } }) : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank", receivingBank: "A", accountNumber: "1", accountHolderName: "H" }] }) : url.includes("/invoices/") ? response(replacement) : url.includes("collection-run-candidates") ? response(candidates) : url.includes("collection-runs") ? response({ runs: [generatedRun] }) : response(catalog)));
     vi.stubGlobal("fetch", fetch); render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
-    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ }); fireEvent.click(screen.getByRole("button", { name: "Phát hành bản thay thế" })); await screen.findByRole("dialog");
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Phát hành bản thay thế" }));
-    expect(await screen.findByText("Nội dung chuyển khoản: Be An La 1")).toBeTruthy(); expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/issue-revision"))).toBe(true);
+    await openRun(); fireEvent.click(await screen.findByRole("button", { name: "Rà soát hóa đơn" })); await screen.findByRole("region", { name: /Rà soát hóa đơn HS001/ }); fireEvent.click(screen.getByRole("button", { name: "Gửi duyệt bản thay thế" })); await screen.findByRole("dialog");
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Gửi duyệt bản thay thế" }));
+    // A revision is submitted on its own, like any notice; approval replaces the source.
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/approval-submissions") && (options as RequestInit).body === JSON.stringify({ invoiceIds: ["replacement"], personalBankAccountId: "bank" }))).toBe(true));
+    expect(await screen.findByText("Đã gửi duyệt bản thay thế cho HS001 / Bé An. Đã gửi duyệt toàn bộ hóa đơn nháp trong đợt.")).toBeTruthy();
   });
   it("does not load unrelated coverage approvals in the run detail workspace", async () => {
     const pendingRequest = { id: "request-a", coverageId: "coverage-a", studentName: "Bé An", amount: "62", effectiveOn: "2026-10-10", reason: "Rút học", canDecide: true };
@@ -2894,5 +2897,175 @@ describe("FinanceWorkspace", () => {
     expect(preschoolGuide.textContent).toContain("Khoản thu đã dùng trên hóa đơn hoặc gắn lớp ngoại khóa không đổi được nhóm.");
     expect(within(await openMenu("Tùy chọn cho Phí đưa đón")).getByRole("menuitem", { name: "Xem lớp ngoại khóa" })).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/[Dd]ịch vụ/);
+  });
+
+  describe("invoice approval (sprint change 2026-10-17)", () => {
+    const part = (id: string, status: string, total = "2103500") => ({ id, channel: "PERSONAL", status, total, account: null });
+    const notice = (invoiceId: string, code: string, name: string, status: string, extra: Record<string, unknown> = {}) => ({
+      invoiceId, studentId: `student-${invoiceId}`, studentCode: code, studentName: name, className: "Mầm 4A", classId: "class-mam", kind: "NORMAL", status, settledParts: 0, partCount: 1, total: "2103500", parts: [part(invoiceId, status)], submission: null, returnNote: null, ...extra,
+    });
+    const approvalRun = {
+      ...run, status: "GENERATED" as const,
+      invoices: ["a", "b", "c", "d"].map((id) => ({ id, studentId: `student-${id}`, studentCode: id, studentName: id, className: "Mầm 4A", status: id === "d" ? "PENDING_APPROVAL" : "DRAFT", total: "2103500" })),
+      notices: [
+        notice("a", "HS001", "Bé An", "DRAFT"),
+        notice("b", "HS002", "Bé Bình", "DRAFT", { returnNote: { note: "Tiền ăn sửa còn 20 ngày nhưng chưa ghi lý do.", returnedAt: "2026-10-17T03:05:00.000Z", returnedBy: "Nguyễn Thị Hạnh" } }),
+        notice("c", "HS003", "Bé Chi", "ISSUED"),
+        notice("d", "HS004", "Bé Dũng", "PENDING_APPROVAL", { submission: { submissionId: "submit-d", submittedAt: "2026-10-17T02:12:00.000Z", submittedBy: "Lê Thu Hà" } }),
+      ],
+      summary: { invoiceCount: 4, issuedCount: 1, invoiceTotal: "8414000", noticeCount: 4, issuedNoticeCount: 1, receivableTotal: "8414000", collectedTotal: "0", settledNoticeCount: 0, draftNoticeCount: 1, returnedNoticeCount: 1, pendingNoticeCount: 1, openNoticeCount: 1 },
+    };
+    const preview = {
+      noticeCount: 1, collectTotal: "2103500", refundTotal: "0",
+      classes: [{ className: "Mầm 4A", settlement: false, noticeCount: 1, total: "2103500", average: "2103500", previousAverage: "2570000" }],
+      notices: [{ invoiceId: "d", submissionId: "submit-d", submittedAt: "2026-10-17T02:12:00.000Z", submittedBy: "Lê Thu Hà", studentCode: "HS004", studentName: "Bé Dũng", className: "Mầm 4A", settlement: false, total: "2103500", items: ["Thêm dòng tay: Đồng phục · 1 bộ · 265.000 đ"] }],
+    };
+    const routes = (overrides: (url: string, options?: RequestInit) => Response | undefined) =>
+      vi.fn((url: string, options?: RequestInit) =>
+        Promise.resolve(
+          overrides(String(url), options) ??
+            (url.includes("/addable-students") ? response({ students: [], meta: { nextCursor: null } })
+              : url.includes("bank-accounts") ? response({ accounts: [{ id: "bank-an", kind: "PERSONAL", receivingBank: "ABBANK", accountNumber: "2088", accountHolderName: "NGUYEN VAN AN" }] })
+              : url.includes("collection-run-candidates") ? response(candidates)
+              : url.includes(`/collection-runs/${run.id}`) ? response(approvalRun)
+              : url.includes("collection-runs") ? response({ runs: [approvalRun], meta: { nextCursor: null } })
+              : response(catalog)),
+        ),
+      );
+
+    it("filters the run by state chips, shows return notes, and submits selected drafts with a fallback account after a blocked attempt", async () => {
+      let attempts = 0;
+      const fetch = routes((url, options) =>
+        options?.method === "POST" && url.endsWith("/approval-submissions")
+          ? ++attempts === 1
+            ? new Response(JSON.stringify({ error: { code: "INVOICE_APPROVAL_BLOCKED", message: "1 hóa đơn chưa thể gửi duyệt.", invoices: [{ invoiceId: "a", studentCode: "HS001", studentName: "Bé An", code: "PERSONAL_BANK_ACCOUNT_REQUIRED", message: "Chọn tài khoản cá nhân để thu khoản không kê khai hoặc đặt tài khoản mặc định cho lớp." }] } }), { status: 409 })
+            : response({ outcome: { noticeCount: 2, status: "PENDING_APPROVAL" } })
+          : undefined,
+      );
+      vi.stubGlobal("fetch", fetch);
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+      await openRun();
+      expect(await screen.findByRole("heading", { name: "Đợt thu tháng 09/2026 · Duyệt & thu tiền" })).toBeTruthy();
+      const unissued = screen.getByRole("table", { name: "Hóa đơn chưa phát hành trong đợt thu" });
+      expect(within(unissued).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[6]!.textContent)).toEqual(["Nháp", "Cần sửa", "Chờ duyệtGửi 09:12 17/10"]);
+      expect(within(unissued).getByText("Ghi chú: Tiền ăn sửa còn 20 ngày nhưng chưa ghi lý do.")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /^Cần sửa 1/ }));
+      expect(within(screen.getByRole("table", { name: "Hóa đơn chưa phát hành trong đợt thu" })).getAllByRole("row")).toHaveLength(2);
+      fireEvent.click(screen.getByRole("button", { name: /^Chưa phát hành 3/ }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Chọn HS001 / Bé An" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Chọn HS004 / Bé Dũng" }));
+      expect(screen.getByRole("region", { name: "Thao tác với hóa đơn đã chọn" }).textContent).toContain("khác trạng thái");
+      expect(screen.queryByRole("button", { name: "Gửi duyệt" })).toBeNull();
+      fireEvent.click(screen.getByRole("checkbox", { name: "Chọn HS004 / Bé Dũng" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Chọn HS002 / Bé Bình" }));
+      fireEvent.click(screen.getByRole("button", { name: "Gửi duyệt" }));
+      const dialog = await screen.findByRole("dialog", { name: "Gửi duyệt 2 hóa đơn" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Gửi duyệt" }));
+      expect(await within(dialog).findByText(/HS001 \/ Bé An: Chọn tài khoản cá nhân/)).toBeTruthy();
+      fireEvent.change(await within(dialog).findByLabelText("Tài khoản cá nhân cho lớp chưa có tài khoản"), { target: { value: "bank-an" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Gửi duyệt" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      const bodies = fetch.mock.calls.filter(([url]) => String(url).endsWith("/approval-submissions")).map(([, options]) => JSON.parse(String((options as RequestInit).body)));
+      expect(bodies).toEqual([{ invoiceIds: ["a", "b"] }, { invoiceIds: ["a", "b"], personalBankAccountId: "bank-an" }]);
+      expect(await screen.findByText("Đã gửi duyệt 2 hóa đơn. Hóa đơn chờ duyệt bị khóa sửa.")).toBeTruthy();
+    });
+
+    it("lets an approver review the server summary, return one Invoice with a note, and approve the rest", async () => {
+      const fetch = routes((url, options) =>
+        options?.method === "POST" && url.endsWith("/approval-preview") ? response(preview)
+          : options?.method === "POST" && url.endsWith("/d/approval-return") ? response({ outcome: { status: "DRAFT" } })
+            : options?.method === "POST" && url.endsWith("/approvals") ? response({ outcome: { noticeCount: 1, status: "ISSUED" } })
+              : undefined,
+      );
+      vi.stubGlobal("fetch", fetch);
+      const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+      await openRun();
+      fireEvent.click(await screen.findByRole("checkbox", { name: "Chọn HS004 / Bé Dũng" }));
+      // Without the approval capability, Finance may only withdraw.
+      expect(screen.getByRole("button", { name: "Rút lại" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Duyệt & gửi phụ huynh" })).toBeNull();
+      view.unmount();
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} canApprove />);
+      await openRun();
+      fireEvent.click(await screen.findByRole("checkbox", { name: "Chọn HS004 / Bé Dũng" }));
+      fireEvent.click(screen.getByRole("button", { name: "Duyệt & gửi phụ huynh" }));
+      const dialog = await screen.findByRole("dialog", { name: "Duyệt & gửi 1 hóa đơn" });
+      expect(within(dialog).getByText("Lê Thu Hà gửi lúc 09:12 17/10.")).toBeTruthy();
+      expect(within(within(dialog).getByRole("table", { name: "Theo lớp" })).getByText("2.570.000")).toBeTruthy();
+      expect(within(dialog).getByText("Thêm dòng tay: Đồng phục · 1 bộ · 265.000 đ")).toBeTruthy();
+      expect(JSON.parse(String((fetch.mock.calls.find(([url]) => String(url).endsWith("/approval-preview"))![1] as RequestInit).body))).toEqual({ invoiceIds: ["d"] });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Duyệt & gửi phụ huynh" }));
+      await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/approvals") && (options as RequestInit).body === JSON.stringify({ items: [{ invoiceId: "d", submissionId: "submit-d" }] }))).toBe(true));
+      expect(await screen.findByText("Đã duyệt và gửi 1 hóa đơn tới phụ huynh.")).toBeTruthy();
+      // Returning from the summary needs a note and leaves the other selected Invoices for approval.
+      fireEvent.click(await screen.findByRole("checkbox", { name: "Chọn HS004 / Bé Dũng" }));
+      fireEvent.click(screen.getByRole("button", { name: "Duyệt & gửi phụ huynh" }));
+      const again = await screen.findByRole("dialog", { name: "Duyệt & gửi 1 hóa đơn" });
+      fireEvent.click(within(again).getByRole("button", { name: "Trả lại" }));
+      const returning = await screen.findByRole("dialog", { name: "Trả lại hóa đơn · HS004 / Bé Dũng" });
+      expect(within(returning).getByRole("button", { name: "Trả lại" })).toHaveProperty("disabled", true);
+      fireEvent.change(within(returning).getByLabelText("Ghi chú cho kế toán"), { target: { value: "Đồng phục đã thu tháng 8." } });
+      fireEvent.click(within(returning).getByRole("button", { name: "Trả lại" }));
+      await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/invoices/d/approval-return") && (options as RequestInit).body === JSON.stringify({ note: "Đồng phục đã thu tháng 8." }))).toBe(true));
+      expect(await screen.findByText("Đã trả lại hóa đơn của HS004 / Bé Dũng kèm ghi chú.")).toBeTruthy();
+    });
+
+    it("exports the run's payment images as a ZIP for a chosen class and downloads it", async () => {
+      const fetch = routes((url, options) =>
+        options?.method === "POST" && url.endsWith("/payment-images/exports") ? response({ outcome: { exportId: "export-1", fileName: "Tháng 09-2026.zip", imageCount: 1 } })
+          : url.endsWith("/payment-image-exports/export-1/download") ? new Response(new Blob(["PK"]), { status: 200 })
+            : undefined,
+      );
+      vi.stubGlobal("fetch", fetch);
+      const createObjectURL = vi.fn(() => "blob:zip"); const revokeObjectURL = vi.fn();
+      vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL }));
+      const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} />);
+      await openRun();
+      fireEvent.click(await screen.findByRole("button", { name: "Tải ảnh hóa đơn (ZIP)" }));
+      const dialog = await screen.findByRole("dialog", { name: "Tải ảnh hóa đơn (ZIP)" });
+      fireEvent.change(within(dialog).getByLabelText("Lớp"), { target: { value: "class-mam" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Tạo và tải ZIP" }));
+      expect(await screen.findByText("Đã tải Tháng 09-2026.zip gồm 1 ảnh hóa đơn.")).toBeTruthy();
+      expect(JSON.parse(String((fetch.mock.calls.find(([url]) => String(url).endsWith("/payment-images/exports"))![1] as RequestInit).body))).toEqual({ classId: "class-mam" });
+      expect(click).toHaveBeenCalled();
+      click.mockRestore();
+    });
+
+    it("opens Thu tiền for the run from its header and from the issued chip's hint", async () => {
+      vi.stubGlobal("fetch", routes(() => undefined));
+      const onOpenReceiptQueue = vi.fn();
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" denied={vi.fn()} onOpenReceiptQueue={onOpenReceiptQueue} />);
+      await openRun();
+      fireEvent.click(await screen.findByRole("button", { name: "Thu tiền đợt này" }));
+      expect(onOpenReceiptQueue).toHaveBeenCalledWith(run.id);
+      fireEvent.click(screen.getByRole("button", { name: /^Đã thu đủ/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Mở Thu tiền đợt này" }));
+      expect(onOpenReceiptQueue).toHaveBeenLastCalledWith(run.id, true);
+    });
+
+    it("shows the manager's note on a returned Invoice and lets an approver approve a pending one from its page", async () => {
+      const line = { id: "line-d", receivableId: "r", receivableName: "Học phí", unitLabel: "tháng", unitPrice: "100", quantity: "1", amount: "100", overrideReason: null, source: null, sourceReason: null, sourceRecordedAt: null, sourceProvenance: null, sourceAudit: null };
+      const pending = { id: "d", status: "PENDING_APPROVAL", total: "100", billingMonth: "2026-09", revisesInvoiceId: null, revisionReason: null, replacementInvoiceId: null, receipt: null, carries: [], student: { code: "HS004", name: "Bé Dũng", className: "Mầm 4A" }, lines: [line], approval: { submission: { submissionId: "submit-d", submittedAt: "2026-10-17T02:12:00.000Z", submittedBy: "Lê Thu Hà" }, returnNote: null } };
+      const returned = { ...pending, id: "b", status: "DRAFT", student: { code: "HS002", name: "Bé Bình", className: "Mầm 4A" }, approval: { submission: null, returnNote: { note: "Tiền ăn sửa còn 20 ngày nhưng chưa ghi lý do.", returnedAt: "2026-10-17T03:05:00.000Z", returnedBy: "Nguyễn Thị Hạnh" } } };
+      const fetch = routes((url, options) =>
+        options?.method === "POST" && url.endsWith("/approvals") ? response({ outcome: { noticeCount: 1, status: "ISSUED" } })
+          : url.endsWith("/invoices/d") ? response(pending)
+            : url.endsWith("/invoices/b") ? response(returned)
+              : undefined,
+      );
+      vi.stubGlobal("fetch", fetch);
+      const view = render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="b" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} canApprove />);
+      expect(await screen.findByText(/Tiền ăn sửa còn 20 ngày nhưng chưa ghi lý do\./)).toBeTruthy();
+      expect(screen.getByText(/Nguyễn Thị Hạnh · trả lại lúc 10:05 17\/10/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Gửi duyệt lại hóa đơn" })).toBeTruthy();
+      view.unmount();
+      render(<FinanceWorkspace schoolId="school-a" schoolName="Trường A" runId={run.id} invoiceId="d" onOpenRun={vi.fn()} onOpenInvoice={vi.fn()} onBackToRun={vi.fn()} denied={vi.fn()} canApprove />);
+      expect(await screen.findByRole("heading", { name: "Chờ duyệt" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Thêm dòng" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Duyệt & gửi phụ huynh" }));
+      await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith("/approvals") && (options as RequestInit).body === JSON.stringify({ items: [{ invoiceId: "d", submissionId: "submit-d" }] }))).toBe(true));
+      expect(await screen.findByText("Đã duyệt và gửi hóa đơn của HS004 / Bé Dũng tới phụ huynh.")).toBeTruthy();
+    });
   });
 });

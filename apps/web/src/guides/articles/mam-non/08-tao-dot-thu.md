@@ -4,9 +4,13 @@ summary: Mở đợt thu của tháng, thêm khoản linh hoạt, xem trước d
 order: 8
 requires: collection-runs
 ---
-Mở `Tài chính › Đợt thu`. Danh sách đợt thu có cột `Đã thu / Phải thu (đ)` và `Đã thanh toán` (số học sinh đã thanh toán đủ / số học sinh có hóa đơn); bấm vào tháng để mở đợt. Đầu trang chi tiết đợt thu cũng hiện ba số này: `Đã phát hành`, `Đã thu / Phải thu`, `Đã thanh toán`.
+Mở `Tài chính › Đợt thu`. Danh sách đợt thu có cột `Đã thu / Phải thu (đ)` và `Đã thanh toán` (số học sinh đã thanh toán đủ / số học sinh có hóa đơn); bấm vào tháng để mở đợt. Cột `Hóa đơn` cho biết số hóa đơn đang nháp, cần sửa và chờ duyệt của từng đợt.
 
-Một đợt thu đi qua 4 bước: **Nháp → Sẵn sàng tạo hóa đơn → Đã tạo hóa đơn → Đã đóng**.
+Một đợt thu đi qua 4 bước: **Thiết lập khoản thu → Sẵn sàng tạo hóa đơn → Duyệt & thu tiền → Đã đóng**.
+
+Ở bước `Duyệt & thu tiền`, đầu trang đợt thu là **thanh tiến độ** đếm hóa đơn theo trạng thái: `Nháp`, `Cần sửa`, `Chờ duyệt`, `Đã phát hành`, `Đã thu đủ`, kèm `Đã thu / Phải thu`. Bấm vào một trạng thái để lọc bảng hóa đơn theo trạng thái đó. Hóa đơn trong cùng một đợt có thể ở nhiều trạng thái cùng lúc: kế toán gửi duyệt từng hóa đơn, quản lý duyệt dần, không phải chờ cả đợt.
+
+![Thanh tiến độ: 1 cần sửa, 9 chờ duyệt, 1 đã phát hành](dot-thu-trang-thai-hoa-don.jpg)
 
 ## 1. Tạo đợt thu
 
@@ -60,10 +64,10 @@ Với trường đông học sinh, việc tạo có thể mất vài phút; màn
 
 ![Tiến độ tạo hóa đơn](dot-thu-tien-do.jpg)
 
-Xong, đợt thu chuyển sang `Đã tạo hóa đơn` và hiện bảng **Hóa đơn trong đợt**. Mỗi dòng là một phiếu thu của một học sinh, gồm phần tài khoản trường và phần tài khoản cá nhân.
+Xong, đợt thu chuyển sang `Duyệt & thu tiền` và hiện bảng hóa đơn của đợt. Mỗi dòng là một phiếu thu của một học sinh, gồm phần tài khoản trường và phần tài khoản cá nhân.
 
 ![Danh sách hóa đơn nháp trong đợt](dot-thu-da-tao-hoa-don.jpg)
 
 Học sinh nhập học sau khi đã tạo hóa đơn: bấm `Thêm học sinh` trong bảng này để tạo hóa đơn bổ sung.
 
-Tiếp theo: [Rà soát và phát hành hóa đơn](guide:ra-soat-phat-hanh).
+Tiếp theo: [Rà soát, gửi duyệt và phát hành hóa đơn](guide:ra-soat-phat-hanh).

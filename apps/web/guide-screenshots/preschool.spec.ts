@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
-import { dialog, dismiss, generate, go, issue, login, openSchool, receive, region, runInvoices, seed, shooter } from './helpers';
+import { approve, dialog, dismiss, generate, go, issue, login, openSchool, receive, region, runInvoices, seed, shooter, showNotices } from './helpers';
 
 // Drives the synthetic "Trường Mầm non Hoa Mai" through the October and November runs and saves the screenshots that
 // the preschool guides (src/guides/articles/mam-non) embed. Everything shown is invented demo data.
@@ -182,7 +182,7 @@ test('preschool guide screenshots', async ({ page }) => {
     await open.getByLabel('Tháng thu').selectOption('2026-10');
     await shot(open, 'dot-thu-tao');
     await open.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
-    await expect(page.getByRole('heading', { name: 'Đợt thu tháng 10/2026 · Nháp', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Đợt thu tháng 10/2026 · Thiết lập khoản thu', level: 1 })).toBeVisible();
     await page.getByRole('button', { name: 'Thêm khoản thu' }).click();
     const line = dialog(page, 'Thêm khoản thu');
     await line.getByLabel('Khoản thu').selectOption({ label: 'Phí dã ngoại · 250.000 đ/lần' });
@@ -236,11 +236,12 @@ test('preschool guide screenshots', async ({ page }) => {
     await shot(region(page, 'Chi tiết hóa đơn'), 'hoa-don-nop-truoc-dong');
     await back();
 
-    // Issue every notice from the first student on, keeping the first one open for the payment pictures.
+    // Submit and approve the first notice, keeping it open for the payment pictures; the others wait for approval.
     await runInvoices(page).getByRole('button', { name: 'Rà soát hóa đơn' }).first().click();
     await expect(review(page)).toBeVisible();
-    await shot(page.getByRole('complementary', { name: 'Rà soát trước khi phát hành' }), 'hoa-don-ra-soat-phat-hanh');
-    await issue(page, false, (target) => shot(target, 'hoa-don-xac-nhan-phat-hanh'));
+    await shot(page.getByRole('complementary', { name: 'Rà soát trước khi gửi duyệt' }), 'hoa-don-ra-soat-gui-duyet');
+    await issue(page, false, (target) => shot(target, 'hoa-don-xac-nhan-gui-duyet'), { approve: false, pendingShot: (target) => shot(target, 'hoa-don-cho-duyet') });
+    await approve(page);
     await shot(page.getByRole('complementary', { name: 'Thanh toán' }), 'hoa-don-thanh-toan');
     await page.getByRole('button', { name: 'Xem ảnh hóa đơn' }).first().click();
     await expect(page.getByRole('img', { name: 'Xem trước ảnh hóa đơn' }).first()).toBeVisible();
@@ -248,9 +249,45 @@ test('preschool guide screenshots', async ({ page }) => {
     await shot(dialog(page, 'Ảnh hóa đơn'), 'hoa-don-anh');
     await dismiss(page);
     await review(page).getByRole('button', { name: /^Học sinh kế tiếp/ }).click();
-    for (let index = 0; index < 9; index += 1) await issue(page, true);
-    await issue(page, false);
-    await expect(page.getByText(/Đã phát hành toàn bộ hóa đơn trong đợt/)).toBeVisible();
+    for (let index = 0; index < 9; index += 1) await issue(page, true, undefined, { approve: false });
+    await issue(page, false, undefined, { approve: false });
+    await expect(page.getByText(/Đã gửi duyệt toàn bộ hóa đơn nháp trong đợt/)).toBeVisible();
+
+    // The manager returns one notice with a note; Finance reads it on the invoice and submits again.
+    await page.getByRole('button', { name: 'Quay lại đợt thu' }).click();
+    await showNotices(page, /^Chờ duyệt/);
+    await reviewStudent(page, 'Trần Gia Bình');
+    await review(page).getByRole('button', { name: 'Trả lại', exact: true }).click();
+    const giveBack = dialog(page, /^Trả lại hóa đơn/);
+    await giveBack.getByLabel('Ghi chú cho kế toán').fill('Tháng 10 bé nghỉ có phép 2 ngày (07 và 08/10), chưa bớt tiền ăn.');
+    await shot(giveBack, 'hoa-don-tra-lai');
+    await giveBack.getByRole('button', { name: 'Trả lại', exact: true }).click();
+    await expect(giveBack).toBeHidden();
+    await expect(page.getByText('Ghi chú của quản lý')).toBeVisible();
+    await shot(page.getByRole('complementary', { name: 'Rà soát trước khi gửi duyệt' }), 'hoa-don-ghi-chu-tra-lai');
+    await page.getByRole('button', { name: 'Quay lại đợt thu' }).click();
+    await showNotices(page, /^Cần sửa/);
+    await shot(region(page, 'Hóa đơn trong đợt'), 'dot-thu-can-sua');
+    await shot(region(page, 'Hóa đơn theo trạng thái'), 'dot-thu-trang-thai-hoa-don');
+    await reviewStudent(page, 'Trần Gia Bình');
+    await issue(page, false, undefined, { approve: false });
+
+    // Bulk approval from the run page.
+    await page.getByRole('button', { name: 'Quay lại đợt thu' }).click();
+    await showNotices(page, /^Chờ duyệt/);
+    await runInvoices(page).getByRole('checkbox', { name: 'Chọn tất cả hóa đơn đang hiện' }).check();
+    await page.getByRole('region', { name: 'Thao tác với hóa đơn đã chọn' }).getByRole('button', { name: 'Duyệt & gửi phụ huynh' }).click();
+    const approval = dialog(page, /^Duyệt & gửi \d+ hóa đơn/);
+    await expect(approval.getByRole('table', { name: 'Theo lớp' })).toBeVisible();
+    // The dialog scrolls inside the viewport; a taller window shows all of it in one picture.
+    await page.setViewportSize({ width: 1440, height: 1500 });
+    await shot(approval, 'dot-thu-duyet');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await approval.getByRole('button', { name: 'Duyệt & gửi phụ huynh' }).click();
+    await expect(approval).toBeHidden({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Tải ảnh hóa đơn (ZIP)' }).click();
+    await shot(dialog(page, 'Tải ảnh hóa đơn (ZIP)'), 'dot-thu-tai-zip');
+    await dismiss(page);
   });
 
   await test.step('october receipts', async () => {
@@ -288,12 +325,9 @@ test('preschool guide screenshots', async ({ page }) => {
     await page.getByRole('dialog').getByRole('button', { name: 'Xóa dòng Phí dã ngoại' }).click();
     await expect(region(page, 'Chi tiết hóa đơn')).not.toContainText('Phí dã ngoại');
     await shot(region(page, 'Chi tiết hóa đơn'), 'dieu-chinh-ban-nhap');
-    await review(page).getByRole('button', { name: 'Phát hành bản thay thế' }).click();
-    const replace = page.getByRole('dialog', { name: /^Phát hành bản thay thế/ });
-    await shot(replace, 'dieu-chinh-phat-hanh');
-    await replace.getByRole('button', { name: /^Phát hành bản thay thế/ }).click();
-    await expect(replace).toBeHidden();
+    await issue(page, false, (target) => shot(target, 'dieu-chinh-gui-duyet'));
     await page.getByRole('button', { name: 'Quay lại đợt thu' }).click();
+    await showNotices(page, /^Đã thu đủ/);
     await reviewStudent(page, 'Ngô Tuấn Kiệt');
     await page.getByRole('button', { name: 'Chuẩn bị bản điều chỉnh' }).click();
     prepare = page.getByRole('dialog');
@@ -316,16 +350,17 @@ test('preschool guide screenshots', async ({ page }) => {
     await open.getByLabel('Năm học').selectOption({ label: 'Năm học 2026-2027' });
     await open.getByLabel('Tháng thu').selectOption('2026-11');
     await open.getByRole('button', { name: 'Xác nhận tạo hoặc mở' }).click();
-    await expect(page.getByRole('heading', { name: 'Đợt thu tháng 11/2026 · Nháp', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Đợt thu tháng 11/2026 · Thiết lập khoản thu', level: 1 })).toBeVisible();
     await generate(page, 11);
     const lock = page.locator('div').filter({ has: page.getByText(/^Đợt thu tháng 10\/2026 chưa đóng/) }).filter({ has: page.getByRole('button', { name: 'Mở đợt thu 10/2026' }) }).last();
     await shot(lock, 'dot-thu-khoa-dot-truoc');
     await reviewStudent(page, 'Lê Bảo Ngọc');
     await shot(region(page, 'Chi tiết hóa đơn'), 'hoa-don-chenh-lech-ky-truoc');
-    await shot(page.getByRole('complementary', { name: 'Rà soát trước khi phát hành' }), 'hoa-don-khoa-phat-hanh');
+    await issue(page, false, undefined, { approve: false });
+    await shot(page.getByRole('complementary', { name: 'Chờ duyệt' }), 'hoa-don-khoa-duyet');
     await page.getByRole('button', { name: 'Quay lại đợt thu' }).click();
     await page.getByRole('button', { name: 'Mở đợt thu 10/2026' }).click();
-    await expect(page.getByRole('heading', { name: /^Đợt thu tháng 10\/2026 · Đã tạo hóa đơn/, level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Đợt thu tháng 10\/2026 · Duyệt & thu tiền/, level: 1 })).toBeVisible();
     await page.getByRole('button', { name: 'Đóng đợt thu', exact: true }).click();
     const close = page.getByRole('dialog');
     await close.getByLabel('Lý do đóng đợt thu').fill('Đã phát hành đủ hóa đơn tháng 10');
