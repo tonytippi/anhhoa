@@ -45,6 +45,13 @@ Status: requested by the user on 2026-10-17. This changes the Invoice issue flow
 - Navigation: "Đợt thu" shows the count of Invoices waiting for approval.
 - Run stages and Invoice states are separate (decided 2026-10-18). The run step labels become `Thiết lập khoản thu → Sẵn sàng tạo hóa đơn → Duyệt & thu tiền → Đã đóng`, and the page titles and run-list badges change to match. The server statuses `DRAFT/READY/GENERATED/CLOSED` do not change. This avoids using "Nháp" for both a run and an Invoice. It also stops "Đã tạo hóa đơn" from suggesting the work is done, when that stage covers review, approval and collection.
 - In the `Duyệt & thu tiền` stage, a progress bar replaces the metric row. It shows the total to collect and the amount collected, a bar split by Invoice state, and buttons that also filter the table: `Tất cả`, `Nháp`, `Cần sửa`, `Chờ duyệt`, `Đã phát hành`, `Đã thu đủ`, each with its count. The table's status select is removed. The run list shows the stage badge with a small line of counts, for example "4 nháp · 1 cần sửa · 2 chờ duyệt". The close hint lists what is left, for example "còn 4 nháp, 1 cần sửa và 2 chờ duyệt".
+- **Run page and Thu tiền (decided 2026-10-18):** the run page covers the work up to "gửi phụ huynh", and Thu tiền covers collection, so the two pages do not list the same Invoices.
+  - The run table lists only Invoices not yet issued. The default filter is `Chưa phát hành`, with `Nháp`, `Cần sửa` and `Chờ duyệt` beside it.
+  - `Đã phát hành` in the progress bar, and a new header button "Thu tiền đợt này", open Thu tiền filtered to this run (`?run=<runId>`).
+  - `Đã thu đủ` is shown for tracking only, because Thu tiền holds only Invoices that are not fully paid.
+  - In Thu tiền, the month filter becomes an `Đợt thu` filter (`collectionRunId`). This also works for class runs.
+  - When Thu tiền is opened from a run, a context bar shows the run, the count still to collect and the amount collected, with "Quay lại đợt thu" and "Xem mọi đợt".
+  - Issued Invoices open from Thu tiền ("Xem hóa đơn").
 - The run's Invoice summary returns counts per state (`DRAFT`, `RETURNED`, `PENDING_APPROVAL`, `ISSUED` with an unpaid balance, and fully paid) and the collected amount.
 
 ## Mockup
@@ -54,7 +61,7 @@ Updated on 2026-10-17 and waiting for user review: `mockups/admin/invoice-genera
 ## Impact
 
 - API: new capability, new `InvoiceStatus` value, `InvoiceApprovalEvent`, four mutations, the approval preview and the summary, the ZIP export and its download. `issueInvoice`/`issueRevision` become internal helpers called by approval. The trigger is extended to cover the pending lock.
-- Web: run detail table selection and bulk bar, the modals, the Invoice and settlement page actions, the navigation badge, and the per-Invoice account select removed.
+- Web: run detail table selection and bulk bar, the progress bar with links to Thu tiền, the run filter and context bar in Thu tiền (the receipt queue API gains a `collectionRunId` filter), the modals, the Invoice and settlement page actions, the navigation badge, and the per-Invoice account select removed.
 - Tests: update the integration tests that issue directly (finance, channels, deductions, class scope) to go through submit and approve. Add tests for the bulk all-or-nothing rule, the pending lock, withdraw, return with a note and resubmit, the run lock at approval, the fallback account at submit, the same person approving, and ZIP names (class first, diacritics, duplicate names, Student without class).
 - Guides (Hướng dẫn): add the submit/approve/return steps and the ZIP download for parents who do not use the app.
 - No migration concern (no real users yet).
