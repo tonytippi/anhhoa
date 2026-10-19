@@ -606,10 +606,9 @@ textarea {
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font:
-    11px/1.35 ui-monospace,
-    monospace;
-  letter-spacing: 0.03em;
+  /* Body font: the monospace stack lacks Vietnamese stacked diacritics ("Bố" rendered as "Bô´"). */
+  font-size: 12px;
+  line-height: 1.35;
 }
 .request h3 {
   margin: 12px 0 0;
@@ -982,10 +981,9 @@ textarea {
 .chat-meta {
   margin: 0 0 5px;
   color: var(--muted);
-  font:
-    11px/1.35 ui-monospace,
-    monospace;
-  letter-spacing: 0.03em;
+  /* Body font: the monospace stack lacks Vietnamese stacked diacritics ("Bố" rendered as "Bô´"). */
+  font-size: 12px;
+  line-height: 1.35;
 }
 .chat-bubble {
   margin: 0;
@@ -1057,8 +1055,25 @@ textarea {
 }
 @media (max-width: 560px) {
   .parent-app.messages-mode .screen-heading .eyebrow,
-  .parent-app.messages-mode .screen-heading > div > p:last-child {
+  .parent-app.messages-mode .screen-heading > p:not(.eyebrow),
+  .parent-app.messages-mode .child-chip small:not(.has-unread) {
     display: none;
+  }
+  .parent-app.messages-mode .screen {
+    padding-top: 10px;
+  }
+  .parent-app.messages-mode .screen-heading {
+    margin-bottom: 8px;
+  }
+  .parent-app.messages-mode .child-switcher {
+    margin-bottom: 8px;
+  }
+  .parent-app.messages-mode .child-chip {
+    min-width: 0;
+    padding: 8px 12px;
+  }
+  .chat-panel .panel-header h2 {
+    font-size: 17px;
   }
   .parent-app.messages-mode .screen-heading h1 {
     font-size: 26px;

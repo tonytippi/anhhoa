@@ -1147,7 +1147,7 @@ function ParentWorkspace({
                         }}
                       >
                         <strong>{child.fullName}</strong>
-                        <small>{count > 0 ? `${count} tin nhắn mới` : "Không có tin nhắn mới"}</small>
+                        <small className={count > 0 ? "has-unread" : undefined}>{count > 0 ? `${count} tin nhắn mới` : "Không có tin nhắn mới"}</small>
                       </button>
                     );
                   })}
