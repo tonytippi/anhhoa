@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { hcmToday, protectedObjectUrl, shiftDay, shortDay } from './api';
 
 export function DateControls({ day, onChange, maxDay }: { day: string; onChange: (day: string) => void; maxDay?: string }) {
@@ -37,14 +38,16 @@ export function Dialog({ title, eyebrow, children, onClose, labelledBy }: { titl
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('keydown', onKey); previous?.focus?.(); };
   }, []);
-  return (
+  // Portal to <body>: the phone sidebar is transformed, which would otherwise trap a fixed dialog inside it.
+  return createPortal(
     <div className="dialog-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div className="dialog handover-form" role="dialog" aria-modal="true" aria-labelledby={labelledBy} ref={panel}>
         {eyebrow && <p className="eyebrow">{eyebrow}</p>}
         <h2 id={labelledBy}>{title}</h2>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

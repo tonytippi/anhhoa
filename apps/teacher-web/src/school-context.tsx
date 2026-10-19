@@ -6,6 +6,8 @@ import { JournalsWorkspace } from './journals/journals-workspace';
 import { MessagesWorkspace } from './messages/messages-workspace';
 import { QueueWorkspace } from './queue/queue-workspace';
 import { enablePush, pushState, disablePush, type PushState } from './web-push';
+import { useInstallPrompt } from './install-prompt';
+import { Dialog } from './components';
 
 type School = { schoolId: string; schoolSlug: string; schoolName: string };
 type Features = { dailyJournal?: boolean; handover?: boolean };
@@ -177,6 +179,7 @@ export function SchoolContext({ clear, session, onLogout }: { clear: () => void;
             <a key={item.id} className={`teacher-link${item.id === route ? ' active' : ''}`} aria-current={item.id === route ? 'page' : undefined} href={`${base}${item.path}`} onClick={(event) => { event.preventDefault(); navigate(`${base}${item.path}`); }}>{item.label}</a>
           ))}
         </nav>
+        <InstallLink />
         <PushToggle schoolId={context.schoolId} />
         {onLogout && <button type="button" className="teacher-link teacher-logout" onClick={onLogout}>Đăng xuất</button>}
       </aside>
@@ -240,5 +243,29 @@ function PushToggle({ schoolId }: { schoolId: string }) {
     <button type="button" className="teacher-link teacher-logout" aria-pressed={state === 'on'} disabled={state === 'busy'} onClick={() => run(() => (state === 'on' ? disablePush(schoolId) : enablePush(schoolId)))}>
       {state === 'on' ? 'Thông báo: đang bật' : state === 'busy' ? 'Đang cập nhật...' : 'Bật thông báo'}
     </button>
+  );
+}
+
+// Install suggestion: the browser's own dialog where available, Share-sheet steps on iPhone/iPad.
+function InstallLink() {
+  const { mode, install, dismiss } = useInstallPrompt('passionedu.teacher.install-snoozed-until');
+  const [steps, setSteps] = useState(false);
+  if (mode === 'hidden') return null;
+  return (
+    <div className="teacher-install">
+      <button type="button" className="teacher-link teacher-logout" onClick={() => (mode === 'prompt' ? void install() : setSteps(true))}>Cài ứng dụng</button>
+      <button type="button" className="teacher-install-later" onClick={dismiss}>Để sau</button>
+      {steps && (
+        <Dialog title="Cài ứng dụng lên iPhone/iPad" eyebrow="CÀI ỨNG DỤNG" labelledBy="install-title" onClose={() => setSteps(false)}>
+          <p>Ứng dụng mở nhanh từ màn hình chính và nhận được thông báo tin nhắn phụ huynh (iPhone/iPad chỉ nhận thông báo khi đã cài).</p>
+          <ol className="install-steps">
+            <li>Bấm nút <strong>Chia sẻ</strong> <svg className="share-icon" viewBox="0 0 24 24" width="18" height="18" role="img" aria-label="biểu tượng Chia sẻ"><path d="M12 3v12M8 7l4-4 4 4M7 10H5v11h14V10h-2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> trên thanh công cụ của Safari.</li>
+            <li>Chọn <strong>Thêm vào Màn hình chính</strong>.</li>
+            <li>Bấm <strong>Thêm</strong>, rồi mở ứng dụng từ biểu tượng mới.</li>
+          </ol>
+          <div className="handover-actions"><button type="button" className="button" onClick={() => setSteps(false)}>Đã hiểu</button></div>
+        </Dialog>
+      )}
+    </div>
   );
 }

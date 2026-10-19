@@ -49,3 +49,16 @@ Approved by the user on 2026-10-19.
   - Logout removes the device subscription. Impersonated sessions can neither see nor create a subscription.
   - The feature is disabled until `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` are configured.
 - **Platform reach.** Android and desktop browsers receive push whether or not the app is installed. iOS/iPadOS 16.4+ receives push only for the installed Home Screen PWA, so the Safari tab shows install guidance instead of the opt-in button.
+
+## 5. Addendum 2026-10-19: install suggestion
+
+Approved by the user on 2026-10-19.
+
+- **Parent:** a quiet card "Cài ứng dụng lên thiết bị này" at the top of the "Hôm nay" child list.
+- **Teacher:** a "Cài ứng dụng" entry at the bottom of the sidebar, next to the notification toggle.
+- **Chromium (Chrome, Edge, Android):** the button opens the browser's own install dialog, captured from `beforeinstallprompt`.
+- **iOS/iPadOS Safari:** the button shows the three Share → "Thêm vào Màn hình chính" steps, because installing is required there for Web Push.
+- **When it is hidden:** after install, when running standalone, in browsers without install support (desktop Firefox), and for 30 days after "Để sau".
+- **Related fixes:**
+  - Teacher dialogs render in a portal above the phone sidebar.
+  - Stacked student cards keep their two actions on one row instead of overflowing the phone viewport.

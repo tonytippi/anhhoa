@@ -24,6 +24,7 @@ import "@fontsource-variable/inter";
 import { AuthCard } from "./auth-card";
 import "./styles.css";
 import { disablePush, enablePush, pushState, type PushState } from "./web-push";
+import { useInstallPrompt } from "./install-prompt";
 import "./journal.css";
 
 export type ParentSchool = {
@@ -1532,6 +1533,7 @@ function ParentWorkspace({
             </>
           ) : (
             <>
+              <InstallCard />
               {loading && <p aria-live="polite">Đang tải cập nhật...</p>}
               {school.children.map((child) => {
                 const first = attendance[child.id]?.[0];
@@ -1562,6 +1564,44 @@ function ParentWorkspace({
         <button className={contactOpen ? "active" : ""} onClick={() => setContactOpen(true)}>Liên hệ</button>
       </nav>}
     </div>
+  );
+}
+
+// Suggests installing the app: the browser's own dialog where available, Share-sheet steps on iPhone/iPad.
+function InstallCard() {
+  const { mode, install, dismiss } = useInstallPrompt("passionedu.parent.install-snoozed-until");
+  const [steps, setSteps] = useState(false);
+  if (mode === "hidden") return null;
+  return (
+    <section className="panel install-card" aria-labelledby="install-title">
+      <div className="install-copy">
+        <h2 id="install-title">Cài ứng dụng lên thiết bị này</h2>
+        <p>Mở nhanh từ màn hình chính và nhận thông báo điểm danh, bản tin lớp, tin nhắn{mode === "ios" ? " (iPhone/iPad chỉ nhận thông báo khi đã cài)" : ""}.</p>
+        {steps && (
+          <ol className="install-steps">
+            <li>Bấm nút <strong>Chia sẻ</strong> <ShareIcon /> trên thanh công cụ của Safari.</li>
+            <li>Chọn <strong>Thêm vào Màn hình chính</strong>.</li>
+            <li>Bấm <strong>Thêm</strong>, rồi mở ứng dụng từ biểu tượng mới.</li>
+          </ol>
+        )}
+      </div>
+      <div className="install-actions">
+        {mode === "prompt" ? (
+          <button type="button" className="primary-button" onClick={() => void install()}>Cài ứng dụng</button>
+        ) : (
+          !steps && <button type="button" className="primary-button" onClick={() => setSteps(true)}>Xem cách cài</button>
+        )}
+        <button type="button" className="text-button" onClick={dismiss}>Để sau</button>
+      </div>
+    </section>
+  );
+}
+function ShareIcon() {
+  return (
+    <svg className="share-icon" viewBox="0 0 24 24" width="18" height="18" aria-label="biểu tượng Chia sẻ" role="img">
+      <path d="M12 3v12M8 7l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7 10H5v11h14V10h-2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

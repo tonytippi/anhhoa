@@ -129,7 +129,8 @@ body { overscroll-behavior-y: none; }
   .row-actions { display: flex; gap: 8px; }
   .row-actions .button { flex: 1; }
   .row-actions .button + .button { margin-left: 0; }
-  .stack-on-phone td:last-child > .button { width: 100%; }
+  .stack-on-phone td:last-child:has(> .button) { display: flex; gap: 8px; }
+  .stack-on-phone td:last-child > .button { flex: 1; min-width: 0; }
   .messages-layout { height: calc(100dvh - 190px); min-height: 360px; }
   .bubble { max-width: 86%; }
   .dialog-backdrop { align-items: end; padding: 0; }
@@ -144,3 +145,9 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 }
 .teacher-push-hint { margin: 8px 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .teacher-logout[aria-pressed="true"] { color: var(--green); }
+.teacher-install { display: flex; align-items: center; gap: 4px; }
+.teacher-install .teacher-link { flex: 1; color: var(--green); }
+.teacher-install-later { border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 8px; cursor: pointer; }
+.install-steps { margin: 14px 0 0; padding-left: 20px; line-height: 1.8; }
+.share-icon { vertical-align: -3px; color: #1a73e8; }
+.dialog-backdrop { z-index: 30; }
