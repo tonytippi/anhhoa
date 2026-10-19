@@ -35,6 +35,10 @@ textarea:focus-visible {
   outline: 3px solid color-mix(in oklch, var(--accent) 42%, var(--surface));
   outline-offset: 3px;
 }
+/* Headings take programmatic focus on view changes for screen readers; they are not controls, so no ring. */
+:is(h1, h2)[tabindex="-1"]:focus {
+  outline: none;
+}
 .parent-app {
   display: grid;
   min-height: 100vh;
