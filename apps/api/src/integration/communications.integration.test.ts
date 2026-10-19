@@ -2,10 +2,12 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { PrismaService } from "../modules/identity/prisma.service.js";
 import { AttendanceService } from "../modules/attendance/attendance.service.js";
 import { CommunicationsService } from "../modules/communications/communications.service.js";
+import { PushService, type PushMessage } from "../modules/push/push.service.js";
 
 const prisma = new PrismaService();
 const communications = new CommunicationsService(prisma);
 const attendance = new AttendanceService(prisma, communications);
+const push = new PushService(prisma);
 const schools: string[] = [];
 const parentProfiles: string[] = [];
 const uuid = () => crypto.randomUUID();
@@ -121,6 +123,8 @@ afterEach(async () => {
       const where = { where: { schoolId: { in: ids } } };
       await tx.auditRecord.deleteMany(where);
       await tx.operation.deleteMany(where);
+      await tx.parentInboxEventRead.deleteMany(where);
+      await tx.notificationSourceEvent.deleteMany(where);
       await tx.studentMessageRead.deleteMany(where);
       await tx.studentMessage.deleteMany(where);
       await tx.classDailyNoteMedia.deleteMany(where);
@@ -141,6 +145,7 @@ afterEach(async () => {
       await tx.school.deleteMany({ where: { id: { in: ids } } });
     });
   await prisma.parentProfile.deleteMany({ where: { id: { in: parentProfiles.splice(0) } } });
+  await prisma.pushSubscription.deleteMany({ where: { endpoint: { startsWith: "https://fcm.googleapis.com/fcm/send/test-" } } });
 });
 afterAll(() => prisma.$disconnect());
 
@@ -235,5 +240,66 @@ describe.skipIf(!process.env.TARGET_INTEGRATION_DATABASE_URL)("class notes and s
   it("refuses messaging without the capability", async () => {
     const current = await graph(["DAILY_JOURNAL_WRITE"]);
     await expect(communications.teacherThreads(current.identity.id, current.school.id, current.classroom.id)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("puts class notes and teacher messages in the Parent inbox and clears message events on read", async () => {
+    const current = await graph();
+    vi.spyOn(communications as any, "today").mockReturnValue(today);
+    vi.spyOn(attendance as any, "now").mockReturnValue({ day: today, time: "09:00" });
+    const body = { classId: current.classroom.id, noteDate: today, text: "Cả lớp đi dã ngoại.", mediaIds: [] as string[] };
+    await communications.saveClassNote(current.identity.id, current.school.id, uuid(), uuid(), body);
+    await communications.saveClassNote(current.identity.id, current.school.id, uuid(), uuid(), { ...body, text: "Sửa lại" });
+    await communications.teacherSendMessage(current.identity.id, current.school.id, current.student.id, uuid(), uuid(), { classId: current.classroom.id, body: "Chào chị" });
+    const inbox = await attendance.parentInbox(current.parentIdentity.id, current.school.id);
+    expect(inbox.data.map((event) => [event.eventType, event.text, event.unread]).sort()).toEqual([
+      ["CLASS_NOTE", "Lớp Mầm có bản tin mới", true],
+      ["MESSAGE", "Giáo viên lớp Mầm gửi tin nhắn mới", true],
+    ]);
+    const note = inbox.data.find((event) => event.eventType === "CLASS_NOTE")!;
+    await expect(attendance.openParentInbox(current.parentIdentity.id, current.school.id, note.id)).resolves.toEqual({ studentId: current.student.id, date: today, eventType: "CLASS_NOTE" });
+    await communications.parentReadMessages(current.parentIdentity.id, current.school.id, current.student.id);
+    expect((await attendance.parentInbox(current.parentIdentity.id, current.school.id)).unreadCount).toBe(0);
+  });
+
+  it("pushes inbox events to linked Parents and parent messages to the Class teachers, once, only to authorized devices", async () => {
+    process.env.VAPID_PUBLIC_KEY = "BPublicKeyForTestsOnly";
+    process.env.VAPID_PRIVATE_KEY = "privateKeyForTestsOnly";
+    try {
+      const current = await graph();
+      vi.spyOn(communications as any, "today").mockReturnValue(today);
+      const keys = { p256dh: "B".repeat(87), auth: "a".repeat(22) };
+      const parentEndpoint = `https://fcm.googleapis.com/fcm/send/test-${uuid()}`;
+      const teacherEndpoint = `https://fcm.googleapis.com/fcm/send/test-${uuid()}`;
+      await expect(push.subscribe("PARENT", current.parentIdentity.id, current.school.id, { endpoint: "https://evil.example.com/x", keys })).rejects.toMatchObject({ status: 400 });
+      await expect(push.subscribe("PARENT", current.identity.id, current.school.id, { endpoint: parentEndpoint, keys })).rejects.toMatchObject({ status: 404 });
+      await push.subscribe("PARENT", current.parentIdentity.id, current.school.id, { endpoint: parentEndpoint, keys });
+      await push.subscribe("TEACHER", current.identity.id, current.school.id, { endpoint: teacherEndpoint, keys });
+      const delivered: Array<[string, PushMessage]> = [];
+      push.transport = async (subscription, message) => { delivered.push([subscription.endpoint, message]); };
+      await push.dispatch();
+      delivered.length = 0;
+
+      await communications.teacherSendMessage(current.identity.id, current.school.id, current.student.id, uuid(), uuid(), { classId: current.classroom.id, body: "Chào chị" });
+      await communications.parentSendMessage(current.parentIdentity.id, current.school.id, current.student.id, uuid(), uuid(), { body: "Dạ cô" });
+      await push.dispatch();
+      expect(delivered).toEqual([
+        [parentEndpoint, { title: "Bé An", body: "Giáo viên lớp Mầm gửi tin nhắn mới", url: "/messages", tag: `message-${current.student.id}` }],
+        [teacherEndpoint, { title: "Tin nhắn phụ huynh", body: "Mẹ của Bé An gửi tin nhắn mới", url: `/schools/${current.school.slug}/messages?student=${current.student.id}`, tag: `message-${current.student.id}` }],
+      ]);
+      delivered.length = 0;
+      await push.dispatch();
+      expect(delivered).toEqual([]);
+
+      await prisma.studentParent.updateMany({ where: { schoolId: current.school.id }, data: { status: "REVOKED", revokedAt: new Date() } });
+      await communications.teacherSendMessage(current.identity.id, current.school.id, current.student.id, uuid(), uuid(), { classId: current.classroom.id, body: "Còn đó không?" });
+      push.transport = async () => { throw Object.assign(new Error("gone"), { statusCode: 410 }); };
+      await push.dispatch();
+      expect(await prisma.pushSubscription.count({ where: { endpoint: parentEndpoint } })).toBe(1);
+      await push.unsubscribe("TEACHER", current.identity.id, { endpoint: teacherEndpoint });
+      expect(await prisma.pushSubscription.count({ where: { endpoint: teacherEndpoint } })).toBe(0);
+    } finally {
+      delete process.env.VAPID_PUBLIC_KEY;
+      delete process.env.VAPID_PRIVATE_KEY;
+    }
   });
 });

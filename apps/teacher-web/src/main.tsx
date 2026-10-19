@@ -4,6 +4,7 @@ import { bootstrapSession, googleLoginUrl, logout, type Session } from './auth-s
 import { ImpersonationBanner } from './impersonation-banner';
 import { AuthCard } from './auth-card';
 import { SchoolContext } from './school-context';
+import { disablePush } from './web-push';
 import './styles.css';
 import './teacher.css';
 
@@ -20,7 +21,8 @@ export function TeacherShell() {
   }, []);
   if (signedIn === undefined) return <AuthCard title="Giáo viên" description="Đang xác thực phiên..." />;
   if (!signedIn) return <AuthCard title="Giáo viên" description="Đăng nhập bằng tài khoản Google đã được nhà trường cấp quyền để tiếp tục." loginUrl={googleLoginUrl} note="Chưa có quyền? Liên hệ quản trị viên của trường." />;
-  const signOut = () => void logout(() => setSignedIn(false));
+  // Drop this device's push subscription while the session can still authorize the removal.
+  const signOut = () => { setSignedIn(false); void disablePush().finally(() => logout(() => undefined)); };
   return (
     <>
       {session && <ImpersonationBanner email={session.email} impersonation={session.impersonation} onEnd={signOut} />}

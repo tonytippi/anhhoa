@@ -641,6 +641,7 @@ model UserIdentity {
   impersonationsStarted        Impersonation[]                         @relation("ImpersonationOperator")
   impersonationsReceived       Impersonation[]                         @relation("ImpersonationTarget")
   schoolAccesses               SchoolUserAccess[]
+  pushSubscriptions            PushSubscription[]
 }
 
 // Last use of one School's portal data by a staff member or parent of that School; written only for real members,
@@ -1964,6 +1965,8 @@ model NotificationSourceEvent {
   studentDisplayNameSnapshot String?
   payload                    Json
   createdAt                  DateTime               @default(now()) @db.Timestamptz(3)
+  // Push outbox: null until the dispatcher claims the event for Web Push delivery.
+  pushDispatchedAt           DateTime?              @db.Timestamptz(3)
   school                     School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student                    Student                @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
   inboxReads                 ParentInboxEventRead[]
@@ -1971,6 +1974,7 @@ model NotificationSourceEvent {
   @@unique([schoolId, id])
   @@unique([schoolId, sourceType, sourceRecordId])
   @@index([schoolId, studentId, attendanceOn])
+  @@index([pushDispatchedAt, createdAt])
 }
 
 model ParentInboxEventRead {
@@ -1993,6 +1997,8 @@ model ParentInboxEventRead {
 enum NotificationSourceType {
   ATTENDANCE
   HANDOVER
+  CLASS_NOTE
+  MESSAGE
 }
 
 model AttendanceRecord {
@@ -2470,11 +2476,13 @@ model StudentMessage {
   body             String
   operationId      String              @db.Uuid
   createdAt        DateTime            @default(now()) @db.Timestamptz(3)
+  pushDispatchedAt DateTime?           @db.Timestamptz(3)
   school           School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   student          Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, id])
   @@index([schoolId, studentId, createdAt])
+  @@index([pushDispatchedAt, createdAt])
 }
 
 model StudentMessageRead {
@@ -2488,4 +2496,26 @@ model StudentMessageRead {
   student         Student             @relation(fields: [schoolId, studentId], references: [schoolId, id], onDelete: Restrict)
 
   @@unique([schoolId, studentId, readerType, readerReference])
+}
+
+enum PushAudience {
+  PARENT
+  TEACHER
+}
+
+// Sprint change 2026-10-19: one Web Push subscription per browser/device and portal; delivery re-checks authorization.
+model PushSubscription {
+  id             String       @id @default(uuid()) @db.Uuid
+  audience       PushAudience
+  userIdentityId String       @db.Uuid
+  endpoint       String       @unique
+  p256dh         String
+  auth           String
+  failureCount   Int          @default(0)
+  lastSuccessAt  DateTime?    @db.Timestamptz(3)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+  userIdentity   UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Cascade)
+
+  @@index([audience, userIdentityId])
 }

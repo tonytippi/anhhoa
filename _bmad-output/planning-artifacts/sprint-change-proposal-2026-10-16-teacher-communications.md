@@ -29,3 +29,23 @@ Status: approved by the user on 2026-10-16. No mockup was reviewed for the two n
   - On phones (≤640 px), tables turn into stacked cards.
   - The Class picker only appears when the Teacher has more than one Class.
 - PWA: the manifest gets icons (SVG, 192/512 PNG, maskable, apple-touch-icon), a theme colour, and iOS standalone meta tags. The service worker still caches only the app shell.
+
+## 4. Addendum 2026-10-19: inbox events and Web Push
+
+Approved by the user on 2026-10-19.
+
+- **Parent inbox.** `NotificationSourceType` gains `CLASS_NOTE` and `MESSAGE`.
+  - A class note creates one inbox event per Student in the Class, and only on its first publication of the day; later edits update the card silently.
+  - Every teacher message creates one event. Opening the conversation marks its message events read.
+  - Event text carries only the Class label and the Student name snapshot. The message body is never included.
+- **Web Push.** This is a new delivery channel. It amends AD-15's "in-app only" wording; there is still no SMS, email or Zalo delivery.
+  - `NotificationSourceEvent` and Parent-sent `StudentMessage` rows work as an outbox. A dispatcher in the API claims them every 5 s with `FOR UPDATE SKIP LOCKED` and resolves recipients at delivery time:
+    - **Parents:** those with an active StudentParent link.
+    - **Teachers:** those with a current Class assignment and `PARENT_MESSAGE_WRITE`.
+  - Events older than 6 h are not pushed. Events that existed before the migration are never pushed.
+  - Push text matches the inbox text and never contains message bodies, evidence or staff identity.
+- **Subscriptions.** `PushSubscription` is stored per browser endpoint and portal (`PARENT`, `TEACHER`).
+  - Endpoints are restricted to the browser push services (FCM, Apple, Mozilla, Windows).
+  - Logout removes the device subscription. Impersonated sessions can neither see nor create a subscription.
+  - The feature is disabled until `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` are configured.
+- **Platform reach.** Android and desktop browsers receive push whether or not the app is installed. iOS/iPadOS 16.4+ receives push only for the installed Home Screen PWA, so the Safari tab shows install guidance instead of the opt-in button.

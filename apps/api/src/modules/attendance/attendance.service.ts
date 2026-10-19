@@ -8,6 +8,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { auditData } from "../common/audit.js";
+import { inboxText } from "../common/inbox-text.js";
 import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
 import { schoolFeatures, type SchoolKind } from "../common/school-features.js";
@@ -508,6 +509,7 @@ export class AttendanceService {
         return {
           studentId: event.studentId,
           date: event.attendanceOn.toISOString().slice(0, 10),
+          eventType: event.sourceType,
         };
       },
       { isolationLevel: "RepeatableRead" },
@@ -3523,16 +3525,12 @@ export class AttendanceService {
       attendanceOn: Date;
       pickedUpAt: Date | null;
       createdAt: Date;
+      payload?: unknown;
       inboxReads: Array<{ readAt: Date }>;
     },
   ) {
     const eventTime = event.pickedUpAt ?? event.createdAt;
-    const text =
-      event.sourceType === "HANDOVER"
-        ? "Đã xác nhận trả trẻ"
-        : event.state === "PRESENT"
-          ? "Đã ghi nhận có mặt"
-          : "Đã ghi nhận vắng mặt";
+    const text = inboxText(event);
     return {
       id: event.id,
       schoolId,

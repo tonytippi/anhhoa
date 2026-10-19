@@ -23,6 +23,7 @@ import {
 import "@fontsource-variable/inter";
 import { AuthCard } from "./auth-card";
 import "./styles.css";
+import { disablePush, enablePush, pushState, type PushState } from "./web-push";
 import "./journal.css";
 
 export type ParentSchool = {
@@ -50,7 +51,7 @@ type InboxEvent = {
   id: string;
   studentId: string;
   studentDisplayName: string;
-  eventType: "ATTENDANCE" | "HANDOVER";
+  eventType: "ATTENDANCE" | "HANDOVER" | "CLASS_NOTE" | "MESSAGE";
   text: string;
   date: string;
   time: string;
@@ -374,7 +375,7 @@ function ParentWorkspace({
     const id = ++resolverGeneration.current;
     const controller = new AbortController();
     resolver.current = controller;
-    const result = await parentPost<{ studentId: string; date: string }>(
+    const result = await parentPost<{ studentId: string; date: string; eventType?: InboxEvent["eventType"] }>(
       `/api/parent/schools/${school.schoolId}/inbox/${event.id}/open`,
       controller.signal,
     );
@@ -397,6 +398,12 @@ function ParentWorkspace({
       ),
     );
     setUnread((current) => Math.max(0, current - (event.unread ? 1 : 0)));
+    if (result.data.eventType === "MESSAGE") {
+      setMessageChild(result.data.studentId);
+      if (push) window.history.pushState(null, "", "/messages");
+      setView("messages");
+      return;
+    }
     setView("today");
     setSelected(result.data.studentId);
     setSelectedDate(result.data.date);
@@ -1102,7 +1109,7 @@ function ParentWorkspace({
             </h1>
             <p>
               {view === "inbox"
-                ? "Sự kiện điểm danh trong 30 ngày gần đây"
+                ? "Điểm danh, bản tin lớp và tin nhắn trong 30 ngày gần đây"
                 : view === "messages"
                   ? "Trao đổi riêng với giáo viên lớp về từng bé."
                 : view === "obligations"
@@ -1257,6 +1264,7 @@ function ParentWorkspace({
              </> : <>{!loading && obligations.length === 0 ? <p className="empty-state">Không có khoản cần thanh toán hoặc lịch sử còn hiệu lực.</p> : obligations.map((item) => <button className="child-card" key={item.id} onClick={() => void openObligation(item.id)}><strong>{item.obligationCode}</strong><span>{item.periodLabel || item.period}{item.channel ? ` · ${item.channel === "SCHOOL" ? "Chuyển vào tài khoản trường" : "Chuyển vào tài khoản cá nhân"}` : ""} · {BigInt(item.outstanding) < 0n ? `Trường hoàn lại ${vnd((-BigInt(item.outstanding)).toString())}` : `Còn phải thanh toán ${vnd(item.outstanding)}`}</span></button>)}</>
            ) : view === "inbox" ? (
             <>
+              <PushCard schoolId={school.schoolId} />
               {!loading && inbox.length === 0 ? (
                 <p className="empty-state">
                   Chưa có thông báo trong 30 ngày gần đây.
@@ -1282,7 +1290,7 @@ function ParentWorkspace({
                         minute: "2-digit",
                       })}
                     </p>
-                    <small>Xem ngày {event.date}</small>
+                    <small>{event.eventType === "MESSAGE" ? "Mở tin nhắn" : `Xem ngày ${event.date}`}</small>
                   </button>
                 ))
               )}
@@ -1557,6 +1565,37 @@ function ParentWorkspace({
   );
 }
 
+// Quiet opt-in for this device; hidden when the browser or the server cannot deliver push.
+function PushCard({ schoolId }: { schoolId: string }) {
+  const [state, setState] = useState<PushState | "busy">();
+  useEffect(() => {
+    let current = true;
+    void pushState(schoolId).then((next) => { if (current) setState(next); }).catch(() => { if (current) setState("hidden"); });
+    return () => { current = false; };
+  }, [schoolId]);
+  if (!state || state === "hidden") return null;
+  const run = (action: () => Promise<PushState>) => { setState("busy"); void action().then(setState).catch(() => setState("off")); };
+  return (
+    <section className="panel push-card" aria-label="Thông báo trên thiết bị này">
+      {state === "install-required" ? (
+        <p>Để nhận thông báo trên iPhone/iPad: bấm nút <strong>Chia sẻ</strong> của Safari, chọn <strong>Thêm vào Màn hình chính</strong>, rồi mở ứng dụng từ biểu tượng mới.</p>
+      ) : state === "denied" ? (
+        <p>Thông báo đang bị chặn cho trang này. Hãy cho phép thông báo trong cài đặt trình duyệt hoặc điện thoại.</p>
+      ) : state === "on" ? (
+        <>
+          <p>Đã bật thông báo trên thiết bị này.</p>
+          <button type="button" className="text-button" onClick={() => run(() => disablePush(schoolId))}>Tắt</button>
+        </>
+      ) : (
+        <>
+          <p>Nhận thông báo ngay khi có điểm danh, bản tin lớp hoặc tin nhắn mới.</p>
+          <button type="button" className="secondary-button" disabled={state === "busy"} onClick={() => run(() => enablePush(schoolId))}>{state === "busy" ? "Đang bật..." : "Bật thông báo"}</button>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function ParentShell() {
   const [session, setSession] = useState<Session>();
   const [schoolId, setSchoolId] = useState<string>();
@@ -1640,7 +1679,8 @@ export function ParentShell() {
     setSession(undefined);
     setSchoolId(undefined);
     setState("signed-out");
-    void logout(() => undefined);
+    // Drop this device's push subscription while the session can still authorize the removal.
+    void disablePush().finally(() => logout(() => undefined));
   };
   if (state === "loading")
     return (

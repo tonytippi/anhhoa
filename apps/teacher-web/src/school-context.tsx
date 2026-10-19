@@ -5,6 +5,7 @@ import { ClassDayWorkspace } from './class-day/class-day-workspace';
 import { JournalsWorkspace } from './journals/journals-workspace';
 import { MessagesWorkspace } from './messages/messages-workspace';
 import { QueueWorkspace } from './queue/queue-workspace';
+import { enablePush, pushState, disablePush, type PushState } from './web-push';
 
 type School = { schoolId: string; schoolSlug: string; schoolName: string };
 type Features = { dailyJournal?: boolean; handover?: boolean };
@@ -176,6 +177,7 @@ export function SchoolContext({ clear, session, onLogout }: { clear: () => void;
             <a key={item.id} className={`teacher-link${item.id === route ? ' active' : ''}`} aria-current={item.id === route ? 'page' : undefined} href={`${base}${item.path}`} onClick={(event) => { event.preventDefault(); navigate(`${base}${item.path}`); }}>{item.label}</a>
           ))}
         </nav>
+        <PushToggle schoolId={context.schoolId} />
         {onLogout && <button type="button" className="teacher-link teacher-logout" onClick={onLogout}>Đăng xuất</button>}
       </aside>
       {menuOpen && <div className="teacher-scrim" aria-hidden="true" onClick={() => setMenuOpen(false)} />}
@@ -219,5 +221,24 @@ export function ClassPicker({ classes, classId, chooseClass }: Pick<WorkspacePro
         {classes.map((item) => <option key={item.classId} value={item.classId}>{item.className}</option>)}
       </select>
     </label>
+  );
+}
+
+// Device opt-in for parent-message notifications; hidden when the browser or server cannot deliver push.
+function PushToggle({ schoolId }: { schoolId: string }) {
+  const [state, setState] = useState<PushState | 'busy'>();
+  useEffect(() => {
+    let current = true;
+    void pushState(schoolId).then((next) => { if (current) setState(next); }).catch(() => { if (current) setState('hidden'); });
+    return () => { current = false; };
+  }, [schoolId]);
+  if (!state || state === 'hidden') return null;
+  const run = (action: () => Promise<PushState>) => { setState('busy'); void action().then(setState).catch(() => setState('off')); };
+  if (state === 'install-required') return <p className="teacher-push-hint">Để nhận thông báo trên iPhone/iPad, hãy dùng <strong>Chia sẻ → Thêm vào Màn hình chính</strong> rồi mở app từ biểu tượng.</p>;
+  if (state === 'denied') return <p className="teacher-push-hint">Thông báo đang bị chặn. Cho phép lại trong cài đặt trình duyệt.</p>;
+  return (
+    <button type="button" className="teacher-link teacher-logout" aria-pressed={state === 'on'} disabled={state === 'busy'} onClick={() => run(() => (state === 'on' ? disablePush(schoolId) : enablePush(schoolId)))}>
+      {state === 'on' ? 'Thông báo: đang bật' : state === 'busy' ? 'Đang cập nhật...' : 'Bật thông báo'}
+    </button>
   );
 }

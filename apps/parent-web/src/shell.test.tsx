@@ -503,4 +503,22 @@ describe('ParentShell', () => {
     render(<ParentShell />); await screen.findByRole('button', { name: /Bé AnTrường/ }); fireEvent.click(screen.getByRole('button', { name: /Bé AnTrường/ })); await screen.findByRole('heading', { name: 'Bé An' }); fireEvent.click(screen.getByRole('button', { name: 'Quay lại Hôm nay' })); expect(screen.getByText('Đang tải cập nhật...')).toBeTruthy(); inbox.resolve(new Response(JSON.stringify({ data: [] }))); attendance.resolve(new Response(JSON.stringify({ data: [] }))); await screen.findByRole('button', { name: /Bé AnTrường/ }); expect(screen.queryByText('Đang tải cập nhật...')).toBeNull();
   });
 
+  it('opens a teacher message notification in the messages view for that child', async () => {
+    window.history.replaceState(null, '', '/inbox');
+    const session = { audience: 'parent', userIdentityId: 'identity', email: 'parent@example.com', schools: [{ schoolId: 'school-a', schoolName: 'Trường A', student: { id: 'student-a', fullName: 'Bé An' } }] };
+    const event = { id: 'event-m', studentId: 'student-a', studentDisplayName: 'Bé An', eventType: 'MESSAGE', text: 'Giáo viên lớp Mầm gửi tin nhắn mới', date: '2026-09-27', time: '2026-09-27T01:00:00.000Z', unread: true };
+    const fetch = vi.fn().mockImplementation((input) => {
+      const path = String(input);
+      if (path.endsWith('/inbox/event-m/open')) return Promise.resolve(new Response(JSON.stringify({ data: { studentId: 'student-a', date: '2026-09-27', eventType: 'MESSAGE' } })));
+      if (path.endsWith('/inbox')) return Promise.resolve(new Response(JSON.stringify({ data: [event], meta: { unreadCount: 1 } })));
+      return parentResponse(session, input);
+    });
+    vi.stubGlobal('fetch', fetch);
+    render(<ParentShell />);
+    fireEvent.click(await screen.findByRole('button', { name: /Giáo viên lớp Mầm gửi tin nhắn mới/ }));
+    expect(await screen.findByRole('heading', { name: 'Tin nhắn' })).toBeTruthy();
+    expect(window.location.pathname).toBe('/messages');
+    expect(screen.queryByText('Xem ngày 2026-09-27')).toBeNull();
+  });
 });
+

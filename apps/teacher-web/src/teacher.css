@@ -142,3 +142,5 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
   .journal-layout .teacher-table { min-width: 0; }
   .journal-layout .teacher-table td:last-child .button { white-space: normal; }
 }
+.teacher-push-hint { margin: 8px 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.teacher-logout[aria-pressed="true"] { color: var(--green); }

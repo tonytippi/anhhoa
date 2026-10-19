@@ -8,7 +8,9 @@ import { ParentsModule } from './modules/parents/parents.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { AttendanceModule } from './modules/attendance/attendance.module.js';
 import { FinanceModule } from './modules/finance/finance.module.js';
+import { CommunicationsModule } from './modules/communications/communications.module.js';
+import { PushModule } from './modules/push/push.module.js';
 import { TestFixturesModule } from './modules/test-fixtures/test-fixtures.module.js';
 
-@Module({ imports: [HealthModule, AuthModule, OpsModule, AuthorizationModule, RosterModule, ParentsModule, SettingsModule, AttendanceModule, FinanceModule, ...(process.env.NODE_ENV === 'test' ? [TestFixturesModule] : [])] })
+@Module({ imports: [HealthModule, AuthModule, OpsModule, AuthorizationModule, RosterModule, ParentsModule, SettingsModule, AttendanceModule, FinanceModule, CommunicationsModule, PushModule, ...(process.env.NODE_ENV === 'test' ? [TestFixturesModule] : [])] })
 export class AppModule {}

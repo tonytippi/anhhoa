@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { auditData } from "../common/audit.js";
 import { requestFingerprint } from "../common/mutation-protection.js";
 import { isOperationIdempotencyCollision } from "../common/operation-idempotency.js";
@@ -504,6 +505,16 @@ export class CommunicationsService {
           where: { schoolId, id: { in: mediaIds }, attachedNoteId: null },
           data: { attachedNoteId: note.id },
         });
+        // Only the first publication of the day notifies Parents; later edits update the card silently.
+        if (!existing) {
+          const classroom = await tx.class.findFirst({ where: { schoolId, id: classId }, select: { name: true } });
+          const roster = await tx.studentEnrollment.findMany({
+            where: { schoolId, ...this.enrolledIn(classId, on) },
+            select: { student: { select: { id: true, fullName: true } } },
+          });
+          for (const { student } of roster)
+            await this.inboxEvent(tx, schoolId, "CLASS_NOTE", this.sourceId(note.id, student.id), student, noteDate, { className: classroom?.name ?? "" });
+        }
         await tx.auditRecord.create({
           data: auditData(
             schoolId,
@@ -622,6 +633,36 @@ export class CommunicationsService {
       update: { lastReadAt: now },
     });
     return { studentId, readAt: now.toISOString() };
+  }
+
+  // Parent inbox events (AD-15 boundary): idempotent per source, carrying only the Class label and Student name snapshot.
+  private sourceId(...parts: string[]) {
+    const hex = createHash("sha1").update(parts.join(":")).digest("hex");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  }
+  private async inboxEvent(
+    tx: Db,
+    schoolId: string,
+    sourceType: "CLASS_NOTE" | "MESSAGE",
+    sourceRecordId: string,
+    student: { id: string; fullName: string },
+    day: string,
+    payload: Record<string, string>,
+  ) {
+    await tx.notificationSourceEvent.createMany({
+      data: [
+        {
+          schoolId,
+          sourceType,
+          sourceRecordId,
+          studentId: student.id,
+          attendanceOn: this.day(day),
+          studentDisplayNameSnapshot: student.fullName,
+          payload: { schoolId, studentId: student.id, date: day, ...payload },
+        },
+      ],
+      skipDuplicates: true,
+    });
   }
 
   async teacherThreads(identityId: string, schoolId: string, classId: string) {
@@ -750,6 +791,8 @@ export class CommunicationsService {
           },
         });
         await this.markRead(tx, schoolId, studentId, "TEACHER", current.staffProfileId);
+        const student = await tx.student.findFirst({ where: { schoolId, id: studentId }, select: { id: true, fullName: true } });
+        if (student) await this.inboxEvent(tx, schoolId, "MESSAGE", message.id, student, this.today(), { className: classroom?.name ?? "" });
         await tx.auditRecord.create({
           data: auditData(
             schoolId,
@@ -863,6 +906,16 @@ export class CommunicationsService {
   async parentReadMessages(identityId: string, schoolId: string, studentId: string) {
     const parent = await this.parent(identityId, schoolId);
     await this.parentLink(this.prisma, schoolId, parent.id, studentId, "MESSAGES_NOT_FOUND", "Không tìm thấy tin nhắn.");
+    // Reading the conversation also clears its message notifications in the Parent inbox.
+    const events = await this.prisma.notificationSourceEvent.findMany({
+      where: { schoolId, studentId, sourceType: "MESSAGE", inboxReads: { none: { schoolId, parentProfileId: parent.id } } },
+      select: { id: true },
+    });
+    if (events.length)
+      await this.prisma.parentInboxEventRead.createMany({
+        data: events.map((event) => ({ schoolId, parentProfileId: parent.id, notificationSourceEventId: event.id, studentId })),
+        skipDuplicates: true,
+      });
     return this.markRead(this.prisma, schoolId, studentId, "PARENT", parent.id);
   }
 

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // Authenticated API responses and media are never cached by the service worker; only the app shell is.
-export const teacherWorkbox = { navigateFallbackDenylist: [/^\/api(?:\/|$)/], runtimeCaching: [] };
+export const teacherWorkbox = { navigateFallbackDenylist: [/^\/api(?:\/|$)/], runtimeCaching: [], importScripts: ['push-sw.js'] };
 
 export default defineConfig(({ command }) => ({
   define: { __API_URL__: JSON.stringify(process.env.VITE_API_URL ?? (command === 'serve' ? 'http://localhost:3000' : 'https://api.passionedu.org')), __CSRF_COOKIE_NAME__: JSON.stringify(process.env.VITE_CSRF_COOKIE_NAME ?? 'teacher_csrf') },

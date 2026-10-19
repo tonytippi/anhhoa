@@ -14,6 +14,10 @@ docker compose --profile seed run --rm seed   # seed PeakLand (idempotent, chạ
 
 Reset dữ liệu: `docker compose down -v` rồi chạy lại ba lệnh trên. Seed bỏ qua bản ghi đã có, nên sửa seed xong phải reset thì dữ liệu mới đổi.
 
+## Thông báo đẩy (Web Push)
+
+Tắt mặc định. Để bật, sinh một cặp khóa VAPID một lần (`npx web-push generate-vapid-keys`) rồi điền `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (và tùy chọn `VAPID_SUBJECT`) vào `.env`. Giữ nguyên cặp khóa giữa các lần deploy: đổi khóa làm mọi thiết bị đã đăng ký mất thông báo cho tới khi người dùng bật lại. iPhone/iPad chỉ nhận thông báo khi app được "Thêm vào Màn hình chính" (iOS 16.4+), và domain phải là HTTPS.
+
 ## Cloudflare Tunnel
 
 | Hostname | Service |
