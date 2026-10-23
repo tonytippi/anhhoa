@@ -281,6 +281,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
     event.preventDefault();
     // The dialog can open before the list (and its SchoolYears) has loaded; the select then shows the first open year, so submit that.
     const schoolYearId = form.schoolYearId || years.find((year) => !year.closedAt)?.id || "";
+    if (!form.receivableId) { setErrors({ receivableId: `Chọn khoản thu ${t.kind} để tính phí cho ${t.noun}.` }); return; }
     if (await command(base, { name: form.name, schoolYearId, receivableId: form.receivableId, separateAttendance: form.separateAttendance })) await finish();
   };
   const addMembers = async (event: FormEvent) => {

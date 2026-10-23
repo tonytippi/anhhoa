@@ -67,11 +67,25 @@ describe("ExtracurricularClassesWorkspace", () => {
     render(<ExtracurricularClassesWorkspace {...props()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" }));
     const dialog = screen.getByRole("dialog", { name: "Thêm lớp ngoại khóa" });
+    fireEvent.change(within(dialog).getByLabelText("Khoản thu"), { target: { value: "drawing" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
     expect((await within(dialog).findAllByText("Tên lớp ngoại khóa đã tồn tại trong năm học.")).length).toBeGreaterThan(0);
     expect(within(dialog).getByLabelText("Tên lớp").getAttribute("aria-invalid")).toBe("true");
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("asks for a Receivable before submitting a new class", async () => {
+    const fetch = route({ "extracurricular-classes": () => response(list) });
+    vi.stubGlobal("fetch", fetch);
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm lớp ngoại khóa" });
+    fireEvent.change(within(dialog).getByLabelText("Tên lớp"), { target: { value: "Tiếng Anh" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lưu lớp ngoại khóa" }));
+    expect(await within(dialog).findByText("Chọn khoản thu Ngoại khóa để tính phí cho lớp ngoại khóa.")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Khoản thu").getAttribute("aria-invalid")).toBe("true");
+    expect(fetch.mock.calls.some(([, options]) => (options as RequestInit | undefined)?.method === "POST")).toBe(false);
   });
 
   it("shows the class detail with month counts, mid-month flags and transfer notes", async () => {
