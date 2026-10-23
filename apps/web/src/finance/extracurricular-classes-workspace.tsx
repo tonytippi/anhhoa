@@ -73,7 +73,7 @@ const wording = {
   },
 };
 
-export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, onSearchChange, denied, onStatusChange, usesSchoolYears = true, service = false }: {
+export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, onSearchChange, denied, onStatusChange, onOpenReceivables, usesSchoolYears = true, service = false }: {
   schoolId: string;
   schoolName: string;
   // Sprint change 2026-10-12: a School without school years never shows its single SchoolYear; a language center calls these groups "dịch vụ".
@@ -83,6 +83,8 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   onSearchChange: (search: string) => void;
   denied: () => void;
   onStatusChange?: (status: { dirty: boolean; pending: boolean }) => void;
+  // Only passed when the user may manage Receivables.
+  onOpenReceivables?: () => void;
 }) {
   const t = wording[service ? "service" : "class"];
   const title = t.title;
@@ -317,6 +319,7 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
   const blocked = pending || Boolean(pendingOp);
   const years = list?.schoolYears ?? [];
   const chosenReceivable = list?.receivables.find((item) => item.id === form.receivableId);
+  const activeReceivables = list?.receivables.filter((item) => item.status === "ACTIVE") ?? [];
 
   const shell = (children: React.ReactNode) => (
     <section className="finance-workspace extracurricular-workspace" aria-labelledby="xc-title">
@@ -493,8 +496,8 @@ export function ExtracurricularClassesWorkspace({ schoolId, schoolName, search, 
         <div className="dialog-grid">
           <div><label>{t.name}<input placeholder={t.namePlaceholder} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...field("name")} /></label>{fieldError("name")}</div>
           {usesSchoolYears && <div><label>Năm học<select value={form.schoolYearId} onChange={(event) => setForm({ ...form, schoolYearId: event.target.value })} {...field("schoolYearId")}>{years.filter((year) => !year.closedAt).map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}</select></label>{fieldError("schoolYearId")}</div>}
-          <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-receivable-help" : "xc-receivable-help"}><option value="">Chọn khoản thu {t.kind}</option>{list?.receivables.filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>)}</select></label>
-            <p id="xc-receivable-help" className="muted">{chosenReceivable?.sharedWith.length ? `Dùng chung với: ${chosenReceivable.sharedWith.join(", ")}.` : `Chỉ khoản thu ${t.kind} đang áp dụng.`}</p>{fieldError("receivableId")}</div>
+          <div className="full"><label>Khoản thu<select value={form.receivableId} onChange={(event) => setForm({ ...form, receivableId: event.target.value })} {...field("receivableId")} aria-describedby={errors.receivableId ? "xc-receivableId-error xc-receivable-help" : "xc-receivable-help"}><option value="">Chọn khoản thu {t.kind}</option>{activeReceivables.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {price(item)}</option>)}</select></label>
+            <p id="xc-receivable-help" className="muted">{chosenReceivable?.sharedWith.length ? `Dùng chung với: ${chosenReceivable.sharedWith.join(", ")}.` : list && !activeReceivables.length ? `Chưa có khoản thu ${t.kind} đang áp dụng.` : `Chỉ khoản thu ${t.kind} đang áp dụng.`}{onOpenReceivables && <> <button type="button" className="xc-inline-action" onClick={onOpenReceivables}>Tạo khoản thu {t.kind} mới</button></>}</p>{fieldError("receivableId")}</div>
           <div className="full"><label className="finance-checkbox"><input type="checkbox" checked={form.separateAttendance} onChange={(event) => setForm({ ...form, separateAttendance: event.target.checked })} aria-describedby="xc-attendance-help" /> Điểm danh riêng</label><p id="xc-attendance-help" className="muted">{t.attendanceHint}</p></div>
         </div>
         <div className="dialog-actions"><button type="button" disabled={pending} onClick={close}>Hủy</button><button className="primary-action" disabled={blocked}>Lưu {t.noun}</button></div>

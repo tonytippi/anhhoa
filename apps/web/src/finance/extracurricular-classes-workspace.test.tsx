@@ -88,6 +88,21 @@ describe("ExtracurricularClassesWorkspace", () => {
     expect(fetch.mock.calls.some(([, options]) => (options as RequestInit | undefined)?.method === "POST")).toBe(false);
   });
 
+  it("links to the Receivables page from the create dialog only when the user may manage Receivables", async () => {
+    vi.stubGlobal("fetch", route({ "extracurricular-classes": () => response({ ...list, receivables: [] }) }));
+    const onOpenReceivables = vi.fn();
+    const { unmount } = render(<ExtracurricularClassesWorkspace {...props()} onOpenReceivables={onOpenReceivables} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" }));
+    const dialog = screen.getByRole("dialog", { name: "Thêm lớp ngoại khóa" });
+    expect(within(dialog).getByText("Chưa có khoản thu Ngoại khóa đang áp dụng.", { exact: false })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Tạo khoản thu Ngoại khóa mới" }));
+    expect(onOpenReceivables).toHaveBeenCalledOnce();
+    unmount();
+    render(<ExtracurricularClassesWorkspace {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Thêm lớp ngoại khóa" }));
+    expect(within(screen.getByRole("dialog")).queryByRole("button", { name: "Tạo khoản thu Ngoại khóa mới" })).toBeNull();
+  });
+
   it("shows the class detail with month counts, mid-month flags and transfer notes", async () => {
     const fetch = route({ "extracurricular-classes/class-a1": () => response(detail()) });
     vi.stubGlobal("fetch", fetch);
