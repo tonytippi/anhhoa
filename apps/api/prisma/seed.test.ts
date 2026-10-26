@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { assertDevelopmentEnvironment, parseAnhHoaRosterCsv, parseAnhNhatRosterCsv, parseAnhNhatStaffCsv, parsePeakLandRosterCsv, parsePeakLandStaffCsv, seed } from './seed.js';
+import { assertDevelopmentEnvironment, parseAnhHoaRosterCsv, parseAnhNhatRosterCsv, parseAnhNhatStaffCsv, parseHatNhoRosterCsv, parseHatNhoStaffCsv, parsePeakLandRosterCsv, parsePeakLandStaffCsv, seed, selectSchoolSlugs } from './seed.js';
 
 describe('development fixture seed', () => {
   it('refuses to seed outside development before opening a database connection', async () => {
@@ -100,5 +100,35 @@ describe('development fixture seed', () => {
     expect(roster[50]).toMatchObject({ fullName: 'Nguyễn Thục Khánh An', dateOfBirth: new Date('2022-09-27T00:00:00.000Z') });
     expect(() => parseAnhHoaRosterCsv(csv.replace('15/12/2024', '31/02/2024'))).toThrow('Ngày sinh');
     expect(() => parseAnhHoaRosterCsv(csv.replace('MICKEY,Trong lớp', 'MICKEY,Nghỉ học'))).toThrow('Trạng thái');
+  });
+
+  it('parses the Hạt Nho roster with parents, coding students by STT', async () => {
+    const csvPath = resolve(fileURLToPath(new URL('../../../docs/hatnho/hatnho-hocsinh.csv', import.meta.url)));
+    const roster = parseHatNhoRosterCsv(await readFile(csvPath, 'utf8'));
+    expect(roster).toHaveLength(30);
+    expect(roster.map((record) => record.studentCode)).toEqual(Array.from({ length: 30 }, (_, index) => `HN${index + 1}`));
+    expect(new Set(roster.map((record) => record.className))).toEqual(new Set(['Newton', 'Picasso', 'Einstein']));
+    expect(roster[0]).toMatchObject({ fullName: 'Nguyễn Ngọc Khánh An', preferredName: 'Xoài', className: 'Newton', lifecycle: 'ENROLLED', gender: 'NU', dateOfBirth: new Date('2021-08-23T00:00:00.000Z') });
+    expect(roster[0]?.mother).toMatchObject({ fullName: 'Kiều Thị Hoàn', phone: '0948234993', emailNormalized: null });
+    expect(roster[0]?.father).toMatchObject({ fullName: 'Nguyễn Tùng Lâm', phone: '0911829818' });
+    expect(roster[11]).toMatchObject({ fullName: 'Nguyễn Đức Duy', mother: { emailNormalized: 'nguyenthimo280201@gmail.com' }, father: null });
+  });
+
+  it('parses the Hạt Nho staff, giving kitchen staff the Bếp position', async () => {
+    const csvPath = resolve(fileURLToPath(new URL('../../../docs/hatnho/hatnho-nhanvien.csv', import.meta.url)));
+    const staff = parseHatNhoStaffCsv(await readFile(csvPath, 'utf8'));
+    expect(staff).toHaveLength(15);
+    expect(staff[0]).toMatchObject({ fullName: 'Phạm Ngọc Phương', email: 'ngocphuong.pham@gmail.com', primaryPositionCode: 'QUAN_LY_TRUONG' });
+    expect(staff[3]).toMatchObject({ fullName: 'Lê Thị Hồng Nhung', primaryPositionCode: 'GIAO_VIEN', classNames: ['Newton'] });
+    expect(staff[6]).toMatchObject({ fullName: 'Phạm Thu Mai', primaryPositionCode: 'BEP', phone: null });
+    expect(staff[12]).toMatchObject({ fullName: 'Đặng Ngọc Phương', primaryPositionCode: 'GIAO_VIEN', classNames: ['Newton', 'Picasso', 'Einstein'] });
+  });
+
+  it('selects Schools to seed by slug from SEED_SCHOOL', async () => {
+    expect(selectSchoolSlugs(undefined)).toEqual(['pl', 'pgc', 'an', 'ah', 'hn']);
+    expect(selectSchoolSlugs('')).toEqual(['pl', 'pgc', 'an', 'ah', 'hn']);
+    expect(selectSchoolSlugs('hn')).toEqual(['hn']);
+    expect(selectSchoolSlugs('hn, pl')).toEqual(['pl', 'hn']);
+    expect(() => selectSchoolSlugs('xx')).toThrow('SEED_SCHOOL xx không tồn tại');
   });
 });

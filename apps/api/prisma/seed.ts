@@ -45,6 +45,17 @@ const anhHoa: PreschoolSeedProfile = {
   financeFixtures: false,
 };
 
+// Hạt Nho exports from Kidsonline like Anh Nhật: students with parents plus a staff file. Its own "GS.." student codes
+// are not reused; codes follow STT like the other Schools.
+const hatNho: PreschoolSeedProfile = {
+  name: 'Mầm non song ngữ Hạt Nho',
+  slug: 'hn',
+  studentCodePrefix: 'HN',
+  ownerEmail: 'sonnh273@gmail.com',
+  classNames: ['Newton', 'Picasso', 'Einstein'],
+  financeFixtures: false,
+};
+
 const positions = [
   ['HIEU_TRUONG', 'Hiệu trưởng'],
   ['QUAN_LY_TRUONG', 'Quản lý trường'],
@@ -61,6 +72,8 @@ const staffCsvPath = resolve(fileURLToPath(new URL('../../../docs/peakland/nhanv
 const anhNhatRosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/anhnhat/anhnhat-hocsinh.csv', import.meta.url)));
 const anhNhatStaffCsvPath = resolve(fileURLToPath(new URL('../../../docs/anhnhat/anhnhat-nhanvien.csv', import.meta.url)));
 const anhHoaRosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/anhhoa/anhhoa-hocsinh.csv', import.meta.url)));
+const hatNhoRosterCsvPath = resolve(fileURLToPath(new URL('../../../docs/hatnho/hatnho-hocsinh.csv', import.meta.url)));
+const hatNhoStaffCsvPath = resolve(fileURLToPath(new URL('../../../docs/hatnho/hatnho-nhanvien.csv', import.meta.url)));
 // Some Ánh Hoa students have no date of birth yet; the column is required, so they get the "Chưa cập nhật" placeholder.
 const unknownDateOfBirth = new Date('1900-01-01T00:00:00.000Z');
 // No staff file yet: the school manager is seeded by hand with placeholder date of birth, like Ops provisioning does.
@@ -211,6 +224,10 @@ export function parseAnhNhatRosterCsv(csv: string): PeakLandRosterRecord[] {
   return parseRosterCsv(csv, { classNames: anhNhat.classNames, studentCodePrefix: anhNhat.studentCodePrefix, rows: 52, waitingForClass: 0, ignoredStatuses: ['Nghỉ học'] });
 }
 
+export function parseHatNhoRosterCsv(csv: string): PeakLandRosterRecord[] {
+  return parseRosterCsv(csv, { classNames: hatNho.classNames, studentCodePrefix: hatNho.studentCodePrefix, rows: 30, waitingForClass: 0, ignoredStatuses: [] });
+}
+
 export function parseAnhHoaRosterCsv(csv: string): PeakLandRosterRecord[] {
   const rows = parseCsv(csv);
   const header = rows.shift();
@@ -296,6 +313,7 @@ function primaryPositionCode(role: string, line: number): PeakLandStaffRecord['p
   if (role.includes('Giáo viên')) return 'GIAO_VIEN';
   if (role.includes('Hiệu trưởng')) return 'HIEU_TRUONG';
   if (role.includes('Kế toán')) return 'KE_TOAN';
+  if (role.includes('Nhà bếp')) return 'BEP';
   return 'QUAN_LY_TRUONG';
 }
 
@@ -307,6 +325,10 @@ export function parsePeakLandStaffCsv(csv: string): PeakLandStaffRecord[] {
 
 export function parseAnhNhatStaffCsv(csv: string): PeakLandStaffRecord[] {
   return parseStaffCsv(csv, { classNames: anhNhat.classNames, rows: 17 });
+}
+
+export function parseHatNhoStaffCsv(csv: string): PeakLandStaffRecord[] {
+  return parseStaffCsv(csv, { classNames: hatNho.classNames, rows: 15 });
 }
 
 function parseStaffCsv(csv: string, options: StaffCsvOptions): PeakLandStaffRecord[] {
@@ -345,21 +367,56 @@ export function assertDevelopmentEnvironment(): void {
   assertDevelopment('Development seed');
 }
 
-export async function seed(): Promise<void> {
+type SchoolSeedTask = (prisma: PrismaClient) => Promise<unknown>;
+
+// Every School seeds in its own transaction, in this order. The center reuses PeakLand's roster and staff and needs
+// PeakLand's owner to exist. Each task reads its CSV files only when it is selected.
+const schoolSeedTasks = (): Record<string, () => Promise<SchoolSeedTask>> => ({
+  [peakLand.slug]: async () => {
+    const roster = parsePeakLandRosterCsv(await readFile(rosterCsvPath, 'utf8'));
+    const staff = parsePeakLandStaffCsv(await readFile(staffCsvPath, 'utf8'));
+    return (prisma) => prisma.$transaction((tx) => seedPreschool(tx, peakLand, roster, staff), { timeout: 30000 });
+  },
+  [center.slug]: async () => {
+    const roster = parsePeakLandRosterCsv(await readFile(rosterCsvPath, 'utf8'));
+    const staff = parsePeakLandStaffCsv(await readFile(staffCsvPath, 'utf8'));
+    return (prisma) => prisma.$transaction((tx) => seedCenter(tx, roster, staff), { timeout: 30000 });
+  },
+  [anhNhat.slug]: async () => {
+    const roster = parseAnhNhatRosterCsv(await readFile(anhNhatRosterCsvPath, 'utf8'));
+    const staff = parseAnhNhatStaffCsv(await readFile(anhNhatStaffCsvPath, 'utf8'));
+    return (prisma) => prisma.$transaction((tx) => seedPreschool(tx, anhNhat, roster, staff), { timeout: 30000 });
+  },
+  [anhHoa.slug]: async () => {
+    const roster = parseAnhHoaRosterCsv(await readFile(anhHoaRosterCsvPath, 'utf8'));
+    return (prisma) => prisma.$transaction((tx) => seedPreschool(tx, anhHoa, roster, anhHoaStaff), { timeout: 30000 });
+  },
+  [hatNho.slug]: async () => {
+    const roster = parseHatNhoRosterCsv(await readFile(hatNhoRosterCsvPath, 'utf8'));
+    const staff = parseHatNhoStaffCsv(await readFile(hatNhoStaffCsvPath, 'utf8'));
+    return (prisma) => prisma.$transaction((tx) => seedPreschool(tx, hatNho, roster, staff), { timeout: 30000 });
+  },
+});
+
+// SEED_SCHOOL picks the Schools to seed by slug (comma-separated, e.g. "hn") so one School can be added to an existing
+// database; empty seeds every School.
+export function selectSchoolSlugs(value: string | undefined): string[] {
+  const all = Object.keys(schoolSeedTasks());
+  const slugs = (value ?? '').split(',').map((slug) => slug.trim()).filter(Boolean);
+  if (slugs.length === 0) return all;
+  for (const slug of slugs) if (!all.includes(slug)) throw new Error(`SEED_SCHOOL ${slug} không tồn tại; chọn trong: ${all.join(', ')}.`);
+  return all.filter((slug) => slugs.includes(slug));
+}
+
+export async function seed(schoolSlugs: string | undefined = process.env.SEED_SCHOOL): Promise<void> {
   assertDevelopmentEnvironment();
-  const roster = parsePeakLandRosterCsv(await readFile(rosterCsvPath, 'utf8'));
-  const staff = parsePeakLandStaffCsv(await readFile(staffCsvPath, 'utf8'));
-  const anhNhatRoster = parseAnhNhatRosterCsv(await readFile(anhNhatRosterCsvPath, 'utf8'));
-  const anhNhatStaff = parseAnhNhatStaffCsv(await readFile(anhNhatStaffCsvPath, 'utf8'));
-  const anhHoaRoster = parseAnhHoaRosterCsv(await readFile(anhHoaRosterCsvPath, 'utf8'));
+  const tasksBySlug = schoolSeedTasks();
+  const tasks = await Promise.all(selectSchoolSlugs(schoolSlugs).map((slug) => tasksBySlug[slug]!()));
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required to seed the database.');
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString, options: '-c TimeZone=UTC' }) });
   try {
-    await prisma.$transaction((tx) => seedPreschool(tx, peakLand, roster, staff), { timeout: 30000 });
-    await prisma.$transaction((tx) => seedCenter(tx, roster, staff), { timeout: 30000 });
-    await prisma.$transaction((tx) => seedPreschool(tx, anhNhat, anhNhatRoster, anhNhatStaff), { timeout: 30000 });
-    await prisma.$transaction((tx) => seedPreschool(tx, anhHoa, anhHoaRoster, anhHoaStaff), { timeout: 30000 });
+    for (const task of tasks) await task(prisma);
   } finally {
     await prisma.$disconnect();
   }
