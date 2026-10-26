@@ -69,7 +69,7 @@ Seed cũng tạo trung tâm ngoại ngữ **Peakland Grapeseed Center** (`pgc`, 
 
 Seed cũng tạo trường **Mầm non song ngữ Anh Nhật** (`an`, tiền tố học sinh `AN`) từ `docs/anhnhat/`: cùng owner, 4 lớp (KITTEN, KOALA, MISA, PANDA), 17 nhân viên, 51 học sinh trong lớp và phụ huynh; học sinh trạng thái "Nghỉ học" bị bỏ qua. Trường có finance policy, nhóm khoản thu mặc định, 38 khoản thu và 17 ưu đãi sao chép từ Kidsonline (mã `KO-<id>`; chưa có tài khoản ngân hàng).
 
-Seed cũng tạo trường **Mầm non song ngữ Hạt Nho** (`hn`, tiền tố học sinh `HN`) từ `docs/hatnho/`: cùng owner, 3 lớp (Newton, Picasso, Einstein), 15 nhân viên, 30 học sinh và phụ huynh; mã học sinh theo STT (không dùng mã `GS..` của Kidsonline). Trường chỉ có finance policy và nhóm khoản thu mặc định.
+Seed cũng tạo trường **Mầm non song ngữ Hạt Nho** (`hn`, tiền tố học sinh `HN`) từ `docs/hatnho/`: cùng owner, 3 lớp (Newton, Picasso, Einstein), 15 nhân viên, 30 học sinh và phụ huynh; mã học sinh theo STT (không dùng mã `GS..` của Kidsonline). Trường có finance policy, nhóm khoản thu mặc định, 20 khoản thu và 8 ưu đãi sao chép từ Kidsonline (mã `KO-<id>`; chưa có tài khoản ngân hàng).
 
 `SEED_SCHOOL` chọn trường cần seed theo slug (`pl`, `pgc`, `an`, `ah`, `hn`, phân tách bằng dấu phẩy) để bổ sung một trường vào database đang có mà không seed lại các trường khác; bỏ trống thì seed tất cả. Seed chỉ upsert nên chạy lại được. Riêng Hạt Nho có lệnh tắt:
 

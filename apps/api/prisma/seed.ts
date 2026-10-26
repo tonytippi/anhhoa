@@ -533,6 +533,7 @@ async function seedPreschool(tx: Prisma.TransactionClient, tenant: PreschoolSeed
     await tx.financePolicy.create({ data: { schoolId: school.id, effectiveFrom: rosterEffectiveFrom, dueDaysAfterIssue: 10, schoolWeekdays: [1, 2, 3, 4, 5], taxTreatment: 'NOT_APPLICABLE', debtScope: 'CURRENT_SCHOOL_YEAR_ONLY', reversalMode: 'DIRECT', reason: `${tenant.name} development seed`, actorIdentityId: owner.id, membershipId: membership.id } });
   }
   if (tenant === anhNhat) await seedAnhNhatReceivableCatalog(tx, { schoolId: school.id, schoolYearId: schoolYear.id, membershipId: membership.id, ownerId: owner.id });
+  if (tenant === hatNho) await seedHatNhoReceivableCatalog(tx, { schoolId: school.id, schoolYearId: schoolYear.id, membershipId: membership.id, ownerId: owner.id });
   for (const record of staff) {
     const primaryPosition = positionByCode.get(record.primaryPositionCode)!;
     const registries = await tx.staffCodeRegistry.findMany({ where: { schoolId: school.id, staffCode: record.staffCode } });
@@ -1015,6 +1016,58 @@ async function seedAnhNhatReceivableCatalog(tx: any, input: { schoolId: string; 
   const operation = await tx.operation.findFirst({ where: { schoolId, route: anhNhatSeedRoute, idempotencyKey: anhNhatSeedKey } })
     ?? await tx.operation.create({ data: { schoolId, membershipId, actorIdentityId: ownerId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membershipId, route: anhNhatSeedRoute, fingerprint: 'anhnhat-receivable-catalog-v1', idempotencyKey: anhNhatSeedKey, status: 'COMPLETED', outcome: { schoolId } } });
   await seedReceivableCatalog(tx, { ...input, operationId: operation.id }, { receivables: anhNhatSeedReceivables, extracurricularClasses: anhNhatSeedExtracurricularClasses, promotions: anhNhatSeedPromotions });
+}
+
+// Hạt Nho (Kidsonline school 3139) receivable catalog and deductions, mirrored read-only on 2026-10-26 the same way as
+// Anh Nhật's: code = KO-<Kidsonline receivable id>, names/units/prices as in Kidsonline, every tax category NOT_DECLARED
+// (Kidsonline's "Thuế suất 0%" on Học phí and Tiền ăn is for e-invoices only). Only Học phí and Tiền ăn are FIXED; the
+// rest, Kidsonline "Khoản thu đột xuất" included, are FLEXIBLE. A refund price is kept only when Kidsonline gives a
+// positive one in the same unit as the price. Skipped: the two 0 đ items (Sách học sinh GR, Phí dã ngoại; a price must be
+// positive), so there is no EXTRACURRICULAR receivable or class.
+const hatNhoSeedKey = '3e8d2b71-5c4f-4a96-b0d3-9f1a6e27c584';
+const hatNhoSeedRoute = 'development-seed/hatnho-receivable-catalog';
+const hatNhoSeedReceivables = [
+  { code: 'KO-41059', displayName: 'Học phí', unitLabel: 'tháng', defaultUnitPrice: 5600000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
+  { code: 'KO-41053', displayName: 'Phí bán trú', unitLabel: 'ngày', defaultUnitPrice: 10000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39802', displayName: 'Học phí theo ngày', unitLabel: 'ngày', defaultUnitPrice: 250000n, refundUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39269', displayName: 'Phụ phí 10 -15 tháng', unitLabel: 'tháng', defaultUnitPrice: 1000000n, refundUnitPrice: 1000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-39268', displayName: 'Phụ Phí 16-18 tháng', unitLabel: 'tháng', defaultUnitPrice: 500000n, refundUnitPrice: 500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38739', displayName: 'Phụ phí dưới 10 tháng', unitLabel: 'tháng', defaultUnitPrice: 2000000n, refundUnitPrice: 2000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-38696', displayName: 'Phí trông muộn', unitLabel: '30p', defaultUnitPrice: 20000n, refundUnitPrice: 20000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37779', displayName: 'Học phí Bạn là Khách', unitLabel: 'combo', defaultUnitPrice: 1980000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37778', displayName: 'Xe đưa đón theo lượt', unitLabel: 'lần', defaultUnitPrice: 25000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37777', displayName: 'Xe đưa đón 1 chiều', unitLabel: 'tháng', defaultUnitPrice: 500000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37776', displayName: 'Xe đưa đón 2 chiều', unitLabel: 'tháng', defaultUnitPrice: 800000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37775', displayName: 'Học phí thứ 7 theo ngày', unitLabel: 'ngày', defaultUnitPrice: 250000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37774', displayName: 'Phí học thứ 7 theo tháng', unitLabel: 'tháng', defaultUnitPrice: 890000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37773', displayName: 'Phí sự kiện năm học 2026-2027', unitLabel: 'năm', defaultUnitPrice: 2000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37772', displayName: 'Combo thương hiệu', unitLabel: 'năm', defaultUnitPrice: 600000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37771', displayName: 'Sổ liên lạc điện tử năm học 2026 - 2027', unitLabel: 'năm', defaultUnitPrice: 360000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37770', displayName: 'Cơ sở vật chất năm học 2026-2027', unitLabel: 'năm', defaultUnitPrice: 2000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37769', displayName: 'Phí ghi danh', unitLabel: 'lần', defaultUnitPrice: 2000000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37767', displayName: 'Học phẩm học liệu', unitLabel: 'tháng', defaultUnitPrice: 150000n, taxCategory: 'NOT_DECLARED', group: 'Khoản thu linh hoạt' },
+  { code: 'KO-37766', displayName: 'Tiền ăn', unitLabel: 'ngày', defaultUnitPrice: 50000n, refundUnitPrice: 50000n, autoLeaveDeduction: true, taxCategory: 'NOT_DECLARED', group: 'Khoản thu cố định' },
+] as const;
+// Kidsonline "Khoản giảm trừ" in Kidsonline's order (first = highest priority), with Kidsonline's values even where the
+// name disagrees ("Giảm 5% … 6 tháng" is 2%, "Giảm 10% cho bé thứ 2 - năm học sau" is 5%, "Ưu đãi 50% Phí csvc" is the
+// full 2.000.000 đ). The combo 3/6 tháng học phí deductions are PREPAID_COVERAGE over those months. Skipped: Voucher đại
+// sứ Hạt Nho, which applies to no receivable.
+const hatNhoSeedPromotions = [
+  { name: 'Ưu đãi 50% Phí csvc năm học 2026-2027', discountType: 'FIXED_VND', discountValue: 2000000n, targets: ['KO-37770'] },
+  { name: 'Giảm 5% khi đóng combo 6 tháng học phí', discountType: 'PERCENTAGE', discountValue: 2n, prepaidTermMonths: 6, targets: ['KO-41059'] },
+  { name: 'Giảm trừ 2% học phí khi đóng combo 3 tháng học phí', discountType: 'PERCENTAGE', discountValue: 2n, prepaidTermMonths: 3, targets: ['KO-41059'] },
+  { name: 'Gom nhóm - 3 bạn trở lên', discountType: 'PERCENTAGE', discountValue: 5n, targets: ['KO-41059'] },
+  { name: 'Giảm 10% cho bé thứ 3 - năm học sau', discountType: 'PERCENTAGE', discountValue: 10n, targets: ['KO-41059'] },
+  { name: 'Giảm 20% cho bé thứ 3 - năm đầu tiên', discountType: 'PERCENTAGE', discountValue: 20n, targets: ['KO-41059'] },
+  { name: 'Giảm 10% cho bé thứ 2 - năm học sau', discountType: 'PERCENTAGE', discountValue: 5n, targets: ['KO-41059'] },
+  { name: 'Giảm 10% cho bé thứ 2 - Năm thứ nhất', discountType: 'PERCENTAGE', discountValue: 10n, targets: ['KO-41059'] },
+] as const;
+
+async function seedHatNhoReceivableCatalog(tx: any, input: { schoolId: string; schoolYearId: string; membershipId: string; ownerId: string }) {
+  const { schoolId, membershipId, ownerId } = input;
+  const operation = await tx.operation.findFirst({ where: { schoolId, route: hatNhoSeedRoute, idempotencyKey: hatNhoSeedKey } })
+    ?? await tx.operation.create({ data: { schoolId, membershipId, actorIdentityId: ownerId, actorType: 'SCHOOL_MEMBERSHIP', actorReference: membershipId, route: hatNhoSeedRoute, fingerprint: 'hatnho-receivable-catalog-v1', idempotencyKey: hatNhoSeedKey, status: 'COMPLETED', outcome: { schoolId } } });
+  await seedReceivableCatalog(tx, { ...input, operationId: operation.id }, { receivables: hatNhoSeedReceivables, extracurricularClasses: [], promotions: hatNhoSeedPromotions });
 }
 
 if (process.env.PRISMA_SEED === 'true') {
