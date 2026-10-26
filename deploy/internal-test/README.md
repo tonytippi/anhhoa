@@ -12,6 +12,13 @@ docker compose --profile seed build seed      # `up --build` không build servic
 docker compose --profile seed run --rm seed   # seed PeakLand (idempotent, chạy lại được)
 ```
 
+Bổ sung một trường vào database đang chạy mà không seed lại các trường khác (ví dụ Hạt Nho):
+
+```bash
+docker compose --profile seed build seed
+docker compose --profile seed run --rm --no-deps -e SEED_SCHOOL=hn seed
+```
+
 Reset dữ liệu: `docker compose down -v` rồi chạy lại ba lệnh trên. Seed bỏ qua bản ghi đã có, nên sửa seed xong phải reset thì dữ liệu mới đổi.
 
 ## Thông báo đẩy (Web Push)

@@ -41,7 +41,8 @@ services:
     restart: 'no'
 
   # One-off: docker compose --profile seed run --rm seed
-  # Seed PeakLand và Anh Nhật dùng source + tsx (stage build) và CSV trong docs/peakland, docs/anhnhat, docs/anhhoa; seed chỉ chạy với NODE_ENV=development.
+  # Seed các trường dùng source + tsx (stage build) và CSV trong docs/peakland, docs/anhnhat, docs/anhhoa, docs/hatnho; seed chỉ chạy với NODE_ENV=development.
+  # Chỉ seed một trường: docker compose --profile seed run --rm --no-deps -e SEED_SCHOOL=hn seed
   seed:
     profiles: [seed]
     build: { <<: *api-build, target: build }
@@ -50,8 +51,9 @@ services:
     environment:
       NODE_ENV: development
       PRISMA_SEED: 'true'
+      SEED_SCHOOL: ${SEED_SCHOOL:-}
       DATABASE_URL: *database-url
-    volumes: ['../../docs/peakland:/app/docs/peakland:ro', '../../docs/anhnhat:/app/docs/anhnhat:ro', '../../docs/anhhoa:/app/docs/anhhoa:ro']
+    volumes: ['../../docs/peakland:/app/docs/peakland:ro', '../../docs/anhnhat:/app/docs/anhnhat:ro', '../../docs/anhhoa:/app/docs/anhhoa:ro', '../../docs/hatnho:/app/docs/hatnho:ro']
     depends_on:
       migrate: { condition: service_completed_successfully }
     restart: 'no'
